@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Models.UserTagAlerts;
@@ -12,6 +12,13 @@ public interface IUserTagAlertRepository
 {
     /// <summary>한 건 INSERT (서비스가 매칭 시점에 호출).</summary>
     Task<long> InsertAlertAsync(UserTagAlertRecord record, CancellationToken ct = default);
+
+    /// <summary>
+    /// 해소 처리 — 이 주소들의 <b>아직 해소되지 않은</b> 알림 행에 해소 시각을 찍는다.
+    /// 정지 분류가 "미해소 usertag = 라인 고장"을 과거 기간에도 재현할 수 있게 하는 유일한 근거다.
+    /// </summary>
+    Task<int> MarkClearedAsync(IReadOnlyCollection<string> tagAddresses, DateTime clearedAtUtc,
+        CancellationToken ct = default);
 
     /// <summary>주어진 기간의 알림을 최신순으로 반환 (페이지네이션 + 필터).
     /// categoryFilter: "abnormal"(경로이탈 이상감지) | "usertag"(사용자정의) | null(전체).

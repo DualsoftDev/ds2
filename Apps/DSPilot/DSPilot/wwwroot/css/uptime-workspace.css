@@ -774,7 +774,7 @@
         .up-mq-name:hover { color: var(--color-primary); text-decoration: underline; }
         .up-mq-bar { position: relative; display: flex; height: 9px; border-radius: 5px; background: var(--color-surface-variant); }
         .up-mq-bar .seg { height: 100%; flex: 0 0 auto; border-radius: 5px; }
-        .up-mq-bar .seg.ex { background: var(--oee-run); min-width: 3px; }
+        .up-mq-bar .seg.ex { background: var(--oee-run); min-width: 0; }
         .up-mq-bar .seg.ex.is-warn { background: var(--amber); }
         .up-mq-bar .seg.ex.is-bad { background: var(--red); }
         .up-mq-rate { font-weight: 800; }
@@ -811,3 +811,14 @@
         .up-mq-unmeas-tag { font-size: 0.63rem; color: var(--color-text-secondary); border: 1px dashed var(--color-lines-strong);
                             border-radius: 999px; padding: 1px 8px; justify-self: start; white-space: nowrap;
                             overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+        /* 성능 P 손실 분해 — P 카드 안 한 줄. 값이 아니라 '무엇이 깎았는지'라 톤은 중립. */
+        .up-ploss { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 5px;
+                    font-size: 0.62rem; color: var(--color-text-secondary); }
+        .up-ploss b { color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
+        .up-ploss .sep { opacity: 0.4; }
+        .up-ploss .material-icons { font-size: 14px; color: var(--amber); }
+        .up-ploss.is-offset { color: var(--color-text-primary); }
+        .up-ploss-tag { border: 1px solid color-mix(in srgb, var(--amber) 55%, transparent); color: var(--amber);
+                        border-radius: 999px; padding: 0 6px; font-weight: 700; }
+

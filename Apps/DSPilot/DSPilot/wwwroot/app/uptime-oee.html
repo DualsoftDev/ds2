@@ -96,15 +96,13 @@
                         <!-- 가용성 A (사이클기반 1차=사이클 / 폴백 출처 칩: 시프트·자동추정·달력) -->
                         <div class="up-oee" :class="oeeTone('availability')">
                             <div class="up-oee-label">가용성 A
-                                <span class="up-oee-chip" x-show="oee && oee.availabilitySource && oee.availabilitySource !== 'wallclock'"
-                                      :class="oee && oee.availabilitySource === 'auto' ? 'auto' : (oee && oee.availabilitySource === 'shift' ? 'solid' : '')"
-                                      x-text="oee ? ({ shift: '시프트', auto: '자동추정', calendar: '달력' }[oee.availabilitySource] || '') : ''"></span>
-                                <span class="up-oee-chip warn" x-show="oee && oee.ctSampleLow && oee.availabilitySource === 'wallclock'"
+<!-- 출처 칩 폐기(2026-08-21) — 시프트/자동추정/달력 폴백을 없애 A 는 항상 CT축 하나다. -->
+                                <span class="up-oee-chip warn" x-show="oee && oee.ctSampleLow"
                                       x-text="'샘플 ' + (oee && oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/5'"
                                       title="클린샘플 5개 미만으로 산출된 잠정값입니다. 가동이 쌓이면 자동으로 정확해집니다."></span>
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.availability) : '—'"></div>
-                            <div class="up-oee-note" x-text="oee ? (oee.availability != null ? (oee.availabilitySource === 'wallclock' ? '가동 / 생산가능시간' : '가동 / 계획시간') : (oee.availabilityNote || '산출 불가')) : ''"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.availability != null ? '정상 가동시간 / (정상 + 비가동 + 대기)' : (oee.availabilityNote || '산출 불가')) : ''"></div>
                         </div>
                         <!-- 성능 P (사이클기반: N × 가동시간 이상치 ÷ Σ실측 가동시간) — 표준 가동시간 = 최근 14일 평균(고정) -->
                         <div class="up-oee" :class="oeeTone('performance')" title="표준 가동시간 = 최근 14일 평균 — 정상상태 P≈100% 수렴(추세 대비 당기 저하 감지)">
@@ -118,6 +116,20 @@
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.performance) : '—'"></div>
                             <div class="up-oee-note" x-text="oee ? (oee.performance != null ? '14일평균 기준 · (N × 표준 가동시간) / Σ실측 가동시간' : (oee.performanceNote || '산출 불가')) : ''"></div>
+                            <!-- 손실 분해 — P 값은 그대로, 무엇이 깎았는지만 병기. 동작=설비 점검 / 대기=라인 밸런스 -->
+                            <template x-if="perfLoss.has">
+                                <div class="up-ploss" :class="perfLoss.offset ? 'is-offset' : ''"
+                                     :title="perfLoss.offset
+                                        ? '동작과 대기가 서로 상쇄돼 P 에는 안 나타납니다 — 설비 열화가 진행 중일 수 있습니다.'
+                                        : '손실 중 동작(MT)과 대기(WT)의 몫. 동작이 크면 설비 점검, 대기가 크면 라인 밸런스를 보세요.'">
+                                    <span x-show="perfLoss.offset" class="material-icons">swap_vert</span>
+                                    <span>손실 <b x-text="durShort(Math.abs(perfLoss.loss))"></b></span>
+                                    <span class="sep">·</span>
+                                    <span>동작 <b x-text="signedDur(perfLoss.lossMt)"></b></span>
+                                    <span>대기 <b x-text="signedDur(perfLoss.lossWt)"></b></span>
+                                    <span x-show="perfLoss.offset" class="up-ploss-tag">상쇄</span>
+                                </div>
+                            </template>
                         </div>
                         <!-- 품질 Q (가정/사용자 칩 + 톤 중립) — 클릭 시 품질 직접 입력 다이얼로그 -->
                         <div class="up-oee" :class="oeeTone('quality')" @click="openQDialog()" style="cursor:pointer;" title="클릭하여 품질(양품률) 직접 입력">
@@ -178,7 +190,8 @@
                     </div>
                 </section>
 
-                <!-- ════ 일자별 라인 가동 — 벽시계 단일모델(2026-07-06): 아래 '가용성 누적 정산'·'정지 구성' 도넛과 동일 소스.
+                <!-- ════ 일자별 라인 가동 — 달력 축(2026-08-21): 막대는 슬롯별 <b>실측</b>(정상 사이클 구간 ∩ 슬롯).
+                     채우지 못한 만큼은 여백 = 미수집. 아래 '가용성 누적 정산'(CT축 구성비)과 축은 다르지만 소스는 같다.
                       세로 합 = 정산, 정지부 = 도넛. 라인은 설비별 합산(축 최대 24h × 설비 수) ════ -->
                 <section class="card up-section">
                     <div class="ds-card-h">
@@ -203,14 +216,15 @@
                     <div class="up-form-hint" style="margin-top:8px;">라인(전체)은 설비별 합산이라 하루 축이 24h × 설비 수까지 올라갑니다(설비 하나를 고르면 24h 기준).</div>
                 </section>
 
-                <!-- ════ 가용성 누적 정산 — 벽시계 단일모델(2026-07-06): 가동 ÷ 생산가능시간. 위 '일자별 라인 가동' 추이의
-                      세로 합·정지 구성 도넛과 동일 소스(같은 flow합 벽시계). KPI(A)와 항상 일치 ════ -->
+                <!-- ════ 가용성 누적 정산 — CT축 단일모델(2026-08-21): 정상 ÷ (정상 + 비가동 + 대기).
+                      입력은 CT 의 합이 아니라 <b>구간 합집합</b>(오염 시 CT 끼리 겹쳐 달력을 넘기 때문).
+                      네 조각이 항상 100% 로 닫히고 상단 KPI(A)와 같은 값이다 ════ -->
                 <section class="card up-section" id="availability-section">
                     <div class="ds-card-h">
                         <h4>가용성 누적 정산
-                            <span class="up-oee-chip" x-show="availComp.mode === 'wallclock' && !curFlow && oee && oee.cycleFlowCount > 1"
+                            <span class="up-oee-chip" x-show="!curFlow && oee && oee.cycleFlowCount > 1"
                                   x-text="'설비 합산 ×' + (oee ? oee.cycleFlowCount : '')"
-                                  title="라인(전체)은 설비별 생산가능시간을 합산합니다(=설비별 가용성의 가중평균). 설비를 하나 고르면 벽시계 24h 기준이 됩니다."></span>
+                                  title="라인(전체)은 설비별 실측 시간을 합산합니다(=설비별 가용성의 가중평균). 설비를 하나 고르면 그 설비 실측만 봅니다."></span>
                         </h4>
                         <span class="ds-card-h-sub" x-text="availComp.subtitle"></span>
                     </div>
@@ -221,7 +235,6 @@
                             <div class="ds-legend" style="margin-bottom:10px;">
                                 <div class="lg-item"><span class="lg-swatch" style="background:var(--oee-run);"></span> <span x-text="availComp.runLabel"></span></div>
                                 <div class="lg-item" x-show="availComp.waitMs > 0" title="라인 내 다른 설비가 고장으로 멈춰 이 설비가 서 있던 시간입니다. 이 설비 고장이 아니라 고장 건수·평균 고장 간격에는 세지 않고, 가용성 %에는 손실로 계상합니다."><span class="lg-swatch" style="background:var(--oee-slack);"></span> <span>대기 (고장 여파)</span></div>
-                                <div class="lg-item" x-show="availComp.unacctMs > 0" title="사이클 수집 누락으로 어느 칸에도 넣을 수 없는 시간 — 정산 합계가 100% 미만으로 내려가 그만큼이 드러납니다. 상세는 페이지 맨 아래 '계측 품질'."><span class="lg-swatch up-sw-unacct"></span> <span>미정산 (계측 누락)</span></div>
                                 <div class="lg-item" x-show="availComp.faultMs > 0" style="cursor:pointer;" @click="openDtPattern('all')" title="클릭 → 날짜별 비가동 패턴"><span class="lg-swatch hatch-fault"></span> <span x-text="availComp.stopLabel"></span></div>
                                 <div class="lg-item" x-show="availComp.maintMs > 0" style="cursor:pointer;" @click="openDtPattern('maintenance')" title="클릭 → 날짜별 비가동 패턴 (유지보수)"><span class="lg-swatch hatch-maint"></span> <span>비가동 · 유지보수</span></div>
                             </div>
@@ -230,17 +243,6 @@
                                 <div class="up-bar-seg" x-show="availComp.waitPct > 0" :style="`width:${availComp.waitPct}%; background:var(--oee-slack);`" :title="'대기(고장 여파) ' + availComp.waitPct + '% — 라인 내 다른 설비 고장으로 서 있던 시간(고장 건수 미반영)'"><span class="up-bar-lbl up-bar-lbl-dark" x-show="availComp.waitPct >= 6" x-text="availComp.waitPct + '%'"></span></div>
                                 <div class="up-bar-seg hatch-fault" x-show="availComp.faultPct > 0" @click="openDtPattern('all')" :style="`width:${availComp.faultPct}%; cursor:pointer;`" :title="availComp.stopLabel + ' ' + availComp.faultPct + '% — 클릭 → 날짜별 비가동 패턴'"><span class="up-bar-lbl" x-show="availComp.faultPct >= 6" x-text="availComp.faultPct + '%'"></span></div>
                                 <div class="up-bar-seg hatch-maint" x-show="availComp.maintMs > 0" @click="openDtPattern('maintenance')" :style="`width:${availComp.maintPct}%; cursor:pointer;`" :title="'비가동 · 유지보수 ' + availComp.maintPct + '% — 클릭 → 날짜별 비가동 패턴'"><span class="up-bar-lbl" x-show="availComp.maintPct >= 6" x-text="availComp.maintPct + '%'"></span></div>
-                                <!-- 미정산(계측 누락) — 카테고리 색을 주지 않고 '비어 있는 꼬리'로 남긴다.
-                                     상태를 주장하지 않으면서 정산 합계가 100% 에 못 미친 만큼이 그대로 보인다. -->
-                                <div class="up-bar-seg up-bar-unacct" x-show="availComp.unacctPct > 0" :style="`width:${availComp.unacctPct}%;`"
-                                     :title="'미정산(계측 누락) ' + availComp.unacctPct + '% — 사이클 수집 누락으로 분류할 수 없는 시간. 상세는 맨 아래 계측 품질.'"><span class="up-bar-lbl up-bar-lbl-dark" x-show="availComp.unacctPct >= 6" x-text="availComp.unacctPct + '%'"></span></div>
-                            </div>
-                            <!-- 정산 합계 — 100% 미만이면 그 차이가 곧 계측 누락 -->
-                            <div class="up-acct-sum" x-show="availComp.mode === 'wallclock'" x-cloak>
-                                <span>정산 합계</span>
-                                <b :class="availComp.unacctPct > 0 ? 'is-short' : ''" x-text="availComp.accountedPct + '%'"></b>
-                                <span x-show="availComp.unacctPct > 0" x-text="'· 미정산 ' + availComp.unacctPct + '% (' + durShort(availComp.unacctMs) + ')'"></span>
-                                <a x-show="availComp.unacctPct > 0" href="#measure-quality-section">계측 품질 보기</a>
                             </div>
                             <div style="display:flex; gap:18px; margin-top:8px; font-size:0.72rem; color:var(--color-text-secondary); flex-wrap:wrap;">
                                 <span><span x-text="availComp.runLabel"></span> <b x-text="durShort(availComp.runMs)"></b> (<span x-text="availComp.runPct + '%'"></span>)<template x-if="availComp.runNote"><span x-text="' · ' + availComp.runNote"></span></template></span>
@@ -248,21 +250,19 @@
                                 <span x-show="availComp.faultMs > 0"><span x-text="availComp.stopLabel"></span> <b x-text="durShort(availComp.faultMs)"></b> (<span x-text="availComp.faultPct + '%'"></span>)<template x-if="availComp.stopNote"><span x-text="' · ' + availComp.stopNote"></span></template></span>
                                 <span x-show="availComp.maintMs > 0">비가동 · 유지보수 <b x-text="durShort(availComp.maintMs)"></b> (<span x-text="availComp.maintPct + '%'"></span>)</span>
                                 <span x-show="availComp.maintMs > 0 && availComp.faultMs > 0">비가동 합계 <b x-text="durShort(availComp.stopMs)"></b> (<span x-text="availComp.stopPct + '%'"></span>)</span>
-                                <span x-show="availComp.mode === 'wallclock' && oee && oee.plannedDownMs > 0">비생산 시간 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'both' ? '당일 자동+수동 지정' : '당일 자동 감지') + '·분모 밖'"></span></span>
+                                <span x-show="oee && oee.plannedDownMs > 0">비생산 시간 <b x-text="durShort(oee.plannedDownMs)"></b> <span class="up-codeish" x-text="(oee.plannedStopSource === 'both' ? '당일 자동+수동 지정' : '당일 자동 감지') + '·분모 밖'"></span></span>
                                 <!-- 위의 '대기(고장 여파)'(분모 안, 정산 바에 그려지는 몫)와 다른 양 — 이쪽은 기준을
                                      넘겨 비생산으로 승격돼 분모에서 아예 빠진 대기다. 라벨로 구분한다. -->
-                                <span x-show="availComp.mode === 'wallclock' && oee && oee.waitWallMs > 0" title="라인 내 다른 설비 고장으로 서 있던 시간 중 판정 기준을 넘겨 비생산으로 승격된 몫 — 생산가능시간(분모)에서 아예 빠지고 고장 건수에도 미반영">대기 · 분모 제외분 <b x-text="durShort(oee.waitWallMs)"></b> <span class="up-codeish">분모 밖·건수 제외</span></span>
-                                <span x-show="availComp.mode === 'wallclock'">가동시간 이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
-                                <span x-show="availComp.mode === 'fallback'">계획시간 기준 <span class="up-codeish" x-text="availComp.sourceLabel"></span></span>
+                                <span x-show="oee && oee.waitWallMs > 0" title="라인 내 다른 설비 고장으로 서 있던 시간 중 판정 기준을 넘겨 비생산으로 승격된 몫 — 생산가능시간(분모)에서 아예 빠지고 고장 건수에도 미반영">대기 · 분모 제외분 <b x-text="durShort(oee.waitWallMs)"></b> <span class="up-codeish">분모 밖·건수 제외</span></span>
+                                <span>가동시간 이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
                             </div>
-                            <div class="up-form-hint" style="margin-top:8px;" x-show="availComp.hint" x-html="availComp.hint"></div>
                         </div>
                     </template>
                     <template x-if="!availComp.hasData">
                         <div class="ds-empty" style="margin-bottom:18px;">
                             <span class="material-icons">donut_small</span>
                             <div class="ds-empty-title">가용성 데이터 없음</div>
-                            <div class="ds-empty-desc">정상 가동이 쌓이면 가동시간 기반 가용성이 표시됩니다(그 전엔 계획시간 폴백으로 근사).</div>
+                            <div class="ds-empty-desc">이 기간에 수집된 정상 가동이 없습니다 — 가용성을 산출하지 않습니다(근사값을 만들지 않습니다). 아래 <b>데이터 무결성</b>에서 수집 상태를 확인하세요.</div>
                         </div>
                     </template>
 
@@ -428,7 +428,7 @@
                                     title="비가동(고장/유지보수) — 가용성(A) 분모 안에서 깎이는 정지">
                                 비가동 <span x-text="'(' + dtDownCount + ')'"></span></button>
                             <button :class="dtTab === 'nonprod' ? 'is-active' : ''" @click="dtTab='nonprod'"
-                                    title="비생산 — 가용성(A) 분모 밖(생산가능시간에서 제외), 건수·평균 고장 간격 미반영">
+                                    title="비생산 — 가용성(A) 분모 밖(정산 어디에도 계상하지 않음), 건수·평균 고장 간격 미반영">
                                 비생산 <span x-text="'(' + dtNonProdCount + ')'"></span></button>
                         </div>
                         <span style="flex:1;"></span>
@@ -535,7 +535,7 @@
                                                     <span style="color:var(--nonprod);font-weight:700;" :title="d.isWait ? '대기(고장 여파) — 같은 시간 라인 내 다른 설비 고장으로 서 있던 시간. 가용성(A) 분모 밖 · 고장 건수 미반영' : ('비생산 — 가용성(A) 분모 밖 · ' + (d.classifySource === 'manual' ? '사용자 확정' : '당일 자동 판정(장시간 정지)'))" x-text="d.isWait ? '비생산 · 대기' : '비생산'"></span>
                                                 </template>
                                                 <template x-if="!d.isNonProd && d.isWait">
-                                                    <span style="color:var(--oee-slack, #7dd3fc);font-weight:700;" title="대기·단기 정지(비가동 경계 미만) — '가동간 공백'으로 계산합니다. 가용성(A)은 비가동과 똑같이 깎이고, 고장 건수·평균 간격에만 세지 않습니다(설비 고장으로 보지 않음)">대기(공백)</span>
+                                                    <span style="color:var(--oee-slack, #7dd3fc);font-weight:700;" title="라인 내 다른 설비 고장으로 이 설비가 서 있던 시간(비가동 경계 미만) — 정산에서 '대기(고장 여파)'로 잡습니다. 가용성(A)은 비가동과 똑같이 깎이고, 고장 건수·평균 고장 간격에만 세지 않습니다(이 설비 고장이 아니므로)">대기</span>
                                                 </template>
                                                 <!-- 고장/유지보수 체크 — 합성 행(이상치 초과 사이클)도 가능(2026-07-16, doc/25):
                                                      의도된 정지가 이상치로 잡혔을 때 체크 해제 시 서버가 실제 행으로 승격 후 유지보수 확정. -->
@@ -731,7 +731,8 @@
                         <div class="up-cm-row">
                             <div class="up-cm-head">
                                 <b>비가동(정지) 판정</b>
-                                <span>가동시간이 14일 평균의 <b x-text="cm.idle + '배'"></b>를 넘긴 사이클을 정지로 계상합니다. 그 미만의 느린 사이클은 정상 — 속도 저하는 성능(P)이 흡수합니다.</span>
+                                <span>가동시간이 14일 평균의 <b x-text="cm.idle + '배'"></b>를 넘긴 사이클을 정지로 계상합니다. 그 미만의 느린 사이클은 정상 — 속도 저하는 성능(P)이 흡수합니다.
+                                    <b>가동이 멈춰 사이클이 아예 들어오지 않을 때도 이 시간이 지나면 정지로 감지합니다</b> — 감지와 계상 기준이 같습니다.</span>
                             </div>
                             <input class="up-cm-slider idle" type="range" min="1" max="5" step="0.1"
                                    :value="cm.idle" @input="cmSetIdle($event.target.value)" :disabled="cm.busy"
@@ -790,7 +791,7 @@
                         </button>
                     </div>
                     <div class="up-form-hint" style="margin-top:8px;">
-                        기준은 <b>14일 평균 가동시간(CT) × 배수</b>로 flow마다 자동 환산됩니다. 조회 시 재계산이라 과거 기간에도 즉시
+                        기준은 <b>14일 평균 가동시간(CT) × 배수</b>로 flow마다 자동 환산되고, <b>무사이클 정지 감지 시점</b>도 같은 값을 씁니다(2026-08-21 통일). 조회 시 재계산이라 과거 기간에도 즉시
                         소급 적용되며, 정지 이벤트 로그의 <b>비생산↔비가동 보내기</b>(수동 확정)는 이 기준과 무관하게 항상 우선합니다.
                     </div>
                 </section>
@@ -828,12 +829,12 @@
                      curFlow 무관 상시 전체 표시(설비 하나를 보는 중에도 다른 설비 IO 악화를 놓치면 안 됨). -->
                 <section class="card up-section" id="measure-quality-section">
                     <div class="ds-card-h">
-                        <h4>계측 품질</h4>
-                        <span class="ds-card-h-sub">사이클 수집 누락 현황 — OEE 지표와 별개 축(A·P·Q 에 반영되지 않음)</span>
+                        <h4>데이터 무결성</h4>
+                        <span class="ds-card-h-sub">정상 가동시간을 얼마나 수집했는가 — OEE·TEEP 와 별개 축(지표에 반영되지 않음)</span>
                         <span style="flex:1;"></span>
                         <span class="up-oee-chip" x-show="mq" x-cloak
-                              x-text="mq ? ('전체 제외 ' + mqPct(mq.exclusionRate)) : ''"
-                              title="비가동 판정(가동시간이 14일 평균의 설정 배수 초과)으로 가동 집계에서 빠진 사이클 비율입니다."></span>
+                              x-text="mq ? ('전체 수집률 ' + mqPct(mqLineCollectRate)) : ''"
+                              title="수집한 가동 중 정상으로 인정돼 지표 산출에 쓰인 비율입니다. 나머지는 비가동으로 계상되거나(정지) 완료 신호 미검출로 빠집니다."></span>
                     </div>
 
                     <template x-if="mq && (mq.totalCycles > 0 || (mq.flows && mq.flows.length > 0))">
@@ -841,9 +842,9 @@
                             <!-- 라인 합계 — 큰 수치 3개 -->
                             <div class="up-mq-top">
                                 <div class="up-mq-kpi">
-                                    <div class="up-mq-lbl">제외율</div>
-                                    <div class="up-mq-val up-oee-mono" x-text="mqPct(mq.exclusionRate)"></div>
-                                    <div class="up-mq-note" x-text="mq.excludedCycles.toLocaleString() + ' / ' + mq.totalCycles.toLocaleString() + ' 가동'"></div>
+                                    <div class="up-mq-lbl">정상 수집률</div>
+                                    <div class="up-mq-val up-oee-mono" x-text="mqPct(mqLineCollectRate)"></div>
+                                    <div class="up-mq-note" x-text="mq.normalCycles.toLocaleString() + ' / ' + mq.totalCycles.toLocaleString() + ' 가동 — 지표 산출의 근거'"></div>
                                 </div>
                                 <div class="up-mq-kpi">
                                     <div class="up-mq-lbl">완료신호 미검출</div>
@@ -851,9 +852,9 @@
                                     <div class="up-mq-note" x-text="mq.incompleteCycles.toLocaleString() + '건 · IO 엣지 유실 정황'"></div>
                                 </div>
                                 <div class="up-mq-kpi">
-                                    <div class="up-mq-lbl">집계 반영</div>
-                                    <div class="up-mq-val up-oee-mono" x-text="mq.normalCycles.toLocaleString()"></div>
-                                    <div class="up-mq-note">정상 가동으로 OEE 에 반영된 수</div>
+                                    <div class="up-mq-lbl">정지로 계상</div>
+                                    <div class="up-mq-val up-oee-mono" x-text="mq.excludedCycles.toLocaleString()"></div>
+                                    <div class="up-mq-note">비가동 판정으로 가용성에서 손실로 잡힌 수</div>
                                 </div>
                             </div>
 
@@ -863,15 +864,16 @@
                                 <div>
                                     <b><span x-text="mq.unmeasurableFlowCount"></span>대가 측정되지 않고 있습니다</b> —
                                     표준 가동시간(14일 평균)이 학습되지 않아 가동/정지 판정도, 대기 분류도 되지 않습니다.
-                                    해당 설비의 가용성은 <b>달력근사</b>로 표시되고 OEE 는 산출되지 않습니다.
+                                    해당 설비는 <b>가용성·OEE 모두 산출되지 않습니다</b> — 근사값을 만들지 않습니다.
                                     사이클이 한 건도 없으면 <b>설비 경계(Head/Tail) 지정</b>을 먼저 확인하세요 —
                                     한 번도 동작하지 않는 Call 이 Head 로 잡히면 사이클이 영구히 기록되지 않습니다.
                                 </div>
                             </div>
 
                             <div class="up-mq-link">
-                                누락된 시간은 <b>가용성 누적 정산</b>에서 <b>미정산 %</b>(합계가 100% 에 못 미치는 몫)로 나타납니다 —
-                                <a href="#availability-section">정산 보기</a>
+                                OEE 는 <b>수집된 정상 가동시간만</b>으로 산출합니다 — 수집되지 않은 시간은 지표에 어떤 상태로도
+                                반영되지 않습니다. 그래서 <b>이 수집률이 곧 지표의 신뢰 범위</b>입니다.
+                                <a href="/uptime-oee#availability-section">가용성 정산 보기</a>
                             </div>
 
                             <button class="btn btn-sm btn-outlined color-default up-mq-toggle" @click="mqOpen = !mqOpen">
@@ -883,8 +885,8 @@
                             <div class="up-mq-rows" x-show="mqOpen" x-cloak>
                                 <div class="up-mq-row up-mq-head">
                                     <span>설비</span>
-                                    <span class="up-mq-bar-h">제외율 — 이 기간 최댓값 대비</span>
-                                    <span class="num">제외율</span>
+                                    <span class="up-mq-bar-h">정상 수집률</span>
+                                    <span class="num">수집률</span>
                                     <span class="num">미검출</span>
                                     <span class="num">가동 수</span>
                                 </div>
@@ -898,16 +900,16 @@
                                         <!-- 축 = 이 기간 최댓값 대비(mqBarW). 원수치는 옆 열/툴팁. -->
                                         <template x-if="f.measurable !== false">
                                             <div class="up-mq-bar"
-                                                 :title="'제외 ' + f.excludedCycles.toLocaleString() + ' / 가동 ' + f.totalCycles.toLocaleString()
-                                                         + ' (' + mqPct(f.exclusionRate) + ') · 비가동 경계 ' + durShort(f.thresholdMs)">
-                                                <div class="seg ex" x-show="f.excludedCycles > 0"
-                                                     :style="`width:${mqBarW(f.exclusionRate)}`"></div>
+                                                 :title="'정상 ' + f.normalCycles.toLocaleString() + ' / 가동 ' + f.totalCycles.toLocaleString()
+                                                         + ' (' + mqPct(mqCollectRate(f)) + ') · 정지로 계상 ' + f.excludedCycles.toLocaleString()
+                                                         + ' · 비가동 경계 ' + durShort(f.thresholdMs)">
+                                                <div class="seg ex" :style="`width:${mqBarW(mqCollectRate(f))}`"></div>
                                             </div>
                                         </template>
                                         <template x-if="f.measurable === false">
                                             <span class="up-mq-unmeas-tag">측정 불가 — 표준 가동시간 미학습(클린샘플 0)</span>
                                         </template>
-                                        <span class="num up-mq-rate" x-text="f.measurable === false ? '—' : mqPct(f.exclusionRate)"></span>
+                                        <span class="num up-mq-rate" x-text="f.measurable === false ? '—' : mqPct(mqCollectRate(f))"></span>
                                         <span class="num" x-text="f.measurable === false ? '—' : f.incompleteCycles.toLocaleString()"></span>
                                         <span class="num" x-text="f.measurable === false ? '0' : f.totalCycles.toLocaleString()"></span>
                                     </div>
@@ -915,10 +917,10 @@
                             </div>
 
                             <div class="up-mq-foot">
-                                제외된 사이클의 시간 중 <b>정지로 확정된 몫</b>은 가용성(A)에서 손실로 잡히고, 수집 누락으로
-                                <b>분류할 수 없는 몫</b>은 정산의 <b>미정산 %</b>로 남습니다 — 어느 쪽도 가동으로 세지 않습니다.
-                                이 카드는 그 <b>제외가 얼마나 일어났는지</b>만 보고합니다. 하드웨어·환경 한계로 IO 수집이
-                                100% 되지 않는 것은 정상이며, <b>절대 수치보다 추세와 설비 편중</b>이 점검 신호입니다.
+                                IO 신호로 관측한 논리적 인과와 실제 설비 사이에는 구조적 괴리가 있고, PLC 수집도 100% 가
+                                되지 않습니다. 그래서 지표는 <b>수집된 정상 가동시간만</b>을 근거로 삼고, 못 본 시간은 어떤
+                                상태도 주장하지 않습니다. 수집률이 낮다고 설비가 나쁜 것이 아니라 <b>지표의 근거가 얇다</b>는
+                                뜻이며, <b>절대 수치보다 추세와 설비 편중</b>이 점검 신호입니다.
                             </div>
                         </div>
                     </template>
@@ -941,18 +943,19 @@
 
                 <!-- ════ 설계 노트 (사이클기반 OEE · doc/22 + 정직성 doc/21 §10) ════ -->
                 <details class="up-dn card up-section">
-                    <summary><span class="material-icons">tune</span> 설계 결정 — 가동시간 기반 OEE (가동시간/동작시간/대기시간) & 정직성 원칙</summary>
+                    <summary><span class="material-icons">tune</span> 설계 결정 — CT축 OEE (수집된 정상 가동만) & 정직성 원칙</summary>
                     <div class="up-dn-body">
                         <table>
                             <tbody>
-                                <tr><td>모델 (doc/22)</td><td><b>가동시간 기반</b> OEE — 가동시간 = 동작시간 + 대기시간. 한 번의 가동에서 <b>동작시간이 가동시간 이상치를 넘으면</b> 그 가동의 가동시간 전체가 비가동. 시간기반(벽시계 계획시간)에서 전환.</td></tr>
-                                <tr><td>OEE = A × P × Q</td><td><b>A</b> = Σ실측 가동시간 ÷ (Σ실측 가동시간 + Σ비가동 가동시간) · <b>P</b> = (N × 가동시간 이상치) ÷ Σ실측 가동시간 · <b>Q</b> = 양품/총생산(기본 100% 가정, 톤 중립). 한 요소라도 미산출이면 OEE = '—'.</td></tr>
-                                <tr><td>가동시간 이상치 (표준 가동시간)</td><td>최근 <b>14일 정상 가동 가동시간 평균</b>(flow별, RAM only — DB 미기입). 비가동 판정·성능 분자 <b>공용</b>. 클린샘플 <b>1개부터 A·P 산출</b>(5개 미만은 <b>'샘플 부족' 잠정값</b> — 쌓이면 자동 정상화), <b>0개</b>면 '—'.</td></tr>
-                                <tr><td>성능 P 의 의미</td><td>표준 가동시간 = <b>최근 14일 평균</b>(고정). 표준=평균이라 정상상태 <b>P ≈ 100% 수렴</b> — "최속 대비 손실"이 아니라 <b>"14일 추세 대비 당기 저하"</b> 감지기(90%대를 '거의 완벽'으로 오독 금지). <b>비가동 판정·가용성(A) 임계도 동일한 14일 평균</b>을 공용.</td></tr>
-                                <tr><td>비가동 dedup</td><td>① 동작시간&gt;가동시간 이상치 ② 미완료(complete=null) 가동시간 폭주 ③ 무가동 정지. ③은 가동 가동시간 구간과 안 겹치는 부분만 가산(구간 차집합) — <b>이중계상 방지</b>.</td></tr>
-                                <tr><td>평균 복구 시간 / 평균 고장 간격</td><td>비가동 <b>onset</b>(= 가동 시작 + 가동시간 이상치)에서 파생. <b>평균 복구 시간(MTTR)</b> = onset→going 회복 평균 · <b>평균 고장 간격(MTBF)</b> = 연속 onset 간격 평균. OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 무비가동" 배지(가짜수치 금지).</td></tr>
-                                <tr><td>폴백 보존</td><td>14일 클린샘플 <b>0(임계 없음)</b>일 때만 가용성은 <b>시간기반 폴백 체인</b>(시프트 ▸ 자동추정 ▸ 달력)으로 근사. A 카드 칩으로 현재 출처(<span class="up-codeish">가동시간</span>/시프트/자동추정/달력) 표시.</td></tr>
-                                <tr><td>정지 2계층</td><td><b>감지</b>(무가동/고장비트/수동) · <b>단서</b>(abnormal/수동등록TAG 겹침 = 표시 전용). 기본 고장 체크 — 로그에서 해제 시 유지보수(평균 고장 간격 분모 제외).</td></tr>
+                                <tr><td>모델 (2026-08-21)</td><td><b>CT축 단일모델</b> — 수집된 <b>정상 가동시간만</b>을 근거로 삼는다. IO 신호로 관측한 논리적 인과와 실제 설비 사이엔 구조적 괴리가 있고 PLC 수집도 100% 가 되지 않으므로, <b>못 본 시간에는 어떤 상태도 주장하지 않는다</b>. 벽시계(달력) 분모·시간기반 폴백은 폐기.</td></tr>
+                                <tr><td>OEE = A × P × Q</td><td><b>A</b> = Σ정상 ÷ (Σ정상 + Σ비가동 + Σ대기) · <b>P</b> = (N × 가동시간 이상치) ÷ Σ실측 가동시간 · <b>Q</b> = 양품/총생산(기본 100% 가정). 한 요소라도 미산출이면 OEE = '—'.</td></tr>
+                                <tr><td>입력은 <b>합집합</b></td><td>CT 를 단순 합산하지 않고 <b>구간 union</b> 으로 잰다. 수집이 오염되면 사이클끼리 겹쳐(실측: 평균 ct 88.6s vs 실제 간격 38.7s) 합이 달력을 넘는다 — union 은 창을 넘을 수 없다. 겹침 우선순위 = 미계측 ▸ 비생산 ▸ 가동 ▸ 비가동.</td></tr>
+                                <tr><td>사이클 0건이면</td><td><b>산출 불가</b>. 근사값을 만들지 않는다 — 종전 달력근사 폴백은 "정지가 감지되지 않았다"를 "100% 가동"으로 번역해, 측정 자체가 안 되는 설비를 만점으로 표시했다.</td></tr>
+                                <tr><td>가동시간 이상치 (표준 가동시간)</td><td>최근 <b>14일 정상 가동 CT 평균</b>(flow별, RAM only — DB 미기입). 비가동 판정·성능 분자 <b>공용</b>. 클린샘플 <b>1개부터 A·P 산출</b>(5개 미만은 <b>'샘플 부족' 잠정값</b>), <b>0개</b>면 '—'.</td></tr>
+                                <tr><td>비가동 판정</td><td><b>ct &gt; 임계</b>(완료 여부 무관 — 정지를 머금은 사이클) 또는 mt &gt; 임계(ct&lt;mt 비정상 행 방어). 종전 mt-only 판정은 정지 후 재개 사이클(mt 정상·wt=정지 전체)을 정상으로 삼켜 <b>며칠짜리 정지가 가동으로 계상</b>됐다.</td></tr>
+                                <tr><td>대기(고장 여파)</td><td>라인 내 다른 설비 고장으로 이 설비가 서 있던 시간(doc/25). A 분모에 포함해 <b>손실로 계상</b>하되 고장 건수·평균 고장 간격에는 세지 않는다. 정산 바의 네 번째 조각.</td></tr>
+                                <tr><td>평균 복구 시간 / 평균 고장 간격</td><td>비가동 <b>onset</b>(= 가동 시작 + 가동시간 이상치)에서 파생. OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 무비가동" 배지(가짜수치 금지).</td></tr>
+                                <tr><td>데이터 무결성 분리</td><td>"얼마나 봤나"는 지표가 아니라 <b>수집 상태</b>다. A·P·Q 에 섞지 않고(손실로 넣으면 계측 실패가 설비 탓, 분모에서 빼면 계측이 나쁠수록 설비가 좋아 보임) 페이지 맨 아래 <b>데이터 무결성</b> 카드가 수집률로 따로 보고한다.</td></tr>
                                 <tr><td>필수 입력 0개</td><td>가동시간 이상치·비가동 판정·A·P·평균 복구 시간·평균 고장 간격 모두 수집 데이터로 자동. 품질%·표준 가동시간 수동입력·고장/유지보수 구분은 선택(보정).</td></tr>
                             </tbody>
                         </table>

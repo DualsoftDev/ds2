@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Data;
@@ -45,6 +45,27 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
 
     private static DateTime ParseIso(string s)
         => SqliteDateTimeHelpers.FromSqliteUtcString(s) ?? DateTime.MinValue;
+
+    public async Task<int> MarkClearedAsync(IReadOnlyCollection<string> tagAddresses, DateTime clearedAtUtc,
+        CancellationToken ct = default)
+    {
+        if (tagAddresses is null || tagAddresses.Count == 0) return 0;
+        try
+        {
+            await using var conn = await OpenAsync();
+            // 같은 주소가 여러 번 발화했어도 미해소 행만 찍는다 — 과거에 이미 해소된 행은 그대로 둔다.
+            var n = await conn.ExecuteAsync(@"
+                UPDATE userTagAlertLog SET clearedAt = @Cleared
+                WHERE clearedAt IS NULL AND tagAddress IN @Addrs",
+                new { Cleared = Iso(clearedAtUtc), Addrs = tagAddresses });
+            return n;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[UserTagAlert] 해소 시각 기록 실패 ({N}개 주소)", tagAddresses.Count);
+            return 0;
+        }
+    }
 
     public async Task<long> InsertAlertAsync(UserTagAlertRecord r, CancellationToken ct = default)
     {

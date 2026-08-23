@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Dapper;
@@ -16,11 +16,12 @@ namespace DSPilot.Services;
 /// 마지막 사이클 후 <b>flow별 임계</b> 이상 신규 사이클이 없으면 open 정지이벤트(detectSource='nocycle',
 /// category/reason NULL)를 생성한다. 사이클이 재개되면(마지막 사이클이 정지 startAt 이후로 갱신) 마감한다.
 ///
-/// 임계(doc/23 §6 폴백 체인, <see cref="OeeMath.ResolveNoCycleThresholdMs"/>):
-///   ① max(3×gap', 30s) — gap' = 최근 14일 클린 WT(=ct−mt) 중앙값(오늘 제외, 가중 없음)
-///   ② 3×14일평균CT — gap' 미학습 시
-///   ③ NoCycleSeconds(120s) — 학습 전무(콜드스타트 부트스트랩)
-/// 고정 120초 전역 적용은 폐기 — 주기가 긴(>120s) flow 가 정상 가동 중 매 사이클 거짓 onset 되던 결함 해소.
+/// 임계 = <b>14일 평균 CT × 비가동 배수</b>(사용자 설정, 기본 2.5×) — 집계의 정지 판정과 <b>같은 값</b>.
+/// <para>2026-08-21 통일. 종전엔 감지만 별도 체인(3×gap' ▸ 3×평균CT ▸ 120s)을 써서 집계 기준과 어긋났다
+/// (실측: 감지 109초 vs 집계 계상 213초 → 그 사이 정지는 <b>로그엔 뜨는데 고장 건수엔 없는</b> 구간이 됐다).
+/// 이제 화면의 '정지·비생산 판정 기준' 슬라이더가 감지 시점까지 함께 움직인다 — 사용자가 보는 숫자가 하나다.</para>
+/// <para>평균 CT 미학습(클린샘플 0) flow 는 <b>감지하지 않는다</b>. 그 상태는 가용성도 '산출 불가'이므로
+/// 감지만 켜두면 근거 없는 정지를 만들어낸다 — 그 설비는 '데이터 무결성' 카드가 측정 불가로 보고한다.</para>
 /// 임계는 <see cref="ThresholdTtl"/> 주기로 재학습(디스크 쿼리 절약, 15s tick 마다 재계산 안 함).
 ///
 /// 보정 준수(doc/21 §10): 자동은 onset/clear 뿐. 정지원인 분류·불량·계획시간은 사람이 컨트롤러로 입력.
@@ -33,7 +34,7 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
 {
     // detectSource = "nocycle" — clear 는 사이클 재개로만.
     private const string DetectSource = "nocycle";
-    private const int DefaultNoCycleSeconds = 120;
+    // 부트스트랩 상수 폐기(2026-08-21) — 평균 CT 가 없으면 감지하지 않는다(위 주석 참조).
     // 분류 휴리스틱(doc/21 §12 E): nocycle clear 시 지속시간으로 자동 분류 — 작업자 미분류 부담 완화.
     //   ≥ 5분  → 자동:고장(equipment_fault, unplanned, isFailure=1)
     //   ≥ 8시간 → 자동:점검(planned_maint, planned) — 계획정지로 보아 MTBF 분모에서 빠짐(추세상 점프 가능).
@@ -44,8 +45,6 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(30);
     // flow별 임계 재학습 주기 — 14일 통계라 분 단위 신선도면 충분, 15s tick 마다 14일 쿼리 4회는 낭비.
     private static readonly TimeSpan ThresholdTtl = TimeSpan.FromMinutes(5);
-    // 초고속 flow(gap' 수백 ms)의 잡음성 미세정지 onset 방지 하한 (doc/23 §7).
-    private const double FloorMs = 30_000;
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IDatabasePathResolver _pathResolver;
@@ -78,20 +77,31 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
 
     private readonly HistoryMirrorService _mirror;
 
-    private int NoCycleSeconds
+    /// <summary>
+    /// 비가동 판정 배수 — 화면 '정지·비생산 판정 기준' 슬라이더 값. 집계(ComputeCycleAggregateAsync)와
+    /// 같은 소스(<see cref="OeeManualSettings.ResolveCtMultipliers"/>)를 읽어 감지와 계상 기준을 일치시킨다.
+    /// </summary>
+    private double ReadIdleMultiplier()
     {
-        get
+        try
         {
-            var v = _configuration.GetValue<int?>("Oee:NoCycleSeconds") ?? DefaultNoCycleSeconds;
-            return v > 0 ? v : DefaultNoCycleSeconds;
+            using var scope = _scopeFactory.CreateScope();
+            var settings = scope.ServiceProvider.GetRequiredService<AppSettingsService>();
+            var (idle, _) = settings.LoadSettings().OeeManual.ResolveCtMultipliers();
+            return idle > 0 ? idle : Services.OeeMath.IdleCtMultiplierDefault;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "비가동 배수 조회 실패 — 기본값 사용");
+            return Services.OeeMath.IdleCtMultiplierDefault;
         }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation(
-            "OeeDowntimeStateMachine starting (poll={Poll}s, per-flow gap threshold, bootstrap={Bootstrap}s)",
-            PollInterval.TotalSeconds, NoCycleSeconds);
+            "OeeDowntimeStateMachine starting (poll={Poll}s, 임계 = flow별 14일 평균CT × 비가동 배수)",
+            PollInterval.TotalSeconds);
 
         try
         {
@@ -112,7 +122,7 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
     private async Task TickAsync(CancellationToken ct)
     {
         var nowUtc = DateTime.UtcNow;
-        var bootstrapMs = NoCycleSeconds * 1000.0;
+
 
         // 1) plc.db 에서 flow별 마지막 사이클 시각(UTC) 조회.
         var lastCycleByFlow = await ReadLastCyclePerFlowAsync();
@@ -121,7 +131,7 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
         // flow별 임계 재학습 (TTL 경과 시). 실패해도 기존 캐시/부트스트랩으로 tick 은 계속.
         if (nowUtc - _thresholdRefreshedUtc >= ThresholdTtl)
         {
-            await RefreshThresholdsAsync(bootstrapMs);
+            await RefreshThresholdsAsync();
             _thresholdRefreshedUtc = nowUtc;
         }
 
@@ -142,8 +152,8 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
         {
             var lastCycleUtc = mirrorLastCycleUtc;
             var hasOpen = openByFlow.TryGetValue(flowName, out var open);
-            // 폴백 체인 ③: 학습 임계 미등재(콜드스타트) flow 는 부트스트랩(NoCycleSeconds).
-            var thresholdMs = _thresholdMsByFlow.TryGetValue(flowName, out var learned) ? learned : bootstrapMs;
+            // 평균 CT 미학습 flow 는 감지 대상이 아니다(임계 미등재 = 건너뜀).
+            if (!_thresholdMsByFlow.TryGetValue(flowName, out var thresholdMs) || thresholdMs <= 0) continue;
             var idleMs = (nowUtc - lastCycleUtc).TotalMilliseconds;
 
             // ★미러 tail 지연 방어 — "정지"로 보이는 flow 만 파일(SSOT)로 마지막 사이클을 재확인한다.
@@ -229,28 +239,23 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
     /// ResolveCtThresholdsAsync 와 동일 컨벤션). 체인 합성은 <see cref="OeeMath.ResolveNoCycleThresholdMs"/>.
     /// 실패 시 기존 캐시 유지(다음 TTL 에 재시도) — tick 을 막지 않는다.
     /// </summary>
-    private async Task RefreshThresholdsAsync(double bootstrapMs)
+    private async Task RefreshThresholdsAsync()
     {
         try
         {
             var todayUtc = DateTime.Today.ToUniversalTime();
-            var gap = await _ctStats.ComputeGapMedianAsync(excludeUntilUtc: todayUtc);
-            foreach (var (k, v) in await _ctStats.ComputeGapMedianAsync())
-                gap.TryAdd(k, v); // Day 0 폴백: 오늘 포함 잠정 gap'
             var ctThr = await _ctStats.ComputeCtThresholdAsync(excludeUntilUtc: todayUtc);
             foreach (var (k, v) in await _ctStats.ComputeCtThresholdAsync())
                 ctThr.TryAdd(k, v); // Day 0 폴백: 오늘 포함 잠정 평균CT
 
+            // 집계와 같은 배수를 쓴다 — 사용자가 슬라이더로 조절하면 감지 시점도 함께 움직인다.
+            var idleMult = ReadIdleMultiplier();
             var map = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-            foreach (var flow in gap.Keys.Union(ctThr.Keys, StringComparer.OrdinalIgnoreCase))
-            {
-                var gapMedian = gap.TryGetValue(flow, out var g) ? g.MedianMs : 0;
-                var ctAvg = ctThr.TryGetValue(flow, out var c) ? c.AvgMs : 0;
-                map[flow] = OeeMath.ResolveNoCycleThresholdMs(gapMedian, ctAvg, FloorMs, bootstrapMs);
-            }
+            foreach (var (flow, c) in ctThr)
+                if (c.AvgMs > 0) map[flow] = c.AvgMs * idleMult;
             _thresholdMsByFlow = map;
-            _logger.LogDebug("[OEE] nocycle thresholds refreshed: {N} flows learned (bootstrap={Boot}s)",
-                map.Count, bootstrapMs / 1000.0);
+            _logger.LogDebug("[OEE] nocycle thresholds refreshed: {N} flows (평균CT × {Mult}배)",
+                map.Count, idleMult);
         }
         catch (Exception ex)
         {

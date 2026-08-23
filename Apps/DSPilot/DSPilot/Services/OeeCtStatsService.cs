@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Dapper;
@@ -176,6 +176,55 @@ public sealed class OeeCtStatsService
     /// <paramref name="excludeUntilUtc"/>로 오늘 제외(자기참조 방지) — CT 임계와 동일 컨벤션.
     /// 표본 0 인 flow 는 맵에서 제외(호출측이 폴백 체인 ②③으로 처리).
     /// </summary>
+    /// <summary>
+    /// flow별 <b>동작 비중</b> = Σmt ÷ Σct (클린 사이클, 14일). 성능 P 의 손실을 동작(MT)/대기(WT)로 가르는 데 쓴다.
+    /// <para>표준MT·표준WT 를 각각 평균으로 따로 뽑지 않고 <b>비중</b>으로 두는 이유: 표준CT 는 감쇠 가중 평균이라
+    /// 가중 없는 MT/WT 평균과 더하면 표준CT 와 어긋난다. 비중을 쓰면 표준MT = 표준CT × 비중,
+    /// 표준WT = 표준CT × (1−비중) 이 되어 <b>표준MT + 표준WT = 표준CT 가 항등적으로 성립</b>한다.</para>
+    /// </summary>
+    public Task<Dictionary<string, double>> ComputeMtRatioAsync(
+        int windowDays = 14, DateTime? excludeUntilUtc = null)
+        => GetOrComputeCachedAsync($"mtratio|{windowDays}|{excludeUntilUtc?.ToUniversalTime().Ticks}",
+            () => ComputeMtRatioCoreAsync(windowDays, excludeUntilUtc));
+
+    private async Task<Dictionary<string, double>> ComputeMtRatioCoreAsync(int windowDays, DateTime? excludeUntilUtc)
+    {
+        var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!File.Exists(dbPath)) return result;
+        try
+        {
+            var fromUtc = DateTime.UtcNow.AddDays(-windowDays);
+            var p = new DynamicParameters();
+            p.Add("From", fromUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
+            var until = "";
+            if (excludeUntilUtc is DateTime ex)
+            {
+                until = " AND recordedAt < @Until ";
+                p.Add("Until", ex.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            await using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+            await conn.OpenAsync();
+            var exists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (exists == 0) return result;
+            var rows = await conn.QueryAsync<(string? FlowName, double SumMt, double SumCt)>($@"
+                SELECT flowName AS FlowName, COALESCE(SUM(mt),0) AS SumMt, COALESCE(SUM(ct),0) AS SumCt
+                FROM dspFlowHistory
+                WHERE COALESCE(IsIdle,0) = 0 AND ct IS NOT NULL AND ct > 0 AND mt IS NOT NULL AND mt >= 0
+                  AND recordedAt >= @From {until}
+                GROUP BY flowName", p);
+            foreach (var (flow, sumMt, sumCt) in rows)
+                if (!string.IsNullOrWhiteSpace(flow) && sumCt > 0)
+                    result[flow] = Math.Clamp(sumMt / sumCt, 0, 1);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[OEE] 동작 비중(Σmt/Σct) 산출 실패");
+        }
+        return result;
+    }
+
     public Task<Dictionary<string, (double MedianMs, int Sample)>> ComputeGapMedianAsync(
         int windowDays = 14, DateTime? excludeUntilUtc = null)
         => GetOrComputeCachedAsync($"gap|{windowDays}|{excludeUntilUtc?.ToUniversalTime().Ticks}",

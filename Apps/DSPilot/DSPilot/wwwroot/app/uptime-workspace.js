@@ -109,7 +109,6 @@
                 // 계측 품질 — /api/oee/measurement-quality (사이클 제외·누락률). OEE 지표와 별개 축이라
                 // A/P/Q 에 섞지 않고 페이지 맨 아래 독립 카드로만 보고한다. mqOpen=설비별 상세 펼침.
                 mq: null, mqOpen: false, _mqSeq: 0,
-                planTime: null, // /api/oee/plan-time — 계획시간 폴백 체인 + 14일 히스토그램
                 downtime: [], ranking: [],
                 dtTab: 'down', // 정지 로그 구분 탭: 'down'(비가동=고장/유지보수) | 'nonprod'(비생산) — 보내기 후 대상 탭 자동 이동
                 dtFilterStatus: 'all', dtFilterFault: 'all', // 'all'|'fault'|'maintenance' (비가동 탭 전용 하위 필터)
@@ -1131,6 +1130,7 @@
                             this.oee = summary;
                             this.oeeError = null;
                             await Promise.all([this.loadTeep(), this.loadTeepMatrix(silent), this.loadTeepNonProd()]);
+                            this.loadMeasureQuality();   // 생산효율 페이지에도 같은 무결성 카드(별개 축, 실패해도 무해)
                         } catch (e) {
                             if (seq !== this._oeeSeq) return;
                             this.oeeError = 'OEE 데이터를 불러오지 못했습니다: ' + e.message;
@@ -1138,19 +1138,20 @@
                         return;
                     }
                     try {
-                        const [summary, downtime, ranking, daily, planTime] = await Promise.all([
+                        // plan-time 은 더 이상 호출하지 않는다 — 시간기반 폴백(시프트/자동추정/달력)을 없애면서
+                        // 화면 소비처가 사라졌는데 10초 폴링만 남아 있었다(2026-08-21). 엔드포인트 자체는
+                        // TEEP 매트릭스·사전계산이 계속 쓰므로 서버에는 유지.
+                        const [summary, downtime, ranking, daily] = await Promise.all([
                             this.apiGet('/api/oee/summary?' + fqs),
                             this.apiGet('/api/oee/downtime?' + fqs),
                             this.apiGet('/api/oee/ranking?' + qs),
                             this.apiGet('/api/oee/daily?' + fqs),
-                            this.apiGet('/api/oee/plan-time?' + fqs),
                         ]);
                         if (seq !== this._oeeSeq) return; // stale 응답 폐기
                         this.oee = summary;
                         this.downtime = Array.isArray(downtime) ? downtime : [];
                         this.ranking = Array.isArray(ranking) ? ranking : [];
                         this.dailyData = daily;
-                        this.planTime = planTime;
                         this.oeeError = null;
                     } catch (e) {
                         if (seq !== this._oeeSeq) return;
@@ -1177,17 +1178,29 @@
                         this.mq = null;   // 조용히 비움 — 계측 품질 실패가 OEE 화면을 막지 않는다
                     }
                 },
+                // 수집률 = 정상 CT / 전체 CT — 이 카드의 주 수치(2026-08-21).
+                //   제외율(나쁜 비율)이 아니라 "얼마나 제대로 수집했나"를 앞세운다. OEE 가 CT축으로 바뀌어
+                //   수집된 정상 CT 가 곧 지표의 근거이므로, 그 근거의 양을 보여주는 게 이 카드의 역할이다.
+                mqCollectRate(f) {
+                    if (!f || !f.totalCycles) return null;
+                    return Math.max(0, (f.totalCycles - f.excludedCycles) / f.totalCycles);
+                },
+                get mqLineCollectRate() {
+                    const m = this.mq;
+                    if (!m || !m.totalCycles) return null;
+                    return Math.max(0, m.normalCycles / m.totalCycles);
+                },
                 // 비율 표기 — null(사이클 0건)은 '—'. "제외 0%"로 보이면 수집 정지와 정상 가동이 같은 화면이 된다.
                 mqPct(v) { return v == null ? '—' : (v * 100 < 0.05 && v > 0 ? '<0.1%' : (v * 100).toFixed(1) + '%'); },
                 // 설비별 바 폭 — 임계선 없이 "이 기간 최댓값 대비"로 그린다(상대 비교 전용 축).
                 //   ① 비례 막대(제외/전체)는 0.5% 에서 1px 미만이라 건강한 평시엔 아무 정보도 못 준다.
                 //   ② 고정 임계선 대비는 "몇 %부터 나쁘다"는 없는 기준을 만들어낸다.
                 //   최댓값 기준이면 기준을 발명하지 않고도 설비 간 편중이 바로 읽힌다(원수치는 옆 열).
+                // 바 = 수집률(0~100% 고정 축). 상대 비교가 아니라 "100% 중 얼마"라는 절대 충실도라
+                // 최댓값 정규화가 필요 없다 — 설비 간 비교도 같은 축에서 그대로 된다.
                 mqBarW(rate) {
-                    if (rate == null || rate <= 0) return '0%';
-                    const mx = Math.max(...((this.mq && this.mq.flows) || []).map(f => f.exclusionRate || 0), 0);
-                    if (!(mx > 0)) return '0%';
-                    return Math.max(2, rate / mx * 100).toFixed(1) + '%';
+                    if (rate == null) return '0%';
+                    return Math.max(0, Math.min(100, rate * 100)).toFixed(2) + '%';
                 },
                 // 측정 불가 먼저, 그다음 제외율 내림차순 — 편중된 설비가 위로("어느 설비 IO 부터"를 바로 읽게).
                 // 측정 불가를 맨 위로 올리는 이유: 제외율이 null 이라 정렬 키가 없는데 그게 가장 나쁜 상태다.
@@ -1240,7 +1253,13 @@
                                 normalCycleCount: o.normalCycleCount, failureCount: o.failureCount,
                                 goodCount: o.goodCount, totalCount: o.totalCount,
                             },
-                            availComp: (ac && ac.hasData) ? { mode: ac.mode, runLabel: ac.runLabel, runMs: ac.runMs, runPct: ac.runPct, stopLabel: ac.stopLabel, stopMs: ac.stopMs, stopPct: ac.stopPct } : null,
+                            availComp: (ac && ac.hasData) ? { runLabel: ac.runLabel, runMs: ac.runMs, runPct: ac.runPct, stopLabel: ac.stopLabel, stopMs: ac.stopMs, stopPct: ac.stopPct, maintMs: ac.maintMs, maintPct: ac.maintPct, waitMs: ac.waitMs, waitPct: ac.waitPct } : null,
+                            // 무결성 — 내보낸 표만 봐도 "얼마나 수집된 근거 위의 수치인지" 알 수 있게 동봉.
+                            integrity: this.mq ? {
+                                totalCycles: this.mq.totalCycles, normalCycles: this.mq.normalCycles,
+                                excludedCycles: this.mq.excludedCycles, incompleteCycles: this.mq.incompleteCycles,
+                                unmeasurableFlowCount: this.mq.unmeasurableFlowCount || 0, collectRate: this.mqLineCollectRate,
+                            } : null,
                             faultSegs: this.faultDist.segs.map(s => ({ label: s.label, ms: s.ms, share: s.share })),
                             ranking: this.ranking.map(rk => ({ flowName: rk.flowName, oee: rk.oee, availability: rk.availability, performance: rk.performance, quality: rk.quality, downtimeCount: rk.downtimeCount, downtimeMs: rk.downtimeMs, totalCount: rk.totalCount })),
                             downtime: this.downtime.map(d => ({ startAt: d.startAt, endAt: d.endAt, durationMs: d.durationMs, flowName: d.flowName || d.systemName, deviceName: d.deviceName, isFailure: !!d.isFailure, isNonProd: !!d.isNonProd, detectSource: d.detectSource, status: d.status })),
@@ -1293,9 +1312,12 @@
                     const plannedData = d.slots.map(s => ((s.plannedMs || 0) + (s.otherMs || 0)) / MS); // 유지보수(isFailure=0 계열)
                     // 비생산(제외) — A 분모 밖. 미계측(수신 공백, §3.4)은 어떤 스택에도 채우지 않는다(2026-07-06 결정):
                     // 비생산·가동 어디에도 안 넣어 스택 합 < slotMs → 그만큼 흰 여백으로 남아 "데이터 없음"이 시각 구분된다.
+                    //   2026-08-21: 그 규칙을 미수집 전체로 확장 — 가동을 잔여로 재구성하지 않고 서버 실측(runMs)만 그린다.
                     // (범례에도 미계측 항목 없음 — 별도 데이터셋을 만들지 않으므로.)
                     const nonProdData = d.slots.map(s => (s.nonProdMs || 0) / MS);
-                    const runData = d.slots.map(s => Math.max(0, s.slotMs - (s.failureMs || 0) - (s.otherMs || 0) - (s.unclassifiedMs || 0) - (s.plannedMs || 0) - (s.nonProdMs || 0) - (s.unmeasuredMs || 0)) / MS);
+                    // 가동 = 서버 실측(정상 사이클 구간 ∩ 슬롯). 잔여 계산 금지 — 감지 실패가 가동으로 둔갑한다.
+                    //   스택 합이 slotMs 에 못 미치는 만큼이 미수집이고, 그게 곧 데이터 무결성 카드의 수집률과 이어진다.
+                    const runData = d.slots.map(s => Math.max(0, s.runMs || 0) / MS);
 
                     // 평균 가동시간 선 (비생산 카빙 후 실가동 기준)
                     const avgRun = runData.length > 0 ? runData.reduce((a, b) => a + b, 0) / runData.length : 0;
@@ -1318,7 +1340,7 @@
 
                     const datasets = [
                         // 가동 = 솔리드(파랑) / 정지 3종(고장·유지보수·비생산) = 빗금 → "가동이 아님"을 직관적으로 표시
-                        { label: '가동(근사)', data: runData, backgroundColor: cRun, stack: 's', order: 2 },
+                        { label: '가동(실측)', data: runData, backgroundColor: cRun, stack: 's', order: 2 },   // 잔여 재구성이 아니라 서버 실측(runMs)
                         { label: '고장', data: failureData, backgroundColor: faultHatch, stack: 's', order: 2 },
                         { label: '유지보수', data: plannedData, backgroundColor: maintHatch, stack: 's', order: 2 },
                         // 기본 숨김(2026-07-08 사용자 결정) — 비생산은 A 분모 밖이라 추이에선 기본으로 감추고,
@@ -1798,114 +1820,67 @@
                         ? '<span class="src-chip manual">수동 고정</span>'
                         : '<span class="src-chip auto">14일 평균</span>';
                 },
-                // 가용성 분해 (벽시계 단일모델, 2026-07-06) — 상단 A KPI·추이 세로합·정지 도넛과 항상 일치.
-                //  wallclock : 가동(벽시계) vs 비가동(생산가능−가동 잔여)  (A = 가동 ÷ 생산가능시간)
-                //  폴백      : 가동시간 vs 정지  (A = 가동 ÷ 계획생산시간, 분모=planTime.plannedMs)
+                // 성능 P 손실 분해 — P 값은 그대로 두고 "무엇이 깎았는지"만 병기(2026-08-21).
+                //   L      = Σ실측CT − N × 표준CT
+                //   L_MT   = Σ실측MT − N × (표준CT × 동작비중)
+                //   L_WT   = Σ실측WT − N × (표준CT × (1−동작비중))
+                //   ct = mt + wt 가 행마다 성립하고 표준MT+표준WT=표준CT 이므로 L = L_MT + L_WT 가 정확히 성립한다.
+                //   부호가 반대면(한쪽 +, 한쪽 −) 상쇄 — P 가 100% 여도 동작이 열화 중일 수 있어 따로 알린다.
+                get perfLoss() {
+                    const o = this.oee || {};
+                    const n = Math.max(0, o.normalCycleCount || 0);
+                    const stdCt = Math.max(0, o.ctThresholdMs || 0);
+                    const ratio = (typeof o.mtRatio === 'number') ? Math.min(1, Math.max(0, o.mtRatio)) : null;
+                    const mt = Math.max(0, o.normalMtMs || 0), wt = Math.max(0, o.normalWtMs || 0);
+                    if (!n || !stdCt || ratio == null || (mt + wt) <= 0) return { has: false };
+                    const lossMt = mt - n * stdCt * ratio;
+                    const lossWt = wt - n * stdCt * (1 - ratio);
+                    const loss = lossMt + lossWt;
+                    const offset = (lossMt > 0 && lossWt < 0) || (lossMt < 0 && lossWt > 0);
+                    return {
+                        has: true, loss, lossMt, lossWt, offset,
+                        // 상쇄가 아닐 때만 "손실 중 몇 %가 동작 탓인지"가 의미를 가진다.
+                        mtShare: (!offset && Math.abs(loss) > 0) ? Math.round(Math.abs(lossMt) / Math.abs(loss) * 100) : null,
+                    };
+                },
+                // 부호 있는 시간 표기 — +38분 / −12분
+                signedDur(ms) { return (ms >= 0 ? '+' : '−') + this.durShort(Math.abs(ms)); },
+
+                // 가용성 분해 — 상단 A KPI·정지 도넛과 항상 일치(같은 입력).
                 get availComp() {
+                    // CT축 누적 정산(2026-08-21) — 분모 = Σ정상CT + Σ비가동CT + Σ대기CT. 상단 A KPI 와 동일 SSOT.
+                    //   벽시계 모델을 걷어낸 이유: 분자(사이클)와 분모(달력)가 다른 축이라 미분류 잔여가 생기고,
+                    //   사이클 0건이면 달력근사가 A=100% 를 만들어냈다. 같은 축이면 잔여가 정의상 0이고
+                    //   0건이면 그냥 산출 불가다. "얼마나 수집했나"는 아래 데이터 무결성 카드가 따로 보고한다.
                     const o = this.oee || {};
                     const r1 = (x) => Math.round(x * 10) / 10;
-                    if (o.availabilitySource === 'wallclock') {
-                        const run = Math.max(0, o.runWallMs || 0);
-                        const avail = Math.max(0, o.availableWallMs || 0);
-                        const down = Math.max(0, avail - run);
-                        // 비가동 3분할(2026-07-14) — '정지 구성' 도넛·시간별 추이와 동일 소스(서버 벽시계 귀속):
-                        //   유지보수 = 비가동 ∩ 유지보수 이벤트 / 고장 = 비가동 ∩ 감지 정지(failureCount 와 같은 모집단) /
-                        //   가동간 공백 = 잔여(임계 미만 사이클 간 미세 슬랙). 공백은 감지된 정지가 아니라 크게 보면 가동
-                        //   흐름의 일부 — 고장(빨강)이 아닌 밝은 하늘색으로 따로 표기하되, A 숫자에는 계속 손실로 계상(정직).
-                        //   시간별 추이는 같은 값을 아예 가동에 포함해 그린다(서버 daily 가 고장=감지 정지만 적재).
-                        const maint = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
-                        const fault = Math.min(Math.max(0, down - maint), Math.max(0, o.downFaultWallMs || 0));
-                        const rest = Math.max(0, down - maint - fault);
-                        // 2026-08-19 정산 모델 정리 — 잔여(rest)를 두 갈래로 쪼갠다:
-                        //   ① 대기(공백) = 라인 내 다른 설비 고장으로 이 설비가 서 있던 시간(doc/25 형제 대기).
-                        //      OEE 에서 '공백'이라 부르는 건 이것 하나뿐 — 종전엔 미분류 잔여까지 '가동간 공백'으로
-                        //      뭉쳐 설비 간 빈 시간처럼 읽혔다.
-                        //   ② 미정산 = 계측 품질(사이클 누락·제외) 때문에 어느 칸에도 넣을 수 없는 시간.
-                        //      별도 카테고리(색)로 그리지 않고 정산 합계를 100% 미만으로 떨어뜨려 드러낸다 —
-                        //      "모르는 시간"에 상태를 주장하지 않으면서 누락 규모가 바에서 바로 보인다.
-                        const wait = Math.min(rest, Math.max(0, o.waitSlackWallMs || 0));
-                        const unacct = Math.max(0, rest - wait);
-                        const failCount = Math.max(0, o.failureCount || 0);
-                        const cycles = Math.max(0, o.normalCycleCount || 0);
-                        const runPct = avail > 0 ? r1(run / avail * 100) : 0;
-                        const maintPct = avail > 0 ? r1(maint / avail * 100) : 0;
-                        const faultPct = avail > 0 ? r1(fault / avail * 100) : 0;
-                        const waitPct = avail > 0 ? r1(wait / avail * 100) : 0;
-                        const unacctPct = avail > 0 ? r1(unacct / avail * 100) : 0;
-                        return {
-                            mode: 'wallclock', hasData: avail > 0,
-                            runMs: run, stopMs: maint + fault, runPct, stopPct: r1(maintPct + faultPct),
-                            faultMs: fault, maintMs: maint, faultPct, maintPct,
-                            waitMs: wait, waitPct,
-                            unacctMs: unacct, unacctPct,
-                            // 정산 합계 — 100% 미만이면 그 차이가 계측 누락(미정산)이다.
-                            accountedPct: r1(runPct + maintPct + faultPct + waitPct),
-                            runLabel: '가동 (생산가능시간 내)',
-                            stopLabel: '비가동 · 고장',
-                            runNote: cycles + '회', stopNote: failCount + '건',
-                            subtitle: '가동 ÷ 생산가능시간(캘린더 − 비생산 − 미계측)',
-                        };
-                    }
-                    // 폴백(shift/auto/calendar): 계획시간 분모 기준 — planTime 사용.
-                    const pt = this.planTime || {};
-                    const planned = Math.max(0, pt.plannedMs || 0);
-                    const run = Math.max(0, Math.min(planned, pt.runtimeMs || 0));
-                    const stop = Math.max(0, planned - run);
-                    const runPct = planned > 0 ? r1(run / planned * 100) : 0;
-                    const srcMap = { shift: '사용자 시프트', auto: '14일 자동추정', calendar: '달력근사' };
-                    const srcLabel = srcMap[o.availabilitySource] || '달력근사';
+                    // 구간 union 총량 — CT 단순 합은 오염 시 서로 겹쳐 달력을 넘는다(A 산출과 동일 입력).
+                    const run = Math.max(0, o.runWallMs || 0);
+                    const idle = Math.max(0, o.idleCalendarMs || 0);
+                    const wait = Math.max(0, o.waitSlackWallMs || 0);   // 대기(고장 여파)
+                    const maint = Math.min(idle, Math.max(0, o.idleMaintCtMs || 0));
+                    const fault = Math.max(0, idle - maint);
+                    const denom = run + idle + wait;
+                    const pct = (x) => denom > 0 ? r1(x / denom * 100) : 0;
+                    const failCount = Math.max(0, o.failureCount || 0);
+                    const cycles = Math.max(0, o.normalCycleCount || 0);
                     return {
-                        mode: 'fallback', hasData: planned > 0,
-                        runMs: run, stopMs: stop, runPct, stopPct: planned > 0 ? r1(100 - runPct) : 0,
-                        faultMs: stop, maintMs: 0, faultPct: planned > 0 ? r1(100 - runPct) : 0, maintPct: 0,
-                        waitMs: 0, waitPct: 0, unacctMs: 0, unacctPct: 0, accountedPct: 100,   // 대기·미정산은 벽시계 모델 전용
-                        runLabel: '가동시간', stopLabel: '정지 (비계획)',
-                        runNote: null, stopNote: null, sourceLabel: srcLabel,
-                        subtitle: '가동시간 ÷ 계획생산시간 · 계획시간 폴백(' + srcLabel + ') — 가동 표본 부족',
-                        hint: '가동 표본 부족 — <b>계획시간 폴백</b>(' + srcLabel + ') 근사 중, 정상 가동이 쌓이면 가동시간 기반으로 자동 전환됩니다.',
+                        hasData: denom > 0,
+                        runMs: run, runPct: pct(run),
+                        faultMs: fault, faultPct: pct(fault),
+                        maintMs: maint, maintPct: pct(maint),
+                        waitMs: wait, waitPct: pct(wait),
+                        stopMs: fault + maint, stopPct: r1(pct(fault) + pct(maint)),
+                        denomMs: denom,
+                        runLabel: '가동 (정상 가동시간 합)',
+                        stopLabel: '비가동 · 고장',
+                        runNote: cycles + '회', stopNote: failCount + '건',
+                        subtitle: 'Σ정상 가동시간 ÷ (Σ정상 + Σ비가동 + Σ대기) — 수집된 가동만 근거',
                     };
                 },
                 // 계획시간 폴백 체인 3단계 (활성/건너뜀/대기)
-                get planChainSteps() {
-                    const pt = this.planTime;
-                    const active = pt ? pt.source : 'calendar';
-                    const order = ['shift', 'auto', 'calendar'];
-                    const ai = order.indexOf(active);
-                    const defs = [
-                        { key: 'shift', t: '① 사용자 시프트', d: '대시보드 시프트 설정 (UserSet)' },
-                        { key: 'auto', t: '② 14일 활동 자동추정', d: '히스토그램 활동창 × 활동일수 (RAM)' },
-                        { key: 'calendar', t: '③ 달력근사', d: '조회 기간 전체 (최후 폴백)' },
-                    ];
-                    return defs.map((s, i) => {
-                        let cls = 'up-chain-step', badge;
-                        if (s.key === active) { cls += ' active'; badge = '✓ 적용 중'; }
-                        else if (i < ai) {
-                            cls += ' dim';
-                            badge = s.key === 'shift' ? (pt && pt.shiftUserSet ? '계획시간 0 — 건너뜀' : '미설정 — 건너뜀')
-                                : s.key === 'auto' ? (pt && pt.autoAvailable ? '계획시간 0 — 건너뜀' : '데이터 부족 — 건너뜀') : '대기';
-                        } else { cls += ' dim'; badge = '대기'; }
-                        return { key: s.key, t: s.t, d: s.d, cls, badge };
-                    });
-                },
-                // 14일 히스토그램 막대 (활동창 = 피크 10% 이상 inband 강조)
-                get histBars() {
-                    const h = (this.planTime && this.planTime.histogram) || [];
-                    if (!h.length || h.every(v => !v)) return Array.from({ length: 24 }, () => ({ h: 2, cls: 'b' }));
-                    const max = Math.max(...h, 0);
-                    const thr = max * 0.10;
-                    return h.map(v => ({ h: max > 0 ? Math.max(2, Math.round(v / max * 100)) : 2, cls: (max > 0 && v > 0 && v >= thr) ? 'b inband' : 'b' }));
-                },
-                get planChainFoot() {
-                    const pt = this.planTime;
-                    if (!pt) return '';
-                    const hrs = (ms) => (ms / 3600000).toFixed(1) + '시간';
-                    const p2 = (x) => String(x).padStart(2, '0');
-                    if (pt.source === 'auto')
-                        return `자동추정${pt.autoAvailable ? ` · 활동 ${p2(pt.autoStartHour)}–${p2(pt.autoEndHour)}시` : ''} · 활동일 ${pt.activeDays}일 · 계획시간 ${hrs(pt.plannedMs)} · 가동 ${hrs(pt.runtimeMs)}`;
-                    if (pt.source === 'shift')
-                        return `사용자 시프트 ${pt.shiftLabel} · 계획시간 ${hrs(pt.plannedMs)} · 가동 ${hrs(pt.runtimeMs)}`;
-                    return `달력근사 · 기간 ${hrs(pt.plannedMs)} · 가동 ${hrs(pt.runtimeMs)}`;
-                },
+                // 계획시간 폴백 체인 UI(planChainSteps/histBars/planChainFoot)는 2026-08-21 제거 —
+                // A 가 CT축 단일모델이 되며 시프트·자동추정·달력 폴백 자체가 없어졌고, 소비하는 마크업도 0건이었다.
 
                 // ── 정지 이벤트 로그 (도넛 [로그 보기 및 설정]) — 팝업 다이얼로그(showDowntimeLog) ──
                 // 버튼에서 직접 show=true; 로 여는 것이 정본이나 하위호환용 토글 유지.

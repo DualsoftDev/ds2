@@ -300,7 +300,12 @@ public class DspRepositoryAdapter : IDspRepository
                     matchOp       TEXT     NOT NULL,
                     matchValue    TEXT,
                     actualValue   TEXT     NOT NULL,
-                    sourceLogId   INTEGER
+                    sourceLogId   INTEGER,
+                    -- 해소 시각(2026-08-21). 조건이 더 이상 만족되지 않게 된 순간 채운다.
+                    --   정지 분류(doc/25)의 미해소 usertag = 라인 고장 규칙을 과거 기간 조회에서도
+                    --   재현하려면 이 값이 필요하다. 종전엔 발생 시점만 남는 점 이벤트라 실시간
+                    --   active-alarms 로만 알 수 있었고, 조회마다 판정이 달라질 수 있었다.
+                    clearedAt     TEXT
                 )";
 
             const string createUserTagAlertLogIdxTime =
@@ -366,6 +371,7 @@ public class DspRepositoryAdapter : IDspRepository
             // M2 — 옛 EV2 스키마 마이그레이션. CREATE TABLE IF NOT EXISTS 는 기존 테이블의 컬럼을
             // 추가하지 않으므로, 우리 코드가 쓰는 컬럼이 누락되어 있으면 SQL 에러가 fire-and-forget
             // 으로 흡수되어 통계가 영원히 0 으로 남는다. 누락된 컬럼만 ALTER 로 보충.
+            await EnsureColumnAsync(conn, "userTagAlertLog", "clearedAt", "TEXT");
             await EnsureColumnAsync(conn, "dspCall", "previousGoingTime", "INTEGER");
             await EnsureColumnAsync(conn, "dspCall", "averageGoingTime",  "REAL");
             await EnsureColumnAsync(conn, "dspCall", "stdDevGoingTime",   "REAL");

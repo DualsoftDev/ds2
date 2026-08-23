@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Services;
@@ -405,39 +405,31 @@ public class OeeMathTests
         Assert.True(OeeMath.ResolveLogStopClass(0, 0, 0.50).IsWait);
     }
 
-    // ── 무사이클 임계 폴백 체인 (doc/23 §6 Phase 1) ─────────────────────────
+    // ── 무사이클 감지 임계 ──────────────────────────────────────────────────
+    // 2026-08-21 통일: 폴백 체인(3×gap' ▸ 3×평균CT ▸ 120s)을 폐기하고 감지 임계 = 14일 평균 CT ×
+    // 비가동 배수(사용자 설정)로 집계 판정과 하나로 합쳤다. 종전엔 감지(109초)와 계상(213초)이 어긋나
+    // "정지 로그엔 뜨는데 고장 건수엔 없는" 구간을 만들었다. 따라서 별도 체인 테스트는 폐기하고,
+    // 감지 임계의 계약은 집계 판정 테스트(ClassifyCycle / IsLongStopNonProduction)가 그대로 커버한다.
 
     [Fact]
-    public void NoCycleThreshold_chain_gap_median_first()
-        // ① gap' 학습됨 → 3×gap' (floor 이상이면 그대로)
-        => Assert.Equal(60_000, OeeMath.ResolveNoCycleThresholdMs(
-            gapMedianMs: 20_000, ctAvgMs: 5_000, floorMs: 30_000, bootstrapMs: 120_000));
+    public void NoCycle_detection_threshold_equals_downtime_criterion()
+    {
+        // 감지 임계와 집계 판정이 같은 식(평균CT × 배수)을 쓰는지 — 통일의 계약.
+        const double ctAvg = 42_000, mult = 2.5;
+        var boundary = ctAvg * mult;
+        Assert.Equal(105_000, boundary);
+        // 경계 초과 사이클은 비가동, 미만은 정상 — 같은 경계로 갈린다.
+        Assert.Equal(OeeMath.CycleClass.Downtime, OeeMath.ClassifyCycle(mt: 1_000, ct: (int)boundary + 1, ctThresholdMs: ctAvg, idleMultiplier: mult));
+        Assert.Equal(OeeMath.CycleClass.Normal,   OeeMath.ClassifyCycle(mt: 1_000, ct: (int)boundary - 1, ctThresholdMs: ctAvg, idleMultiplier: mult));
+    }
 
     [Fact]
-    public void NoCycleThreshold_chain_floor_clamps_fast_flows()
-        // ① 초고속 flow(gap' 500ms) → 3×gap'=1.5s 지만 floor 30s 로 클램프(잡음성 미세정지 방지)
-        => Assert.Equal(30_000, OeeMath.ResolveNoCycleThresholdMs(
-            gapMedianMs: 500, ctAvgMs: 5_000, floorMs: 30_000, bootstrapMs: 120_000));
-
-    [Fact]
-    public void NoCycleThreshold_chain_ct_avg_fallback()
-        // ② gap' 없음 → 3×14일평균CT (여전히 per-flow)
-        => Assert.Equal(150_000, OeeMath.ResolveNoCycleThresholdMs(
-            gapMedianMs: 0, ctAvgMs: 50_000, floorMs: 30_000, bootstrapMs: 120_000));
-
-    [Fact]
-    public void NoCycleThreshold_chain_bootstrap_when_unlearned()
-        // ③ 학습 전무(콜드스타트) → 부트스트랩(기존 NoCycleSeconds)
-        => Assert.Equal(120_000, OeeMath.ResolveNoCycleThresholdMs(
-            gapMedianMs: 0, ctAvgMs: 0, floorMs: 30_000, bootstrapMs: 120_000));
-
-    [Fact]
-    public void NoCycleThreshold_slow_flow_no_false_onset()
+    public void NoCycle_slow_flow_no_false_onset()
     {
         // 회귀 핵심: 주기 200s(>120s) 느린 flow — 구 고정 120s 면 정상 gap(180s)에서 거짓 onset.
-        // gap'=180s 학습 시 임계 540s → 정상 gap 은 안 걸리고, 진짜 정지(600s)만 걸린다.
-        var thr = OeeMath.ResolveNoCycleThresholdMs(180_000, 200_000, 30_000, 120_000);
-        Assert.Equal(540_000, thr);
+        // 통일 임계(평균CT 200s × 2.5 = 500s)로도 정상 gap 은 안 걸리고 진짜 정지(600s)만 걸린다.
+        var thr = 200_000 * 2.5;
+        Assert.Equal(500_000, thr);
         Assert.True(180_000 < thr);   // 정상 gap → onset 아님
         Assert.True(600_000 >= thr);  // 진짜 정지 → onset
     }
@@ -953,29 +945,32 @@ public class OeeMathTests
     [Fact]
     public void No_signal_falls_back_to_pure_ct_rule()
     {
-        // 라인 전체 무신호 — 현행 순수 CT 규칙: 기준 이상 비생산 / 미만 비가동.
+        // 라인 전체 무신호 — 기준 이상은 비생산, 미만은 <b>대기</b>(2026-08-21 폴백 전환).
+        //   종전 Down(고장)은 라인 정지 1회를 설비 수만큼 고장으로 부풀렸다(실측 3분 정지 → 6건).
+        //   고장은 MT 과주행 / 자기 flow abnormal / 미해소 usertag 로만 잡는다.
         Assert.Equal(OeeMath.StopClass.NonProduction, OeeMath.ClassifyStopWindow(
             true, false, false, false, 41 * 60_000, Thr));
-        Assert.Equal(OeeMath.StopClass.Down, OeeMath.ClassifyStopWindow(
+        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
             true, false, false, false, 300_000, Thr));
     }
 
     [Fact]
     public void Inactive_rules_ignore_signals_entirely()
     {
-        // 커버리지 게이트/설정 OFF — 신호 인자 무시, 순수 CT 규칙만(§2.4 폴백).
+        // 커버리지 게이트/설정 OFF — 신호 인자 무시, CT 규칙만(§2.4 폴백). 경계 미만은 대기.
         Assert.Equal(OeeMath.StopClass.NonProduction, OeeMath.ClassifyStopWindow(
             signalRulesActive: false, hasOwnSignal: true, lineHasCulprit: true, lineHasAnySignal: true,
             41 * 60_000, Thr));
-        Assert.Equal(OeeMath.StopClass.Down, OeeMath.ClassifyStopWindow(
+        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
             false, true, true, true, 300_000, Thr));
     }
 
     [Fact]
     public void No_threshold_never_promotes_to_nonproduction()
     {
-        // 표본 부족(thr=0) — 승격 판정 불가 → 다운타임 유지(가짜 비생산 금지, doc/21 §10). 형제면 대기 공백.
-        Assert.Equal(OeeMath.StopClass.Down, OeeMath.ClassifyStopWindow(
+        // 표본 부족(thr=0) — 승격 판정 불가 → 비생산으로 안 올린다(가짜 비생산 금지, doc/21 §10).
+        //   무신호 폴백이므로 대기. 고장으로 세지 않는다(고장 근거가 없다).
+        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
             true, false, false, false, 41 * 60_000, 0));
         Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
             true, false, true, true, 41 * 60_000, 0));

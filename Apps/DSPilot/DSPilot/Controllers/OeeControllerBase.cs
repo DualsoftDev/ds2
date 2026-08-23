@@ -571,23 +571,28 @@ public abstract class OeeControllerBase : ControllerBase
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
             maintIntervals: maintIv);
 
-        // 가용성 A = 벽시계 단일모델(2026-07-06): 가동 ÷ 생산가능시간. 추이·정산·도넛 3뷰 공통 SSOT.
-        double? availability; string? availNote; string? availabilitySource; double runtimeMs;
-        var (wallA, wallANote) = OeeMath.ComputeWallClockAvailability(agg.RunWallMs, agg.AvailableWallMs);
-        if (agg.HasThreshold && wallA is not null)
+        // 가용성 A = CT축 단일모델(2026-08-21). 추이·정산·도넛 3뷰 공통 SSOT.
+        //   수집된 정상 CT 만 근거로 삼는다 — 벽시계 폴백(시프트/자동추정/달력근사) 제거.
+        //   달력근사는 "정지가 감지되지 않았다"를 "100% 가동"으로 번역해, 사이클이 0건인 설비(=측정 자체가
+        //   안 되는 설비)를 만점으로 표시했다(실측 F6). 이제 분모가 0이면 숫자를 만들지 않고 산출 불가로 둔다.
+        //   ★ 입력은 CT 의 <b>합</b>이 아니라 <b>합집합(구간 union)</b> 이어야 한다 — 수집이 오염되면 CT 가
+        //   서로 겹쳐(실측 2026-08-21: 평균 ct 88.6s vs 실제 사이클 간격 38.7s, Σct 7.63h > 창 3.35h)
+        //   단순 합이 달력을 넘어선다. union 은 물리적으로 창을 넘을 수 없어 오염에 견고하다.
+        var (cycleA, cycleANote) = OeeMath.ComputeCycleAvailability(
+            agg.RunWallMs, agg.IdleCalendarMs, agg.WaitSlackWallMs);
+        double? availability = cycleA;
+        string? availNote = cycleANote;
+        string? availabilitySource = "cycle";
+        double runtimeMs = agg.RunWallMs;
+
+        // 동작 비중(Σmt/Σct) — 표준MT = 표준CT × 비중, 표준WT = 표준CT × (1−비중) 으로 쓰면
+        // 표준MT + 표준WT = 표준CT 가 항등 성립한다(감쇠 가중과 무관).
+        double? mtRatio = null;
         {
-            availability = wallA;
-            availNote = wallANote;
-            availabilitySource = "wallclock";
-            runtimeMs = agg.RunWallMs;
-        }
-        else
-        {
-            var av = await ResolveAvailabilityAsync(flowName, fromUtc, toUtc, downtimeMs, periodMs, ct);
-            availability = av.Availability;
-            availNote = (av.Note ?? "") + " (생산가능시간 0 또는 임계 미보유 — 시간기반 폴백).";
-            availabilitySource = av.Source;
-            runtimeMs = av.RuntimeMs;
+            var ratios = await _ctStats.ComputeMtRatioAsync(excludeUntilUtc: DateTime.Today.ToUniversalTime());
+            foreach (var (k, v) in await _ctStats.ComputeMtRatioAsync()) ratios.TryAdd(k, v);
+            if (flowName is not null) { if (ratios.TryGetValue(flowName, out var r1)) mtRatio = r1; }
+            else if (ratios.Count > 0) mtRatio = ratios.Values.Average();
         }
 
         var (performance, perfNote) = OeeMath.ComputeCyclePerformance(
@@ -634,10 +639,16 @@ public abstract class OeeControllerBase : ControllerBase
             Mttr: mttr,
             MttrNote: mttrNote,
             NormalCtMs: agg.NormalCtMs,
+            NormalMtMs: agg.NormalMtMs,
+            NormalWtMs: agg.NormalWtMs,
+            MtRatio: mtRatio,
             IdleCtMs: agg.IdleCtMs,
             NormalCycleCount: agg.HasThreshold ? agg.NormalCount : (int?)null,
             CtThresholdMs: agg.CtThresholdMs,
-            PlannedDownMs: agg.PlannedCtMs,
+            // 표시용 비생산 시간은 <b>구간 union</b>(NonProdWallMs) — CT 합산(PlannedCtMs)은 오염 시 사이클끼리
+            // 겹쳐 창을 넘는다(실측 2026-08-21: 15.4시간 창에 70.7시간). A·TEEP 와 같은 축으로 맞춘다.
+            //   PlannedCtMs 는 TEEP 분자 카빙 등 내부 계산에만 남긴다.
+            PlannedDownMs: agg.NonProdWallMs,
             PlannedStopSource: agg.HasThreshold ? plannedSource : null,
             CtSampleCount: agg.HasThreshold ? agg.CtSampleMin : (int?)null,
             CtSampleLow: agg.HasThreshold && agg.CtSampleMin < OeeCtStatsService.ConfidentMinCleanCycles,
@@ -778,7 +789,10 @@ public abstract class OeeControllerBase : ControllerBase
         //   A 에는 영향 없다(슬랙 잔여 그대로). 정지 로그가 '대기(공백)'으로 표시하고, 사이클당 공백 환산에서
         //   빼기 위한 소스일 뿐이다. WaitSlackWallMs ⊆ EventSlackWallMs (전자는 신호 기반 대기 성분만).
         List<(string? Flow, double S, double E)>? SlackScoped = null,
-        double EventSlackWallMs = 0);
+        double EventSlackWallMs = 0,
+        // ── 성능 P 손실 분해(2026-08-21) — 정상 사이클의 실측 MT/WT 합(클립 없음, ct=mt+wt 항등 유지) ──
+        double NormalMtMs = 0,
+        double NormalWtMs = 0);
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } public long NonProdNormalCt { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
@@ -952,6 +966,10 @@ public abstract class OeeControllerBase : ControllerBase
         var toStr = toUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
 
         double normalCtMs = 0, idleCtMs = 0, plannedCtMs = 0, perfNumerator = 0;
+        // 성능 P 손실을 동작(MT)/대기(WT)로 가르기 위한 실측 합 — 클립하지 않는다.
+        //   ct = mt + wt 가 행마다 성립해야 손실 분해가 정확히 덧셈으로 갈리기 때문(L = L_MT + L_WT).
+        //   경계 사이클 1~2건의 오차는 진단 용도라 무해하고, A 계산에는 쓰지 않는다.
+        double normalMtMs = 0, normalWtMs = 0;
         int normalCount = 0, dtEventCount = 0;
         int ctSampleMin = int.MaxValue;
         bool hasThreshold = false;
@@ -1170,10 +1188,12 @@ public abstract class OeeControllerBase : ControllerBase
                     WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow", p);
                 if (aggRow is not null)
                 {
-                    normalCtMs += aggRow.NormalCt;
+                    // 건수만 SQL 집계에서 취한다. CT 합은 아래 루프에서 기간 클립 후 누적 —
+                    // SQL 의 SUM(ct) 는 기간 시작 이전으로 뻗은 사이클을 통째로 더해, 짧은 창에서
+                    // "캘린더 12시간인데 비생산 6일 14시간" 같은 초과를 만든다(2026-08-21 실측, TEEP 시간분해).
+                    // 사이클은 [rec−ct, rec] 구간이므로 창과의 교집합만이 그 기간에 속한 시간이다.
                     normalCount += (int)aggRow.NormalCount;
                     perfNumerator += aggRow.NormalCount * thr;
-                    plannedCtMs += aggRow.NonProdNormalCt;
                 }
 
                 // 벽시계 가동 산출 위해 정상 사이클 구간은 항상 조회(collectRunIntervals/normalCycles 는 부가 수집).
@@ -1192,6 +1212,20 @@ public abstract class OeeControllerBase : ControllerBase
                             // NormalCt(SQL)와 동일 기준 — 비생산 시간대 시작 사이클은 KPI 가동에서 빠지므로 여기서도 제외.
                             if (normalCycles is not null && !IsPlannedTimeOfDay(rrec - rc, plannedWindows))
                                 normalCycles.Add((rrec - rc, rc));
+                            // 기간 클립분만 CT 축에 적립(위 주석 참조). 시작 시각 판정(비생산 시간대)은 원래
+                            // 시작으로 하고, 더하는 길이만 창 교집합으로 자른다.
+                            var clipped = Math.Min(rrec, periodEndMs) - Math.Max(rrec - rc, periodStartMs);
+                            if (clipped <= 0) continue;
+                            if (IsPlannedTimeOfDay(rrec - rc, plannedWindows)) plannedCtMs += clipped;
+                            else
+                            {
+                                normalCtMs += clipped;
+                                if (r.Mt is long mtv && mtv >= 0 && mtv <= rc)
+                                {
+                                    normalMtMs += mtv;
+                                    normalWtMs += rc - mtv;   // wt = ct − mt (행 단위 항등)
+                                }
+                            }
                         }
                 }
                 // 벽시계 가동/비가동은 비생산 확정 후 패스 2(루프 아래)에서 — 여기선 flow별 정상 사이클 구간만 보관.
@@ -1213,9 +1247,18 @@ public abstract class OeeControllerBase : ControllerBase
                     cif.Add((startMs, rec));
                     // 미계측 겹침 카빙(§3.4) — 수신 공백과 겹친 부분은 어떤 상태도 주장하지 않는다. 비생산 10× 판정도
                     // 계측된 잔여 길이로만 한다(보수 — 모르는 시간이 임계를 채워 정지를 비생산으로 승격시키지 않게).
+                    // 기간 클립 먼저 — 창 밖으로 뻗은 부분은 이 기간의 시간이 아니다(①과 같은 이유).
+                    //   startMs/rec 원값은 분류·로그 표시에 그대로 쓰고, 길이 적립만 교집합으로 자른다.
+                    var rowSpan = new List<(double S, double E)>();
+                    {
+                        var cs = Math.Max(startMs, periodStartMs);
+                        var ce = Math.Min(rec, periodEndMs);
+                        if (ce > cs) rowSpan.Add((cs, ce));
+                    }
+                    if (rowSpan.Count == 0) continue;
                     var rowSegs = unmeasured.Count > 0
-                        ? Intervals.Subtract(new List<(double S, double E)> { (startMs, rec) }, unmeasured)
-                        : new List<(double S, double E)> { (startMs, rec) };
+                        ? Intervals.Subtract(rowSpan, unmeasured)
+                        : rowSpan;
                     var measuredMs = Intervals.Total(rowSegs);
                     if (measuredMs <= 0) continue;                              // 전 구간 미계측 — 비가동/비생산/onset 전부 미계상
                     if (IsPlannedTimeOfDay(startMs, plannedWindows))
@@ -1329,7 +1372,13 @@ public abstract class OeeControllerBase : ControllerBase
                     // 진짜 장기 정지(내부에 사이클 없음)는 차감 대상이 없어 종전과 완전히 동일하게 1건으로 남는다.
                     var minGapMs = thrGap > 0 ? thrGap * idleMult : 0;
                     var gaps = new List<(double S, double E)>();
-                    foreach (var g in Intervals.Subtract(byFlow.Select(r => (r.S, r.E)).ToList(), gapDeduct))
+                    // 갭도 기간 클립 — 이벤트가 창 밖에서 시작/종료해도 이 기간에 속한 몫만 적립한다
+                    //   (사이클 CT 클립과 같은 이유, 2026-08-21).
+                    var gapSpans = byFlow
+                        .Select(r => (S: Math.Max(r.S, periodStartMs), E: Math.Min(r.E, periodEndMs)))
+                        .Where(r => r.E > r.S)
+                        .ToList();
+                    foreach (var g in Intervals.Subtract(gapSpans, gapDeduct))
                     {
                         if (g.E - g.S >= minGapMs) { gaps.Add(g); continue; }
                         // 버린 조각 — 슬랙으로 흘려보내되 흔적을 남긴다. 종전엔 어떤 구간·스칼라에도 남지 않아
@@ -1496,7 +1545,18 @@ public abstract class OeeControllerBase : ControllerBase
             downFaultWallIntervals.AddRange(flowFaultIv);
         }
 
-        var idleCalUnion = Intervals.Union(idleCalIntervals);
+        // 비가동 union — 비생산·미계측과 겹치면 안 된다(그 시간은 이미 분모 밖으로 카빙된 몫).
+        //   겹친 채로 두면 TEEP 시간분해 합이 달력을 넘는다(실측 2026-08-21: 3.43h 창에 26초 초과).
+        //   우선순위는 미계측 ▸ 비생산 ▸ 비가동 — 가동(RunWallMs)도 같은 규칙으로 availF 에 클립돼 있다.
+        //   가동(정상 사이클)과도 겹치면 안 된다 — 오염된 이력에선 정상 사이클 구간이 정지 사이클 구간을
+        //   덮을 수 있고(CT 겹침), 그대로 두면 run+down 이 달력을 넘는다(실측: 3.47h 창에 26초 초과).
+        //   실측 사이클이 있는 시간은 정지로 계상하지 않는다는 기존 방어선(우진 현장 2026-07-29)과 같은 규칙.
+        var idleCalUnion = Intervals.Subtract(
+            Intervals.Union(idleCalIntervals),
+            Intervals.Union(nonProdFlat
+                .Concat(unmeasured)
+                .Concat(flowRunByFlow.Values.SelectMany(v => v))
+                .ToList()));
         return new CycleAgg(normalCtMs, idleCtMs, normalCount, dtEventCount, displayThr, onsets, repairs, true, plannedCtMs,
             ctSampleMin == int.MaxValue ? 0 : ctSampleMin, nonProdFlat,
             runIntervals is not null ? Intervals.Union(runIntervals) : null,
@@ -1511,6 +1571,7 @@ public abstract class OeeControllerBase : ControllerBase
             DownFaultWallMs: downFaultWallMs, DownFaultWallIntervals: downFaultWallIntervals,
             DowntimeCycles: downtimeCycles,
             NonProdScoped: nonProdScoped, WaitScoped: waitScoped,
+            NormalMtMs: normalMtMs, NormalWtMs: normalWtMs,
             WaitWallMs: waitWallMs, WaitSlackWallMs: waitSlackCtMs,
             SlackScoped: slackScoped, EventSlackWallMs: eventSlackWallMs);
     }
@@ -1841,6 +1902,7 @@ public abstract class OeeControllerBase : ControllerBase
     {
         var (idleMult, _) = ResolveCtMultipliers();
         var rows = new List<OeeMeasureQualityRowDto>();
+
 
         var dbPath = _pathResolver.GetSharedDbPath();
         if (System.IO.File.Exists(dbPath))

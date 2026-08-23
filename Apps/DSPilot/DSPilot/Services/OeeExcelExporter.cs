@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Globalization;
@@ -87,6 +87,23 @@ public static class OeeExcelExporter
             r = SectionHead(ws, r, header, "가용성 시간 구성", "값");
             r = LabelValueRow(ws, r, ac.RunLabel, $"{FormatMs(ac.RunMs)}  ({FormatOne(ac.RunPct)}%)");
             r = LabelValueRow(ws, r, ac.StopLabel, $"{FormatMs(ac.StopMs)}  ({FormatOne(ac.StopPct)}%)");
+            if (ac.MaintMs > 0)
+                r = LabelValueRow(ws, r, "비가동 · 유지보수", $"{FormatMs(ac.MaintMs)}  ({FormatOne(ac.MaintPct)}%)");
+            if (ac.WaitMs > 0)
+                r = LabelValueRow(ws, r, "대기 (고장 여파)", $"{FormatMs(ac.WaitMs)}  ({FormatOne(ac.WaitPct)}%)");
+            r++;
+        }
+
+        // ── 데이터 무결성(수집률) — 지표와 별개 축이지만 판단에 필요해 같은 시트에 남긴다 ──
+        if (model.Integrity is { } ig && ig.TotalCycles > 0)
+        {
+            r = SectionHead(ws, r, header, "데이터 무결성", "값");
+            r = LabelValueRow(ws, r, "정상 수집률",
+                $"{(ig.CollectRate is double cr ? FormatOne(cr * 100) + "%" : "-")}  ({ig.NormalCycles:N0} / {ig.TotalCycles:N0} 가동)");
+            r = LabelValueRow(ws, r, "정지로 계상", $"{ig.ExcludedCycles:N0} 건");
+            r = LabelValueRow(ws, r, "완료신호 미검출", $"{ig.IncompleteCycles:N0} 건");
+            if (ig.UnmeasurableFlowCount > 0)
+                r = LabelValueRow(ws, r, "측정 불가 설비", $"{ig.UnmeasurableFlowCount} 대 (표준 가동시간 미학습)");
             r++;
         }
 
@@ -301,6 +318,7 @@ public sealed record OeeExcelModel(
     string PeriodEnd,
     OeeKpiDto Kpi,
     OeeAvailCompDto? AvailComp,
+    OeeIntegrityDto? Integrity,
     List<OeeFaultSegDto> FaultSegs,
     List<OeeRankRowDto> Ranking,
     List<OeeDowntimeRowDto> Downtime,
@@ -334,7 +352,24 @@ public sealed record OeeAvailCompDto(
     double RunPct,
     string StopLabel,
     double StopMs,
-    double StopPct);
+    double StopPct,
+    // CT축 4분할(2026-08-21) — 화면 정산 바와 같은 조각. 종전엔 가동/정지 2줄만 나가 Excel 과 화면이 달랐다.
+    double MaintMs = 0,
+    double MaintPct = 0,
+    double WaitMs = 0,
+    double WaitPct = 0);
+
+/// <summary>
+/// 데이터 무결성(수집률) — OEE 지표와 별개 축. 화면 맨 아래 카드와 같은 수치를 Excel 에도 남겨,
+/// 내보낸 표만 보고 "얼마나 수집된 근거 위에서 나온 값인지"를 알 수 있게 한다.
+/// </summary>
+public sealed record OeeIntegrityDto(
+    int TotalCycles,
+    int NormalCycles,
+    int ExcludedCycles,
+    int IncompleteCycles,
+    int UnmeasurableFlowCount,
+    double? CollectRate);
 
 /// <summary>정지 구성 도넛 세그먼트(고장/유지보수). Ms=지속 합, Share=비율(%).</summary>
 public sealed record OeeFaultSegDto(string Label, double Ms, int Share);

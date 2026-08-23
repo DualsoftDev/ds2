@@ -254,6 +254,12 @@ public sealed record OeeSummaryDto(
     string? MttrNote,
 
     // ── 사이클기반 OEE 구성요소 (doc/22 §7) — UI 사이클 분해 시각화/노트용 ──
+    // 성능 P 손실 분해(2026-08-21) — 정상 사이클 실측 MT/WT 합, 동작 비중(Σmt/Σct, 14일 클린).
+    //   표준MT = CtThresholdMs × MtRatio, 표준WT = CtThresholdMs × (1−MtRatio) 로 두면
+    //   표준MT + 표준WT = 표준CT 가 항등 성립 → 손실이 덧셈으로 정확히 갈린다.
+    double NormalMtMs = 0,
+    double NormalWtMs = 0,
+    double? MtRatio = null,
     double NormalCtMs = 0,            // Σ실측CT (정상 사이클 CT 합)
     double IdleCtMs = 0,              // Σ비가동CT (미계획 비가동 — 계획정지 제외, dedup 후)
     int? NormalCycleCount = null,     // N (정상 사이클 수)
@@ -422,7 +428,12 @@ public sealed record OeeDailySlotDto(
     long OtherMs = 0,       // 기타 비계획 (category='unplanned' AND isFailure=0)
     long UnclassifiedMs = 0, // 미분류 (category IS NULL)
     long NonProdMs = 0,     // 비생산(제외) — 가동에서 카빙, A 분모 밖 (사이클 10×CT / 수동 시각대)
-    long UnmeasuredMs = 0); // 미계측(수신 공백, §3.4) — 최우선 카빙(모르는 시간은 어떤 상태도 주장 안 함)
+    long UnmeasuredMs = 0,  // 미계측(수신 공백, §3.4) — 최우선 카빙(모르는 시간은 어떤 상태도 주장 안 함)
+    // 실측 가동(2026-08-21) — 그 슬롯에 실제로 수집된 정상 사이클 구간의 합.
+    //   종전엔 프런트가 가동을 '슬롯 − 감지된 것들'(잔여)로 그려, 감지되지 않은 시간이 전부 가동으로 칠해졌다
+    //   (실측: 사이클 0건인 설비가 24시간 만근 막대로 표시). 이제 실측만 그리고 못 채운 만큼은 여백으로 남긴다
+    //   — 여백 = 미수집. 세로합 ≤ SlotMs 이고 그 차이가 곧 수집 결손이다.
+    long RunMs = 0);
 
 /// <summary>
 /// 계측 품질 — 설비(Flow)별 사이클 누락/제외 현황 한 행 (OEE 지표와 별개 축, doc/22 §3.2 표본 게이트).
@@ -439,7 +450,11 @@ public sealed record OeeMeasureQualityRowDto(
     int IdleCycles,         // IsIdle=1 = 이상치 캡(MaxCycleTimeMs/MinCycleTimeMs) 초과
     double? ExclusionRate,  // ExcludedCycles / TotalCycles (0~1). Total=0 이면 null(가짜 0% 금지)
     double? IncompleteRate, // IncompleteCycles / TotalCycles (0~1)
-    double ThresholdMs,     // 비가동 경계 = 14일 평균 CT × 비가동 배수. 임계 미보유면 0
+    // 비가동 경계 = 14일 평균 CT × 비가동 배수. 임계 미보유면 0.
+    //   2026-08-21 통일 — 이 값이 집계 판정과 <b>무사이클 감지 시점</b>을 함께 결정한다.
+    //   별도 감지 임계(3×gap' 체인)는 폐기: 감지 109초 vs 계상 213초로 어긋나 "로그엔 뜨는데
+    //   건수엔 없는" 구간을 만들었고, 사용자에게 같은 뜻의 숫자를 둘 보여줬다.
+    double ThresholdMs,
     // false = 이 설비는 아직 측정 자체가 안 되고 있다(클린샘플 0 → CT 임계 미산출 → 사이클기반 A/P·정지·대기
     //         분류 전부 불가, 가용성은 달력근사 폴백). 실측 사례: 경계 head 가 한 번도 Going 하지 않는 Call 로
     //         잡혀 dspFlowHistory 가 0행이었다. 목록에서 빼면 "전부 양호"로 읽히므로 반드시 행으로 노출한다.

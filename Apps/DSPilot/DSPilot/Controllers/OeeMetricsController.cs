@@ -61,9 +61,11 @@ public class OeeMetricsController : OeeControllerBase
             : thresholds.Count(kv => kv.Value.AvgMs > 0);
 
         double calendarMs = periodMs * flowCount;
-        double runningMs = agg.NormalCtMs;
-        double downMs = agg.IdleCtMs;
-        double nonProdMs = agg.PlannedCtMs;
+        // 시간 분해는 달력 축이므로 각 항이 달력을 넘지 않아야 한다 — CT 합산(NormalCtMs/IdleCtMs/PlannedCtMs)은
+        // 오염 시 사이클이 겹쳐 초과한다(실측 2026-08-21: 캘린더 12시간 창에 비생산 6일 14시간). 구간 union 기준으로 교체.
+        double runningMs = agg.RunWallMs;
+        double downMs = agg.IdleCalendarMs;
+        double nonProdMs = agg.NonProdWallMs;
         // 미계측(§3.4)은 flow별 합산 축에 맞춰 flowCount 배수 — 정지/비생산과 같은 단위로 잔여에서 분리.
         double teepUnmeasuredMs = agg.UnmeasuredMs * flowCount;
         double residualMs = Math.Max(0, calendarMs - runningMs - downMs - nonProdMs - teepUnmeasuredMs);
@@ -365,8 +367,10 @@ public class OeeMetricsController : OeeControllerBase
             //   (가동간 공백)은 고장으로 보내지 않는다 → 슬롯 잔여로 남아 추이에선 가동에 흡수(2026-07-14 사용자 결정 —
             //   정산 바가 '가동간 공백' 세그먼트로 따로 보여주고, 시간별 추이는 가동으로 인정).
             long fault = Math.Min(SumOverlap(faultWall, sS, sE), Math.Max(0, down - maint));
-            // 벽시계 매핑: FailureMs=고장 / PlannedMs=유지보수(Other·Unclassified 미사용) / SlotMs=휴무 뺀 생산가능 달력(잔여=가동).
-            slots.Add(new OeeDailySlotDto(label, slotCal, fault + maint, maint, fault, 0, 0, nonProd, unmeasured));
+            // 벽시계 매핑: FailureMs=고장 / PlannedMs=유지보수(Other·Unclassified 미사용) / SlotMs=달력(설비 합산).
+            //   RunMs=실측 가동(정상 사이클 구간 ∩ 슬롯) — 종전엔 계산만 하고 버려 프런트가 잔여로 재구성했다.
+            //   이제 실측을 그대로 넘겨 "감지 안 된 시간 = 가동" 이라는 낙관적 기본값을 없앤다.
+            slots.Add(new OeeDailySlotDto(label, slotCal, fault + maint, maint, fault, 0, 0, nonProd, unmeasured, run));
         }
         if (hourly)
         {

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Collections.Concurrent;
@@ -395,6 +395,7 @@ public sealed class UserTagAlertService : BackgroundService
         // ── 활성 알람 조건 해소 — 현재 값이 더 이상 매칭 조건을 만족하지 않으면 배너 표시 목록에서 제거 ──
         // 값이 정상으로 돌아오면 그 주소의 plcTagLog 행이 들어와 _lastValueByAddress 가 갱신되므로 여기서 잡힌다.
         var resolvedCount = 0;
+        List<string> clearedAddrs = [];
         lock (_stateLock)
         {
             if (_activeUserAlarms.Count > 0)
@@ -410,7 +411,16 @@ public sealed class UserTagAlertService : BackgroundService
                 }
                 foreach (var addr in toRemove) _activeUserAlarms.Remove(addr);
                 resolvedCount = toRemove.Count;
+                clearedAddrs = toRemove;
             }
+        }
+
+        // 해소 시각을 DB 에 남긴다 — 정지 분류(doc/25)가 "미해소 usertag = 라인 고장"을 과거 기간
+        // 조회에서도 재현하려면 이 값이 유일한 근거다(발생 시점만으론 실시간 외엔 알 수 없다).
+        if (clearedAddrs.Count > 0)
+        {
+            try { await alertRepo.MarkClearedAsync(clearedAddrs, DateTime.UtcNow, ct); }
+            catch (Exception ex) { _logger.LogDebug(ex, "[UserTagAlert] 해소 시각 기록 스킵"); }
         }
 
         // 신규 발화 또는 활성 알람 해소가 있으면 클라이언트에 통지(배너/uptime 재조회 트리거).

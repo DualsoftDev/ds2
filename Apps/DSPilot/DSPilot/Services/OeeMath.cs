@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Models.Oee;
@@ -84,9 +84,16 @@ public static class OeeMath
                     : StopClass.WaitSlack;
             if (lineHasAnySignal) return StopClass.Fault;   // usertag만 — 유발자 특정 불가, 보수적으로 고장 유지
         }
+        // 신호 전무 폴백 = <b>대기</b>(2026-08-21). 종전엔 Down(고장)이었다.
+        //   이 분기에 오는 행은 MT 과주행이 아닌 "사이클 사이 정지" — 설비가 자기 사이클을 정상적으로
+        //   마치고 다음 지시를 못 받은 상태다. 그걸 고장으로 세면 라인 정지 1회가 <b>설비 수만큼</b>
+        //   고장 건수로 부풀고 MTBF 가 그만큼 짧아진다(실측 2026-08-21: 3분 라인 정지 1회 → 고장 6건).
+        //   실제 설비 고장은 ① MT 과주행(위에서 이미 무조건 고장) ② 자기 flow abnormal ③ 미해소 usertag
+        //   로 잡는다 — 이 폴백은 "고장이라 볼 근거가 하나도 없는 정지"만 남는다.
+        //   장기 정지(10×CT 이상)는 종전대로 비생산(분모 밖) — 주말·야간을 대기로 세지 않기 위함.
         return IsLongStopNonProduction(durationMs, ctThresholdMs, nonProdMultiplier)
             ? StopClass.NonProduction
-            : StopClass.Down;
+            : StopClass.WaitSlack;
     }
 
     /// <summary>
@@ -209,13 +216,9 @@ public static class OeeMath
     /// 고정 120초를 제거하지 않고 ③ 부트스트랩으로 격하 — Day 0 첫날 정지 감지는 유지하고,
     /// 학습되면(보통 Day 1+) 자동으로 ①/② per-flow 로 승격돼 느린 flow 상시 오탐이 사라진다.
     /// </summary>
-    public static double ResolveNoCycleThresholdMs(
-        double gapMedianMs, double ctAvgMs, double floorMs, double bootstrapMs)
-    {
-        if (gapMedianMs > 0) return Math.Max(DowntimeGapMultiplier * gapMedianMs, floorMs);
-        if (ctAvgMs > 0) return DowntimeGapMultiplier * ctAvgMs;
-        return bootstrapMs;
-    }
+    // 무사이클 임계 체인(3×gap' ▸ 3×평균CT ▸ 120s)과 하한·부트스트랩 상수는 2026-08-21 폐기.
+    //   감지 임계 = 14일 평균 CT × 비가동 배수(사용자 설정)로 집계 판정과 통일했다 — 두 기준이 어긋나
+    //   "로그엔 뜨는데 고장 건수엔 없는" 구간을 만들었고 사용자에게 같은 뜻의 숫자를 둘 보여줬다.
 
     /// <summary>
     /// 품질 = (기간 사이클수 − 입력 불량) / 기간 사이클수 (doc/21 §12 개정).
@@ -375,12 +378,32 @@ public static class OeeMath
     /// (TEEP 매트릭스 셀·테스트 전용 — 요약 KPI 는 <see cref="ComputeWallClockAvailability"/> 벽시계 모델로 이관.)
     /// </summary>
     public static (double? Availability, string? Note) ComputeCycleAvailability(double normalCtMs, double idleCtMs)
+        => ComputeCycleAvailability(normalCtMs, idleCtMs, 0);
+
+    /// <summary>
+    /// CT축 가용성 A = Σ정상CT ÷ (Σ정상CT + Σ비가동CT + Σ대기CT) — <b>2026-08-21 단일 모델</b>.
+    /// <para>왜 벽시계가 아니라 CT축인가: IO 신호로 관측한 논리적 인과(DS 모델)와 물리 설비 사이엔 구조적 괴리가
+    /// 있고 PLC 수집도 100% 가 되지 않는다. 벽시계 분모는 "달력이 흘렀다"는 이유로 <b>관측하지 못한 시간에까지
+    /// 상태를 주장</b>하게 만들고(분자=사이클축 / 분모=벽시계축 불일치 → 미분류 잔여), 사이클이 0건이면
+    /// 달력근사가 <b>A=100%</b> 라는 최악의 거짓을 만든다(실측: 측정 불가 설비가 만점으로 표시).
+    /// 분자·분모를 모두 실측 CT 로 두면 ① 잔여가 정의상 0 ② 사이클 0건 → 0/0 → 산출 불가(정직)
+    /// ③ CT 를 벽시계에 배치할 필요가 없어 recordedAt 규약·정렬 오차가 지표에 영향을 주지 않는다.</para>
+    /// <para>한계(알고 쓸 것): CT축은 "아무 일도 없던 시간"을 스스로 보지 못한다 — 사이클 행이 없는 구간은
+    /// 분모에 들어오지 않는다. 이를 메우는 것이 무사이클 갭 감지(3×gap' ▸ 3×평균CT ▸ 120s)이고 그 결과가
+    /// idleCtMs 로 합류한다. 따라서 <b>갭 감지가 이 모델의 단일 병목</b>이다.</para>
+    /// <para>대기(waitCtMs)는 분모에 넣는다 — 라인 고장 여파로 서 있던 시간은 이 설비가 못 돈 시간이 맞다
+    /// (고장 건수·MTBF 에만 세지 않는다, doc/25).</para>
+    /// </summary>
+    /// <remarks>인자는 반드시 <b>구간 합집합(union)의 총량</b>을 넘길 것 — CT 를 단순 합산하면 오염된 이력에서
+    /// 사이클끼리 겹쳐 달력을 초과한다(실측: Σct 7.63h / 창 3.35h). union 은 창을 넘을 수 없다.</remarks>
+    public static (double? Availability, string? Note) ComputeCycleAvailability(
+        double normalCtMs, double idleCtMs, double waitCtMs)
     {
-        var denom = normalCtMs + idleCtMs;
+        var denom = normalCtMs + idleCtMs + waitCtMs;
         if (denom <= 0)
-            return (null, "기간 내 사이클 CT 합 0 — 사이클기반 가용성 산출 불가.");
+            return (null, "기간 내 사이클 CT 합 0 — 가용성 산출 불가(수집된 정상 가동이 없습니다).");
         return (Math.Clamp(normalCtMs / denom, 0, 1),
-            "Σ실측CT ÷ (Σ실측CT + Σ비가동CT). 비가동 = MT>CT이상치 / 미완료 CT폭주 / 무사이클 정지.");
+            "Σ실측CT ÷ (Σ실측CT + Σ비가동CT + Σ대기CT). 비가동 = CT이상치 초과 사이클 / 무사이클 정지.");
     }
 
     /// <summary>
