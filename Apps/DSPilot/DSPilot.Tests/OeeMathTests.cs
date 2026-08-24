@@ -596,6 +596,51 @@ public class OeeMathTests
         Assert.Equal(expected, OeeMath.ClassifyCycle(mt, ct, thr));
     }
 
+    // ── 비가동 적립 범위 (2026-08-24 MT 축 분리) ────────────────────────────
+
+    [Fact]
+    public void 적립_CT초과_행은_사이클_전체()
+        => Assert.Equal(120_000, OeeMath.ResolveDowntimeAccrualMs(
+            ctMs: 120_000, mtMs: 5_000, ctBoundaryMs: 101_885, mtBoundaryMs: 10_550, mtMedianMs: 4_220));
+
+    [Fact]
+    public void 적립_MT만_초과면_평소_대비_초과분만()
+    {
+        // 실측 2026-08-24 이송 12:43:35 — ct 40,823(정상권) / mt 31,191(중앙 4,220 의 7.4배).
+        // 부품은 제때 나왔으므로 40.8초가 아니라 초과분 26,971ms 만 손실.
+        Assert.Equal(26_971, OeeMath.ResolveDowntimeAccrualMs(
+            ctMs: 40_823, mtMs: 31_191, ctBoundaryMs: 101_885, mtBoundaryMs: 10_550, mtMedianMs: 4_220));
+    }
+
+    [Fact]
+    public void 적립_MT기준_미보유면_사이클_전체로_폴백()
+        => Assert.Equal(40_823, OeeMath.ResolveDowntimeAccrualMs(
+            ctMs: 40_823, mtMs: 31_191, ctBoundaryMs: 101_885, mtBoundaryMs: 101_885, mtMedianMs: 0));
+
+    [Fact]
+    public void 적립_초과분은_사이클_길이를_넘지_않는다()
+    {
+        // ct < mt 비정상 행(시계 역행 등) 방어 — 사이클보다 긴 손실을 만들지 않는다.
+        Assert.Equal(5_000, OeeMath.ResolveDowntimeAccrualMs(
+            ctMs: 5_000, mtMs: 90_000, ctBoundaryMs: 101_885, mtBoundaryMs: 10_550, mtMedianMs: 4_220));
+    }
+
+    [Fact]
+    public void 적립_mt_없는_행은_사이클_전체()
+        => Assert.Equal(40_823, OeeMath.ResolveDowntimeAccrualMs(
+            ctMs: 40_823, mtMs: null, ctBoundaryMs: 101_885, mtBoundaryMs: 10_550, mtMedianMs: 4_220));
+
+    [Fact]
+    public void ClassifyCycle_MT경계가_주어지면_그_경계로_판정한다()
+    {
+        // ct 정상권 + mt 가 MT 경계 초과 → 비가동. 종전(CT 경계 비교)이면 정상으로 삼켰다.
+        Assert.Equal(OeeMath.CycleClass.Downtime, OeeMath.ClassifyCycle(
+            mt: 31_191, ct: 40_823, ctThresholdMs: 40_754, idleMultiplier: 2.5, mtBoundaryMs: 10_550));
+        // MT 경계 미지정(0) → CT 경계 폴백 = 종전 동작
+        Assert.Equal(OeeMath.CycleClass.Normal, OeeMath.ClassifyCycle(
+            mt: 31_191, ct: 40_823, ctThresholdMs: 40_754, idleMultiplier: 2.5));
+    }
+
     [Fact]
     public void ClassifyCycle_open_cycle_without_ct_is_ignored()
     {

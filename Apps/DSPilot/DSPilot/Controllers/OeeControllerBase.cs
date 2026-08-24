@@ -30,15 +30,25 @@ public abstract class OeeControllerBase : ControllerBase
     protected readonly ILogger _logger;
 
     /// <summary>
-    /// 비가동(정지) 사이클 판정 SQL — <c>@Thr</c> = 비가동 경계(flow별 14일 평균 CT × 비가동 배수).
+    /// 비가동(정지) 사이클 판정 SQL — 두 축을 <b>OR</b> 로 본다.
+    /// <list type="bullet">
+    ///   <item><c>@Thr</c>   = CT 축 경계(flow별 14일 평균 CT × 비가동 배수) — "이 사이클이 얼마나 길었나"</item>
+    ///   <item><c>@MtThr</c> = MT 축 경계(flow별 14일 중앙 MT × 고장 배수)   — "이 설비가 평소보다 늘어졌나"</item>
+    /// </list>
     /// <para>2026-08-19 ct 기준 추가 — 종전 mt-only 판정은 정지 후 재개 사이클(mt=정상, wt=정지 전체)을 정상으로
     /// 삼켰다(실측: ct&gt;10×CT 559건 전부 정상 통과, 최대 5.8일 정지가 '사이클 1개'). CT=MT+WT 이므로 완료
-    /// 사이클도 ct 초과면 정지를 머금은 것 — <see cref="OeeMath.ClassifyCycle"/>(doc/22 §3)과 같은 규칙. mt 절은
-    /// ct&lt;mt 비정상 행(시계 역행 등) 방어용으로만 잔존.</para>
+    /// 사이클도 ct 초과면 정지를 머금은 것 — <see cref="OeeMath.ClassifyCycle"/>(doc/22 §3)과 같은 규칙.</para>
+    /// <para><b>2026-08-24 mt 절을 MT 축으로 분리.</b> 종전엔 mt 도 <c>@Thr</c>(CT 축)와 비교해서, MT 축 고장 배수는
+    /// 유발자 <i>귀속</i>(LineHasMtOverrun/OwnMtOverrun)에만 쓰이고 고장 <i>생성</i>엔 전혀 관여하지 못했다.
+    /// 그 결과 "평소 MT 의 17배로 늘어졌지만 CT 는 임계 미달"인 사이클이 <b>정상 가동으로 계상되면서 동시에
+    /// 다른 flow 의 정지를 대기로 강등</b>시켰다 — 문제 설비는 무죄가 되고 여파를 받은 설비의 고장만 지워지는
+    /// 역전. 두 축을 같은 조건에 나란히 두어 "MT 지연이면 고장"과 "MT 지연이면 유발자"를 일치시킨다.</para>
+    /// <para>MT 기준을 못 구한 flow(표본 없음)는 호출측이 <c>@MtThr = @Thr</c> 로 바인딩해 종전 동작을 유지한다 —
+    /// 0 을 넣으면 <c>mt &gt; 0</c> 이 항상 참이라 전 사이클이 비가동이 된다.</para>
     /// <para>SSOT — 집계(<c>ComputeCycleAggregateAsync</c>)와 계측 품질(<c>/api/oee/measurement-quality</c>)이
     /// 같은 문자열을 공유한다. 바꾸면 <see cref="OeeMath.ClassifyCycle"/> 도 같이 바꿀 것.</para>
     /// </summary>
-    protected const string DtCondSql = "ct > 0 AND (ct > @Thr OR (mt IS NOT NULL AND mt > @Thr))";
+    protected const string DtCondSql = "ct > 0 AND (ct > @Thr OR (mt IS NOT NULL AND mt > @MtThr))";
 
     protected OeeControllerBase(
         IOeeRepository repo,
@@ -1254,6 +1264,10 @@ public abstract class OeeControllerBase : ControllerBase
                 // 비가동 행)가 이 파라미터 하나를 공유해 KPI·정지 내역이 함께 움직인다. 경계 아래 느린 사이클은
                 // 정상으로 편입돼 성능 P(표준=1×thr, perfNumerator)가 속도 손실로 흡수한다.
                 p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", f); p.Add("Thr", thr * idleMult);
+                // MT 축 경계 — 기준 미보유 flow 는 CT 축으로 폴백(종전 동작 유지). 0 바인딩 금지(전 사이클 비가동).
+                p.Add("MtThr", mtThresholds.TryGetValue(f, out var mtThrRow) && mtThrRow > 0
+                    ? mtThrRow * faultMult
+                    : thr * idleMult);
 
                 var aggRow = await conn.QueryFirstOrDefaultAsync<CycleAggRow>($@"
                     SELECT
@@ -1319,15 +1333,35 @@ public abstract class OeeControllerBase : ControllerBase
                     var recMs = ParseUtcMs(r.RecordedAt);
                     if (recMs is not double rec) continue;
                     double startMs = rec - cMs;
+                    // cif 는 <b>사이클 전체 구간</b>을 담는다(적립 범위와 무관) — 무사이클 갭 판정에서 "여긴 사이클이
+                    // 있었다"를 빼는 용도라, 적립을 줄인다고 여기까지 줄이면 정상 생산분이 갭으로 오인된다.
                     if (!cycleIdleByFlow.TryGetValue(f, out var cif)) cycleIdleByFlow[f] = cif = new List<(double S, double E)>();
                     cif.Add((startMs, rec));
+
+                    // ── 적립 범위 결정 (2026-08-24) ────────────────────────────────────────────────
+                    // dtCond 는 CT 축·MT 축 OR 로 행을 고른다. 두 축은 잃은 시간의 의미가 다르다:
+                    //   · CT 초과   = 사이클 자체가 비정상적으로 길었다  → 사이클 전체가 손실
+                    //   · MT 만 초과 = 설비는 늘어졌지만 여유(wt)가 흡수해 <b>제때 산출</b>했다
+                    //                 → 사이클 전체를 비가동으로 넣으면 "제때 생산했는데 100% 비가동"이 된다.
+                    //                   실측 2026-08-24 이송 12:43:35 — ct 40,823ms(중앙 40,754ms 와 동일)인데
+                    //                   mt 31,191ms(중앙 4,220ms 의 7.4배). 부품은 정상 사이클 타임에 나왔다.
+                    //                   화면 문구("경계 미만의 느린 사이클은 정상 — 속도 저하는 성능 P 가 흡수")
+                    //                   와도 정면 충돌한다. 그래서 <b>평소 대비 초과분만</b> 적립한다.
+                    // 초과분은 사이클 끝(rec)에 붙인다 — mt 가 사이클 안 어디서 났는지는 알 수 없고, 행 구간이
+                    // rec 기준으로 잡히는 기존 규약과 맞춘다. 분류·신호 매칭 창은 startMs~rec 원값을 그대로 쓴다.
+                    var ctBoundaryMs = thr * idleMult;
+                    var mtBoundaryMs = mtThresholds.TryGetValue(f, out var mtMedianMs) && mtMedianMs > 0
+                        ? mtMedianMs * faultMult
+                        : ctBoundaryMs;
+                    var accrualStartMs = rec - OeeMath.ResolveDowntimeAccrualMs(
+                        cMs, (int?)r.Mt, ctBoundaryMs, mtBoundaryMs, mtMedianMs);
                     // 미계측 겹침 카빙(§3.4) — 수신 공백과 겹친 부분은 어떤 상태도 주장하지 않는다. 비생산 10× 판정도
                     // 계측된 잔여 길이로만 한다(보수 — 모르는 시간이 임계를 채워 정지를 비생산으로 승격시키지 않게).
                     // 기간 클립 먼저 — 창 밖으로 뻗은 부분은 이 기간의 시간이 아니다(①과 같은 이유).
                     //   startMs/rec 원값은 분류·로그 표시에 그대로 쓰고, 길이 적립만 교집합으로 자른다.
                     var rowSpan = new List<(double S, double E)>();
                     {
-                        var cs = Math.Max(startMs, periodStartMs);
+                        var cs = Math.Max(accrualStartMs, periodStartMs);
                         var ce = Math.Min(rec, periodEndMs);
                         if (ce > cs) rowSpan.Add((cs, ce));
                     }
@@ -1357,10 +1391,9 @@ public abstract class OeeControllerBase : ControllerBase
                     // 유지(아래 폴스루). 완료됐지만 wt 폭주로 걸린 사이클(mt 정상·ct 초과, 2026-08-19 dtCond
                     // ct 기준 신설분)은 정지가 사이클 사이에 있는 무변화 정지 — 미완료(Mt=null)와 동일하게
                     // 분류를 태운다(없으면 주말/야간 장기정지가 전부 '고장'으로 계상돼 10× 비생산 승격이 죽는다).
-                    // 유발자 판별 — 평균 MT × 고장배수(위 사전 수집과 동일 경계). 기준 미보유 flow 는 판별 불가(false).
-                    var mtOverrun = r.Mt is long mtOv
-                                    && mtThresholds.TryGetValue(f, out var mtThrF) && mtThrF > 0
-                                    && mtOv > mtThrF * faultMult;
+                    // 유발자 판별 — 위 적립 범위 결정과 같은 경계를 재사용한다(두 곳이 어긋나면
+                    // "적립은 초과분인데 분류는 정상" 같은 불일치가 난다).
+                    var mtOverrun = r.Mt is long mtOv && mtOv > mtBoundaryMs && mtMedianMs > 0;
                     if (applyLongStop && !mtOverrun && !OverlapsAny(toDownIv, f, startMs, rec))
                     {
                         var cls = OeeMath.ClassifyStopWindow(signalRulesActive,
@@ -1985,6 +2018,9 @@ public abstract class OeeControllerBase : ControllerBase
         CancellationToken ct)
     {
         var (idleMult, _) = ResolveCtMultipliers();
+        // dtCond 의 MT 축 경계 — 집계 경로와 같은 소스(SSOT). 미보유 flow 는 CT 축 폴백.
+        var mqFaultMult = _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
+        var mqMtThresholds = await _ctStats.ComputeMtThresholdAsync();
         var rows = new List<OeeMeasureQualityRowDto>();
 
 
@@ -2075,6 +2111,9 @@ public abstract class OeeControllerBase : ControllerBase
                         var thrMs = thresholds[f].AvgMs * idleMult;
                         var p = new DynamicParameters();
                         p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", f); p.Add("Thr", thrMs);
+                        p.Add("MtThr", mqMtThresholds.TryGetValue(f, out var mqMt) && mqMt > 0
+                            ? mqMt * mqFaultMult
+                            : thrMs);
                         var q = await conn.QueryFirstOrDefaultAsync<MeasureQualityRow>($@"
                             SELECT
                               COUNT(*)                                                          AS Total,

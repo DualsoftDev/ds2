@@ -411,20 +411,49 @@ public static class OeeMath
     /// 한 사이클을 정상/비가동으로 분류 (doc/22 §3 ①②). thr = CT이상치(14일 평균, ms), 판정 경계 = thr × idleMultiplier.
     ///   ① CT &gt; thr×mult (완료 여부 무관 — 정지를 머금은 사이클. 2026-08-19: 종전 mt-only 판정이
     ///      정지 후 재개 사이클(mt 정상·wt=정지 전체)을 정상으로 삼켜 장기정지가 가동에 편입됐다)
-    ///   ② MT &gt; thr×mult (과주행 모션 — ct&lt;mt 비정상 행 방어로 잔존, CT=MT+WT 정상 행에선 ①에 포함)
+    ///   ② MT &gt; <b>mtBoundaryMs</b> (과주행 모션 — 평소보다 늘어진 동작. 2026-08-24 MT 축으로 분리)
     /// CT 없는 사이클(마지막 열린)은 Ignore. thr ≤ 0(표본 부족)이면 판정 불가 → 상위에서 산출 게이트.
     /// idleMultiplier 는 사용자 설정 비가동 배수(2026-07-13, 기본 2.5× — 이 함수의 기본 인자는 종전 호환 1.0).
+    ///
+    /// <para><paramref name="mtBoundaryMs"/> = flow별 14일 중앙 MT × 고장 배수. <b>0 이하면 ① 의 CT 경계로 폴백</b>
+    /// (MT 기준 미보유 flow 의 종전 동작 유지 — 0 을 경계로 쓰면 모든 완료 사이클이 비가동이 된다).
+    /// 종전엔 ② 도 CT 경계와 비교해서, MT 축 배수가 유발자 <i>귀속</i>에만 쓰이고 고장 <i>생성</i>엔 관여하지
+    /// 못했다. 그 비대칭이 "평소 MT 의 17배인데 정상 가동으로 계상되면서 남의 정지는 대기로 강등"시켰다.</para>
+    ///
     /// 경계 아래의 느린 사이클은 정상(Σ실측CT 편입 → 성능 P 가 속도 손실로 흡수). 성능 표준치는 여전히 1×thr.
     /// IsIdle(아웃라이어 캡)과는 무관 — IsIdle 은 CT이상치 산출 시만 제외(§3.2).
     /// ComputeCycleAggregateAsync 인라인 SQL dtCond 와 같은 규칙(SSOT 쌍) — 한쪽만 바꾸지 말 것.
     /// </summary>
-    public static CycleClass ClassifyCycle(int? mt, int? ct, double ctThresholdMs, double idleMultiplier = 1.0)
+    /// <summary>
+    /// dtCond 로 선택된 사이클 행에서 <b>비가동으로 적립할 길이(ms)</b>. 두 축은 잃은 시간의 의미가 다르다.
+    /// <list type="bullet">
+    ///   <item>CT 초과 — 사이클 자체가 비정상적으로 길었다 → <b>사이클 전체</b>가 손실</item>
+    ///   <item>MT 만 초과 — 설비는 늘어졌지만 여유(wt)가 흡수해 제때 산출했다 → <b>평소 대비 초과분만</b></item>
+    /// </list>
+    /// <para>MT 만 초과인 행을 사이클 전체로 적립하면 "제때 생산했는데 100% 비가동"이 된다. 실측
+    /// 2026-08-24 이송 12:43:35 — ct 40,823ms(중앙 40,754ms 와 동일)인데 mt 31,191ms(중앙 4,220ms 의 7.4배).
+    /// 부품은 정상 사이클 타임에 나왔으므로 40.8초가 아니라 초과분 27.0초만 손실로 본다. 설정 화면의
+    /// "경계 미만의 느린 사이클은 정상 — 속도 저하는 성능 P 가 흡수" 약속과도 일치한다.</para>
+    /// <para><paramref name="mtMedianMs"/> ≤ 0(기준 미보유)이면 초과분을 낼 수 없으므로 사이클 전체로 폴백한다.</para>
+    /// </summary>
+    public static double ResolveDowntimeAccrualMs(
+        double ctMs, int? mtMs, double ctBoundaryMs, double mtBoundaryMs, double mtMedianMs)
+    {
+        if (ctMs > ctBoundaryMs) return ctMs;                       // CT 초과 — 전체
+        if (mtMs is not int m || mtMedianMs <= 0) return ctMs;      // 기준 미보유 — 종전 동작
+        if (m <= mtBoundaryMs) return ctMs;                         // dtCond 를 CT 로 통과한 행 — 전체
+        return Math.Clamp(m - mtMedianMs, 0, ctMs);                 // MT 만 초과 — 초과분(사이클 길이 상한)
+    }
+
+    public static CycleClass ClassifyCycle(int? mt, int? ct, double ctThresholdMs,
+        double idleMultiplier = 1.0, double mtBoundaryMs = 0)
     {
         if (ct is not int c || c <= 0) return CycleClass.Ignore;
         if (ctThresholdMs <= 0) return CycleClass.Normal;
         var boundary = ctThresholdMs * Math.Max(idleMultiplier, 1.0);
         if (c > boundary) return CycleClass.Downtime;                          // ①
-        return mt is int m && m > boundary ? CycleClass.Downtime : CycleClass.Normal;  // ②
+        var mtBoundary = mtBoundaryMs > 0 ? mtBoundaryMs : boundary;           // 미보유 → CT 경계 폴백
+        return mt is int m && m > mtBoundary ? CycleClass.Downtime : CycleClass.Normal;  // ②
     }
 
     /// <summary>
