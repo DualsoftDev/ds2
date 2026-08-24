@@ -257,6 +257,10 @@ public class SettingsController : ControllerBase
                     m.AutoCalibration.FillMin = acReq.FillMin;
                     m.AutoCalibration.PercentileMin = Math.Clamp(acReq.PercentileMin, 0, 50);
                     m.AutoCalibration.MarginMinPct = Math.Clamp(acReq.MarginMinPct, 0, 1);
+                    // 판정 주체 — null(구 클라이언트)이면 기존값 보존, 미지 값은 dspilot 정규화(fail-safe).
+                    if (acReq.ActionOverJudge is { } judge)
+                        m.AutoCalibration.ActionOverJudge =
+                            string.Equals(judge.Trim(), "agent", StringComparison.OrdinalIgnoreCase) ? "agent" : "dspilot";
                 }
 
                 // 외부 접속 주소 — null(구 클라이언트)이면 기존 값 보존. 형식 오류는 Update 진입 전에 걸렀다.
@@ -867,7 +871,8 @@ public class SettingsController : ControllerBase
                 m.AutoCalibration.MarginMinPct,
                 LocalStamp(m.AutoCalibration.CompletedAt),
                 LocalStamp(m.AutoCalibration.LastAppliedAt),
-                m.AutoCalibration.LastAppliedSummary),
+                m.AutoCalibration.LastAppliedSummary,
+                m.AutoCalibration.IsActionOverJudgeDsPilot() ? "dspilot" : "agent"),
             m.AbnormalAlarm.DisplayLevels.ToArray(),
             m.ExternalAccess.Url ?? "",
             _externalAccess.SeedUrlRaw);
@@ -1043,7 +1048,9 @@ public record AutoCalibrationDto(
     double MarginMinPct,
     string? CompletedAt,
     string? LastAppliedAt,
-    string? LastAppliedSummary);
+    string? LastAppliedSummary,
+    // ActionOver 판정 주체 — "dspilot"(기본) | "agent". 끝에 추가(positional 호환).
+    string ActionOverJudge = "dspilot");
 
 // 수동 보정 저장 입력 — 편집 가능한 필드만(CompletedAt 은 서버 관리, 저장으로 변경 불가).
 // MedianMarginMaxPct 는 nullable — 구(캐시) 클라이언트가 이 필드 없이 보내면 서버가 기존값을 보존한다.
@@ -1054,7 +1061,9 @@ public record AutoCalibrationSaveDto(
     int MarginMaxAbsMs,
     bool FillMin,
     double PercentileMin,
-    double MarginMinPct);
+    double MarginMinPct,
+    // null = 구(캐시) 클라이언트 — 기존값 보존. "agent" 외 값은 전부 dspilot 정규화.
+    string? ActionOverJudge = null);
 
 /// <summary>이상치 제외 Max 권장값(전역) + 산출 근거(flow별). BoundaryMs=0 은 표본 부족(권장값 없음).</summary>
 public record RecommendedCycleMaxDto(

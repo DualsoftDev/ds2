@@ -422,7 +422,20 @@
                                     <span>동작시간 이상감지</span>
                                 </div>
                                 <div class="card-content">
-                                    
+
+                                    <!-- ── 0. ActionOver 판정 주체 (2026-08-25) — 재빌드 없는 롤백 안전장치 ── -->
+                                    <p style="font-size:0.78rem;font-weight:700;margin:0 0 4px;">동작 지연(ActionOver) 판정 주체</p>
+                                    <div class="segmented" role="group" aria-label="ActionOver 판정 주체" style="margin:2px 0 6px;">
+                                        <button type="button" :class="{ active: (s.autoCalibration.actionOverJudge ?? 'dspilot') !== 'agent' }"
+                                                @click="s.autoCalibration.actionOverJudge = 'dspilot'">DSPilot (내장)</button>
+                                        <button type="button" :class="{ active: (s.autoCalibration.actionOverJudge ?? 'dspilot') === 'agent' }"
+                                                @click="s.autoCalibration.actionOverJudge = 'agent'">Agent (상류)</button>
+                                    </div>
+                                    <small class="settings-hint" style="display:block;margin:0 0 12px;"
+                                           x-text="(s.autoCalibration.actionOverJudge ?? 'dspilot') !== 'agent'
+                                               ? 'DSPilot이 신호를 직접 관측해 판정합니다 — 알람에 실제 경과시간이 기록되고, Agent가 보낸 동작 지연은 무시합니다(이중 계상 방지).'
+                                               : 'Agent(상류)가 보낸 동작 지연을 그대로 수용하고 DSPilot 자체 판정은 멈춥니다 — 이전 방식으로 되돌리는 임시 스위치입니다.'"></small>
+
                                     <!-- ── 1. 실측 수동 보정 (AASX 임계 산출 — 감지 무장) ── -->
                                     <p style="font-size:0.78rem;font-weight:700;margin:0 0 4px;">1. 실측 보정 (AASX 임계 산출)</p>
                                     <small class="settings-hint" style="display:block;margin:0 0 10px;">실제 동작 시간을 측정해 설비 모델(AASX)에 저장합니다. Head/Tail 저장이나 이력 재계산으로 자동 실행되지 않으며, 아래 버튼으로만 적용됩니다.</small>
@@ -1719,7 +1732,8 @@
                                 marginMaxAbsMs: (this.s.autoCalibration?.marginMaxAbsMs ?? 5000) | 0,
                                 fillMin: !!this.s.autoCalibration?.fillMin,
                                 percentileMin: +(this.s.autoCalibration?.percentileMin ?? 5),
-                                marginMinPct: +(this.s.autoCalibration?.marginMinPct ?? 0.03)
+                                marginMinPct: +(this.s.autoCalibration?.marginMinPct ?? 0.03),
+                                actionOverJudge: this.s.autoCalibration?.actionOverJudge === 'agent' ? 'agent' : 'dspilot'
                             }
                         };
                         const r = await this.apiPost('/api/settings/save', body);

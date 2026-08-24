@@ -939,6 +939,9 @@ public sealed class SimulationEngineService : IDisposable
     {
         var engine = _engine;
         if (engine is null || _overClock.IsEmpty) return;
+        // 판정 주체 토글(설정 ▸ 동작시간 이상감지) — agent 위임이면 발행만 침묵한다. 시계 관측
+        // (ObserveActionOverEdges)은 계속 돌아 dspilot 으로 되돌린 순간부터 정확한 경과로 판정한다.
+        if (!_settings.LoadSettings().AutoCalibration.IsActionOverJudgeDsPilot()) return;
 
         var nowMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
         foreach (var (apiCallId, clock) in _overClock)
@@ -1231,10 +1234,11 @@ public sealed class SimulationEngineService : IDisposable
         try
         {
             var kind = (AbnormalKind)payload.KindValue;
-            // ActionOver 는 DSPilot 소유(2026-08-24) — 상류 발행분은 버린다. 그대로 받으면 같은 초과를
+            // ActionOver 는 기본 DSPilot 소유(2026-08-24) — 상류 발행분은 버린다. 그대로 받으면 같은 초과를
             // Agent 임계(모델 Max 원본)와 DSPilot 임계(+여유값) 두 기준으로 이중 계상하게 된다.
-            // Agent 가 Over 발행을 멈추도록 조율되면 이 가드는 무해한 no-op 으로 남는다.
-            if (kind == AbnormalKind.ActionOver)
+            // 판정 주체 토글이 agent 면 반대로 상류를 수용한다(롤백 안전장치 — 재빌드 없이 화면 전환).
+            if (kind == AbnormalKind.ActionOver
+                && _settings.LoadSettings().AutoCalibration.IsActionOverJudgeDsPilot())
             {
                 _logger.LogDebug("[Abnormal] 상류 ActionOver 무시 — 판정 소유자=DSPilot (call={Call})", payload.CallId);
                 return;
