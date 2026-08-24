@@ -226,6 +226,9 @@ public sealed class SimulationEngineService : IDisposable
                 var index = SimIndexModule.build(store, 10);
                 _passiveWorkNames = store.WorksReadOnly.Values.ToDictionary(work => work.Id, work => work.Name);
 
+                // 엔진이 새로 서면 이전 세션의 시계는 근거를 잃는다(Work/ApiCall 매핑도 바뀔 수 있다).
+                ClearActionOverClocks("engine re-init");
+
                 // ActionOver 임계를 이 인덱스에 확정해 넣는다(DSPilot 소유 판정 — 아래 주석 참조).
                 // index.WorkDurationRange 는 mutable 이고 소비처가 ActionOver 경로 2곳(overdue 스케줄/판정)뿐이라
                 // 여기서 덮어써도 다른 판정(Finish 스케줄=WorkDuration, ActionUnder=어댑터)에 영향이 없다.
@@ -237,13 +240,23 @@ public sealed class SimulationEngineService : IDisposable
 
                 engine.CallStateChanged += OnEngineCallStateChanged;
                 engine.WorkStateChanged += OnEngineWorkStateChanged;
-                engine.AbnormalDetected += OnEngineAbnormalDetected;
 
-                // ActionOver 판정 소유자 = DSPilot (2026-08-24). 게이트(실측 확정 도장)는 열어 둔다 —
-                // 오탐 차단은 게이트가 아니라 ApplyActionOverThresholds 의 절대 여유값이 담당한다.
-                // 엔진 워치독 자체가 range.MaxMs > 0 인 device work 만 스케줄하므로 여기선 무조건 true.
-                if (engine is EventDrivenEngine edEngine)
-                    edEngine.SetMaxMeasured(_ => true);
+                // ★ 엔진 device-watchdog 은 ActionOver 판정에 쓰지 않는다(2026-08-24). SetMaxMeasured 를
+                //   주입하지 않으면 engineIsMaxMeasured 가 기본 false 로 남아 워치독이 발행하지 않는다.
+                //   판정은 완료대기 시계(TickAbnormalWatchdog) 단일 경로다.
+                //
+                //   워치독을 쓰지 않는 이유 — 오탐 원인 2종이 모두 이 경로에 있고, 둘 다 구조적이다:
+                //     ① IN 을 <b>순간값</b>으로 본다. 완료 신호가 짧은 펄스인 디바이스는 제시간에 끝내도
+                //        검사 시점(Max+1+250ms)엔 이미 off 라 타임아웃으로 잡힌다. 실측 2026-08-24
+                //        검사/4th_stp.ADV — IN 이 4,029ms 에 도달(임계 5,706ms)했는데 1초 뒤 하강해
+                //        5,706+1+250ms 시점에 발행됐다(계산값과 16ms 일치).
+                //     ② resync 베이스라인 주입으로 Work 가 <b>관측된 OUT 상승 없이</b> Going 이 되면
+                //        사이클 시작으로 오인한다. 엔진 내부에선 상태만 보이고 출처(HubSource)가 안 보여
+                //        구분이 불가능하다 — DSPilot 은 Resync 가 별도 분기라 구분할 수 있다.
+                //
+                //   닫아도 놓치는 것이 없음을 실측으로 확인했다(2026-08-24 12:41~12:44 발행 4건 중 정탐
+                //   3건은 완료대기 시계가 같은 것을 잡는다). 덤으로 알람의 elapsed 가 'Max+1' 고정값이
+                //   아니라 실측 경과가 되어 심각도 판단이 가능해진다.
 
                 var runtimeSession = new RuntimeModeSession(engine.Index, engine.IOMap, RuntimeMode.Monitoring);
 
@@ -251,7 +264,8 @@ public sealed class SimulationEngineService : IDisposable
                 if (runtimeSession.RequiresPassiveInference)
                     passive = new PassiveInferenceSession(engine.Index, engine.IOMap, RuntimeMode.Monitoring, true);
                 // v12 P5 이상감지 — kind 별 판정 소유자(2026-08-24 결정):
-                //   ActionOver  : DSPilot 소유. 이 엔진의 device-watchdog 가 판정하고 AbnormalDetected 로 받는다.
+                //   ActionOver  : DSPilot 소유. 완료대기 시계(ObserveActionOverEdges + TickAbnormalWatchdog)가
+                //                 단일 판정 경로다 — 엔진 device-watchdog 은 위에서 의도적으로 열지 않았다.
                 //                 상류(Agent)의 ActionOver 페이로드는 HandleHubAbnormal 이 버린다(이중 계상 방지).
                 //   ActionUnder : Agent 소유. IN 엣지 정밀 관측이 필요해 MonitoringAbnormalAdapter(어댑터)에만 있고
                 //                 DSPilot 은 그 어댑터를 두지 않는다("상태추론 한계"로 제거된 결정 유지).
@@ -421,6 +435,9 @@ public sealed class SimulationEngineService : IDisposable
         {
             try
             {
+                // 재동기 = 엣지가 아니라 현재값 스냅샷 → 그 사이 IN 도달 여부를 알 수 없다. 시계 폐기.
+                // (버스트로 여러 주소가 들어와도 Clear 는 멱등이라 비용만 미미하게 든다.)
+                ClearActionOverClocks("resync baseline");
                 _engine?.InjectIOValueByAddress(address, value);
                 _passiveInference?.Baseline(address, value);
             }
@@ -952,6 +969,26 @@ public sealed class SimulationEngineService : IDisposable
     }
 
     /// <summary>
+    /// 완료대기 시계 전량 폐기 — 통신 단절·재동기·엔진 재초기화처럼 <b>관측이 끊긴</b> 시점에 호출한다.
+    ///
+    /// <para>왜 필요한가: 시계는 "OUT 이 올라갔는데 IN 이 아직 안 왔다"를 재는데, 단절 구간에서는 IN 이
+    /// 실제로 왔는지 <b>알 수 없다</b>. 그대로 두면 복구 직후 틱에서 단절 시간이 통째로 경과로 잡혀
+    /// 즉시 오탐이 난다(임계 5~30초 vs 단절 수 분). 모르는 구간을 근거로 판정하지 않는다는 규약
+    /// (미계측 카빙 §3.4)과 같은 원칙이다.</para>
+    ///
+    /// <para>OUT 직전값(<see cref="_outLastActive"/>)도 함께 비운다 — 남겨 두면 복구 후 첫 관측이
+    /// baseline 이 아니라 상승엣지로 잘못 읽혀 가짜 시계가 시작된다.</para>
+    /// </summary>
+    public void ClearActionOverClocks(string reason)
+    {
+        var n = _overClock.Count;
+        _overClock.Clear();
+        _outLastActive.Clear();
+        if (n > 0)
+            _logger.LogInformation("[Abnormal] 완료대기 시계 {Count}건 폐기 — {Reason}", n, reason);
+    }
+
+    /// <summary>
     /// OUT/IN 엣지로 완료대기 시계를 갱신 — <see cref="HandleHubTagChanged"/> 의 관측 경로에서 호출.
     /// OUT 상승=시계 시작(재시작), IN 도달=해제. OUT 하강은 무시한다(<see cref="_overClock"/> 주석 참조).
     /// </summary>
@@ -1058,26 +1095,6 @@ public sealed class SimulationEngineService : IDisposable
     }
 
     /// <summary>
-    /// 엔진 device-watchdog 의 ActionOver 수신 → <see cref="AbnormalEventService"/> 합류(알람 DB·화면·통계).
-    /// 엔진 스레드에서 동기 발사되므로 Record 는 fire-and-forget 으로 즉시 반환한다.
-    /// Over 이외의 kind 는 이 엔진에서 나오지 않지만(어댑터 없음), 방어적으로 걸러 소유권 규약을 코드로 못박는다.
-    /// </summary>
-    private void OnEngineAbnormalDetected(object? sender, AbnormalRecord rec)
-    {
-        if (rec.Kind != AbnormalKind.ActionOver) return;
-        try
-        {
-            // 같은 사이클을 완료대기 워치독이 다시 내지 않도록 시계를 '발행됨'으로 표시(경로 2개 → 1건).
-            if (FsGuid(rec.Target.ApiCallId) is Guid apiCallId
-                && _overClock.TryGetValue(apiCallId, out var clock) && !clock.Emitted)
-                _overClock.TryUpdate(apiCallId, (clock.StartMs, true), clock);
-
-            _abnormalEvents.Record(rec);
-        }
-        catch (Exception ex) { _logger.LogWarning(ex, "[Abnormal] 엔진 ActionOver 처리 실패"); }
-    }
-
-    /// <summary>
     /// Phase 2 — 래치 적격 Flow 의 박제(stuck-open) 사이클 워치독. StateReconcileService 가 매 tick 호출한다.
     /// 열린 래치의 경과가 해당 flow 의 유효 이상치 Max(전체+flow별, 사후 IsIdle 분류와 동일 소스
     /// <see cref="AppSettingsService.ResolveEffectiveCycleRangeMs"/>)를 넘으면 — 지금 완료돼도 비가동으로
@@ -1179,6 +1196,9 @@ public sealed class SimulationEngineService : IDisposable
     /// </summary>
     public async Task AbandonActiveCyclesOnPlcBlackoutAsync(string adapterName, string lastError)
     {
+        // 진행 중 완료대기 시계는 단절 구간을 경과로 머금으므로 먼저 폐기한다(사이클 abandon 과 같은 이유).
+        ClearActionOverClocks($"PLC blackout ({adapterName})");
+
         if (_engine is null) return;
         if (!_flowMetricsService.IsInitialized) return;
         if (_dspRepository is not Adapters.DspRepositoryAdapter repo) return;
@@ -1730,7 +1750,6 @@ public sealed class SimulationEngineService : IDisposable
             {
                 _engine.CallStateChanged -= OnEngineCallStateChanged;
                 _engine.WorkStateChanged -= OnEngineWorkStateChanged;
-                _engine.AbnormalDetected -= OnEngineAbnormalDetected;
                 try { _engine.Stop(); } catch { /* already stopped */ }
                 _engine.Dispose();
             }
@@ -1808,7 +1827,6 @@ public sealed class SimulationEngineService : IDisposable
             {
                 _engine.CallStateChanged -= OnEngineCallStateChanged;
                 _engine.WorkStateChanged -= OnEngineWorkStateChanged;
-                _engine.AbnormalDetected -= OnEngineAbnormalDetected;
                 try { _engine.Stop(); } catch { /* ignore */ }
                 _engine.Dispose();
             }
