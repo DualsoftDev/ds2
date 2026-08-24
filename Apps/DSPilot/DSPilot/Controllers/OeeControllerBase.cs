@@ -826,7 +826,9 @@ public abstract class OeeControllerBase : ControllerBase
         double idleMult, double nonProdMult)
     {
         var sb = new System.Text.StringBuilder(256);
-        sb.Append("v27|");   // 분모/분류 모델 버전 — 모델 변경 배포 직후 L1 캐시 혼재 방지
+        sb.Append("v28|");   // 분모/분류 모델 버전 — 모델 변경 배포 직후 L1 캐시 혼재 방지
+                             // v28(2026-08-24): 고장 유발자 판별을 CT축 → MT축(평균MT×고장배수)으로 전환 +
+                             //                  비생산 기본 배수 10×→15×
                              // v27(2026-08-19): dtCond ct 기준 추가(정지 후 재개 사이클 비가동 편입) + wt 폭주 행
                              //                  무변화 정지 분류 편입 + repair 기준 분리
                              // v26(2026-07-30): 유지보수 확정 정지를 고장 건수·MTBF onset·MTTR 에서 제외
@@ -956,6 +958,12 @@ public abstract class OeeControllerBase : ControllerBase
         // 미계측(수신 공백, doc/22 §3.4) — 통신 헬스 심박이 보증하지 못한 구간. 가동/비가동/비생산 어디에도
         // 넣지 않는다(모르는 시간을 아는 척 금지). 심박 epoch 이전 기간은 빈 목록(소급 주장 없음) = 기존 동작.
         // trusted=false(조회 실패 폴백)면 카빙 없이 계산은 진행하되 감지 로그 materialize 는 스킵(영구 오염 방지).
+        // 고장 유발자 판별 기준(2026-08-24) — flow별 14일 중앙 MT × 고장배수. CT 축 배수와 독립이라
+        // 미리보기 오버라이드(idleMult/nonProdMult)에도 영향받지 않는다. 산출 실패/표본 없음이면 빈 맵이고,
+        // 그 flow 는 유발자 판별을 하지 않는다(= 형제 강등도 안 걸려 종전 폴백 분기로 흐름).
+        var faultMult = _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
+        var mtThresholds = await _ctStats.ComputeMtThresholdAsync();
+
         var (unmeasured, unmeasuredTrusted) = await _commHealth.TryGetUnmeasuredIntervalsAsync(fromUtc, toUtc, ct);
         var unmeasuredMs = unmeasured.Sum(u => u.E - u.S);
         var empty = new CycleAgg(0, 0, 0, 0, null, onsets, repairs, false, 0,
@@ -1208,11 +1216,13 @@ public abstract class OeeControllerBase : ControllerBase
             //   flow 당 인덱스 시크 1회(idx_dspFlowHistory_flow_recordedAt)라 라인 전체로 넓혀도 비용은 무시할 수준.
             foreach (var fPre in signalFlows)
             {
-                var thrPre = thresholds[fPre].AvgMs;
-                if (thrPre <= 0) continue;
+                // 유발자 판별 경계 = 평균 MT × 고장배수(2026-08-24). CT 축이 아니다 — 라인이 서면 모든 flow 의
+                // CT 가 함께 늘어나 유발자를 못 가리지만, MT 는 자기 설비가 실제로 움직인 시간이라 유발자만 는다.
+                // 평균 MT 미보유 flow 는 판별 불가로 건너뛴다(0 으로 두면 모든 정지가 과주행이 된다).
+                if (!mtThresholds.TryGetValue(fPre, out var mtThrPre) || mtThrPre <= 0) continue;
                 var pPre = new DynamicParameters();
                 pPre.Add("From", fromStr); pPre.Add("To", toStr); pPre.Add("Flow", fPre);
-                pPre.Add("Thr", thrPre * idleMult);
+                pPre.Add("Thr", mtThrPre * faultMult);
                 try
                 {
                     var ovRows = await conn.QueryAsync<DtCycleRaw>(@"
@@ -1347,7 +1357,10 @@ public abstract class OeeControllerBase : ControllerBase
                     // 유지(아래 폴스루). 완료됐지만 wt 폭주로 걸린 사이클(mt 정상·ct 초과, 2026-08-19 dtCond
                     // ct 기준 신설분)은 정지가 사이클 사이에 있는 무변화 정지 — 미완료(Mt=null)와 동일하게
                     // 분류를 태운다(없으면 주말/야간 장기정지가 전부 '고장'으로 계상돼 10× 비생산 승격이 죽는다).
-                    var mtOverrun = r.Mt is long mtOv && mtOv > thr * idleMult;
+                    // 유발자 판별 — 평균 MT × 고장배수(위 사전 수집과 동일 경계). 기준 미보유 flow 는 판별 불가(false).
+                    var mtOverrun = r.Mt is long mtOv
+                                    && mtThresholds.TryGetValue(f, out var mtThrF) && mtThrF > 0
+                                    && mtOv > mtThrF * faultMult;
                     if (applyLongStop && !mtOverrun && !OverlapsAny(toDownIv, f, startMs, rec))
                     {
                         var cls = OeeMath.ClassifyStopWindow(signalRulesActive,

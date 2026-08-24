@@ -47,12 +47,16 @@ public class OeePlannedStopsController : OeeControllerBase
     public async Task<ActionResult<CtMultipliersDto>> GetCtMultipliers()
     {
         var (idleMult, nonProdMult) = ResolveCtMultipliers();
+        var faultMult = _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
         var thresholds = await ResolveCtThresholdsAsync();
+        var mtThresholds = await _ctStats.ComputeMtThresholdAsync();
         var flows = thresholds.Where(kv => kv.Value.AvgMs > 0)
             .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(kv => new CtMultiplierFlowDto(kv.Key, kv.Value.AvgMs))
+            .Select(kv => new CtMultiplierFlowDto(
+                kv.Key, kv.Value.AvgMs,
+                mtThresholds.TryGetValue(kv.Key, out var mt) ? mt : 0))
             .ToList();
-        return new CtMultipliersDto(idleMult, nonProdMult, flows);
+        return new CtMultipliersDto(idleMult, nonProdMult, flows, faultMult);
     }
 
     // ── PUT /api/oee/ct-multipliers ───────────────────────────────────────
@@ -73,10 +77,17 @@ public class OeePlannedStopsController : OeeControllerBase
         if (idle >= nonProd)
             return BadRequest(new { error = "비가동 배수는 비생산 배수보다 작아야 합니다 — 역전되면 비가동(정지) 구간이 사라져 가용성이 왜곡됩니다." });
 
-        _settings.SaveCtMultipliers(idle, nonProd);
+        // 고장 배수는 MT 축이라 CT 축 두 배수와 대소 제약이 없다(비교 자체가 무의미) — 범위만 검증.
+        var curFault = _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
+        var fault = req?.FaultMtMultiplier ?? curFault;
+        if (!double.IsFinite(fault) || fault < OeeManualSettings.FaultMultMin || fault > OeeManualSettings.FaultMultMax)
+            return BadRequest(new { error = $"고장 판정 배수는 {OeeManualSettings.FaultMultMin:0.#}~{OeeManualSettings.FaultMultMax:0.#} 범위여야 합니다." });
+
+        _settings.SaveCtMultipliers(idle, nonProd, fault);
         OeeChangeSignal.NotifyInvalidate();
-        _logger.LogInformation("[OEE] 판정 배수 변경: 비가동 {Idle}× / 비생산 {NonProd}× (구 {OldIdle}×/{OldNonProd}×)",
-            idle, nonProd, curIdle, curNonProd);
+        _logger.LogInformation(
+            "[OEE] 판정 배수 변경: 비가동 {Idle}×CT / 비생산 {NonProd}×CT / 고장 {Fault}×MT (구 {OldIdle}/{OldNonProd}/{OldFault})",
+            idle, nonProd, fault, curIdle, curNonProd, curFault);
         return await GetCtMultipliers();
     }
 

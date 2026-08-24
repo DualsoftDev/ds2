@@ -244,15 +244,19 @@ public class OeeMathTests
     // ── 비생산 자동판정 (10×CT 장시간 무변화 정지) doc/22 §3.3 ─────────────
 
     [Fact]
-    public void LongStop_multiplier_is_ten()
-        => Assert.Equal(10.0, OeeMath.NonProductionCtMultiplier);
+    public void LongStop_multiplier_default_is_fifteen()
+        => Assert.Equal(15.0, OeeMath.NonProductionCtMultiplier);   // 2026-08-24: 10× → 15×
+
+    [Fact]
+    public void Fault_mt_multiplier_default_is_two_point_five()
+        => Assert.Equal(2.5, OeeMath.FaultMtMultiplierDefault);
 
     [Theory]
-    [InlineData(1000, 10000, true)]   // 정확히 10× → 비생산
-    [InlineData(1000, 9999, false)]   // 10× 직전 → 다운타임 유지
+    [InlineData(1000, 15000, true)]   // 정확히 15× → 비생산
+    [InlineData(1000, 14999, false)]  // 15× 직전 → 다운타임 유지
     [InlineData(1000, 50000, true)]   // 50× → 비생산
-    [InlineData(2000, 19999, false)]  // 9.99× → 다운타임
-    [InlineData(2000, 20000, true)]   // 10× → 비생산
+    [InlineData(2000, 29999, false)]  // 14.99× → 다운타임
+    [InlineData(2000, 30000, true)]   // 15× → 비생산
     public void IsLongStopNonProduction_threshold(double thrMs, double durMs, bool expected)
         => Assert.Equal(expected, OeeMath.IsLongStopNonProduction(durMs, thrMs));
 
@@ -269,12 +273,12 @@ public class OeeMathTests
         => Assert.Equal(3.0, OeeMath.DowntimeGapMultiplier);
 
     [Theory]
-    // gap' = 2000ms, CT임계 = 10000ms → 비가동 경계 6000(초과), 비생산 경계 100000(이상)
-    [InlineData(2000, OeeMath.GapClass.Normal)]         // 정상 대기 (= gap')
-    [InlineData(6000, OeeMath.GapClass.Normal)]         // 정확히 3×gap' → 아직 정상(초과 조건)
-    [InlineData(6001, OeeMath.GapClass.Downtime)]       // 3×gap' 초과 → 비가동
-    [InlineData(99999, OeeMath.GapClass.Downtime)]      // 10×CT 직전 → 비가동 유지
-    [InlineData(100000, OeeMath.GapClass.NonProduction)] // 정확히 10×CT → 비생산
+    // gap' = 2000ms, CT임계 = 10000ms → 비가동 경계 6000(초과), 비생산 경계 150000(이상, 15×)
+    [InlineData(2000, OeeMath.GapClass.Normal)]          // 정상 대기 (= gap')
+    [InlineData(6000, OeeMath.GapClass.Normal)]          // 정확히 3×gap' → 아직 정상(초과 조건)
+    [InlineData(6001, OeeMath.GapClass.Downtime)]        // 3×gap' 초과 → 비가동
+    [InlineData(149999, OeeMath.GapClass.Downtime)]      // 15×CT 직전 → 비가동 유지
+    [InlineData(150000, OeeMath.GapClass.NonProduction)] // 정확히 15×CT → 비생산
     [InlineData(500000, OeeMath.GapClass.NonProduction)] // 장시간 → 비생산
     public void ClassifyGap_boundaries(double gapMs, OeeMath.GapClass expected)
         => Assert.Equal(expected, OeeMath.ClassifyGap(gapMs, gapMedianMs: 2000, ctThresholdMs: 10000));
@@ -284,7 +288,7 @@ public class OeeMathTests
     {
         // gap' 표본 부족(0) → 비가동 판정 불가(가짜 정지 금지) — 비생산 경계만 적용.
         Assert.Equal(OeeMath.GapClass.Normal, OeeMath.ClassifyGap(50_000, 0, 10_000));
-        Assert.Equal(OeeMath.GapClass.NonProduction, OeeMath.ClassifyGap(100_000, 0, 10_000));
+        Assert.Equal(OeeMath.GapClass.NonProduction, OeeMath.ClassifyGap(150_000, 0, 10_000));
     }
 
     [Fact]

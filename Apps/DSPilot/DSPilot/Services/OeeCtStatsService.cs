@@ -380,6 +380,74 @@ public sealed class OeeCtStatsService
         }
     }
 
+    /// <summary>
+    /// flow별 14일 <b>평균(중앙값) MT</b> — 고장 유발자 판별(<see cref="Models.OeeManualSettings.FaultMtMultiplier"/>)의
+    /// 기준값. CT 임계와 같은 창·같은 클린사이클(IsIdle=0) 모집단을 쓰되 열만 mt 다.
+    ///
+    /// <para>평균이 아니라 <b>중앙값</b>을 쓴다 — MT 는 정지를 머금은 사이클 하나에 수십 배로 끌려가서
+    /// (실측: 조립 평상시 4.7초 vs 정지 사이클 216초) 평균을 쓰면 기준 자체가 오염돼 다음 고장을 못 잡는다.
+    /// CT 임계가 평균을 쓰는 것과 다른 선택이며, 이유는 MT 의 이상치 진폭이 CT 보다 훨씬 크기 때문이다.</para>
+    ///
+    /// <para>표본이 없거나 0 인 flow 는 맵에서 빠진다 — 호출측은 "기준 없음 = 유발자 판별 불가"로 다뤄야 한다
+    /// (기준 미보유 flow 를 0 으로 두면 모든 정지가 과주행으로 잡힌다).</para>
+    /// </summary>
+    public Task<Dictionary<string, double>> ComputeMtThresholdAsync(int windowDays = 14)
+        => GetOrComputeCachedAsync($"mtthr|{windowDays}", () => ComputeMtThresholdCoreAsync(windowDays));
+
+    private async Task<Dictionary<string, double>> ComputeMtThresholdCoreAsync(int windowDays)
+    {
+        var result = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!File.Exists(dbPath)) return result;
+        try
+        {
+            var conn = await _mirror.TryOpenPlcReadAsync(DateTime.UtcNow.AddDays(-Math.Max(1, windowDays)), layerB: true);
+            if (conn is null)
+            {
+                conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+                await conn.OpenAsync();
+            }
+            await using var _ = conn;
+
+            var histExists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (histExists == 0) return result;
+
+            var since = DateTime.UtcNow.AddDays(-Math.Max(1, windowDays))
+                .ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+
+            var raw = await conn.QueryAsync<(string? FlowName, long Mt)>(@"
+                SELECT flowName AS FlowName, mt AS Mt
+                FROM dspFlowHistory
+                WHERE COALESCE(IsIdle,0) = 0 AND mt IS NOT NULL AND mt > 0
+                  AND recordedAt >= @Since", new { Since = since });
+
+            var modelFlows = _project.GetModelFlowNames();
+            var grouped = new Dictionary<string, List<long>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in raw)
+            {
+                if (string.IsNullOrEmpty(r.FlowName)) continue;
+                if (modelFlows is not null && !modelFlows.Contains(r.FlowName)) continue;
+                if (!grouped.TryGetValue(r.FlowName, out var l)) grouped[r.FlowName] = l = new List<long>();
+                l.Add(r.Mt);
+            }
+            foreach (var (flow, list) in grouped)
+            {
+                if (list.Count == 0) continue;
+                list.Sort();
+                var med = list.Count % 2 == 1
+                    ? (double)list[list.Count / 2]
+                    : (list[list.Count / 2 - 1] + list[list.Count / 2]) / 2.0;
+                if (med > 0) result[flow] = med;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[OEE] 평균 MT 산출 실패 — 유발자 판별 비활성");
+        }
+        return result;
+    }
+
     public Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ComputeCtThresholdAsync(
         int windowDays = 14, int minCleanCycles = 1, DateTime? excludeUntilUtc = null, double? decayHalfLifeDays = null)
         => GetOrComputeCachedAsync(

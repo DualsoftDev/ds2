@@ -150,8 +150,22 @@ public class OeeManualSettings
     /// </summary>
     public double NonProdCtMultiplier { get; set; } = Services.OeeMath.NonProductionCtMultiplier;
 
+    /// <summary>
+    /// 고장 유발자 판별 배수 (2026-08-24). 사이클 <b>MT</b> 가 <b>14일 평균 MT × 이 배수</b>를 넘긴 flow 를
+    /// 그 정지의 유발자로 보고 고장 확정하고, 넘지 않은 형제 flow 는 여파(대기)로 강등해 고장 건수·MTBF 에서 뺀다.
+    ///
+    /// <para>다른 두 배수와 <b>축이 다르다</b>: <see cref="IdleCtMultiplier"/>·<see cref="NonProdCtMultiplier"/> 는
+    /// 평균 CT 에 곱해 "얼마나 길었나"(시간 계상)를 재고, 이 배수만 평균 MT 에 곱해 "누가 원인인가"(귀속)를 가른다.
+    /// 라인이 서면 모든 flow 의 CT 가 함께 늘어나 CT 로는 유발자를 못 가리기 때문이다.</para>
+    ///
+    /// <para>유효범위 <see cref="FaultMultMin"/>~<see cref="FaultMultMax"/>. 정지 계상 여부와는 무관하므로
+    /// <see cref="NonProdCtMultiplier"/> 와의 대소 제약이 없다(축이 달라 비교 자체가 무의미).</para>
+    /// </summary>
+    public double FaultMtMultiplier { get; set; } = Services.OeeMath.FaultMtMultiplierDefault;
+
     public const double IdleMultMin = 1.0, IdleMultMax = 20.0;
     public const double NonProdMultMin = 2.0, NonProdMultMax = 100.0;
+    public const double FaultMultMin = 1.0, FaultMultMax = 10.0;
 
     /// <summary>
     /// 신호 기반 정지 분류 (doc/25 §1·§2, 2026-07-16). true(기본)면 정지 창에 겹친 abnormal(자동감지, flow 귀속)·
@@ -178,6 +192,14 @@ public class OeeManualSettings
         if (idle >= nonProd) idle = Math.Max(IdleMultMin, nonProd / 2);
         return (idle, nonProd);
     }
+
+    /// <summary>
+    /// 저장값을 안전 범위로 정규화한 고장 유발자 판별 배수(평균 MT 대비). CT 축 배수와 서로 제약이 없다.
+    /// </summary>
+    public double ResolveFaultMtMultiplier()
+        => double.IsFinite(FaultMtMultiplier)
+            ? Math.Clamp(FaultMtMultiplier, FaultMultMin, FaultMultMax)
+            : Services.OeeMath.FaultMtMultiplierDefault;
 
     // (구 ExcludedWeekdays[휴무 요일]는 2026-07-08 당일 비생산 판정 모델로 대체·삭제 — 쉬는 날은 사이클이 없어
     //  10×CT 장시간 정지 규칙이 자동으로 비생산 처리한다. 기존 Production.json 의 키는 ExtensionData 로 무해 보존.)

@@ -312,13 +312,21 @@ public sealed record PlannedStopsDto(
 public sealed record CtMultipliersDto(
     double IdleCtMultiplier,
     double NonProdCtMultiplier,
-    IReadOnlyList<CtMultiplierFlowDto> Flows);
+    IReadOnlyList<CtMultiplierFlowDto> Flows,
+    // 고장 유발자 판별 배수(2026-08-24) — 곱하는 대상이 CT 가 아니라 flow별 중앙 MT 다(FlowDto.MedianMtMs).
+    double FaultMtMultiplier = Services.OeeMath.FaultMtMultiplierDefault);
 
-/// <summary>flow별 판정 임계 환산 정보 — AvgCtMs = 14일 평균 CT(수동 표준CT 오버라이드 반영, 집계와 동일 소스).</summary>
-public sealed record CtMultiplierFlowDto(string FlowName, double AvgCtMs);
+/// <summary>
+/// flow별 판정 임계 환산 정보.
+///   AvgCtMs     = 14일 평균 CT — 정지 계상(×IdleCtMultiplier)·비생산 승격(×NonProdCtMultiplier) 경계의 기준값
+///   MedianMtMs  = 14일 중앙 MT — 고장 유발자 판별(×FaultMtMultiplier) 경계의 기준값. 0 = 표본 없음(판별 불가)
+/// 두 값의 축이 다르므로 화면에서도 같은 막대에 얹지 않는다.
+/// </summary>
+public sealed record CtMultiplierFlowDto(string FlowName, double AvgCtMs, double MedianMtMs = 0);
 
 /// <summary>PUT /api/oee/ct-multipliers 요청. null 필드는 기존값 유지.</summary>
-public sealed record CtMultipliersRequest(double? IdleCtMultiplier, double? NonProdCtMultiplier);
+public sealed record CtMultipliersRequest(
+    double? IdleCtMultiplier, double? NonProdCtMultiplier, double? FaultMtMultiplier = null);
 
 /// <summary>
 /// 판정 기준 변경 미리보기 — GET /api/oee/ct-multipliers/preview. 같은 기간을 현재 배수/제안 배수로

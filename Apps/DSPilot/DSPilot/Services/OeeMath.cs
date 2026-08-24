@@ -16,7 +16,21 @@ public static class OeeMath
     /// 2026-07-13 사용자 설정화: 실제 적용값은 <see cref="Models.OeeManualSettings.NonProdCtMultiplier"/>(설비효율 현황에서 조절) —
     /// 이 상수는 그 설정의 기본값이자 설정 미보유 경로의 폴백이다.
     /// </summary>
-    public const double NonProductionCtMultiplier = 10.0;
+    public const double NonProductionCtMultiplier = 15.0;
+
+    /// <summary>
+    /// 고장 유발자 판별 배수 기본값 (2026-08-24). 사이클 MT 가 <b>14일 평균 MT × 이 배수</b>를 넘으면
+    /// 그 flow 를 정지의 유발자로 보고 고장 확정, 나머지 flow 는 여파(대기)로 강등한다.
+    ///
+    /// <para>축이 CT 가 아니라 <b>MT</b> 인 이유: 라인이 서면 모든 flow 의 CT 가 동시에 늘어나 유발자를 못 가린다.
+    /// MT 는 자기 설비가 실제로 움직인 시간이라 유발자만 늘어난다 (2026-08-24 실측 — 같은 4분 정지에서
+    /// 조립 46.3× / 이송 8.0× / 나머지 3개 1.0×). 정지 시간 <b>계상</b>은 종전대로 CT 축
+    /// (<see cref="IdleCtMultiplierDefault"/>) — MT 로 옮기면 대기 중이던 flow 의 정지가 정상 가동으로 잡혀
+    /// 가용성이 부풀어 오른다(실측: 6개 중 4개가 정지 미계상).</para>
+    ///
+    /// <para>실제 적용값은 <see cref="Models.OeeManualSettings.FaultMtMultiplier"/>.</para>
+    /// </summary>
+    public const double FaultMtMultiplierDefault = 2.5;
 
     /// <summary>
     /// 비가동(정지) 판정 배수 기본값 — 사이클 MT(또는 미완료 CT)가 14일 평균 CT 의 이 배수를 <b>초과</b>하면
