@@ -976,16 +976,16 @@
                                         <template x-if="focusRow">
                                             <div>
                                                 <div class="ct-fb-head">
-                                                    <span class="ct-fb-name" x-text="focusRow.flowName"></span>
-                                                    <span class="ct-fb-ct">가동시간 <b x-text="fmt(focusRow.ct)"></b></span>
+                                                    <span class="ct-fb-name" x-text="focusRow?.flowName"></span>
+                                                    <span class="ct-fb-ct">가동시간 <b x-text="fmt(focusRow?.ct)"></b></span>
                                                 </div>
-                                                <div class="ct-fb-track" role="img" :aria-label="focusRow.flowName + ' 동작 ' + fmt(focusRow.mt) + ' 대기 ' + fmt(focusRow.wt)">
-                                                    <div class="ct-fb-seg ct-fb-mt" :style="`width:${focusRow.ct>0 ? focusRow.mt*100/focusRow.ct : 0}%`" :title="'동작 ' + fmt(focusRow.mt)"></div>
-                                                    <div class="ct-fb-seg ct-fb-wt" :style="`width:${focusRow.ct>0 ? focusRow.wt*100/focusRow.ct : 0}%`" :title="'대기 ' + fmt(focusRow.wt)"></div>
+                                                <div class="ct-fb-track" role="img" :aria-label="focusRow?.flowName + ' 동작 ' + fmt(focusRow?.mt) + ' 대기 ' + fmt(focusRow?.wt)">
+                                                    <div class="ct-fb-seg ct-fb-mt" :style="`width:${focusRow?.ct>0 ? focusRow?.mt*100/focusRow?.ct : 0}%`" :title="'동작 ' + fmt(focusRow?.mt)"></div>
+                                                    <div class="ct-fb-seg ct-fb-wt" :style="`width:${focusRow?.ct>0 ? focusRow?.wt*100/focusRow?.ct : 0}%`" :title="'대기 ' + fmt(focusRow?.wt)"></div>
                                                 </div>
                                                 <div class="ct-fb-legend">
-                                                    <span class="ct-fb-li"><span class="ct-fb-dot ct-fb-dot-mt"></span>동작 <b x-text="fmt(focusRow.mt)"></b> <em x-text="'(' + (focusRow.ct>0 ? Math.round(focusRow.mt*100/focusRow.ct) : 0) + '%)'"></em></span>
-                                                    <span class="ct-fb-li"><span class="ct-fb-dot ct-fb-dot-wt"></span>대기 <b x-text="fmt(focusRow.wt)"></b> <em x-text="'(' + (focusRow.ct>0 ? Math.round(focusRow.wt*100/focusRow.ct) : 0) + '%)'"></em></span>
+                                                    <span class="ct-fb-li"><span class="ct-fb-dot ct-fb-dot-mt"></span>동작 <b x-text="fmt(focusRow?.mt)"></b> <em x-text="'(' + (focusRow?.ct>0 ? Math.round(focusRow?.mt*100/focusRow?.ct) : 0) + '%)'"></em></span>
+                                                    <span class="ct-fb-li"><span class="ct-fb-dot ct-fb-dot-wt"></span>대기 <b x-text="fmt(focusRow?.wt)"></b> <em x-text="'(' + (focusRow?.ct>0 ? Math.round(focusRow?.wt*100/focusRow?.ct) : 0) + '%)'"></em></span>
                                                 </div>
                                             </div>
                                         </template>
