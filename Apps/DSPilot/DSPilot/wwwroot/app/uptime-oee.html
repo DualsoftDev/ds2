@@ -726,14 +726,14 @@
                      분류 밴드 + flow별 임계 환산 칩 + 저장 전 재분류 미리보기(서버 what-if 계산, 저장·기록 없음). 라인 전역 설정. ════ -->
                 <section class="card up-section" id="ct-mult-section" x-show="!curFlow" x-cloak>
                     <div class="ds-card-h">
-                        <h4>정지·비생산 판정 기준</h4>
+                        <h4>정지·비생산·고장 판정 기준</h4>
                         <span style="flex:1;"></span>
                         <span class="up-oee-chip" :class="cmDirty() ? 'warn' : 'auto'"
-                              x-text="cmDirty() ? '미적용 변경 — [적용]을 눌러 저장' : ('비가동 ' + cm.idle + '× · 비생산 ' + cm.nonProd + '× 평균 가동시간')"></span>
+                              x-text="cmDirty() ? '미적용 변경 — [적용]을 눌러 저장' : ('비가동 ' + cm.idle + '× · 비생산 ' + cm.nonProd + '×CT · 고장 ' + cm.fault + '×MT')"></span>
                     </div>
 
                     <!-- 분류 밴드 — 사이클 길이(평균 CT 배수) 축 위 3구간, 슬라이더와 실시간 동기 -->
-                    <div class="up-cm-band" title="사이클(정지) 길이가 14일 평균 가동시간의 몇 배인가에 따라 분류됩니다">
+                    <div class="up-cm-band" title="사이클(정지) 길이가 14일 평균 가동시간(CT)의 몇 배인가에 따라 분류됩니다 — 고장 유발 판정(MT 축)은 아래 별도 기준">
                         <div class="seg normal" :style="'width:' + cmBandW('normal')">
                             <span class="nm">정상</span><span class="rg">≤ <b x-text="cm.idle"></b>×</span>
                         </div>
@@ -762,20 +762,35 @@
                                 <b>비생산(제외) 판정</b>
                                 <span>변화 없는 정지가 평균의 <b x-text="cm.nonProd + '배'"></b> 이상 이어지면 생산 계획이 없던 시간(무오더·교대·주말)으로 보고 가용성 분모에서 제외합니다.</span>
                             </div>
-                            <input class="up-cm-slider nonprod" type="range" min="3" max="30" step="0.5"
+                            <input class="up-cm-slider nonprod" type="range" min="3" max="100" step="0.5"
                                    :value="cm.nonProd" @input="cmSetNonProd($event.target.value)" :disabled="cm.busy"
                                    aria-label="비생산 판정 배수">
                             <span class="up-cm-val" x-text="cm.nonProd.toFixed(1) + '×'"></span>
+                        </div>
+                        <!-- 고장 유발 판정 — 축이 다르다: 위 두 배수는 평균 CT(사이클 길이), 이 배수만 중앙 MT(동작시간).
+                             라인이 서면 모든 설비의 CT 가 함께 늘어나 유발자를 못 가리지만 MT 는 유발자만 늘어난다.
+                             그래서 상단 분류 밴드(CT 축)에는 얹지 않는다 — 스케일이 달라 한 막대에 그리면 거짓말이 된다. -->
+                        <div class="up-cm-row fault">
+                            <div class="up-cm-head">
+                                <b>고장 유발 판정 <span class="up-codeish" title="위 두 기준은 사이클 길이(CT), 이 기준만 실제 동작시간(MT) 축입니다">동작시간(MT) 기준</span></b>
+                                <span>정지 중 <b>동작시간(MT)이 14일 평소의 <b x-text="cm.fault + '배'"></b></b>를 넘긴 설비를 그 정지의 <b>유발자(고장)</b>로 봅니다.
+                                    넘지 않은 설비는 여파(대기)로 분류해 고장 건수·MTBF에서 뺍니다. 초과분만 비가동으로 계상합니다.</span>
+                            </div>
+                            <input class="up-cm-slider fault" type="range" min="1" max="10" step="0.1"
+                                   :value="cm.fault" @input="cmSetFault($event.target.value)" :disabled="cm.busy"
+                                   aria-label="고장 유발 판정 배수">
+                            <span class="up-cm-val" x-text="cm.fault.toFixed(1) + '×'"></span>
                         </div>
                     </div>
 
                     <!-- flow별 임계 환산 — "이 배수가 우리 라인에선 몇 초/분인가" -->
                     <div class="up-cm-flows" x-show="cm.flows.length" x-cloak>
                         <template x-for="f in cm.flows" :key="f.flowName">
-                            <span class="up-cm-flowchip" :title="f.flowName + ' · 14일 평균 가동시간 ' + cmSecs(f.avgCtMs, 1)">
+                            <span class="up-cm-flowchip" :title="f.flowName + ' · 14일 평균 가동시간(CT) ' + cmSecs(f.avgCtMs, 1) + (f.medianMtMs > 0 ? ' · 평소 동작시간(MT) ' + cmSecs(f.medianMtMs, 1) : '')">
                                 <b x-text="f.flowName"></b>
                                 <span class="th">정지 &gt; <i x-text="cmSecs(f.avgCtMs, cm.idle)"></i></span>
                                 <span class="th np">비생산 ≥ <i x-text="cmSecs(f.avgCtMs, cm.nonProd)"></i></span>
+                                <span class="th fault" x-show="f.medianMtMs > 0">유발 &gt; <i x-text="cmSecs(f.medianMtMs, cm.fault)"></i></span>
                             </span>
                         </template>
                     </div>
@@ -802,7 +817,7 @@
                         <span class="up-blk-msg err" x-show="cm.err" x-text="cm.err"></span>
                         <span style="flex:1;"></span>
                         <button class="btn btn-sm btn-outlined" @click="cmReset()" :disabled="cm.busy"
-                                title="기본값(비가동 2.5× · 비생산 10×)으로 되돌린 뒤 [적용]으로 저장">기본값</button>
+                                title="기본값(비가동 2.5×CT · 비생산 15×CT · 고장 2.5×MT)으로 되돌린 뒤 [적용]으로 저장">기본값</button>
                         <button class="btn btn-sm" :class="cmDirty() ? 'btn-primary' : ''" @click="cmApply()" :disabled="cm.busy || !cmDirty()">
                             <span class="material-icons" style="font-size:15px;">save</span>
                             <span x-text="cmDirty() ? '적용 *' : '적용'"></span>

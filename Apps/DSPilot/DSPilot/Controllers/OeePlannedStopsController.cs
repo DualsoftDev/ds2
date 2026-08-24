@@ -91,26 +91,30 @@ public class OeePlannedStopsController : OeeControllerBase
         return await GetCtMultipliers();
     }
 
-    // ── GET /api/oee/ct-multipliers/preview?idle&nonProd[&from&to] ────────
+    // ── GET /api/oee/ct-multipliers/preview?idle&nonProd[&fault][&from&to] ────────
     // 저장 없는 what-if 재분류 — 같은 기간을 현재/제안 배수로 각각 집계해 비교(라인 전체 스코프).
     // 오버라이드 계산은 감지로그 materialize 를 막고(suppressDetectionLog), 결과는 집계 TTL 캐시를 공유한다.
+    // fault(MT축 고장 배수) 생략 시 현재 저장값으로 계산 — 구(캐시) 클라이언트 호환.
     [HttpGet("ct-multipliers/preview")]
     public async Task<ActionResult<CtMultipliersPreviewDto>> PreviewCtMultipliers(
-        [FromQuery] double idle, [FromQuery] double nonProd,
+        [FromQuery] double idle, [FromQuery] double nonProd, [FromQuery] double? fault,
         [FromQuery] DateTime? from, [FromQuery] DateTime? to, CancellationToken ct)
     {
         if (!double.IsFinite(idle) || !double.IsFinite(nonProd) || idle <= 0 || nonProd <= 0 || idle >= nonProd)
             return BadRequest(new { error = "미리보기 배수가 올바르지 않습니다 (0 < 비가동 < 비생산)." });
+        if (fault is double fq && (!double.IsFinite(fq) || fq < OeeManualSettings.FaultMultMin || fq > OeeManualSettings.FaultMultMax))
+            return BadRequest(new { error = $"고장 판정 배수는 {OeeManualSettings.FaultMultMin:0.#}~{OeeManualSettings.FaultMultMax:0.#} 범위여야 합니다." });
 
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var thresholds = await ResolveCtThresholdsAsync();
         var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
         var (curIdle, curNonProd) = ResolveCtMultipliers();
+        var curFault = _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
 
-        async Task<CtMultipliersPreviewSideDto> SideAsync(double im, double nm)
+        async Task<CtMultipliersPreviewSideDto> SideAsync(double im, double nm, double fm)
         {
             var agg = await ComputeCycleAggregateAsync(null, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
-                idleMultOverride: im, nonProdMultOverride: nm);
+                idleMultOverride: im, nonProdMultOverride: nm, faultMultOverride: fm);
             var (a, _) = OeeMath.ComputeWallClockAvailability(agg.RunWallMs, agg.AvailableWallMs);
             var (p, _) = OeeMath.ComputeCyclePerformance(agg.NormalCount, agg.CtThresholdMs, agg.NormalCtMs);
             return new CtMultipliersPreviewSideDto(im, nm,
@@ -118,7 +122,9 @@ public class OeePlannedStopsController : OeeControllerBase
                 agg.IdleCtMs, agg.NonProdWallMs, a, p);
         }
 
-        return new CtMultipliersPreviewDto(await SideAsync(curIdle, curNonProd), await SideAsync(idle, nonProd));
+        return new CtMultipliersPreviewDto(
+            await SideAsync(curIdle, curNonProd, curFault),
+            await SideAsync(idle, nonProd, fault ?? curFault));
     }
 
     // ── GET /api/oee/planned-stops/auto-pattern ───────────────────────────

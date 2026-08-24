@@ -541,12 +541,19 @@
         .up-cm-slider::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: var(--oee-fault); border: 3px solid var(--color-surface); box-shadow: 0 1px 3px rgba(0,0,0,0.35); cursor: grab; }
         .up-cm-slider.nonprod::-webkit-slider-thumb { background: var(--nonprod); }
         .up-cm-slider.nonprod::-moz-range-thumb { background: var(--nonprod); }
+        /* 고장 유발(MT축) — 비가동 슬라이더(--oee-fault)와 구분되는 진홍. CT축 밴드에 얹지 않는 별도 축임을 색으로도 표시 */
+        :root { --oee-cause: #7E1D12; }
+        .dark-theme { --oee-cause: #E8695B; }
+        .up-cm-slider.fault::-webkit-slider-thumb { background: var(--oee-cause); }
+        .up-cm-slider.fault::-moz-range-thumb { background: var(--oee-cause); }
+        .up-cm-row.fault { border-top: 1px dashed var(--color-lines); padding-top: 12px; }
         .up-cm-flows { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 13px; }
         .up-cm-flowchip { display: inline-flex; align-items: center; gap: 8px; padding: 3px 10px; border: 1px solid var(--color-lines); border-radius: 999px; background: var(--color-surface-variant); font-size: 0.64rem; white-space: nowrap; }
         .up-cm-flowchip b { font-weight: 800; color: var(--color-text-primary); }
         .up-cm-flowchip .th { color: var(--color-text-secondary); }
         .up-cm-flowchip .th i { font-style: normal; font-family: var(--font-mono); font-weight: 700; color: var(--oee-fault); }
         .up-cm-flowchip .th.np i { color: var(--nonprod); }
+        .up-cm-flowchip .th.fault i { color: var(--oee-cause); }
         .up-cm-preview { display: flex; align-items: center; gap: 8px; margin-top: 13px; padding: 9px 12px; border: 1px dashed color-mix(in srgb, var(--color-primary) 45%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--color-primary) 6%, transparent); font-size: 0.72rem; color: var(--color-text-secondary); line-height: 1.55; }
         .up-cm-preview .material-icons { color: var(--color-primary); flex-shrink: 0; }
         .up-cm-preview b { font-family: var(--font-mono); color: var(--color-text-primary); font-weight: 800; }

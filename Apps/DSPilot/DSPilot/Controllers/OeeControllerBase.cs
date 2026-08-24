@@ -833,7 +833,8 @@ public abstract class OeeControllerBase : ControllerBase
         IReadOnlyList<(int StartMin, int EndMin)> plannedWindows, bool applyLongStop,
         bool collectRunIntervals, IReadOnlyList<(double S, double E, string? Flow)>? maintIntervals,
         bool collectNormalCycles, bool collectDowntimeCycles,
-        double idleMult, double nonProdMult)
+        double idleMult, double nonProdMult,
+        double faultMult, IReadOnlyDictionary<string, double> mtThresholds)
     {
         var sb = new System.Text.StringBuilder(256);
         sb.Append("v28|");   // 분모/분류 모델 버전 — 모델 변경 배포 직후 L1 캐시 혼재 방지
@@ -846,12 +847,15 @@ public abstract class OeeControllerBase : ControllerBase
           .Append(toUtc.Ticks / (TimeSpan.TicksPerSecond * 10)).Append('|')  // 10초 격자
           .Append(applyLongStop ? '1' : '0').Append(collectRunIntervals ? '1' : '0')
           .Append(collectNormalCycles ? '1' : '0').Append(collectDowntimeCycles ? '1' : '0').Append('|')
-          .Append(idleMult).Append('x').Append(nonProdMult).Append('|');   // 판정 배수 — 설정/미리보기 변경 즉시 반영(§3/§3.3)
+          .Append(idleMult).Append('x').Append(nonProdMult).Append('x').Append(faultMult).Append('|');   // 판정 배수 — 설정/미리보기 변경 즉시 반영(§3/§3.3)
         foreach (var k in thresholds.Keys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
         {
             var v = thresholds[k];
             sb.Append(k).Append(':').Append(v.AvgMs).Append(':').Append(v.P10Ms).Append(':').Append(v.Sample).Append(';');
         }
+        sb.Append('|');
+        foreach (var k in mtThresholds.Keys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+            sb.Append(k).Append(':').Append(mtThresholds[k]).Append(';');   // MT 기준 — CT 임계와 같은 이유로 서명
         sb.Append('|');
         foreach (var w in plannedWindows) sb.Append(w.StartMin).Append('-').Append(w.EndMin).Append(';');
         sb.Append('|');
@@ -891,20 +895,30 @@ public abstract class OeeControllerBase : ControllerBase
         bool collectNormalCycles = false,
         bool collectDowntimeCycles = false,
         double? idleMultOverride = null,        // 판정 기준 미리보기 전용 — 저장 없이 배수를 바꿔 계산(ct-multipliers/preview)
-        double? nonProdMultOverride = null)
+        double? nonProdMultOverride = null,
+        double? faultMultOverride = null)       // 고장(MT축) 배수 미리보기 오버라이드 — 위와 동일 규약
     {
         var (idleMult, nonProdMult) = ResolveCtMultipliers();
         // 오버라이드(미리보기)는 저장 전 what-if 계산 — 결과는 정상 계산과 동일 경로지만, 감지로그 materialize 는
         // 막는다(제안 배수의 판정이 oeeNonProdDetectionLog 에 영구 기록되면 TEEP/actual 이 오염).
-        var suppressDetectionLog = idleMultOverride is not null || nonProdMultOverride is not null;
+        var suppressDetectionLog = idleMultOverride is not null || nonProdMultOverride is not null
+                                   || faultMultOverride is not null;
         if (idleMultOverride is double io && double.IsFinite(io))
             idleMult = Math.Clamp(io, OeeManualSettings.IdleMultMin, OeeManualSettings.IdleMultMax);
         if (nonProdMultOverride is double no && double.IsFinite(no))
             nonProdMult = Math.Clamp(no, OeeManualSettings.NonProdMultMin, OeeManualSettings.NonProdMultMax);
         if (idleMult >= nonProdMult) idleMult = Math.Max(OeeManualSettings.IdleMultMin, nonProdMult / 2);
 
+        // 고장(MT축) 배수 — dtCond @MtThr·적립·유발자 귀속에 쓰이므로 키에도 반드시 들어간다(빠지면
+        // 배수 변경 후 TTL 동안 구 기준 집계가 계속 나온다). MT 기준 맵도 CT 임계와 같은 이유로 키에 서명.
+        var faultMult = faultMultOverride is double fo && double.IsFinite(fo)
+            ? Math.Clamp(fo, OeeManualSettings.FaultMultMin, OeeManualSettings.FaultMultMax)
+            : _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
+        var mtThresholds = await _ctStats.ComputeMtThresholdAsync();
+
         var key = BuildAggKey(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop,
-            collectRunIntervals, maintIntervals, collectNormalCycles, collectDowntimeCycles, idleMult, nonProdMult);
+            collectRunIntervals, maintIntervals, collectNormalCycles, collectDowntimeCycles, idleMult, nonProdMult,
+            faultMult, mtThresholds);
 
         if (s_aggCache.TryGetValue(key, out var hit) && hit.ExpiresUtc > DateTime.UtcNow)
             return CloneAgg(hit.Value);
@@ -912,7 +926,7 @@ public abstract class OeeControllerBase : ControllerBase
         Task<CycleAgg> ComputeSelfAsync() => ComputeCycleAggregateCoreAsync(
             flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
             collectRunIntervals, maintIntervals, collectNormalCycles, collectDowntimeCycles,
-            idleMult, nonProdMult, suppressDetectionLog);
+            idleMult, nonProdMult, suppressDetectionLog, faultMult, mtThresholds);
 
         var lazy = new Lazy<Task<CycleAgg>>(ComputeSelfAsync);
         var winner = s_aggInflight.GetOrAdd(key, lazy);
@@ -961,19 +975,17 @@ public abstract class OeeControllerBase : ControllerBase
         double idleMult = 1.0,
         double nonProdMult = OeeMath.NonProductionCtMultiplier,
         // 미리보기(배수 오버라이드) 계산 — 감지로그 materialize 금지(제안 배수 판정의 영구 기록 방지).
-        bool suppressDetectionLog = false)
+        bool suppressDetectionLog = false,
+        // 고장(MT축) 배수 + flow별 14일 중앙 MT — 호출측(wrapper)이 캐시 키에 서명한 뒤 전달(§3 배수와 동일 규약).
+        double faultMult = OeeMath.FaultMtMultiplierDefault,
+        IReadOnlyDictionary<string, double>? mtThresholds = null)
     {
+        mtThresholds ??= new Dictionary<string, double>();
         var onsets = new List<double>();
         var repairs = new List<double>();
         // 미계측(수신 공백, doc/22 §3.4) — 통신 헬스 심박이 보증하지 못한 구간. 가동/비가동/비생산 어디에도
         // 넣지 않는다(모르는 시간을 아는 척 금지). 심박 epoch 이전 기간은 빈 목록(소급 주장 없음) = 기존 동작.
         // trusted=false(조회 실패 폴백)면 카빙 없이 계산은 진행하되 감지 로그 materialize 는 스킵(영구 오염 방지).
-        // 고장 유발자 판별 기준(2026-08-24) — flow별 14일 중앙 MT × 고장배수. CT 축 배수와 독립이라
-        // 미리보기 오버라이드(idleMult/nonProdMult)에도 영향받지 않는다. 산출 실패/표본 없음이면 빈 맵이고,
-        // 그 flow 는 유발자 판별을 하지 않는다(= 형제 강등도 안 걸려 종전 폴백 분기로 흐름).
-        var faultMult = _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
-        var mtThresholds = await _ctStats.ComputeMtThresholdAsync();
-
         var (unmeasured, unmeasuredTrusted) = await _commHealth.TryGetUnmeasuredIntervalsAsync(fromUtc, toUtc, ct);
         var unmeasuredMs = unmeasured.Sum(u => u.E - u.S);
         var empty = new CycleAgg(0, 0, 0, 0, null, onsets, repairs, false, 0,
