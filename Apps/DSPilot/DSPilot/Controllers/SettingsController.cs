@@ -267,6 +267,10 @@ public class SettingsController : ControllerBase
                 // (Settings 저장이 카메라 목록을 덮어써 오버레이/카메라가 유실되는 것을 방지.)
             });
 
+            // ActionOver 여유값(MarginMaxAbsMs) 변경을 라이브 판정에 즉시 반영 — 재시작·재측정 불필요.
+            // 임계는 AASX 에 굽지 않고 엔진 인덱스에서 산출하므로, 모델 원본 스냅샷에서 다시 계산하면 끝난다.
+            _engine.RefreshActionOverThresholds();
+
             // 비가동 임계값 변경 소급 적용 (대시보드·히스토리 즉시 반영) — Blazor SaveSettings 와 동일.
             var (restamped, flows) = await _flowMetrics.ReapplyIdleThresholdsAsync();
 

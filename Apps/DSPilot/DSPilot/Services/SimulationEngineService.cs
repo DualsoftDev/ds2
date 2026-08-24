@@ -10,6 +10,7 @@ using DSPilot.Models;
 using DSPilot.Repositories;
 using Ds2.Backend.Common;
 using Ds2.Core;
+using Ds2.Core.Store;
 using Ds2.Editor;
 using Ds2.Runtime.Engine;
 using Ds2.Runtime.Engine.Abnormal;
@@ -89,6 +90,23 @@ public sealed class SimulationEngineService : IDisposable
     private long _goingCapsLoadedTick = long.MinValue;
     private int _maxCallGoingMs = 30000;
     private int _minCallGoingMs = 0;
+
+    // ── ActionOver 완료대기 시계 (DSPilot 소유 판정) ──────────────────────────────
+    // apiCallId → (OUT 상승 시각 ms, 이미 발행했나). OUT 상승에 시작하고 IN 도달에 해제한다.
+    // ★ OUT 하강으로는 지우지 않는다 — 이 현장(우진 라인)은 OUT 을 IN 도달까지 유지하다 IN 이 오면
+    //   내리는 방식인데, 동작이 실패하면 PLC 가 1~2초 만에 OUT 을 그냥 회수해 버린다(실측: Conveyor2.MOVE
+    //   10:50:38.663 OUT↑ → 10:50:40.154 OUT↓, IN 은 4분 5초 뒤). 그래서 "OUT 유지 중 Max 초과"만 보는
+    //   엔진 device-watchdog(Call 이 Going 이어야 평가)도, "OUT 하강 시점 경과 > Max"를 보는 어댑터 경로도
+    //   (경과 1.49s < Max 8.1s) 둘 다 놓친다. 명령 회수와 무관하게 IN 도달까지 재는 시계가 있어야 잡힌다.
+    private readonly ConcurrentDictionary<Guid, (long StartMs, bool Emitted)> _overClock = new();
+
+    // OUT 주소별 직전 active — 상승엣지 판정용. 첫 관측은 baseline(상승 아님)으로 흘린다(중간 합류 배제).
+    private readonly ConcurrentDictionary<string, bool> _outLastActive = new(StringComparer.OrdinalIgnoreCase);
+
+    // ActionOver 임계 산출의 입력이 되는 '모델 원본' Min/Max(ms) — 엔진 초기화 시점의 AASX 값 스냅샷.
+    // index.WorkDurationRange 는 임계로 덮어쓰므로, 여유값 설정이 바뀌어 재산출할 때 원본이 필요하다
+    // (덮어쓴 값에 또 더하면 이중 가산). ApplyActionOverThresholds 가 채우고 RefreshActionOverThresholds 가 쓴다.
+    private volatile Dictionary<Guid, (int MinMs, int MaxMs)> _modelWorkRanges = new();
 
     // 주소 → plcTag.id 캐시 (CycleTimeAnalysis 가 보는 plcTagLog INSERT 용).
     // AASX 재로딩 후 EnsureUserTagAddressesRegistered() 가 background thread 에서 갱신할 수 있으므로
@@ -208,21 +226,37 @@ public sealed class SimulationEngineService : IDisposable
                 var index = SimIndexModule.build(store, 10);
                 _passiveWorkNames = store.WorksReadOnly.Values.ToDictionary(work => work.Id, work => work.Name);
 
+                // ActionOver 임계를 이 인덱스에 확정해 넣는다(DSPilot 소유 판정 — 아래 주석 참조).
+                // index.WorkDurationRange 는 mutable 이고 소비처가 ActionOver 경로 2곳(overdue 스케줄/판정)뿐이라
+                // 여기서 덮어써도 다른 판정(Finish 스케줄=WorkDuration, ActionUnder=어댑터)에 영향이 없다.
+                ApplyActionOverThresholds(index);
+
                 // monitoring 모드 — writeTag 콜백 없음 (DsPilot 은 모니터 전용, Hub 로 쓰지 않음)
                 var noWriteTag = FSharpOption<FSharpFunc<string, FSharpFunc<string, Microsoft.FSharp.Core.Unit>>>.None;
                 ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring, noWriteTag);
 
                 engine.CallStateChanged += OnEngineCallStateChanged;
                 engine.WorkStateChanged += OnEngineWorkStateChanged;
+                engine.AbnormalDetected += OnEngineAbnormalDetected;
+
+                // ActionOver 판정 소유자 = DSPilot (2026-08-24). 게이트(실측 확정 도장)는 열어 둔다 —
+                // 오탐 차단은 게이트가 아니라 ApplyActionOverThresholds 의 절대 여유값이 담당한다.
+                // 엔진 워치독 자체가 range.MaxMs > 0 인 device work 만 스케줄하므로 여기선 무조건 true.
+                if (engine is EventDrivenEngine edEngine)
+                    edEngine.SetMaxMeasured(_ => true);
 
                 var runtimeSession = new RuntimeModeSession(engine.Index, engine.IOMap, RuntimeMode.Monitoring);
 
                 PassiveInferenceSession? passive = null;
                 if (runtimeSession.RequiresPassiveInference)
                     passive = new PassiveInferenceSession(engine.Index, engine.IOMap, RuntimeMode.Monitoring, true);
-                // v12 P5 이상감지: 로컬 MonitoringAbnormalAdapter(IO-edge, 상태추론 한계) 대신
-                // Agent "OnAbnormal" SignalR 피드(ControlAbnormalAdapter, 실제 Going/Ready 기반) 사용.
-                // HubSubscriberService.OnAbnormal → HandleHubAbnormal → _abnormalEvents.Record 경로.
+                // v12 P5 이상감지 — kind 별 판정 소유자(2026-08-24 결정):
+                //   ActionOver  : DSPilot 소유. 이 엔진의 device-watchdog 가 판정하고 AbnormalDetected 로 받는다.
+                //                 상류(Agent)의 ActionOver 페이로드는 HandleHubAbnormal 이 버린다(이중 계상 방지).
+                //   ActionUnder : Agent 소유. IN 엣지 정밀 관측이 필요해 MonitoringAbnormalAdapter(어댑터)에만 있고
+                //                 DSPilot 은 그 어댑터를 두지 않는다("상태추론 한계"로 제거된 결정 유지).
+                //   Sensor*     : Agent 소유. 메모리 전용 경로(대시보드 이상탐지 버튼)로만 소비.
+                // 즉 Agent 는 Under/Sensor 를, DSPilot 은 Over 를 낸다. 둘 다 _abnormalEvents 로 합류.
 
                 _engine = engine;
                 _runtimeSession = runtimeSession;
@@ -396,6 +430,9 @@ public sealed class SimulationEngineService : IDisposable
             }
             return;
         }
+
+        // ActionOver 완료대기 시계 — 엔진 상태와 무관하게 OUT↑~IN 도달 경과를 잰다(TickAbnormalWatchdog 가 판정).
+        ObserveActionOverEdges(address, value);
 
         RuntimeHubEffect[] effects;
         try
@@ -876,8 +913,169 @@ public sealed class SimulationEngineService : IDisposable
     }
 
     /// <summary>
-    /// 이상감지 timeout 워치독 틱 — MonitoringAbnormalAdapter 제거 후 no-op 유지(StateReconcileService 호출부 무변경).
-    public void TickAbnormalWatchdog() { }
+    /// ActionOver 완료대기 워치독 틱 — StateReconcileService 가 주기 호출(기본 5초).
+    /// <see cref="_overClock"/> 의 열린 시계 중 임계를 넘긴 것을 ActionOver 로 발행한다.
+    /// 엔진 device-watchdog(Call 이 Going 인 동안만 평가)이 놓치는 "명령 조기 회수 + IN 미도달"을 여기서 잡는다.
+    /// 발행 후 시계는 유지(Emitted=true)하며, IN 이 오거나 다음 OUT 상승이 오면 해제/재시작된다 → 사이클당 1건.
+    /// </summary>
+    public void TickAbnormalWatchdog()
+    {
+        var engine = _engine;
+        if (engine is null || _overClock.IsEmpty) return;
+
+        var nowMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+        foreach (var (apiCallId, clock) in _overClock)
+        {
+            if (clock.Emitted) continue;
+            var elapsed = nowMs - clock.StartMs;
+            var mapping = engine.IOMap.Mappings.FirstOrDefault(m => m.ApiCallGuid == apiCallId);
+            if (mapping is null) continue;
+
+            var rxWork = FsGuid(mapping.RxWorkGuid);
+            if (rxWork is not Guid workId) continue;
+            if (!engine.Index.WorkDurationRange.TryGetValue(workId, out var range)) continue;
+            // range.MaxMs 는 ApplyActionOverThresholds 가 넣은 '임계'(여유값 반영 완료값)다.
+            if (!ActionOverPolicy.ShouldEmit(clock.StartMs, nowMs, range.MaxMs, clock.Emitted)) continue;
+
+            // Emitted 선점(경합 시 1회 보장) 후 발행.
+            if (!_overClock.TryUpdate(apiCallId, (clock.StartMs, true), clock)) continue;
+
+            var target = Abnormal.target(
+                FSharpOption<Guid>.Some(mapping.CallGuid),
+                FSharpOption<Guid>.Some(apiCallId),
+                FSharpOption<Guid>.Some(workId));
+            _abnormalEvents.Record(Abnormal.actionOver(target, (int)Math.Min(elapsed, int.MaxValue), DateTime.UtcNow));
+            _logger.LogInformation(
+                "[Abnormal] ActionOver(완료대기) 발행 — call={Call} elapsed={Elapsed}ms > 임계 {Max}ms",
+                mapping.CallGuid, elapsed, range.MaxMs);
+        }
+    }
+
+    /// <summary>
+    /// OUT/IN 엣지로 완료대기 시계를 갱신 — <see cref="HandleHubTagChanged"/> 의 관측 경로에서 호출.
+    /// OUT 상승=시계 시작(재시작), IN 도달=해제. OUT 하강은 무시한다(<see cref="_overClock"/> 주석 참조).
+    /// </summary>
+    private void ObserveActionOverEdges(string address, string value)
+    {
+        var engine = _engine;
+        if (engine is null || !_projectService.IsLoaded) return;
+        try
+        {
+            var store = _projectService.GetStore();
+
+            foreach (var m in engine.IOMap.GetByOutAddress(address))
+            {
+                var apiCallOpt = Queries.getApiCall(m.ApiCallGuid, store);
+                if (!FSharpOption<ApiCall>.get_IsSome(apiCallOpt)) continue;
+                var active = RuntimeSemantics.isActiveOutputValue(apiCallOpt.Value, value);
+                // 첫 관측은 baseline — 상승으로 보지 않는다(부팅/재연결 직후 진행 중 사이클 오판 방지).
+                var isRising = _outLastActive.TryGetValue(address, out var prev) && !prev && active;
+                _outLastActive[address] = active;
+                if (isRising)
+                    _overClock[m.ApiCallGuid] = (DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond, false);
+            }
+
+            foreach (var m in engine.IOMap.GetByInAddress(address))
+            {
+                var apiCallOpt = Queries.getApiCall(m.ApiCallGuid, store);
+                if (!FSharpOption<ApiCall>.get_IsSome(apiCallOpt)) continue;
+                if (RuntimeSemantics.isActiveInputValue(apiCallOpt.Value, value))
+                    _overClock.TryRemove(m.ApiCallGuid, out _);   // 완료 — 시계 해제
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[Abnormal] 완료대기 시계 갱신 실패 {Addr}={Val} (non-critical)", address, value);
+        }
+    }
+
+    /// <summary>
+    /// ActionOver 임계를 <paramref name="index"/> 의 WorkDurationRange 에 확정한다(DSPilot 소유 판정, 2026-08-24).
+    ///
+    /// <para><b>임계 = 모델 Max + 절대 여유값</b>. 여유값은 설정(<see cref="AutoCalibrationSettings.MarginMaxAbsMs"/>,
+    /// 기본 5초)이며 파일에 굽지 않고 여기서 매 초기화마다 더한다 — 그래야 Promaker 가 AASX 의 duration 밴드를
+    /// 갱신해도 임계가 자동으로 따라가고, 종전처럼 "재측정 버튼을 눌러야 되살아나는" 상태가 생기지 않는다.</para>
+    ///
+    /// <para><b>이중 가산 방지</b>: DSPilot 의 "지금 실측값 채우기"(<see cref="AutoCalibrationService"/>)는 Max 를
+    /// <c>max(중앙값×(1+여유율), 클린최대) + MarginMaxAbsMs</c> 로 산출해 <b>이미 여유값을 포함한 값</b>을 AASX 에
+    /// 쓰고, 같은 값을 calibration-state 사이드카에 기록한다. 그래서 사이드카 값이 현재 모델 Max 와 일치하면
+    /// "DSPilot 이 구운 임계"로 보고 그대로 쓰고, 어긋나면(= Promaker 학습 등 외부가 쓴 밴드) 여유값을 더한다.
+    /// 사이드카의 역할이 '발행 게이트'에서 '여유값 포함 여부 표식'으로 바뀐 것이며, 스키마 변경은 없다.</para>
+    ///
+    /// <para>WorkDurationRange 소비처는 ActionOver 경로 2곳(overdue 스케줄 / 워치독 판정)뿐이라 여기서 덮어써도
+    /// 정상 Finish 스케줄(WorkDuration)·사이클 통계·AASX export 에는 영향이 없다(store 는 건드리지 않는다).</para>
+    /// </summary>
+    private void ApplyActionOverThresholds(SimIndex index)
+    {
+        var model = new Dictionary<Guid, (int MinMs, int MaxMs)>();
+        foreach (var kv in index.WorkDurationRange)
+            model[kv.Key] = (kv.Value.MinMs, kv.Value.MaxMs);
+        _modelWorkRanges = model;
+        RewriteActionOverThresholds(index, model);
+    }
+
+    /// <summary>
+    /// 여유값(설정) 변경을 재시작 없이 반영 — 모델 원본 스냅샷(<see cref="_modelWorkRanges"/>)에서 다시 산출한다.
+    /// 엔진 미초기화면 no-op(다음 초기화가 새 설정으로 산출). 설정 저장 경로에서 호출.
+    /// </summary>
+    public void RefreshActionOverThresholds()
+    {
+        var engine = _engine;
+        if (engine is null) return;
+        RewriteActionOverThresholds(engine.Index, _modelWorkRanges);
+    }
+
+    private void RewriteActionOverThresholds(SimIndex index, Dictionary<Guid, (int MinMs, int MaxMs)> model)
+    {
+        try
+        {
+            var marginMs = Math.Max(0, _settings.LoadSettings().AutoCalibration.MarginMaxAbsMs);
+            var calib = Infrastructure.CalibrationState.Load();
+
+            var map = index.WorkDurationRange;
+            int adjusted = 0, asIs = 0;
+            foreach (var (workId, range) in model)
+            {
+                if (range.MaxMs <= 0) continue;
+                // 사이드카 값 == 모델 Max → DSPilot 이 구운 임계(여유값 이미 포함) → 그대로 사용.
+                var marginInModel = calib.IsMaxMeasured(workId, range.MaxMs);
+                var thresholdMs = ActionOverPolicy.ResolveThresholdMs(range.MaxMs, marginMs, marginInModel);
+                if (marginInModel) asIs++; else adjusted++;
+                map = Microsoft.FSharp.Collections.MapModule.Add(
+                    workId, new RxTimingRange(range.MinMs, thresholdMs), map);
+            }
+            index.WorkDurationRange = map;
+
+            _logger.LogInformation(
+                "[Abnormal] ActionOver 임계 확정 — 여유 {Margin}ms 가산 {Adjusted}건, 기포함(사이드카 일치) {AsIs}건",
+                marginMs, adjusted, asIs);
+        }
+        catch (Exception ex)
+        {
+            // 실패해도 엔진 기동은 막지 않는다 — 모델 Max 원본으로 판정(여유 없음 = 보수적으로 민감).
+            _logger.LogWarning(ex, "[Abnormal] ActionOver 임계 산출 실패 — 모델 Max 원본 사용");
+        }
+    }
+
+    /// <summary>
+    /// 엔진 device-watchdog 의 ActionOver 수신 → <see cref="AbnormalEventService"/> 합류(알람 DB·화면·통계).
+    /// 엔진 스레드에서 동기 발사되므로 Record 는 fire-and-forget 으로 즉시 반환한다.
+    /// Over 이외의 kind 는 이 엔진에서 나오지 않지만(어댑터 없음), 방어적으로 걸러 소유권 규약을 코드로 못박는다.
+    /// </summary>
+    private void OnEngineAbnormalDetected(object? sender, AbnormalRecord rec)
+    {
+        if (rec.Kind != AbnormalKind.ActionOver) return;
+        try
+        {
+            // 같은 사이클을 완료대기 워치독이 다시 내지 않도록 시계를 '발행됨'으로 표시(경로 2개 → 1건).
+            if (FsGuid(rec.Target.ApiCallId) is Guid apiCallId
+                && _overClock.TryGetValue(apiCallId, out var clock) && !clock.Emitted)
+                _overClock.TryUpdate(apiCallId, (clock.StartMs, true), clock);
+
+            _abnormalEvents.Record(rec);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Abnormal] 엔진 ActionOver 처리 실패"); }
+    }
 
     /// <summary>
     /// Phase 2 — 래치 적격 Flow 의 박제(stuck-open) 사이클 워치독. StateReconcileService 가 매 tick 호출한다.
@@ -1013,6 +1211,14 @@ public sealed class SimulationEngineService : IDisposable
         try
         {
             var kind = (AbnormalKind)payload.KindValue;
+            // ActionOver 는 DSPilot 소유(2026-08-24) — 상류 발행분은 버린다. 그대로 받으면 같은 초과를
+            // Agent 임계(모델 Max 원본)와 DSPilot 임계(+여유값) 두 기준으로 이중 계상하게 된다.
+            // Agent 가 Over 발행을 멈추도록 조율되면 이 가드는 무해한 no-op 으로 남는다.
+            if (kind == AbnormalKind.ActionOver)
+            {
+                _logger.LogDebug("[Abnormal] 상류 ActionOver 무시 — 판정 소유자=DSPilot (call={Call})", payload.CallId);
+                return;
+            }
             var target = Abnormal.target(
                 ParseFsGuid(payload.CallId),
                 ParseFsGuid(payload.ApiCallId),
@@ -1032,6 +1238,9 @@ public sealed class SimulationEngineService : IDisposable
             _logger.LogWarning(ex, "[Abnormal] Agent payload 처리 실패 (kind={Kind})", payload.KindValue);
         }
     }
+
+    /// <summary>F# Guid option → nullable Guid. AbnormalRecord.Target 필드 해석용.</summary>
+    private static Guid? FsGuid(FSharpOption<Guid> o) => FSharpOption<Guid>.get_IsSome(o) ? o.Value : null;
 
     private static FSharpOption<Guid> ParseFsGuid(string s)
         => Guid.TryParse(s, out var g) ? FSharpOption<Guid>.Some(g) : FSharpOption<Guid>.None;
@@ -1521,6 +1730,7 @@ public sealed class SimulationEngineService : IDisposable
             {
                 _engine.CallStateChanged -= OnEngineCallStateChanged;
                 _engine.WorkStateChanged -= OnEngineWorkStateChanged;
+                _engine.AbnormalDetected -= OnEngineAbnormalDetected;
                 try { _engine.Stop(); } catch { /* already stopped */ }
                 _engine.Dispose();
             }
@@ -1598,6 +1808,7 @@ public sealed class SimulationEngineService : IDisposable
             {
                 _engine.CallStateChanged -= OnEngineCallStateChanged;
                 _engine.WorkStateChanged -= OnEngineWorkStateChanged;
+                _engine.AbnormalDetected -= OnEngineAbnormalDetected;
                 try { _engine.Stop(); } catch { /* ignore */ }
                 _engine.Dispose();
             }
