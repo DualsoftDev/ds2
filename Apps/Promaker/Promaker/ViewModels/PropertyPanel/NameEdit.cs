@@ -161,15 +161,21 @@ public partial class PropertyPanelState
         if (!_host.TryAction(() => Store.UpdateWorkDurationRangesBatch(changes)))
             return;
 
+        // 사이드카 정합 — 바뀐 Min/Max 와 어긋난 실측 확정(calibration-state) 해제. 침묵 stale 방지.
+        var cleared = Promaker.Shared.CalibrationSidecar.ReconcileAfterDurationWrite(
+            System.Linq.Enumerable.ToList(
+                System.Linq.Enumerable.Select(changes, c => (c.Item1, c.Item3, c.Item4))));
+
         if (_host.IsSimulating)
             _host.ReloadSimDurations();
 
         _originalWorkMinMs = WorkMinMs;
         _originalWorkMaxMs = WorkMaxMs;
         IsWorkRangeDirty = false;
+        var clearedSuffix = cleared > 0 ? $" (실측 확정 {cleared}건 해제)" : "";
         _host.SetStatusText(selectedWorkIds.Count > 1
-            ? $"Min/Max range updated for {selectedWorkIds.Count} items."
-            : "Min/Max range updated.");
+            ? $"Min/Max range updated for {selectedWorkIds.Count} items.{clearedSuffix}"
+            : $"Min/Max range updated.{clearedSuffix}");
         Refresh();
     }
 

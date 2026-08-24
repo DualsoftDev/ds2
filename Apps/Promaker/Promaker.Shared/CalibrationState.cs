@@ -144,4 +144,28 @@ public sealed class CalibrationState
 
     /// <summary>한 Work 의 Min/Max 실측 확정을 모두 해제(Min/Max 초기화 시). 락 안에서 호출 후 <see cref="TrySave"/>.</summary>
     public void ClearWork(Guid workGuid) => Works.Remove(Key(workGuid));
+
+    /// <summary>모델 duration 이 바뀐 뒤 사이드카 정합 — 새 모델값과 더 이상 일치하지 않는 확정만 해제.
+    /// 값이 유지된 필드의 확정(게이트)은 보존하고, 도장을 새로 찍지는 않는다 — 학습/수동 값은 여유 없는
+    /// 밴드값이라 실측 임계 확정이 아니다(ActionOver 문서 §1-2: 빡빡한 값에 도장을 찍으면 오탐).
+    /// 게이트는 어차피 값 대조로 자기 무효화되므로 판정 동작은 동일하고, calibration-status 진단이
+    /// '조용한 stale' 대신 '미확정(재확정 필요)' 로 정직해진다. 반환 = 상태 변경 여부(저장 필요).</summary>
+    public bool ReconcileWork(Guid workGuid, int? currentMinMs, int? currentMaxMs)
+    {
+        if (!Works.TryGetValue(Key(workGuid), out var w)) return false;
+        var changed = false;
+        if (w.MinMeasured && (currentMinMs is null || w.MinMs != currentMinMs.Value))
+        {
+            w.MinMeasured = false;
+            changed = true;
+        }
+        if (w.MaxMeasured && (currentMaxMs is null || w.MaxMs != currentMaxMs.Value))
+        {
+            w.MaxMeasured = false;
+            changed = true;
+        }
+        if (changed && !w.MinMeasured && !w.MaxMeasured)
+            Works.Remove(Key(workGuid));
+        return changed;
+    }
 }

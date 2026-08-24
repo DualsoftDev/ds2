@@ -325,6 +325,7 @@ public partial class SimulationPanelState
 
         var store = _storeProvider();
         var applied = 0;
+        var appliedRanges = new System.Collections.Generic.List<(Guid, int?, int?)>();
         foreach (var kv in snapshot)
         {
             if (store.Works.TryGetValue(kv.Key, out var w))
@@ -333,15 +334,20 @@ public partial class SimulationPanelState
                 w.Duration    = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.Some(TimeSpan.FromMilliseconds(avg));
                 w.MinDuration = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.Some(TimeSpan.FromMilliseconds(min));
                 w.MaxDuration = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.Some(TimeSpan.FromMilliseconds(max));
+                appliedRanges.Add((kv.Key, min, max));
                 applied++;
             }
         }
         if (applied > 0)
         {
+            // 사이드카 정합 — 학습값과 어긋난 실측 확정(calibration-state) 해제. 학습값에 도장을 새로
+            // 찍지는 않는다(여유 없는 밴드값 — 임계 확정 아님). 2026-08-24 우진 "stale 26건 침묵" 재발 방지.
+            var cleared = Promaker.Shared.CalibrationSidecar.ReconcileAfterDurationWrite(appliedRanges);
             MarkDirty?.Invoke();
             // 반영 = 모델 확정값으로 전환 → 자동 정합 OFF (hub 동기화로 Agent 판정도 모델 기준).
             AutoDurationCalibrate = false;
-            AddSimLog($"duration {applied}건 모델 반영 + 자동 정합 OFF — 저장하면 파일에 기록됩니다.", LogSeverity.System);
+            var clearedSuffix = cleared > 0 ? $" (실측 확정 {cleared}건 해제 — 재확정 필요)" : "";
+            AddSimLog($"duration {applied}건 모델 반영 + 자동 정합 OFF — 저장하면 파일에 기록됩니다.{clearedSuffix}", LogSeverity.System);
         }
     }
 

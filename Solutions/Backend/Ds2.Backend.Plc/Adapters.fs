@@ -136,8 +136,8 @@ module LsPackRead =
         let tagSpecs = toTagSpecs tags
         // 새 Ev2 pack API: CPU 모델은 접속이 아니라 태그 주소별로 판별하므로 plcType="LS" 만 넘긴다.
         let packs = PackModule.packTagSpecsForType("LS", tagSpecs, isLocalEthernet)
-        // 4번째 인자는 LS-USB 전용 청크 상한 — Ethernet("LS") 경로에선 무시된다.
-        PackModule.getScanAddressesForPacks("LS", packs, isLocalEthernet, 240)
+        // 4번째=LS-USB 전용 청크 상한, 5번째 cpuKey=MX-USB CPU 프로파일 축 — 둘 다 LS Ethernet 경로선 무시.
+        PackModule.getScanAddressesForPacks("LS", packs, isLocalEthernet, 240, "")
 
     let readTags (connector: LsConnector) (tags: PlcTagDef list) =
         try
@@ -191,6 +191,8 @@ module LsAdapter =
               Name = cfg.Name
               Port = cfg.Port
               EnableScan = true
+              // ThreadId: 병렬 스캐너의 스레드 배정 축. 엣지 스캐너는 단일 접속이라 0(기본 스레드).
+              ThreadId = 0
               LocalEthernet = cfg.LocalEthernet
               Timeout = TimeSpan.FromMilliseconds(float cfg.TimeoutMs)
               ScanInterval = TimeSpan.FromMilliseconds 100.0 }

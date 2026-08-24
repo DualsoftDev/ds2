@@ -98,7 +98,7 @@
                                             <RadioButton GroupName="OpenAgentTarget" Content="네트워크" VerticalAlignment="Center"
                                                          Foreground="{DynamicResource PrimaryTextBrush}"
                                                          IsChecked="{Binding AgentTransferIsNetwork, Mode=TwoWay}"
-                                                         ToolTip="특정 IP 의 원격 Agent 공유폴더 (준비 중)"/>
+                                                         ToolTip="특정 IP 의 원격 Agent 에서 모델(AASX)을 다운로드"/>
                                             <TextBox Width="110" Margin="6,0,0,0" VerticalAlignment="Center"
                                                      Text="{Binding AgentTransferIp, UpdateSourceTrigger=PropertyChanged}"
                                                      IsEnabled="{Binding AgentTransferIsNetwork}"
@@ -107,7 +107,7 @@
                                         <RadioButton GroupName="OpenAgentTarget" Content="클라우드" Margin="8,0,8,4"
                                                      Foreground="{DynamicResource PrimaryTextBrush}"
                                                      IsChecked="{Binding AgentTransferIsCloud, Mode=TwoWay}"
-                                                     ToolTip="PV 서버 로그인 후 사이트/단말 선택 전송 (업로드 시 미로그인이면 로그인창)"/>
+                                                     ToolTip="PV 서버 로그인 후 사이트/단말 선택 — 그 단말 인스턴스의 Agent 모델을 다운로드 (미로그인이면 로그인창)"/>
                                         <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="4,2,4,6"/>
                                         <TextBlock Text="최근 파일" FontSize="11" FontWeight="SemiBold" Margin="8,0,8,8" Foreground="{DynamicResource PrimaryTextBrush}"/>
                                         <ItemsControl ItemsSource="{Binding RecentFiles}">
@@ -168,7 +168,7 @@
                                             <RadioButton GroupName="SaveAgentTarget" Content="네트워크" VerticalAlignment="Center"
                                                          Foreground="{DynamicResource PrimaryTextBrush}"
                                                          IsChecked="{Binding AgentTransferIsNetwork, Mode=TwoWay}"
-                                                         ToolTip="특정 IP 의 원격 Agent 공유폴더 (준비 중)"/>
+                                                         ToolTip="특정 IP 의 원격 Agent 로 모델/설정/세션을 zip 전송"/>
                                             <TextBox Width="110" Margin="6,0,0,0" VerticalAlignment="Center"
                                                      Text="{Binding AgentTransferIp, UpdateSourceTrigger=PropertyChanged}"
                                                      IsEnabled="{Binding AgentTransferIsNetwork}"
@@ -177,7 +177,7 @@
                                         <RadioButton GroupName="SaveAgentTarget" Content="클라우드" Margin="8,0,8,4"
                                                      Foreground="{DynamicResource PrimaryTextBrush}"
                                                      IsChecked="{Binding AgentTransferIsCloud, Mode=TwoWay}"
-                                                     ToolTip="PV 서버 로그인 후 사이트/단말 선택 전송 (업로드 시 미로그인이면 로그인창)"/>
+                                                     ToolTip="PV 서버 로그인 후 사이트/단말 선택 — 그 단말 인스턴스의 Agent 로 업로드 (미로그인이면 로그인창)"/>
                                     </StackPanel>
                                 </Border>
                             </Popup>

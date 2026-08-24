@@ -44,6 +44,12 @@
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.MX.dll</HintPath>
       <Private>true</Private>
     </Reference>
+    <!-- MX-USB 가 별도 어셈블리로 분리됨(dsev2 병렬읽기 업그레이드). Ev2.Backend.PLC 가 이 어셈블리에
+         의존하므로 출력 폴더 복사(Private=true)가 없으면 PLCBackendService 기동 시 로드 실패. -->
+    <Reference Include="Ev2.PLC.Protocol.MX.USB">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.MX.USB.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>

@@ -12,11 +12,6 @@ let private bitTags hubPrefix plcPrefix count =
     [ for index in 0 .. count - 1 ->
         boolTag $"{hubPrefix}{index}" $"{plcPrefix}{index}" ]
 
-let private countAddress expected (addresses: string array) =
-    addresses
-    |> Array.filter ((=) expected)
-    |> Array.length
-
 [<Fact>]
 let ``toTagSpecs preserves tag identity and address`` () =
     let tag = boolTag "hubA" "%IX0.0.7"
@@ -28,6 +23,9 @@ let ``toTagSpecs preserves tag identity and address`` () =
     Assert.Equal("%IX0.0.7", specs.[0].Address)
     Assert.Equal(PlcDataTypes.Bool, specs.[0].DataType)
 
+/// 새 Ev2(병렬읽기 업그레이드) 표시 계약: ScanAddress = "블록시작+byte오프셋B.비트".
+/// 블록 프리픽스(%IL0/%QL1)가 "비트를 개별 멀티리드하지 않고 LWord 로 묶는다"는 불변식의 증거이고
+/// (구 dsev2 stride=10 버그 가드), 오프셋 표기로 같은 블록의 태그들이 서로 구분된다.
 [<Fact>]
 let ``scanAddressesForTags groups LS XGI Bool bits by LWord parent address`` () =
     let tags =
@@ -39,6 +37,13 @@ let ``scanAddressesForTags groups LS XGI Bool bits by LWord parent address`` () 
         |> Array.concat
 
     Assert.Equal(tags.Length, scanAddresses.Length)
-    Assert.Equal(26, countAddress "%IL0" scanAddresses)
-    Assert.Equal(26, countAddress "%QL1" scanAddresses)
-    Assert.True(scanAddresses |> Array.forall (fun address -> address = "%IL0" || address = "%QL1"))
+    // 전 태그가 두 LWord 블록 중 하나에서 나온다 — 블록 밖 개별 읽기 없음.
+    Assert.Equal(26, scanAddresses |> Array.filter (fun a -> a.StartsWith "%IL0+") |> Array.length)
+    Assert.Equal(26, scanAddresses |> Array.filter (fun a -> a.StartsWith "%QL1+") |> Array.length)
+    // 같은 블록이라도 태그별 위치 문자열은 전부 달라야 한다 (구분 불가 뭉침 방지).
+    Assert.Equal(tags.Length, scanAddresses |> Array.distinct |> Array.length)
+    // 대표 지점: bit 0 = byte 0 의 bit 0, bit 25 = byte 3 의 bit 1.
+    Assert.Contains("%IL0+0B.0", scanAddresses)
+    Assert.Contains("%IL0+3B.1", scanAddresses)
+    Assert.Contains("%QL1+3B.1", scanAddresses)
+
