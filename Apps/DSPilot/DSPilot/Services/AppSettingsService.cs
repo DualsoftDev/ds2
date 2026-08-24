@@ -270,6 +270,45 @@ public class AppSettingsService
     }
 
     /// <summary>
+    /// <paramref name="retainFlowNames"/> 에 없는 flow 의 FlowCycle override 를 제거한다(= 현재 AASX 에
+    /// 없는 유령 설비 정리). override 는 설정 파일(appsettings.Production.json)에 있어 DB 초기화로도
+    /// 안 지워지고 이름 기준 정리 경로가 없었다 — 모델을 여러 번 교체하면 무한 누적된다.
+    /// <para>수동 지정 IdealCycleTimeMs(source ≠ auto*) 는 DB 없이도 CT 임계 맵에 강제 주입되므로,
+    /// 남아 있으면 유령 설비가 OEE 설비축에서 영구히 사라지지 않는다.</para>
+    /// <paramref name="countOnly"/>=true 면 저장하지 않고 대상 개수만 센다(정리 미리보기).
+    /// retain 이 비면 no-op(0) — 전량 삭제는 <see cref="ClearFlowCycleOverrides"/> 의 영역.
+    /// </summary>
+    public int PruneFlowCycleOverrides(IEnumerable<string> retainFlowNames, bool countOnly = false)
+    {
+        var settings = LoadSettings();
+        var stale = SelectStaleFlowCycleOverrides(settings.FlowCycle.Overrides, retainFlowNames);
+        if (countOnly || stale.Count == 0) return stale.Count;
+
+        foreach (var o in stale) settings.FlowCycle.Overrides.Remove(o);
+        SaveSettings(settings);
+        return stale.Count;
+    }
+
+    /// <summary>
+    /// <see cref="PruneFlowCycleOverrides"/> 의 판정부(순수 함수) — 삭제 대상 override 목록.
+    /// 파일 I/O 와 분리해 테스트로 고정한다(대소문자 무시 · 빈 retain 가드).
+    /// <para>retain 이 비면 빈 목록 — retain 이 비는 것은 "모델에 설비가 없다"가 아니라 "판정 근거가
+    /// 없다"는 뜻이므로, 여기서 막지 않으면 사용자 CT 설정이 전량 삭제된다.</para>
+    /// </summary>
+    public static List<FlowCycleOverride> SelectStaleFlowCycleOverrides(
+        IEnumerable<FlowCycleOverride> overrides, IEnumerable<string>? retainFlowNames)
+    {
+        var retain = new HashSet<string>(
+            retainFlowNames?.Where(n => !string.IsNullOrWhiteSpace(n)) ?? [],
+            StringComparer.OrdinalIgnoreCase);
+        if (retain.Count == 0) return [];
+
+        return overrides
+            .Where(o => !string.IsNullOrWhiteSpace(o.FlowName) && !retain.Contains(o.FlowName))
+            .ToList();
+    }
+
+    /// <summary>
     /// Flow 의 표준(ideal) 사이클 시간(ms)만 갱신. P5 OEE Performance 의 단일 소스 (doc/21 §2.4).
     /// 기존 StartCallName/EndCallName override 는 보존 — backward compatible.
     /// idealCycleTimeMs == null 이면 IdealCycleTimeMs 만 비우고, 다른 override 도 모두 비어 있으면 항목 제거.

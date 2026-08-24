@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 namespace DSPilot.Services;
@@ -35,6 +35,13 @@ public interface IFlowMetricsService
     /// Flow의 사이클 시작/종료 Call 이름 조회 (런타임 기준)
     /// </summary>
     (string? HeadCallName, string? TailCallName) GetCycleBoundaryCallNames(string flowName);
+
+    /// <summary>
+    /// head 를 정했을 때 tail <b>1차 제안</b>(사용자가 바꿀 수 있음). 자동 확정이 아니라 입력 보조다.
+    /// <para>모든 단계에 "발화 횟수 ≈ head" 조건을 겹친다 — 격사이클 Call(완료가 두 사이클마다 한 번)을
+    /// tail 로 잡으면 CT 가 2배로 계상된다(실측 xgk103: head 978 vs tail 440 → medCT 82s = 실제 41s 의 2배).</para>
+    /// </summary>
+    Task<TailSuggestion?> SuggestTailAsync(string flowName, string headCallName);
 
     /// <summary>
     /// Flow 가 head-start→tail-complete 엣지 래치로 배지를 도출할 자격이 있는지.

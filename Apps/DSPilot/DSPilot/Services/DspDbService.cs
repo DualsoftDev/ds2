@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Threading.Channels;
@@ -11,6 +11,7 @@ public class DspDbService : IDisposable
 {
     private readonly bool _enabled;
     private readonly string _dbPath;
+    private readonly DsProjectService _project;
     private readonly ILogger<DspDbService> _logger;
     private readonly PeriodicTimer _timer;
     private readonly PeriodicTimer _progressTimer;
@@ -95,9 +96,11 @@ public class DspDbService : IDisposable
     public DspDbService(
         IConfiguration configuration,
         IDatabasePathResolver pathResolver,
+        DsProjectService project,
         ILogger<DspDbService> logger)
     {
         _logger = logger;
+        _project = project;
         _enabled = configuration.GetValue<bool?>("DspTables:Enabled") ?? false;
 
         // Unified 모드: 항상 dsp* 접두사 테이블 사용
@@ -446,12 +449,19 @@ public class DspDbService : IDisposable
                 return;
             }
 
+            // 현재 AASX 에 없는 flow 는 스냅샷에서 제외 — dspFlow/dspCall 은 UPSERT 누적이라 예전 모델의
+            // 설비가 남아 있고(부팅 경로에 prune 없음), 그게 대시보드/설비/히트맵 전부에 유령 카드로 뜬다.
+            // 이 스냅샷이 화면 flow 목록의 공통 소스라 여기 한 곳에서 걸러야 전 화면이 같이 정리된다.
+            // null = 모델 미로드 → 필터 비활성(전량 숨김 방지). 실제 삭제는 '오래된 데이터 삭제'만.
+            var modelFlows = _project.GetModelFlowNames();
+
             using (var cmd = conn.CreateCommand())
             {
                 cmd.CommandText = $"SELECT Id, FlowName, MT, WT, CT, AvgMT, AvgWT, AvgCT, State, MovingStartName, MovingEndName FROM {_flowTable}";
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
+                    if (modelFlows is not null && !modelFlows.Contains(reader.GetString(1))) continue;
                     flows.Add(new FlowState
                     {
                         Id = reader.GetInt32(0),
@@ -476,6 +486,7 @@ public class DspDbService : IDisposable
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
+                    if (modelFlows is not null && !modelFlows.Contains(reader.GetString(3))) continue;
                     calls.Add(new CallState
                     {
                         Id = reader.GetInt32(0),

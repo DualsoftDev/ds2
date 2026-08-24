@@ -822,3 +822,26 @@
         .up-ploss-tag { border: 1px solid color-mix(in srgb, var(--amber) 55%, transparent); color: var(--amber);
                         border-radius: 999px; padding: 0 6px; font-weight: 700; }
 
+        /* 경계 진단 배너 — '조용히 틀리는' 상태를 드러내는 용도라 눈에 걸리되 공포스럽지 않게(호박색). */
+        .up-mq-bnd { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; padding: 11px 13px; border-radius: 10px;
+                     background: color-mix(in srgb, var(--amber) 10%, var(--color-surface));
+                     border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+                     font-size: 0.72rem; line-height: 1.55; color: var(--color-text-primary); }
+        .up-mq-bnd .material-icons { font-size: 19px; color: var(--amber); flex-shrink: 0; }
+        .up-mq-bnd-row { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; margin-top: 5px; font-size: 0.68rem; }
+        .up-mq-bnd-row a { font-weight: 700; color: var(--color-primary); }
+        .up-mq-bnd-row .tag { border: 1px solid color-mix(in srgb, var(--amber) 55%, transparent); color: var(--amber);
+                              border-radius: 999px; padding: 0 6px; font-weight: 700; white-space: nowrap; }
+        .up-mq-bnd-chip { margin-left: 6px; font-size: 0.56rem; font-weight: 700; letter-spacing: 0.03em;
+                          color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 55%, transparent);
+                          border-radius: 999px; padding: 0 5px; white-space: nowrap; }
+
+        /* 경계 이상 상단 배너 — 카드가 아니라 그리드 첫 항목. 지표를 읽기 전에 눈에 들어와야 한다. */
+        .up-bnd-top { display: flex; gap: 11px; align-items: flex-start; padding: 13px 16px; border-radius: 12px;
+                      background: color-mix(in srgb, var(--amber) 12%, var(--color-surface));
+                      border: 1px solid color-mix(in srgb, var(--amber) 50%, transparent);
+                      font-size: 0.78rem; line-height: 1.5; color: var(--color-text-primary); }
+        .up-bnd-top .material-icons { font-size: 21px; color: var(--amber); flex-shrink: 0; }
+        .up-bnd-top-msg { margin-top: 3px; font-size: 0.72rem; color: var(--color-text-secondary); }
+        .up-bnd-top-act { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 0.72rem; }
+        .up-bnd-top-act a { color: var(--color-primary); font-weight: 700; }

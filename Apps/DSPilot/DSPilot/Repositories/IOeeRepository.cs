@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Models.Oee;
@@ -59,6 +59,15 @@ public interface IOeeRepository
 
     /// <summary>지정 시각(UTC) 이전 정지 이벤트 삭제. 선택 삭제용. 삭제 행 수 반환.</summary>
     Task<int> DeleteDowntimeEventsBeforeAsync(DateTime cutoffUtc, CancellationToken ct = default);
+
+    /// <summary>
+    /// <paramref name="retainFlowNames"/> 에 없는 flow 의 정지 이벤트 삭제(= 현재 AASX 에 없는 유령 설비 정리).
+    /// flowName IS NULL(라인 전체 귀속) 행은 특정 설비 소유가 아니라 보존한다.
+    /// <paramref name="countOnly"/>=true 면 삭제하지 않고 대상 행 수만 센다(정리 미리보기).
+    /// retain 이 비면 no-op(0) — 전량 삭제는 ClearDowntimeEventsAsync 의 영역.
+    /// </summary>
+    Task<int> PruneDowntimeEventsByFlowNamesAsync(
+        IEnumerable<string> retainFlowNames, bool countOnly = false, CancellationToken ct = default);
 
     /// <summary>정지 로그 조회 (필터: 기간/status open|recovered/reason). 최신순.</summary>
     Task<IReadOnlyList<OeeDowntimeDto>> QueryDowntimeAsync(

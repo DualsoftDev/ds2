@@ -178,12 +178,14 @@ public class OeeMathTests
         Assert.Null(src);
     }
 
-    // ── nocycle clear 분류 휴리스틱 (5분/8h) ───────────────────────────────
+    // ── nocycle clear 분류 휴리스틱 (5분 임계 + MT 과주행 증거) ────────────
 
     [Fact]
     public void Classify_under_5min_stays_unclassified()
     {
-        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(4 * 60 * 1000);
+        // 짧은 정지는 MT 과주행이 있어도 노이즈로 보아 도장을 찍지 않는다.
+        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(
+            4 * 60 * 1000, hasOwnMtOverrun: true, lineHasMtOverrun: true);
         Assert.False(should);
         Assert.Null(rc);
         Assert.Null(cat);
@@ -191,12 +193,51 @@ public class OeeMathTests
     }
 
     [Fact]
-    public void Classify_5min_to_8h_is_failure()
+    public void Classify_own_mt_overrun_is_failure()
     {
-        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(30 * 60 * 1000);
+        // going 중 걸린 유발자 — 자기 flow 가 MT 과주행이면 고장.
+        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(
+            30 * 60 * 1000, hasOwnMtOverrun: true, lineHasMtOverrun: false);
         Assert.True(should);
         Assert.Equal("equipment_fault", rc);
         Assert.Equal("unplanned", cat);
+        Assert.True(isFail);
+    }
+
+    [Fact]
+    public void Classify_sibling_mt_overrun_is_wait_not_failure()
+    {
+        // 유발자가 다른 flow 로 특정됨 → 이 flow 는 굶은 것. 고장 건수·MTBF 에서 빠진다.
+        //   종전엔 지속시간만 봐서 라인 정지 1회가 설비 수만큼 고장으로 부풀었다(2026-08-24 실측 6건).
+        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(
+            30 * 60 * 1000, hasOwnMtOverrun: false, lineHasMtOverrun: true);
+        Assert.True(should);
+        Assert.Equal("wait_starve", rc);
+        Assert.Equal("wait", cat);
+        Assert.False(isFail);
+    }
+
+    [Fact]
+    public void Classify_no_mt_evidence_stays_unclassified()
+    {
+        // 아무도 MT 과주행이 없으면 고장이라 볼 근거가 없다 — 도장을 찍지 않고 조회 시점
+        // 신호 판정(ClassifyStopWindow)에 맡긴다. DB 에 영구 박히는 오분류 방지.
+        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(
+            30 * 60 * 1000, hasOwnMtOverrun: false, lineHasMtOverrun: false);
+        Assert.False(should);
+        Assert.Null(rc);
+        Assert.Null(cat);
+        Assert.False(isFail);
+    }
+
+    [Fact]
+    public void Classify_own_mt_overrun_wins_over_sibling()
+    {
+        // 자기도 걸리고 형제도 걸린 경우 — 자기 고장이 우선(피해자로 강등되면 진짜 고장을 놓친다).
+        var (rc, _, isFail, should) = OeeMath.ClassifyByDuration(
+            30 * 60 * 1000, hasOwnMtOverrun: true, lineHasMtOverrun: true);
+        Assert.True(should);
+        Assert.Equal("equipment_fault", rc);
         Assert.True(isFail);
     }
 
@@ -487,7 +528,9 @@ public class OeeMathTests
     [Fact]
     public void Classify_over_8h_is_fault() // 8h↑ 도 고장(비생산 시간대 에디터가 planned 분리 — 단순 2-상태)
     {
-        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(9L * 60 * 60 * 1000);
+        // 길이는 상한을 두지 않는다 — 단, 유발자 근거(자기 MT 과주행)는 여전히 필요하다(2026-08-24).
+        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(
+            9L * 60 * 60 * 1000, hasOwnMtOverrun: true, lineHasMtOverrun: false);
         Assert.True(should);
         Assert.Equal("equipment_fault", rc);
         Assert.Equal("unplanned", cat);
@@ -917,7 +960,7 @@ public class OeeMathTests
     {
         // 유발 flow — 41분(기준 초과)이어도 고장 확정(doc/25 §0 ① kit_test 41분 이송 케이스).
         Assert.Equal(OeeMath.StopClass.Fault, OeeMath.ClassifyStopWindow(
-            signalRulesActive: true, hasOwnSignal: true, lineHasCulprit: false, lineHasAnySignal: true,
+            signalRulesActive: true, hasOwnSignal: true, lineHasCulprit: false, lineHasUnresolvedUsertag: true,
             durationMs: 41 * 60_000, ctThresholdMs: Thr));
         // 짧아도 고장.
         Assert.Equal(OeeMath.StopClass.Fault, OeeMath.ClassifyStopWindow(
@@ -929,7 +972,7 @@ public class OeeMathTests
     {
         // 형제 flow — 기준(10×48s=480s) 미만 = 대기 공백(§0 ② 5분 테스트), 이상 = 대기 비생산(41분 케이스).
         Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
-            true, hasOwnSignal: false, lineHasCulprit: true, lineHasAnySignal: true, 300_000, Thr));
+            true, hasOwnSignal: false, lineHasCulprit: true, lineHasUnresolvedUsertag: true, 300_000, Thr));
         Assert.Equal(OeeMath.StopClass.WaitNonProd, OeeMath.ClassifyStopWindow(
             true, false, true, true, 41 * 60_000, Thr));
     }
@@ -939,7 +982,7 @@ public class OeeMathTests
     {
         // usertag(라인 스코프)만 — 유발자 특정 불가 → 보수적으로 고장 유지(§2.3), 기준 초과라도 비생산 승격 금지.
         Assert.Equal(OeeMath.StopClass.Fault, OeeMath.ClassifyStopWindow(
-            true, hasOwnSignal: false, lineHasCulprit: false, lineHasAnySignal: true, 41 * 60_000, Thr));
+            true, hasOwnSignal: false, lineHasCulprit: false, lineHasUnresolvedUsertag: true, 41 * 60_000, Thr));
     }
 
     [Fact]
@@ -959,10 +1002,48 @@ public class OeeMathTests
     {
         // 커버리지 게이트/설정 OFF — 신호 인자 무시, CT 규칙만(§2.4 폴백). 경계 미만은 대기.
         Assert.Equal(OeeMath.StopClass.NonProduction, OeeMath.ClassifyStopWindow(
-            signalRulesActive: false, hasOwnSignal: true, lineHasCulprit: true, lineHasAnySignal: true,
+            signalRulesActive: false, hasOwnSignal: true, lineHasCulprit: true, lineHasUnresolvedUsertag: true,
             41 * 60_000, Thr));
         Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
             false, true, true, true, 300_000, Thr));
+    }
+
+    // ── 유발자 특정 우선순위 (2026-08-24 실측 기반) ─────────────────────────
+    // kit 라인에서 이송 하나를 Going 중 정지시킨 실측:
+    //   이송 mt=431,226ms(7.2분) / 형제 4개 mt≈5,000ms — MT 만으로 유발자와 형제가 갈렸다.
+    // 그 구간에 미해소 usertag(1st_usb.RET_센서단선이상)도 걸쳐 있었는데, 종전 규칙은 usertag 만 보고
+    // 형제까지 전원 고장으로 올렸다(고장 5건). MT 과주행으로 이미 유발자가 특정됐으면 형제는 대기다.
+
+    [Fact]
+    public void MtOverrun_culprit_demotes_siblings_to_wait()
+    {
+        // 형제 flow — 자기 신호 없음, abnormal 유발자 없음, 미해소 usertag 있음.
+        //   그러나 라인에 MT 과주행 flow 가 있으므로 대기(유발자 특정됨).
+        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
+            signalRulesActive: true, hasOwnSignal: false, lineHasCulprit: false,
+            lineHasUnresolvedUsertag: true, durationMs: 300_000, ctThresholdMs: Thr,
+            lineHasMtOverrun: true));
+    }
+
+    [Fact]
+    public void Unresolved_usertag_is_line_fault_only_when_no_culprit()
+    {
+        // 유발자 전무 + 미해소 usertag → 라인 문제로 보고 전원 고장(최후 안전망).
+        Assert.Equal(OeeMath.StopClass.Fault, OeeMath.ClassifyStopWindow(
+            true, false, false, lineHasUnresolvedUsertag: true, durationMs: 300_000, ctThresholdMs: Thr));
+        // 같은 조건에서 usertag 가 이미 해소됐으면 고장 근거가 없다 → 대기.
+        //   실측: 09:00:34 발화 → 09:01:54 해소인데 09:02:31 까지의 정지가 전원 고장으로 잡혔다.
+        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
+            true, false, false, lineHasUnresolvedUsertag: false, durationMs: 300_000, ctThresholdMs: Thr));
+    }
+
+    [Fact]
+    public void Own_signal_still_wins_over_everything()
+    {
+        // 자기 flow abnormal 은 최우선 — 라인에 MT 과주행이 있어도 자기 고장이다.
+        Assert.Equal(OeeMath.StopClass.Fault, OeeMath.ClassifyStopWindow(
+            true, hasOwnSignal: true, lineHasCulprit: true, lineHasUnresolvedUsertag: true,
+            300_000, Thr, lineHasMtOverrun: true));
     }
 
     [Fact]

@@ -458,7 +458,17 @@ public sealed record OeeMeasureQualityRowDto(
     // false = 이 설비는 아직 측정 자체가 안 되고 있다(클린샘플 0 → CT 임계 미산출 → 사이클기반 A/P·정지·대기
     //         분류 전부 불가, 가용성은 달력근사 폴백). 실측 사례: 경계 head 가 한 번도 Going 하지 않는 Call 로
     //         잡혀 dspFlowHistory 가 0행이었다. 목록에서 빼면 "전부 양호"로 읽히므로 반드시 행으로 노출한다.
-    bool Measurable);
+    bool Measurable,
+    // ── 경계(Head/Tail) 진단 (2026-08-24) ─────────────────────────────────
+    //   경계가 실제 동작과 맞지 않으면 지표가 <b>조용히</b> 틀린다. 실측 두 사례:
+    //     · 배출  — head 9회·tail 10회 발화하는데 사이클 0건 (후보 모호로 래치 비활성)
+    //     · xgk103 — head 978 vs tail 440(격사이클) → CT 가 2배로 계상, IO 누락으로 오해
+    //   화면이 이 상태를 배지로 알려 사용자가 경계를 지정하도록 유도한다.
+    string? BoundaryIssue,      // "no-cycle" | "skip-cycle" | "no-signal" | null(정상)
+    string? HeadCall,
+    string? TailCall,
+    int HeadGoingCount,
+    int TailGoingCount);
 
 /// <summary>
 /// 계측 품질 응답 — 라인 합계 + 설비별 행.

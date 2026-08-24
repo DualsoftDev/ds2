@@ -668,6 +668,72 @@ public class FlowMetricsService : IFlowMetricsService
     /// Flow 가 head-start→tail-complete 엣지 래치로 배지를 도출할 자격이 있는지(순수 판정은 <see cref="FlowLatchBadge.IsEligible"/>).
     /// effective head/tail 이 비면(경계 미정) 부적격. head/tail 과 동명인 Call 이 여러 Work 에 있으면 경계가 모호해 강등.
     /// </summary>
+    /// <inheritdoc />
+    public async Task<TailSuggestion?> SuggestTailAsync(string flowName, string headCallName)
+    {
+        if (string.IsNullOrWhiteSpace(flowName) || string.IsNullOrWhiteSpace(headCallName)) return null;
+        var flow = _projectService.GetFlowByName(flowName);
+        if (flow is null) return null;
+
+        List<string> options;
+        try
+        {
+            options = _projectService.GetWorks(flow.Id)
+                .SelectMany(w => _projectService.GetCalls(w.Id))
+                .Select(c => c.Name)
+                .Where(n => !string.IsNullOrWhiteSpace(n) && n != headCallName)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(n => n, StringComparer.Ordinal)
+                .ToList();
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "SuggestTail: Call 목록 조회 실패 {Flow}", flowName); return null; }
+        if (options.Count == 0) return null;
+
+        var going = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        try { going = await _dspRepository.GetCallGoingCountsAsync(flowName); } catch { /* 증거 없이도 제안은 한다 */ }
+        going.TryGetValue(headCallName, out var headGoing);
+
+        // 발화 횟수가 head 와 비슷한가(±20%) — 증거가 없으면(둘 다 0) 이 조건은 통과로 본다(신규 라인).
+        bool Similar(string call)
+        {
+            if (headGoing <= 0) return true;
+            going.TryGetValue(call, out var g);
+            if (g <= 0) return false;
+            return Math.Abs(g - headGoing) <= headGoing * 0.2;
+        }
+
+        // ① 같은 장비의 대응 동작 — 실측 6개 flow 중 4개가 이 규칙으로 정확(*_stp.ADV → *_stp.RET).
+        var dot = headCallName.LastIndexOf('.');
+        var headDevice = dot > 0 ? headCallName[..dot] : null;
+        if (headDevice is not null)
+        {
+            var same = options.FirstOrDefault(o => o.StartsWith(headDevice + ".", StringComparison.Ordinal) && Similar(o));
+            if (same is not null)
+                return new TailSuggestion(same, "same-device",
+                    $"같은 장비({headDevice}) 대응 동작 · 발화 {Going(same)}회");
+        }
+
+        // ② 토폴로지 종단(out-degree 0) 중 발화 근접 — 실측 '투입'(head=Conveyor1.MOVE)이 이 경로로 정확.
+        //    ①은 Conveyor1.STOP(0회)을 고르려 해 배제되고, 종단 후보에서 1IN_CYL.RET 를 찾는다.
+        try
+        {
+            var analysis = _flowAnalysisCache.GetOrAdd(flow.Name, _ => FlowAnalyzer.AnalyzeFlow(flow, GetDsStore()));
+            var term = analysis.TailCandidates.FirstOrDefault(t => t != headCallName && options.Contains(t) && Similar(t));
+            if (term is not null)
+                return new TailSuggestion(term, "topology", $"공정 마지막 동작 · 발화 {Going(term)}회");
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "SuggestTail: 토폴로지 조회 실패 {Flow}", flowName); }
+
+        // ③ 남은 후보 중 발화 횟수가 head 에 가장 가까운 것.
+        var best = options.Where(Similar)
+            .OrderBy(o => Math.Abs(Going(o) - headGoing))
+            .ThenBy(o => o, StringComparer.Ordinal)
+            .FirstOrDefault();
+        return best is null ? null : new TailSuggestion(best, "frequency", $"발화 {Going(best)}회 — head 와 가장 근접");
+
+        int Going(string c) => going.TryGetValue(c, out var g) ? g : 0;
+    }
+
     private bool ComputeLatchEligibility(string flowName, string? effectiveStart, string? effectiveEnd)
     {
         if (string.IsNullOrEmpty(effectiveStart) || string.IsNullOrEmpty(effectiveEnd))
@@ -838,3 +904,6 @@ public class FlowCycleState
     // (윈도우 N = HistoryView.CycleAverageWindow, 0/음수면 trim 안 함 = 세션 누적). reseed 가 DB 최근행으로 채운다.
     public Queue<Adapters.CycleSample> Recent { get; } = new();
 }
+
+/// <summary>tail 1차 제안 결과. <paramref name="Source"/> = same-device | topology | frequency.</summary>
+public sealed record TailSuggestion(string TailCallName, string Source, string Reason);

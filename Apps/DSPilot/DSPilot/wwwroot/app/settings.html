@@ -319,7 +319,7 @@
                                         <span class="material-icons">event</span> 오래된 데이터 삭제
                                     </button>
                                     <small class="settings-hint">
-                                        선택한 AASX 갱신일 이전의 raw 데이터를 삭제합니다.
+                                        선택한 AASX 갱신일 이전의 raw 데이터 + 현재 모델에 없는 설비의 잔존 데이터를 삭제합니다.
                                     </small>
                                     <hr class="divider my-3" />
                                     <button class="btn btn-outlined color-error w-100" @click="rebuildDatabase()" :disabled="busy">
@@ -1133,11 +1133,40 @@
                 <p class="settings-hint" style="margin:0 0 14px;">
                     갱신일을 클릭하면 해당 시점 <strong>이전</strong>의 데이터를 삭제합니다(이후 데이터는 보존).
                 </p>
+
+                <!-- 현재 AASX 에 없는 설비('유령') 정리 — 갱신 이력과 무관하게 항상 노출.
+                     서비스 정지 중 AASX 를 교체하면 이력이 안 남아서(워처가 '콘텐츠 동일' 판정) 연표만으로는
+                     이 케이스에 손을 댈 방법이 없다. 화면은 이미 읽기 필터로 숨기지만 행은 남아 있는 상태. -->
+                <div x-show="stale.total > 0"
+                     style="margin:0 0 14px; padding:12px 14px; border:1px solid var(--color-warning, #e67e22);
+                            border-radius:8px; background:color-mix(in srgb, var(--color-warning, #e67e22) 8%, transparent);">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                        <span class="material-icons" style="color:var(--color-warning, #e67e22); font-size:20px;">layers_clear</span>
+                        <strong style="font-size:14px;">현재 모델에 없는 설비 <span x-text="stale.flowNames.length"></span>개</strong>
+                    </div>
+                    <div class="settings-hint" style="margin:0 0 8px; font-size:12px;">
+                        <span x-text="stale.flowNames.join(', ')" style="font-weight:600;"></span> —
+                        화면에서는 이미 숨겨져 있고, 아래를 누르면 데이터까지 지웁니다.
+                    </div>
+                    <div class="settings-hint" style="margin:0 0 10px; font-size:12px; font-family:var(--font-mono);">
+                        정의 <span x-text="stale.dspFlowRows + stale.dspCallRows"></span>건 ·
+                        이력 <span x-text="stale.historyRows"></span>건 ·
+                        정지 <span x-text="stale.downtimeEvents"></span>건 ·
+                        CT설정 <span x-text="stale.cycleOverrides"></span>건
+                    </div>
+                    <button class="btn btn-outlined color-warning w-100" @click="pruneStaleFlows()" :disabled="busy">
+                        <span class="material-icons">delete_sweep</span> 이 설비들의 데이터 정리
+                    </button>
+                </div>
+
                 <div x-show="selectiveDel.loading" style="text-align:center; padding:24px 0; color:var(--color-text-secondary);">
                     불러오는 중...
                 </div>
                 <div x-show="!selectiveDel.loading && selectiveDel.entries.length === 0" style="text-align:center; padding:24px 0; color:var(--color-text-secondary);">
                     AASX 갱신 이력이 없습니다.
+                    <div class="settings-hint" style="margin:6px 0 0;">
+                        서비스가 꺼진 상태에서 모델을 교체하면 이력이 남지 않습니다.
+                    </div>
                 </div>
                 <div x-show="!selectiveDel.loading && selectiveDel.entries.length > 0"
                      style="max-height:320px; overflow-y:auto; border:1px solid var(--color-border); border-radius:8px;">
@@ -1188,6 +1217,8 @@
                 toast: { show: false, msg: '', type: 'success' },
                 confirm: { show: false, title: '', message: '', okText: '확인', cancelText: '취소', _resolve: null },
                 selectiveDel: { show: false, loading: false, entries: [] },
+                // 현재 AASX 에 없는 설비 잔존 현황(GET /api/settings/stale-flows). total=0 이면 섹션 자체가 안 뜬다.
+                stale: { flowNames: [], dspFlowRows: 0, dspCallRows: 0, historyRows: 0, downtimeEvents: 0, cycleOverrides: 0, total: 0, modelLoaded: false },
                 rt: { connected: false },
                 autoCal: { running: false },
                 calib: { loaded: false, autoEnabled: false, staleCount: 0, stale: [] }, // 이상감지 게이트 상태 배지 (this.s 밖 — dirty 미유발)
@@ -1849,6 +1880,7 @@
                     this.selectiveDel.show = true;
                     this.selectiveDel.loading = true;
                     this.selectiveDel.entries = [];
+                    this.loadStaleFlows();   // 연표와 독립 — 이력이 없어도 정리 섹션은 떠야 한다
                     try {
                         const data = await this.apiGet('/api/settings/aasx-changelog');
                         this.selectiveDel.entries = data;
@@ -1857,6 +1889,35 @@
                         this.selectiveDel.show = false;
                     } finally {
                         this.selectiveDel.loading = false;
+                    }
+                },
+                async loadStaleFlows() {
+                    try { this.stale = await this.apiGet('/api/settings/stale-flows'); }
+                    catch (e) { /* 미리보기 실패는 삭제 연표 사용을 막지 않는다 */ }
+                },
+                async pruneStaleFlows() {
+                    const s = this.stale;
+                    const ok = await this.askConfirm(
+                        '⚠️ 모델에 없는 설비 데이터 정리',
+                        `대상 설비: ${s.flowNames.join(', ')}\n\n` +
+                        '다음 데이터를 삭제합니다:\n' +
+                        `• dspFlow / dspCall (설비·동작 정의) ${s.dspFlowRows + s.dspCallRows}건\n` +
+                        `• dspFlowHistory (가동 이력) ${s.historyRows}건\n` +
+                        `• oeeDowntimeEvent (정지 이벤트) ${s.downtimeEvents}건\n` +
+                        `• FlowCycle 표준CT 설정 ${s.cycleOverrides}건\n\n` +
+                        '현재 AASX 에 있는 설비의 데이터는 보존됩니다.\n' +
+                        '계속하시겠습니까?',
+                        '정리', '취소');
+                    if (!ok || this.busy) return;
+                    this.busy = true;
+                    try {
+                        const r = await this.apiPost('/api/settings/prune-stale-flows', {});
+                        this.showToast(r.message, r.success ? 'success' : 'error');
+                        if (r.success) { this.selectiveDel.show = false; await this.loadStaleFlows(); }
+                    } catch (e) {
+                        this.showToast('정리 실패: ' + e.message, 'error');
+                    } finally {
+                        this.busy = false;
                     }
                 },
                 async selectiveDelChoose(entry) {
@@ -1870,6 +1931,7 @@
                         '• dspFlowHistory (Flow 가동 이력)\n' +
                         '• oeeDowntimeEvent (OEE 정지 이벤트)\n\n' +
                         '선택 시각 이후 데이터는 보존됩니다.\n' +
+                        '현재 AASX 에 없는 설비의 잔존 데이터도 함께 정리됩니다.\n' +
                         '계속하시겠습니까?',
                         '삭제', '취소');
                     if (!ok) return;

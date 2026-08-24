@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Text;
@@ -20,13 +20,31 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
 {
     private readonly IDatabasePathResolver _pathResolver;
     private readonly Services.HistoryMirrorService _mirror;
+    private readonly Services.DsProjectService _project;
     private readonly ILogger<OeeRepositoryAdapter> _logger;
 
-    public OeeRepositoryAdapter(IDatabasePathResolver pathResolver, Services.HistoryMirrorService mirror, ILogger<OeeRepositoryAdapter> logger)
+    public OeeRepositoryAdapter(IDatabasePathResolver pathResolver, Services.HistoryMirrorService mirror,
+        Services.DsProjectService project, ILogger<OeeRepositoryAdapter> logger)
     {
         _pathResolver = pathResolver;
         _mirror = mirror;
+        _project = project;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// 현재 AASX 에 없는 flow 의 정지 이벤트를 빼는 SQL 조건 — oeeDowntimeEvent 는 flowName 문자열로만
+    /// 묶여 있어 모델이 바뀌어도 예전 설비의 이벤트가 그대로 남는다(plc.db 의 prune 은 oee.db 를 안 건드림).
+    /// 정지 내역/랭킹/집계는 항상 현재 모델 기준이어야 하므로 읽기 시점에 걸러낸다.
+    /// <para>빈 문자열 = 필터 비활성(모델 미로드 — 근거가 없을 때 전량 숨기면 화면이 백지가 된다).
+    /// flowName IS NULL(라인 전체 귀속) 행은 특정 설비의 유령이 아니므로 항상 남긴다.</para>
+    /// </summary>
+    private string ModelFlowClause(DynamicParameters p)
+    {
+        var set = _project.GetModelFlowNames();
+        if (set is null) return "";
+        p.Add("ModelFlows", set.ToList());
+        return " AND (flowName IS NULL OR flowName IN @ModelFlows) ";
     }
 
     /// <summary>plc.db 와 같은 디렉터리의 oee.db 경로.</summary>
@@ -437,13 +455,36 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         return n;
     }
 
-    private static (string Where, DynamicParameters Params) BuildDowntimeFilter(
+    public async Task<int> PruneDowntimeEventsByFlowNamesAsync(
+        IEnumerable<string> retainFlowNames, bool countOnly = false, CancellationToken ct = default)
+    {
+        var retain = retainFlowNames?.Where(n => !string.IsNullOrEmpty(n)).Distinct().ToList() ?? [];
+        // 빈 retain 으로 전량 삭제하는 동작은 ClearDowntimeEventsAsync 의 영역 — 여기서는 가드.
+        if (retain.Count == 0) return 0;
+
+        await using var conn = await OpenAsync();
+        const string where = "flowName IS NOT NULL AND flowName NOT IN @Names";
+        var param = new { Names = retain };
+        if (countOnly)
+            return await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM oeeDowntimeEvent WHERE {where}", param);
+
+        var n = await conn.ExecuteAsync($"DELETE FROM oeeDowntimeEvent WHERE {where}", param);
+        if (n > 0)
+        {
+            await _mirror.ReplicateOeeAsync("oeeDowntimeEvent", where, param);
+            _logger.LogInformation("[OEE] 유령 flow 정지 이벤트 {N}건 삭제 (retain {Keep}개)", n, retain.Count);
+        }
+        return n;
+    }
+
+    private (string Where, DynamicParameters Params) BuildDowntimeFilter(
         DateTime fromUtc, DateTime toUtc, string? status, string? reasonCode, string? flowName)
     {
         var sb = new StringBuilder(" WHERE startAt >= @From AND startAt <= @To ");
         var p = new DynamicParameters();
         p.Add("From", Iso(fromUtc));
         p.Add("To", Iso(toUtc));
+        sb.Append(ModelFlowClause(p));
 
         if (!string.IsNullOrWhiteSpace(status))
         {
@@ -522,7 +563,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
               CAST((julianday(COALESCE(endAt, @Cap))        - julianday(@From)) * 86400000 AS INTEGER) AS E
             FROM oeeDowntimeEvent
             WHERE startAt >= @From AND startAt <= @To
-              AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' {flowClause}";
+              AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' {flowClause} {ModelFlowClause(p)}";
         var rows = await conn.QueryAsync<SegRow>(sql, p);
         var list = rows.ToList();
         var periodMs = (long)(toUtc - fromUtc).TotalMilliseconds;
@@ -548,7 +589,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             SELECT COALESCE(SUM(durationMs), 0) AS DowntimeMs, COUNT(*) AS Cnt
             FROM oeeDowntimeEvent
             WHERE isFailure = 1 AND durationMs IS NOT NULL
-              AND startAt >= @From AND startAt <= @To {flowClause}";
+              AND startAt >= @From AND startAt <= @To {flowClause} {ModelFlowClause(p)}";
         var row = await conn.QueryFirstAsync<AggRow>(sql, p);
         return (row.DowntimeMs, row.Cnt);
     }
@@ -559,19 +600,18 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         await using var conn = await _mirror.TryOpenOeeReadAsync(fromUtc) ?? await OpenAsync();
         var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
         // 비생산 분류 이벤트 제외 — 순위표 '정지'는 비가동만 센다(GetDowntimeAggregateAsync 와 동일 규칙).
+        var p = new DynamicParameters();
+        p.Add("From", Iso(fromUtc));
+        p.Add("To", Iso(toUtc));
+        p.Add("Cap", Iso(capUtc));
         var sql = $@"
             SELECT flowName AS FlowName,
               CAST((julianday(startAt)                - julianday(@From)) * 86400000 AS INTEGER) AS S,
               CAST((julianday(COALESCE(endAt, @Cap))  - julianday(@From)) * 86400000 AS INTEGER) AS E
             FROM oeeDowntimeEvent
             WHERE startAt >= @From AND startAt <= @To AND flowName IS NOT NULL
-              AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}'";
-        var rows = await conn.QueryAsync<FlowSegRow>(sql, new
-        {
-            From = Iso(fromUtc),
-            To = Iso(toUtc),
-            Cap = Iso(capUtc),
-        });
+              AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' {ModelFlowClause(p)}";
+        var rows = await conn.QueryAsync<FlowSegRow>(sql, p);
         var periodMs = (long)(toUtc - fromUtc).TotalMilliseconds;
         return rows
             .GroupBy(r => r.FlowName ?? "")
@@ -733,7 +773,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
               flowName AS FlowName
             FROM oeeDowntimeEvent
             WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From
-              AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' {flowClause}";
+              AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' {flowClause} {ModelFlowClause(p)}";
         var rows = await conn.QueryAsync<IntervalRow>(sql, p);
         return rows.Select(r => (r.StartMs, r.EndMs, r.Kind, r.IsAuto != 0, r.FlowName)).ToList();
     }
@@ -875,6 +915,10 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         // 사용자 확정 분류(classifySource='manual')만 — 당일 자동(10×CT) 판정의 오버라이드 소스.
         //   reasonCode='non_production' → 비생산 강제(ToNonProd=true), 그 외(고장/유지보수 등) → 자동 승격 억제.
         // 기간과 '겹치는' 이벤트 전부(GetDowntimeIntervalsAsync 와 동일 경계) — 다일 정지 오버라이드 정확 반영.
+        var p = new DynamicParameters();
+        p.Add("From", Iso(fromUtc));
+        p.Add("To", Iso(toUtc));
+        p.Add("Cap", Iso(capUtc));
         var sql = $@"
             SELECT flowName AS FlowName,
               CAST((julianday(startAt) - 2440587.5) * 86400000 AS INTEGER) AS S,
@@ -882,13 +926,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
               CASE WHEN reasonCode = '{OeeMath.NonProductionReasonCode}' THEN 1 ELSE 0 END AS ToNonProd
             FROM oeeDowntimeEvent
             WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From
-              AND classifySource = 'manual'";
-        var rows = await conn.QueryAsync<ReclassRow>(sql, new
-        {
-            From = Iso(fromUtc),
-            To = Iso(toUtc),
-            Cap = Iso(capUtc),
-        });
+              AND classifySource = 'manual' {ModelFlowClause(p)}";
+        var rows = await conn.QueryAsync<ReclassRow>(sql, p);
         return rows.Where(r => r.E > r.S)
             .Select(r => (r.FlowName, (double)r.S, (double)r.E, r.ToNonProd != 0)).ToList();
     }

@@ -198,10 +198,24 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
                         flowName, open.Id, lastCycleUtc, (lastCycleUtc - openStartUtc).TotalSeconds);
 
                     // 분류 휴리스틱(신규 마감 건만 — 백필 금지). 수동 분류는 AutoClassifyHeuristicAsync 가드로 보존.
+                    //   5분 임계를 넘은 건에 대해서만 MT 과주행 증거를 조회한다(2026-08-24) — 유발자/피해자를
+                    //   가르는 유일한 근거이고, 짧은 정지엔 어차피 도장을 안 찍으므로 쿼리도 낭비다.
                     var durMs = (lastCycleUtc - openStartUtc).TotalMilliseconds;
-                    var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(durMs);
+                    var (ownOverrun, lineOverrun) = durMs >= OeeMath.AutoClassifyFailureMs
+                        ? await ReadMtOverrunEvidenceAsync(flowName, openStartUtc, lastCycleUtc)
+                        : (false, false);
+                    var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(durMs, ownOverrun, lineOverrun);
                     if (should)
+                    {
                         await repo.AutoClassifyHeuristicAsync(open.Id, rc, cat, isFail, ct);
+                        _logger.LogInformation(
+                            "[OEE] nocycle 자동분류: flow='{Flow}' event#{Id} → {Reason} (자기 MT과주행={Own}, 라인 MT과주행={Line})",
+                            flowName, open.Id, rc, ownOverrun, lineOverrun);
+                    }
+                    else if (durMs >= OeeMath.AutoClassifyFailureMs)
+                        _logger.LogInformation(
+                            "[OEE] nocycle 자동분류 보류: flow='{Flow}' event#{Id} 정지 {DurSec:F0}s — MT 과주행 증거 없음(집계 신호 판정에 위임)",
+                            flowName, open.Id, durMs / 1000.0);
                 }
             }
 
@@ -353,6 +367,79 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
             _logger.LogDebug(ex, "[OEE] nocycle: 파일 last-cycle 재확인 실패 flow='{Flow}'", flowName);
             return null;
         }
+    }
+
+    /// <summary>
+    /// 정지 구간 [onset, clear] 에 걸친 <b>MT 과주행</b> 사이클을 flow 별로 찾아, "자기 flow 가 걸렸는가 /
+    /// 라인의 다른 flow 가 걸렸는가"를 돌려준다(2026-08-24). 자동분류의 유발자 판별 근거 —
+    /// <see cref="OeeMath.ClassifyByDuration"/> 참조.
+    /// <para>
+    /// MT 과주행 = mt &gt; 그 flow 의 평균CT × 비가동배수. 경계는 <see cref="_thresholdMsByFlow"/> 를 그대로
+    /// 쓴다 — 이 맵이 이미 <c>AvgMs × idleMult</c>(RefreshThresholdsAsync)라서 집계 경로
+    /// (OeeControllerBase 의 MT 과주행 사전 수집)와 <b>같은 경계</b>가 된다. 두 분류기가 다른 임계를 보면
+    /// 로그 라벨과 failureCount 가 어긋난다.
+    /// </para>
+    /// <para>
+    /// 사이클 구간은 [recordedAt − ct, recordedAt] — 정지창과의 겹침으로 판정한다(집계 경로 동일 규약).
+    /// 실패 시 (false, false) → 호출측이 미분류로 남기고 조회 시점 신호 판정에 맡긴다(보수: 없는 근거로
+    /// 고장 도장을 찍지 않는다). 정지 마감 시에만 호출되고 (flowName, recordedAt) 인덱스 시크라 비용은
+    /// 무시할 수준이다.
+    /// </para>
+    /// </summary>
+    private async Task<(bool Own, bool Line)> ReadMtOverrunEvidenceAsync(
+        string flowName, DateTime onsetUtc, DateTime clearUtc)
+    {
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!File.Exists(dbPath) || _thresholdMsByFlow.Count == 0) return (false, false);
+        try
+        {
+            await using var conn = new SqliteConnection(
+                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+            await conn.OpenAsync();
+            var exists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (exists == 0) return (false, false);
+
+            // 창을 조금 넉넉히 잡는다 — 정지 시작 직전에 시작한 사이클이 정지창을 덮는 경우를 놓치지 않기 위해
+            // recordedAt 하한을 onset 으로 두고, ct 로 되짚어 실제 겹침을 아래에서 판정한다.
+            var rows = await conn.QueryAsync<MtOverrunRow>(@"
+                SELECT flowName AS FlowName, mt AS Mt, ct AS Ct, recordedAt AS RecordedAt
+                FROM dspFlowHistory
+                WHERE recordedAt >= @From AND recordedAt <= @To AND mt IS NOT NULL AND ct > 0",
+                new
+                {
+                    From = onsetUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
+                    To = clearUtc.ToString("yyyy-MM-dd HH:mm:ss.fffffff", System.Globalization.CultureInfo.InvariantCulture),
+                });
+
+            bool own = false, line = false;
+            foreach (var r in rows)
+            {
+                if (string.IsNullOrEmpty(r.FlowName) || r.Mt is not long mt || r.Ct is not long ctMs || ctMs <= 0)
+                    continue;
+                if (!_thresholdMsByFlow.TryGetValue(r.FlowName, out var thr) || thr <= 0) continue;
+                if (mt <= thr) continue;                                  // MT 과주행 아님 — 굶은 쪽
+                var rec = ParseRecordedAt(r.RecordedAt);
+                if (rec is null) continue;
+                if (rec.Value <= onsetUtc || rec.Value.AddMilliseconds(-ctMs) >= clearUtc) continue;   // 정지창 미겹침
+                if (string.Equals(r.FlowName, flowName, StringComparison.OrdinalIgnoreCase)) own = true;
+                else line = true;
+            }
+            return (own, line);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[OEE] nocycle: MT 과주행 증거 조회 실패 flow='{Flow}'", flowName);
+            return (false, false);
+        }
+    }
+
+    private sealed class MtOverrunRow
+    {
+        public string? FlowName { get; set; }
+        public long? Mt { get; set; }
+        public long? Ct { get; set; }
+        public string RecordedAt { get; set; } = "";
     }
 
     /// <summary>

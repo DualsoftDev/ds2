@@ -28,6 +28,7 @@ public sealed class OeeCtStatsService
 
     private readonly IDatabasePathResolver _pathResolver;
     private readonly HistoryMirrorService _mirror;
+    private readonly DsProjectService _project;
     private readonly ILogger<OeeCtStatsService> _logger;
 
     // ── TTL 캐시 + single-flight ────────────────────────────────────────────
@@ -39,10 +40,12 @@ public sealed class OeeCtStatsService
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime ExpiresUtc, object Value)> _cache = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<object>>> _inflight = new();
 
-    public OeeCtStatsService(IDatabasePathResolver pathResolver, HistoryMirrorService mirror, ILogger<OeeCtStatsService> logger)
+    public OeeCtStatsService(IDatabasePathResolver pathResolver, HistoryMirrorService mirror,
+        DsProjectService project, ILogger<OeeCtStatsService> logger)
     {
         _pathResolver = pathResolver;
         _mirror = mirror;
+        _project = project;
         _logger = logger;
     }
 
@@ -101,6 +104,11 @@ public sealed class OeeCtStatsService
                 $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
             await conn.OpenAsync();
 
+            // 현재 AASX 에 없는 flow 는 숨긴다 — dspFlow/dspFlowHistory 는 UPSERT 누적이라 예전 모델의
+            // 설비가 남아 있고(부팅 경로에 prune 없음), 그게 표준CT 테이블/OEE 설비축에 유령 행으로 뜬다.
+            // null = 모델 미로드 → 필터 비활성(전량 숨김 방지). 삭제는 사용자의 '오래된 데이터 삭제'만.
+            var modelFlows = _project.GetModelFlowNames();
+
             // 전체 flow 목록 — 사이클이 없어도 행을 노출(미설정 표준CT 식별).
             var dspFlowExists = await conn.ExecuteScalarAsync<long>(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlow'");
@@ -108,7 +116,11 @@ public sealed class OeeCtStatsService
             {
                 var names = await conn.QueryAsync<string>(
                     "SELECT flowName FROM dspFlow WHERE flowName IS NOT NULL AND flowName <> ''");
-                foreach (var n in names) result[n] = new OeeCtStat(0, 0, 0, 0, 0);
+                foreach (var n in names)
+                {
+                    if (modelFlows is not null && !modelFlows.Contains(n)) continue;
+                    result[n] = new OeeCtStat(0, 0, 0, 0, 0);
+                }
             }
 
             var histExists = await conn.ExecuteScalarAsync<long>(
@@ -129,6 +141,7 @@ public sealed class OeeCtStatsService
             foreach (var r in raw)
             {
                 if (string.IsNullOrEmpty(r.FlowName)) continue;
+                if (modelFlows is not null && !modelFlows.Contains(r.FlowName)) continue;
                 if (!grouped.TryGetValue(r.FlowName, out var list)) { list = new List<int>(); grouped[r.FlowName] = list; }
                 list.Add((int)r.Ct);
             }
@@ -214,8 +227,12 @@ public sealed class OeeCtStatsService
                 WHERE COALESCE(IsIdle,0) = 0 AND ct IS NOT NULL AND ct > 0 AND mt IS NOT NULL AND mt >= 0
                   AND recordedAt >= @From {until}
                 GROUP BY flowName", p);
+            // 유령 flow 제외 — 호출측이 flow 미지정 시 ratios.Values.Average() 로 라인 평균을 내므로
+            // 예전 모델 설비가 섞이면 표준MT/WT 분해가 조용히 틀어진다.
+            var modelFlows = _project.GetModelFlowNames();
             foreach (var (flow, sumMt, sumCt) in rows)
-                if (!string.IsNullOrWhiteSpace(flow) && sumCt > 0)
+                if (!string.IsNullOrWhiteSpace(flow) && sumCt > 0
+                    && (modelFlows is null || modelFlows.Contains(flow)))
                     result[flow] = Math.Clamp(sumMt / sumCt, 0, 1);
         }
         catch (Exception ex)
@@ -268,10 +285,12 @@ public sealed class OeeCtStatsService
                   AND (@Until IS NULL OR recordedAt < @Until)";
             var raw = await conn.QueryAsync<CtRowRaw>(sql, new { Since = since, Until = until });
 
+            var modelFlows = _project.GetModelFlowNames();   // 유령 flow 제외(null=필터 비활성)
             var grouped = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in raw)
             {
                 if (string.IsNullOrEmpty(r.FlowName)) continue;
+                if (modelFlows is not null && !modelFlows.Contains(r.FlowName)) continue;
                 if (!grouped.TryGetValue(r.FlowName, out var list)) { list = new(); grouped[r.FlowName] = list; }
                 list.Add((int)r.Ct);
             }
@@ -333,10 +352,12 @@ public sealed class OeeCtStatsService
                   AND recordedAt >= @Since";
             var raw = await conn.QueryAsync<CtRowRaw>(sql, new { Since = since });
 
+            var modelFlows = _project.GetModelFlowNames();   // 유령 flow 제외(null=필터 비활성)
             var grouped = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in raw)
             {
                 if (string.IsNullOrEmpty(r.FlowName)) continue;
+                if (modelFlows is not null && !modelFlows.Contains(r.FlowName)) continue;
                 if (!grouped.TryGetValue(r.FlowName, out var list)) { list = new(); grouped[r.FlowName] = list; }
                 list.Add((int)r.Ct);
             }
@@ -406,10 +427,14 @@ public sealed class OeeCtStatsService
             var raw = await conn.QueryAsync<CtRowRaw>(sql, new { Since = since, Until = until });
 
             var ln2 = Math.Log(2);
+            // 현재 AASX 에 없는 flow 제외 — 이 맵이 OEE/TEEP 의 설비 모집단(targetFlows) SSOT 라서,
+            // 여기서 걸러야 매트릭스 축·요약·랭킹에서 유령 설비가 한 번에 사라진다. null=필터 비활성.
+            var modelFlows = _project.GetModelFlowNames();
             var grouped = new Dictionary<string, List<(int Ct, double Weight)>>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in raw)
             {
                 if (string.IsNullOrEmpty(r.FlowName)) continue;
+                if (modelFlows is not null && !modelFlows.Contains(r.FlowName)) continue;
                 // 감쇠 가중치: 오래될수록(AgeDays 클수록) weight 증가 → 최근 사이클의 기준 기여 감소.
                 double weight = decayHalfLifeDays is double half && half > 0
                     ? Math.Exp(Math.Max(0, r.AgeDays) * ln2 / half)

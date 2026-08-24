@@ -134,3 +134,6 @@ Apps/DSPilot/tools/backfill_demo_data.py
 Apps/DSPilot/DSPilot/wwwroot/uploads/layout-data.json
 *.pdb
 Apps/DSPilot/DSPilot/wwwroot/uploads/cctv-overlays.json
+# DSPilot 런타임 AASX 역기록/추출 산출물 — dev 실행 시 CWD(Apps/DSPilot)에 생성되는 OPC 패키지 조각.
+#   project.aasx 는 ProgramData\Dualsoft\Shared\project.aasx 의 복사본이고 소스가 아니다.
+Apps/DSPilot/aasx/

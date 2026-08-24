@@ -268,6 +268,7 @@ public abstract class OeeControllerBase : ControllerBase
     private sealed class AlertRow
     {
         public string? OccurredAt { get; set; }
+        public string? ClearedAt { get; set; }   // usertag 해소 시각(2026-08-21). NULL = 미해소.
         public string? SystemName { get; set; }
         public string? Name { get; set; }
         public string? TagAddress { get; set; }
@@ -481,6 +482,14 @@ public abstract class OeeControllerBase : ControllerBase
     private static readonly DateTime _epochUtc = new(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     // DateTime → epoch-ms. Local→UTC환산, Unspecified→UTC간주, Utc→그대로.
+    /// <summary>dspFlow.movingStartName 은 "flow.Call" 형태 — Call 이름만 남긴다(dspCall.callName 과 맞추기 위해).</summary>
+    protected static string? StripFlowPrefix(string? qualified, string flowName)
+    {
+        if (string.IsNullOrWhiteSpace(qualified)) return null;
+        var p = flowName + ".";
+        return qualified!.StartsWith(p, StringComparison.OrdinalIgnoreCase) ? qualified[p.Length..] : qualified;
+    }
+
     protected static double ToMs(DateTime dt)
     {
         var utc = dt.Kind == DateTimeKind.Local ? dt.ToUniversalTime() : dt;
@@ -1086,9 +1095,21 @@ public abstract class OeeControllerBase : ControllerBase
             //   감지 인프라가 없는/죽은 사이트에서 "신호 없음=비생산" 이 가용성을 부풀리지 않게 한다.
             var signalRulesActive = false;
             var abnByFlow = new Dictionary<string, List<double>>(StringComparer.OrdinalIgnoreCase);
-            var usertagTimes = new List<double>();
+            // usertag = (발생 ms, 해소 ms|null). 해소 시각이 있으면 그 이후 구간엔 영향이 없다.
+            var usertagEvents = new List<(double At, double? ClearedAt)>();
+            // flow별 MT 과주행 구간 — 데이터로 특정된 유발자. 형제 flow 를 대기로 강등하는 근거.
+            var mtOverrunByFlow = new Dictionary<string, List<(double S, double E)>>(StringComparer.OrdinalIgnoreCase);
+            // 유발자 판별 시야는 <b>라인 전체</b>여야 한다(2026-08-24) — targetFlows 는 ?flow=X 조회에서 1개로
+            //   좁혀지므로, 아래 MT 과주행 사전 수집이 targetFlows 를 돌면 mtOverrunByFlow 가 self 하나만 담고
+            //   LineHasMtOverrun 이 self 를 제외하는 탓에 강등 근거가 <b>구조적으로 항상 false</b> 였다. 그래서
+            //   유발자가 MT 로 명확히 특정되는데도 형제가 usertag 분기(OeeMath §98)로 떨어져 전원 고장이 됐다
+            //   (실측: 정지창마다 MT 과주행 flow 가 정확히 1개인데 6개 flow 전부 failureCount=3 — 라인 정지
+            //   1회가 설비 수만큼 부풀던 문제의 잔존 경로). abnByFlow/usertagEvents 는 애초에 flow 무관 전량
+            //   로드라 라인 시야였고, MT 축만 좁아 per-flow/라인 조회 분류가 어긋났다(doc/25 §3.2 와 같은 함정).
+            //   넓히는 것은 "누가 유발자인가" 판별뿐 — 분모·귀속은 종전대로 flow별(doc/25 §7)이다.
+            var signalFlows = thresholds.Keys.ToList();
             double maxLookbackMs = 60_000;
-            foreach (var f in targetFlows)
+            foreach (var f in signalFlows)
                 if (thresholds.TryGetValue(f, out var thLb) && thLb.AvgMs > 0)
                     maxLookbackMs = Math.Max(maxLookbackMs, thLb.AvgMs * idleMult);
             if (applyLongStop && _settings.LoadSettings().OeeManual.SignalClassifyEnabled)
@@ -1112,7 +1133,7 @@ public abstract class OeeControllerBase : ControllerBase
                             // 매칭 창(§2.2) — 무사이클 이벤트가 정지 시작보다 늦게 열리는 만큼 lookback 포함해 로드.
                             var sigRows = await conn.QueryAsync<AlertRow>($@"
                                 SELECT occurredAt AS OccurredAt, tagAddress AS TagAddress,
-                                       valueType AS ValueType, matchOp AS MatchOp
+                                       valueType AS ValueType, matchOp AS MatchOp, clearedAt AS ClearedAt
                                 FROM userTagAlertLog
                                 WHERE occurredAt >= @SFrom AND occurredAt <= @STo AND {signalCond}",
                                 new
@@ -1138,7 +1159,9 @@ public abstract class OeeControllerBase : ControllerBase
                                 }
                                 else
                                 {
-                                    usertagTimes.Add(tMs);   // usertag Error — flow 매칭 불가(라인 스코프, §2.3)
+                                    // usertag Error — flow 매칭 불가(라인 스코프, §2.3). 해소 시각을 함께 보관해
+                                    // "정지 구간에 걸쳐 미해소였는지"를 과거 조회에서도 재현한다.
+                                    usertagEvents.Add((tMs, ParseUtcMs(a.ClearedAt)));
                                 }
                             }
                             signalRulesActive = true;
@@ -1150,7 +1173,7 @@ public abstract class OeeControllerBase : ControllerBase
                     _logger.LogWarning(ex, "[OEE] 신호 로드 실패 — 이 조회는 순수 CT 규칙으로 폴백(doc/25 §2.4)");
                     signalRulesActive = false;
                     abnByFlow.Clear();
-                    usertagTimes.Clear();
+                    usertagEvents.Clear();
                 }
             }
             double LookbackMsFor(string? f) => f is not null && thresholds.TryGetValue(f, out var thF) && thF.AvgMs > 0
@@ -1161,9 +1184,52 @@ public abstract class OeeControllerBase : ControllerBase
             bool LineHasCulprit(string? self, double s, double e) => abnByFlow.Any(kv =>
                 (self is null || !string.Equals(kv.Key, self, StringComparison.OrdinalIgnoreCase))
                 && kv.Value.Any(t => t >= s - LookbackMsFor(kv.Key) && t <= e));
-            bool LineHasAnySignal(double s, double e) =>
-                usertagTimes.Any(t => t >= s - maxLookbackMs && t <= e)
-                || abnByFlow.Any(kv => kv.Value.Any(t => t >= s - LookbackMsFor(kv.Key) && t <= e));
+            // 미해소 usertag가 이 구간에 걸쳐 있는가 — 해소 시각이 구간 시작 이후여야(또는 없어야) 영향이 있다.
+            bool LineHasUnresolvedUsertag(double s, double e) =>
+                usertagEvents.Any(u => u.At >= s - maxLookbackMs && u.At <= e
+                                       && (u.ClearedAt is null || u.ClearedAt.Value > s));
+            // 다른 flow가 MT 과주행으로 이미 고장 확정된 구간과 겹치는가 = 유발자 특정됨.
+            bool LineHasMtOverrun(string? self, double s, double e) => mtOverrunByFlow.Any(kv =>
+                (self is null || !string.Equals(kv.Key, self, StringComparison.OrdinalIgnoreCase))
+                && kv.Value.Any(iv => iv.E > s && iv.S < e));
+            // <b>자기</b> flow 가 이 구간에 MT 과주행이었는가 = 이 정지의 유발자가 자신 — 무조건 고장.
+            //   과주행 사이클 행(over-cycle)은 루프 안에서 mtOverrun 지역변수로 이미 분류를 우회하는데,
+            //   무사이클 갭 경로엔 그 우회가 없었다. 갭은 정의상 사이클이 없는 구간이지만 유발자의 정지는
+            //   과주행 사이클 + 잔여 갭으로 쪼개져 잡히므로("nocycle+over-cycle 동시 감지"), 잔여 갭이
+            //   LineHasMtOverrun(self 제외)=false → usertag/폴백 분기로 떨어져 <b>유발자가 대기로 강등</b>될 수
+            //   있었다. 두 경로가 같은 규칙("going 중 걸린 flow만 고장")을 쓰도록 맞춘다.
+            bool OwnMtOverrun(string? self, double s, double e) => self is not null
+                && mtOverrunByFlow.TryGetValue(self, out var own)
+                && own.Any(iv => iv.E > s && iv.S < e);
+
+            // MT 과주행 구간 사전 수집(2026-08-24) — 형제 flow 분류에 쓰이므로 본 루프보다 먼저 전 flow 를 알아야 한다.
+            //   이 구간과 겹치는 다른 flow 의 정지는 "유발자가 특정된 여파"라 대기로 강등한다.
+            //   signalFlows(=전 flow) 를 돈다 — targetFlows 로 좁히면 per-flow 조회에서 강등이 죽는다(위 주석).
+            //   flow 당 인덱스 시크 1회(idx_dspFlowHistory_flow_recordedAt)라 라인 전체로 넓혀도 비용은 무시할 수준.
+            foreach (var fPre in signalFlows)
+            {
+                var thrPre = thresholds[fPre].AvgMs;
+                if (thrPre <= 0) continue;
+                var pPre = new DynamicParameters();
+                pPre.Add("From", fromStr); pPre.Add("To", toStr); pPre.Add("Flow", fPre);
+                pPre.Add("Thr", thrPre * idleMult);
+                try
+                {
+                    var ovRows = await conn.QueryAsync<DtCycleRaw>(@"
+                        SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
+                        FROM dspFlowHistory
+                        WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow
+                          AND ct > 0 AND mt IS NOT NULL AND mt > @Thr", pPre);
+                    foreach (var r in ovRows)
+                        if (r.Ct is long oc && oc > 0 && ParseUtcMs(r.RecordedAt) is double orec)
+                        {
+                            if (!mtOverrunByFlow.TryGetValue(fPre, out var l))
+                                mtOverrunByFlow[fPre] = l = new List<(double S, double E)>();
+                            l.Add((orec - oc, orec));
+                        }
+                }
+                catch (Exception ex) { _logger.LogDebug(ex, "[OEE] MT 과주행 사전 수집 실패: {Flow}", fPre); }
+            }
 
             foreach (var f in targetFlows)
             {
@@ -1285,8 +1351,10 @@ public abstract class OeeControllerBase : ControllerBase
                     if (applyLongStop && !mtOverrun && !OverlapsAny(toDownIv, f, startMs, rec))
                     {
                         var cls = OeeMath.ClassifyStopWindow(signalRulesActive,
-                            HasOwnSignal(f, startMs, rec), LineHasCulprit(f, startMs, rec), LineHasAnySignal(startMs, rec),
-                            measuredMs, thr, nonProdMult);
+                            HasOwnSignal(f, startMs, rec), LineHasCulprit(f, startMs, rec),
+                            LineHasUnresolvedUsertag(startMs, rec),
+                            measuredMs, thr, nonProdMult,
+                            lineHasMtOverrun: LineHasMtOverrun(f, startMs, rec));
                         if (cls is OeeMath.StopClass.NonProduction or OeeMath.StopClass.WaitNonProd)
                         {
                             var wait = cls == OeeMath.StopClass.WaitNonProd;
@@ -1415,11 +1483,14 @@ public abstract class OeeControllerBase : ControllerBase
                             if (len <= 0) continue;                 // 전 구간 비생산 확정 — 정지 미계상
                         }
                         // 신호 기반 분류(doc/25 §1) + 사용자 오버라이드 ② 비가동 확정 겹침 → 승격/강등 억제.
-                        if (applyLongStop && gapFlow is not null && !OverlapsAny(toDownIv, gapFlow, u.S, u.E))
+                        //   자기 MT 과주행(=유발자 본인)은 over-cycle 경로와 동일하게 분류를 우회해 무조건 고장.
+                        if (applyLongStop && gapFlow is not null && !OwnMtOverrun(gapFlow, u.S, u.E)
+                            && !OverlapsAny(toDownIv, gapFlow, u.S, u.E))
                         {
                             var cls = OeeMath.ClassifyStopWindow(signalRulesActive,
                                 HasOwnSignal(gapFlow, u.S, u.E), LineHasCulprit(gapFlow, u.S, u.E),
-                                LineHasAnySignal(u.S, u.E), len, thrGap, nonProdMult);
+                                LineHasUnresolvedUsertag(u.S, u.E), len, thrGap, nonProdMult,
+                                lineHasMtOverrun: LineHasMtOverrun(gapFlow, u.S, u.E));
                             if (cls is OeeMath.StopClass.NonProduction or OeeMath.StopClass.WaitNonProd)
                             {
                                 var wait = cls == OeeMath.StopClass.WaitNonProd;
@@ -1914,20 +1985,61 @@ public abstract class OeeControllerBase : ControllerBase
                     "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
                 if (exists > 0)
                 {
+                    // 경계(head/tail) + Call 발화 횟수 — 경계 진단용. 같은 공유 DB 라 추가 연결이 없다.
+                    var bnd = new Dictionary<string, (string? Head, string? Tail)>(StringComparer.OrdinalIgnoreCase);
+                    var goingByFlowCall = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
+                    try
+                    {
+                        foreach (var b in await conn.QueryAsync<(string? FlowName, string? Head, string? Tail)>(
+                            "SELECT flowName AS FlowName, movingStartName AS Head, movingEndName AS Tail FROM dspFlow"))
+                            if (!string.IsNullOrWhiteSpace(b.FlowName))
+                                bnd[b.FlowName!] = (StripFlowPrefix(b.Head, b.FlowName!), StripFlowPrefix(b.Tail, b.FlowName!));
+                        foreach (var g in await conn.QueryAsync<(string? FlowName, string? CallName, long GoingCount)>(
+                            "SELECT flowName AS FlowName, callName AS CallName, COALESCE(goingCount,0) AS GoingCount FROM dspCall"))
+                        {
+                            if (string.IsNullOrWhiteSpace(g.FlowName) || string.IsNullOrWhiteSpace(g.CallName)) continue;
+                            if (!goingByFlowCall.TryGetValue(g.FlowName!, out var m))
+                                goingByFlowCall[g.FlowName!] = m = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                            m[g.CallName!] = (int)Math.Min(g.GoingCount, int.MaxValue);
+                        }
+                    }
+                    catch (Exception ex) { _logger.LogDebug(ex, "[OEE] 경계 진단 소스 조회 실패"); }
+
                     // 모집단 = 구성된 flow 전체(dspFlow). 임계 보유분만 세면 "측정이 아예 안 되는 설비"가
                     // 목록에서 사라져 화면이 '전부 양호'로 읽힌다 — 그게 가장 숨겨선 안 되는 상태다.
                     var configured = new List<string>();
                     var flowTableExists = await conn.ExecuteScalarAsync<long>(
                         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlow'");
                     if (flowTableExists > 0)
-                        configured = [.. await conn.QueryAsync<string>(
-                            "SELECT flowName FROM dspFlow WHERE flowName IS NOT NULL AND flowName <> ''")];
+                        configured = [.. (await conn.QueryAsync<string>(
+                            "SELECT flowName FROM dspFlow WHERE flowName IS NOT NULL AND flowName <> ''"))
+                            // dspFlow 는 UPSERT 누적이라 예전 모델의 설비가 남는다 — '구성된 flow' 는
+                            // 현재 AASX 기준이어야 한다(IsModelFlow: 모델 미로드면 true = 필터 비활성).
+                            .Where(_project.IsModelFlow)];
                     var targets = configured
                         .Concat(thresholds.Where(kv => kv.Value.AvgMs > 0).Select(kv => kv.Key))
                         .Where(f => flowName is null || string.Equals(f, flowName, StringComparison.OrdinalIgnoreCase))
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .OrderBy(x => x, StringComparer.Ordinal)
                         .ToList();
+
+                    // 경계 진단 — 관측 가능한 증상만으로 판정한다(래치 자격 같은 내부 상태에 의존하지 않는다).
+                    //   no-signal  : 경계 Call 자체가 안 돈다 → 경계가 실제 동작과 무관
+                    //   no-cycle   : 경계 Call 은 도는데 사이클이 0건 → 후보 모호(래치 비활성) 또는 순서 반대
+                    //   skip-cycle : head:tail 발화 비율이 1:1 에서 20% 이상 벗어남 → 격사이클 tail(CT 2배 위험)
+                    (string? Issue, string? H, string? T, int HG, int TG) Diagnose(string f, int cycles)
+                    {
+                        var (h, t) = bnd.TryGetValue(f, out var b) ? b : (null, null);
+                        goingByFlowCall.TryGetValue(f, out var gm);
+                        int hg = h is not null && gm is not null && gm.TryGetValue(h, out var a) ? a : 0;
+                        int tg = t is not null && gm is not null && gm.TryGetValue(t, out var c2) ? c2 : 0;
+                        if (h is null || t is null) return ("no-signal", h, t, hg, tg);
+                        if (hg == 0 || tg == 0) return ("no-signal", h, t, hg, tg);
+                        if (cycles == 0) return ("no-cycle", h, t, hg, tg);
+                        var ratio = tg > 0 ? hg / (double)tg : 0;
+                        if (ratio > 1.2 || ratio < 0.8) return ("skip-cycle", h, t, hg, tg);
+                        return (null, h, t, hg, tg);
+                    }
                     var fromStr = fromUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
                     var toStr = toUtc.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
                     foreach (var f in targets)
@@ -1938,10 +2050,13 @@ public abstract class OeeControllerBase : ControllerBase
                         var hasThr = thresholds.TryGetValue(f, out var t) && t.AvgMs > 0;
                         if (!hasThr)
                         {
+                            var dg0 = Diagnose(f, 0);
                             rows.Add(new OeeMeasureQualityRowDto(
                                 FlowName: f, TotalCycles: 0, NormalCycles: 0, ExcludedCycles: 0,
                                 IncompleteCycles: 0, IdleCycles: 0, ExclusionRate: null, IncompleteRate: null,
-                                ThresholdMs: 0, Measurable: false));
+                                ThresholdMs: 0, Measurable: false,
+                                BoundaryIssue: dg0.Issue, HeadCall: dg0.H, TailCall: dg0.T,
+                                HeadGoingCount: dg0.HG, TailGoingCount: dg0.TG));
                             continue;
                         }
                         var thrMs = thresholds[f].AvgMs * idleMult;
@@ -1956,6 +2071,7 @@ public abstract class OeeControllerBase : ControllerBase
                             FROM dspFlowHistory
                             WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow AND ct > 0", p);
                         var total = (int)(q?.Total ?? 0);
+                        var dg = Diagnose(f, total);
                         var excluded = (int)(q?.Excluded ?? 0);
                         var incomplete = (int)(q?.Incomplete ?? 0);
                         rows.Add(new OeeMeasureQualityRowDto(
@@ -1968,7 +2084,9 @@ public abstract class OeeControllerBase : ControllerBase
                             ExclusionRate: total > 0 ? excluded / (double)total : null,
                             IncompleteRate: total > 0 ? incomplete / (double)total : null,
                             ThresholdMs: thrMs,
-                            Measurable: true));
+                            Measurable: true,
+                            BoundaryIssue: dg.Issue, HeadCall: dg.H, TailCall: dg.T,
+                            HeadGoingCount: dg.HG, TailGoingCount: dg.TG));
                     }
                 }
             }

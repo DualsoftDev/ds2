@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Services;
@@ -62,6 +62,21 @@ public class FlowController : ControllerBase
     ///  - AppSettingsService.SaveFlowCycleOverride → FlowMetrics.ApplyCycleBoundaryOverrideAsync
     /// 갱신된 FlowDetailDto 반환.
     /// </summary>
+    /// <summary>
+    /// GET /api/flow/{name}/suggest-tail?head=X — head 선택 시 tail 1차 제안(사용자 변경 가능).
+    /// 자동 확정이 아니라 입력 보조 — 경계는 사용자가 정한다는 원칙은 유지한다.
+    /// </summary>
+    [HttpGet("{name}/suggest-tail")]
+    public async Task<ActionResult<object>> SuggestTail(string name, [FromQuery] string? head)
+    {
+        if (string.IsNullOrWhiteSpace(head))
+            return BadRequest(new { message = "head 파라미터가 필요합니다." });
+        var s = await _flowMetrics.SuggestTailAsync(name, head.Trim());
+        return s is null
+            ? Ok(new { tailCallName = (string?)null, source = (string?)null, reason = "제안할 후보가 없습니다." })
+            : Ok(new { tailCallName = s.TailCallName, source = s.Source, reason = s.Reason });
+    }
+
     [HttpPost("{name}/cycle-override")]
     public async Task<ActionResult<FlowDetailDto>> SaveCycleOverride(string name, [FromBody] CycleOverrideRequestDto req)
     {

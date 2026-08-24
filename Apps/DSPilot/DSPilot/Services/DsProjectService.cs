@@ -32,6 +32,12 @@ public class DsProjectService
     /// </summary>
     public string? LastLoadedSha256 { get; private set; }
 
+    // ── 모델 flow 집합(SSOT) ────────────────────────────────────────────────
+    // GetAllFlows() 는 F# store 를 매번 훑으므로, 읽기 경로(대시보드 폴링·OEE 임계 산출)가
+    // 호출당 재계산하지 않도록 LoadProject 시점에 한 번 만들어 캐시한다. store 는
+    // importIntoStore 의 ReplaceStore 로 통째 교체되므로 LoadProject 외에 무효화 지점이 없다.
+    private volatile HashSet<string>? _modelFlowNames;
+
     /// <summary>
     /// 외부에서 AASX 파일 콘텐츠가 변경됐을 때 발생. AasxFileWatcherService 가 발행.
     /// Settings 페이지가 구독해서 동기화 배지/토스트를 갱신.
@@ -66,6 +72,7 @@ public class DsProjectService
         {
             var result = Ds2.Aasx.AasxImporter.importIntoStore(_store, path);
             IsLoaded = result;
+            _modelFlowNames = null;     // store 교체 — 다음 조회에서 재구축
             LastLoadedUtc = DateTime.UtcNow;
             LastLoadedSha256 = ComputeFileSha256(path);
             if (result)
@@ -77,6 +84,7 @@ public class DsProjectService
         {
             _logger.LogError(ex, "Error loading AASX file: {Path}", path);
             IsLoaded = false;
+            _modelFlowNames = null;     // 실패한 import 가 store 를 절반만 바꿨을 수 있다 — 캐시 폐기
         }
     }
 
@@ -148,6 +156,53 @@ public class DsProjectService
     public List<Flow> GetAllFlows()
     {
         return [.. Queries.allFlows(_store)];
+    }
+
+    /// <summary>
+    /// 내부용 flow 이름 판정 SSOT — Promaker 가 만드는 '*_Flow' 접미사 flow 는 생산 설비가 아니라
+    /// 모델 내부 배선이라 DSPilot 의 어떤 목록에도 노출하지 않는다(기존 부트스트랩/resync 필터와 동일 규칙).
+    /// </summary>
+    public static bool IsInternalFlowName(string? flowName)
+        => flowName is not null && flowName.EndsWith("_Flow", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 현재 로드된 AASX 의 flow 이름 집합('*_Flow' 제외, 대소문자 무시) — "모델에 등록된 설비" 판정 SSOT.
+    /// <para>
+    /// DB(dspFlow / dspFlowHistory / oeeDowntimeEvent)는 UPSERT 누적이라 예전 모델의 flow 가 남는다
+    /// (부팅 경로에 prune 이 없고, prune 은 실행 중 AASX 교체 또는 수동 동기화에서만 돈다). 화면은
+    /// 항상 <b>현재 AASX 기준</b>이어야 하므로 읽기 시점에 이 집합으로 걸러낸다 — 삭제는 사용자가
+    /// 설정의 '오래된 데이터 삭제'를 실행할 때만 한다(가역/비가역 분리).
+    /// </para>
+    /// <para>
+    /// ★ 반환 null = "필터 비활성". AASX 미로드·파싱 실패·빈 모델일 때 빈 집합으로 거르면 정상 데이터가
+    /// 전부 사라져 화면이 백지가 된다(모델이 늦게 도착하는 배포 시나리오가 실제로 있다). 그 경우는
+    /// 필터를 끄는 쪽이 안전하므로 호출측은 null 을 반드시 "걸르지 않음"으로 처리해야 한다.
+    /// </para>
+    /// </summary>
+    public HashSet<string>? GetModelFlowNames()
+    {
+        var cached = _modelFlowNames;
+        if (cached is not null) return cached;
+        if (!IsLoaded) return null;
+
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in GetAllFlows())
+            if (!IsInternalFlowName(f.Name)) names.Add(f.Name);
+
+        if (names.Count == 0) return null;   // 빈 모델 → 필터 비활성(전량 숨김 방지)
+        _modelFlowNames = names;
+        return names;
+    }
+
+    /// <summary>
+    /// <paramref name="flowName"/> 이 현재 AASX 에 있는 설비인가. 필터 비활성(모델 미로드) 상태에서는
+    /// 판정 근거가 없으므로 true — 즉 "확실히 유령일 때만 숨긴다".
+    /// </summary>
+    public bool IsModelFlow(string? flowName)
+    {
+        if (string.IsNullOrEmpty(flowName)) return false;
+        var set = GetModelFlowNames();
+        return set is null || set.Contains(flowName);
     }
 
     public List<Work> GetWorks(Guid flowId)

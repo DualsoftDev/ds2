@@ -333,6 +333,25 @@ public class SettingsController : ControllerBase
         return Ok(dtos);
     }
 
+    // ── GET: 현재 AASX 에 없는 flow('유령 설비') 잔존 현황 — 정리 미리보기 ──
+    // 화면은 읽기 필터로 이미 유령을 숨기지만 행 자체는 남아 있다. 이 엔드포인트가 "무엇이 얼마나
+    // 지워지는지"를 먼저 보여주고, 사용자가 확인한 뒤에만 prune-stale-flows 로 실제 삭제한다.
+    [HttpGet("stale-flows")]
+    public async Task<ActionResult<StaleFlowReportDto>> GetStaleFlows()
+    {
+        var r = await _lifecycle.GetStaleFlowReportAsync();
+        return Ok(new StaleFlowReportDto(
+            r.FlowNames, r.DspFlowRows, r.DspCallRows, r.HistoryRows,
+            r.DowntimeEvents, r.CycleOverrides, r.Total, r.ModelLoaded));
+    }
+
+    // ── POST: 유령 설비 데이터 정리 (비가역) ──
+    // AASX 변경 이력(aasxChangeLog)이 없어도 실행 가능해야 한다 — 서비스 정지 중 AASX 를 교체하면
+    // 이력이 남지 않고(워처가 '콘텐츠 동일'로 판정), 그때가 바로 유령이 생기는 경우다.
+    [HttpPost("prune-stale-flows")]
+    public async Task<ActionResult<RebuildResultDto>> PruneStaleFlows()
+        => Result(await _lifecycle.PruneStaleFlowsAsync());
+
     // ── POST: 기준 시각 이전 데이터 선택 삭제 ──
     [HttpPost("delete-data-before")]
     public async Task<ActionResult<RebuildResultDto>> DeleteDataBefore([FromBody] DeleteBeforeRequestDto req)
@@ -1134,6 +1153,11 @@ public record RebuildResultDto(bool Success, string Message);
 public record AasxChangeLogDto(long Id, string ChangedAtLocal, string CutoffIso, string Source, string? Notes);
 
 public record DeleteBeforeRequestDto(string CutoffIso);
+
+// 현재 AASX 에 없는 flow 잔존 현황. ModelLoaded=false 면 AASX 미로드로 판정 불가(0 과 구별).
+public record StaleFlowReportDto(
+    IReadOnlyList<string> FlowNames, int DspFlowRows, int DspCallRows, int HistoryRows,
+    int DowntimeEvents, int CycleOverrides, int Total, bool ModelLoaded);
 
 // 서비스 재시작 대상: dspilot | agent | mtx | all (기본 all)
 public record RestartServicesRequest(string? Target);

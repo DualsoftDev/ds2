@@ -1178,6 +1178,39 @@
                         this.mq = null;   // 조용히 비움 — 계측 품질 실패가 OEE 화면을 막지 않는다
                     }
                 },
+                // ── 경계(Head/Tail) 진단 (2026-08-24) ────────────────────────────
+                //   경계가 실제 동작과 어긋나면 지표가 조용히 틀린다. 실측 두 사례:
+                //     배출  — head 9회·tail 10회 도는데 사이클 0건(후보 모호로 래치 비활성)
+                //     xgk103 — head 978 vs tail 440(격사이클) → CT 2배로 계상, IO 누락으로 오해
+                //   그래서 "지표가 비어 있음/이상함"을 침묵시키지 않고 경계 지정으로 유도한다.
+                mqIssueText(f) {
+                    if (!f || !f.boundaryIssue) return '';
+                    const h = f.headCall || '?', t = f.tailCall || '?';
+                    if (f.boundaryIssue === 'no-signal')
+                        return `경계 Call 이 동작하지 않습니다 (시작 ${h} ${f.headGoingCount}회 · 완료 ${t} ${f.tailGoingCount}회) — 경계가 실제 동작과 맞지 않습니다.`;
+                    if (f.boundaryIssue === 'no-cycle')
+                        return `동작은 감지되는데(시작 ${f.headGoingCount}회 · 완료 ${f.tailGoingCount}회) 가동이 0건입니다 — 경계 후보가 모호하거나 순서가 반대입니다.`;
+                    if (f.boundaryIssue === 'skip-cycle') {
+                        const r = f.tailGoingCount > 0 ? Math.round(f.headGoingCount / f.tailGoingCount * 100) : 0;
+                        return `완료 신호가 시작의 ${r}% 만 발화합니다 — 격사이클로 잡혀 가동시간이 배로 계상될 수 있습니다.`;
+                    }
+                    return '';
+                },
+                mqIssueLabel(f) {
+                    return { 'no-signal': '경계 미동작', 'no-cycle': '경계 확인 필요', 'skip-cycle': '격사이클 의심' }[f && f.boundaryIssue] || '';
+                },
+                // 지금 보고 있는 대상의 경계 문제 — 페이지 <b>상단</b> 배너용.
+                //   설비를 고른 상태면 그 설비만, 라인 전체면 문제 설비 중 첫 번째를 대표로 보여준다.
+                //   맨 아래 무결성 카드까지 내려가지 않아도 "A 가 왜 비었는지"를 그 자리에서 알 수 있게 한다.
+                get mqCurrentIssue() {
+                    const rows = this.mqIssueRows;
+                    if (!rows.length) return null;
+                    if (this.curFlow) return rows.find(f => f.flowName === this.curFlow) || null;
+                    return rows[0];
+                },
+                // 경계 문제가 있는 설비 목록 — 카드 상단 배너용.
+                get mqIssueRows() { return ((this.mq && this.mq.flows) || []).filter(f => !!f.boundaryIssue); },
+
                 // 수집률 = 정상 CT / 전체 CT — 이 카드의 주 수치(2026-08-21).
                 //   제외율(나쁜 비율)이 아니라 "얼마나 제대로 수집했나"를 앞세운다. OEE 가 CT축으로 바뀌어
                 //   수집된 정상 CT 가 곧 지표의 근거이므로, 그 근거의 양을 보여주는 게 이 카드의 역할이다.

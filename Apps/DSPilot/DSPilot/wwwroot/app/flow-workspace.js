@@ -69,6 +69,10 @@
                 headCallId: null, tailCallId: null,
                 projectHeadId: null, projectTailId: null,
                 userOverrodeHeadTail: false,
+                // Tail 1차 제안(2026-08-24) — Head 를 찍으면 서버가 Tail 후보를 골라 채운다.
+                //   자동 확정이 아니라 입력 보조: 사용자가 Tail 을 직접 찍으면 즉시 해제되고 다시 덮지 않는다.
+                //   목적 = 격사이클 Tail 오지정 방지(실측 xgk103: head 978 vs tail 440 → 가동시간 2배 계상).
+                tailSuggested: false, tailSuggestReason: '',
                 isOverride: false,
                 exporting: false,
                 avgCycleMs: null, avgActiveMs: null,
@@ -880,13 +884,34 @@
                     if (this.headCallId === callId) return;
                     this.headCallId = callId;
                     this.userOverrodeHeadTail = true;
+                    // Tail 이 비었거나 이전 제안값이면 새 Head 기준으로 다시 제안한다.
+                    //   사용자가 직접 찍은 Tail(tailSuggested=false)은 건드리지 않는다.
+                    if (!this.tailCallId || this.tailSuggested) await this.applyTailSuggestion();
                     await this.resolveOverlays();
                 },
                 async toggleTail(callId) {
                     if (this.tailCallId === callId) return;
                     this.tailCallId = callId;
                     this.userOverrodeHeadTail = true;
+                    this.tailSuggested = false;          // 사용자 선택 우선 — 이후 Head 변경에도 유지
+                    this.tailSuggestReason = '';
                     await this.resolveOverlays();
+                },
+                // 서버 제안(GET /api/flow/{name}/suggest-tail) → 레인에서 같은 이름을 찾아 Tail 로 지정.
+                //   제안이 없거나 레인에 없으면 조용히 아무것도 하지 않는다(사용자 흐름을 막지 않음).
+                async applyTailSuggestion() {
+                    const head = this.headName;
+                    if (!this.selectedFlow || !head) return;
+                    try {
+                        const r = await this.apiGet('/api/flow/' + encodeURIComponent(this.selectedFlow)
+                            + '/suggest-tail?head=' + encodeURIComponent(head));
+                        if (!r || !r.tailCallName) { this.tailSuggested = false; this.tailSuggestReason = ''; return; }
+                        const lane = this.callLanes.find(x => x.callName === r.tailCallName);
+                        if (!lane) { this.tailSuggested = false; this.tailSuggestReason = ''; return; }
+                        this.tailCallId = lane.callId;
+                        this.tailSuggested = true;
+                        this.tailSuggestReason = r.reason || '';
+                    } catch { this.tailSuggested = false; this.tailSuggestReason = ''; }
                 },
                 async applyHeadTail() {
                     if (!this.selectedFlow) return;
@@ -902,6 +927,7 @@
                         await this.apiPost('/api/flow/' + encodeURIComponent(this.selectedFlow) + '/cycle-override',
                             { startCallName: headName, endCallName: tailName });
                         this.userOverrodeHeadTail = false;
+                        this.tailSuggested = false; this.tailSuggestReason = '';   // 저장 완료 = 확정값
                         await this.pollRecomputeStatus();
                         await this.load();
                         // 사이클 경계 변경 → 라이브 KPI/추이/히스토리도 새 기준 반영

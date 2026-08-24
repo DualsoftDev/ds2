@@ -155,6 +155,11 @@
                      x-show="tab === 'cycle' && callLanes.length > 0" x-cloak>
                     <span x-show="recomputeBusy || recomputeMsg" class="ct-recompute"
                           :class="recomputeError ? 'is-err' : ''" x-text="recomputeMsg"></span>
+                    <!-- Tail 1차 제안 표시 — Head 를 찍으면 서버가 Tail 후보를 골라준다. 직접 찍으면 사라진다. -->
+                    <span class="ct-tailsug" x-show="tailSuggested" x-cloak
+                          :title="'Tail 자동 제안: ' + tailSuggestReason + ' — 다른 Call 을 Tail 로 찍으면 해제됩니다.'">
+                        <span class="material-icons">auto_fix_high</span>Tail 자동 제안
+                    </span>
                     <button class="btn btn-sm" :class="userOverrodeHeadTail ? 'btn-primary' : 'btn-outlined color-default'" @click="applyHeadTail()"
                             :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId"
                             title="현재 Head/Tail 을 이 Flow 의 가동 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 가동시간·대시보드에 과거 포함 반영">

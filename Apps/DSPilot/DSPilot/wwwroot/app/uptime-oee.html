@@ -79,6 +79,24 @@
             <!-- ═══════════════ 설비효율 (OEE) — 생산효율(TEEP)은 /uptime-teep 별도 페이지 ═══════════════ -->
             <div class="up-grid" x-show="tab === 'oee'">
 
+                <!-- ════ 경계 이상 상단 배너 (2026-08-24) ════
+                     지표가 비어 있거나 배로 계상되는 원인 1순위가 경계(시작/완료 동작) 오지정이다.
+                     맨 아래 무결성 카드에도 같은 내용이 있지만, "A 가 산출 불가"를 본 그 자리에서
+                     이유를 알 수 있어야 조용히 넘어가지 않는다. -->
+                <template x-if="mqCurrentIssue">
+                    <div class="up-bnd-top">
+                        <span class="material-icons">rule_folder</span>
+                        <div>
+                            <b><span x-text="mqCurrentIssue.flowName"></span> — <span x-text="mqIssueLabel(mqCurrentIssue)"></span></b>
+                            <div class="up-bnd-top-msg" x-text="mqIssueText(mqCurrentIssue)"></div>
+                            <div class="up-bnd-top-act">
+                                <a :href="'/flow-cycle?flow=' + encodeURIComponent(mqCurrentIssue.flowName)">사이클 분석에서 경계 지정 →</a>
+                                <a href="#measure-quality-section">데이터 무결성 보기</a>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
                 <!-- ════ OEE 종합 (실데이터: /api/oee/summary) — 5 KPI: OEE·A·P·Q·MTBF ════ -->
                 <section class="card up-section">
                     <div class="ds-card-h">
@@ -858,6 +876,22 @@
                                 </div>
                             </div>
 
+                            <!-- 경계(Head/Tail) 이상 — 지표가 조용히 틀리는 가장 흔한 원인. 지정으로 유도한다. -->
+                            <div class="up-mq-bnd" x-show="mqIssueRows.length > 0" x-cloak>
+                                <span class="material-icons">rule_folder</span>
+                                <div>
+                                    <b>설비 경계(시작/완료 동작) 확인이 필요합니다</b> — 경계가 실제 동작과 어긋나면
+                                    가동이 0건으로 남거나 가동시간이 배로 계상됩니다.
+                                    <template x-for="f in mqIssueRows" :key="'bnd-'+f.flowName">
+                                        <div class="up-mq-bnd-row">
+                                            <a :href="'/flow-cycle?flow=' + encodeURIComponent(f.flowName)" x-text="f.flowName"></a>
+                                            <span class="tag" x-text="mqIssueLabel(f)"></span>
+                                            <span x-text="mqIssueText(f)"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
                             <!-- 측정 불가 설비 — 제외율이 아무리 낮아도 이게 있으면 라인 지표를 그대로 믿을 수 없다 -->
                             <div class="up-mq-unmeas" x-show="mq.unmeasurableFlowCount > 0" x-cloak>
                                 <span class="material-icons">report_off</span>
@@ -897,6 +931,8 @@
                                                    ? (f.flowName + ' — 측정 불가: 표준 가동시간 미학습(클린샘플 0). 설비 경계(Head/Tail) 지정을 확인하세요.')
                                                    : (f.flowName + ' — 비가동 경계 ' + durShort(f.thresholdMs))"
                                            x-text="f.flowName"></a>
+                                        <span class="up-mq-bnd-chip" x-show="!!f.boundaryIssue" x-cloak
+                                              :title="mqIssueText(f)" x-text="mqIssueLabel(f)"></span>
                                         <!-- 축 = 이 기간 최댓값 대비(mqBarW). 원수치는 옆 열/툴팁. -->
                                         <template x-if="f.measurable !== false">
                                             <div class="up-mq-bar"

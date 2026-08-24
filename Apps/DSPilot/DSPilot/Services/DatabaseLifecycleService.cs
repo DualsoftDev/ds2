@@ -440,6 +440,109 @@ public sealed class DatabaseLifecycleService
         => _dspRepository.GetAasxChangeLogAsync(limit);
 
     /// <summary>
+    /// 현재 AASX 에 없는 flow('유령 설비')가 데이터에 얼마나 남아 있는지 — 정리 미리보기.
+    /// 화면은 읽기 필터로 이미 유령을 숨기지만(가역), 실제 행은 남아 있어 통계 배치·집계가 계속 훑는다.
+    /// AASX 미로드면 판정 근거가 없으므로 전부 0(정리 대상 없음)으로 본다.
+    /// </summary>
+    public async Task<StaleFlowReport> GetStaleFlowReportAsync()
+    {
+        var keep = _projectService.GetModelFlowNames();
+        if (keep is null) return new StaleFlowReport([], 0, 0, 0, 0, 0, false);
+
+        var keepList = keep.ToList();
+        var (flows, calls, history) = await _dspRepository.CountStaleByFlowNamesAsync(keepList);
+
+        var downtime = 0;
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var oeeRepo = scope.ServiceProvider.GetRequiredService<IOeeRepository>();
+            downtime = await oeeRepo.PruneDowntimeEventsByFlowNamesAsync(keepList, countOnly: true);
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] 유령 flow 정지 이벤트 집계 실패 (비중요)"); }
+
+        var overrides = _settingsService.PruneFlowCycleOverrides(keepList, countOnly: true);
+
+        // 이름 목록 — 사용자가 "이게 지워진다"를 눈으로 확인할 대상. dspFlow 에 남은 행 기준.
+        var names = (await _dspRepository.GetAllFlowNamesAsync())
+            .Where(n => !string.IsNullOrWhiteSpace(n) && !keep.Contains(n))
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new StaleFlowReport(names, flows, calls, history, downtime, overrides, true);
+    }
+
+    /// <summary>
+    /// 현재 AASX 에 없는 flow 의 잔존 데이터를 정리한다(비가역) — plc.db(dspFlow/dspCall/dspFlowHistory)
+    /// + oee.db(oeeDowntimeEvent) + 설정 파일(FlowCycle.Overrides) 세 곳 모두.
+    /// <para>
+    /// 자동으로는 절대 실행하지 않는다. 부팅 시 무음 prune 은 AASX 가 부분 파싱된 상태에서 돌면
+    /// 정상 데이터를 대량 삭제하므로(부트스트랩은 flowCount&gt;0 이면 성공 처리), 표시 단계는 읽기
+    /// 필터(가역)로 처리하고 삭제는 사용자가 명시적으로 실행할 때만 한다.
+    /// </para>
+    /// </summary>
+    public async Task<RebuildResult> PruneStaleFlowsAsync()
+    {
+        var keep = _projectService.GetModelFlowNames();
+        if (keep is null)
+            return new RebuildResult(false, "AASX 모델이 로드되지 않아 정리 기준을 알 수 없습니다. 모델을 먼저 불러오세요.");
+
+        if (!await _gate.WaitAsync(0))
+            return new RebuildResult(false, "다른 재초기화 작업이 진행 중입니다.");
+
+        try
+        {
+            var keepList = keep.ToList();
+            _logger.LogInformation("[DBLifecycle] PruneStaleFlows starting (retain {N}개)", keepList.Count);
+
+            var pruned = await _dspRepository.PruneByFlowNamesAsync(keepList);
+
+            var downtime = 0;
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var oeeRepo = scope.ServiceProvider.GetRequiredService<IOeeRepository>();
+                downtime = await oeeRepo.PruneDowntimeEventsByFlowNamesAsync(keepList);
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "[DBLifecycle] 유령 flow 정지 이벤트 삭제 실패 (비중요)"); }
+
+            var overrides = _settingsService.PruneFlowCycleOverrides(keepList);
+
+            // 삭제로 평균/임계가 달라진다 — 집계 캐시 무효화 + UI 스냅샷 갱신 (DeleteDataBefore 와 동일 절차).
+            try
+            {
+                await _dspRepository.InvalidateRunningStatsAsync();
+                _engineService.ResetCallStats();
+                _dspDbService.Reset();
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "[DBLifecycle] 캐시 재계산 실패 (비중요)"); }
+
+            try { await _hubContext.Clients.All.SendAsync("FlowHistoryCleared"); }
+            catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] SignalR broadcast 실패 (비중요)"); }
+
+            _mirror.MarkDirty("prune-stale-flows");
+            OeeChangeSignal.NotifyInvalidate();
+
+            var total = pruned.Flows + pruned.Calls + pruned.History + downtime + overrides;
+            var msg = total == 0
+                ? "정리할 유령 설비 데이터가 없습니다."
+                : $"정리 완료 — dspFlow: {pruned.Flows}건, dspCall: {pruned.Calls}건, " +
+                  $"FlowHistory: {pruned.History}건, OEE정지: {downtime}건, CT설정: {overrides}건";
+            _logger.LogInformation("[DBLifecycle] PruneStaleFlows complete: {Msg}", msg);
+            return new RebuildResult(true, msg);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DBLifecycle] PruneStaleFlows 실패");
+            return new RebuildResult(false, $"정리 실패: {ex.Message}");
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
     /// 지정 시각 이전 raw 데이터 선택 삭제 (plcTagLog, userTagAlertLog, dspFlowHistory, oeeDowntimeEvent).
     /// 해당 시각 이후 데이터는 보존.
     /// </summary>
@@ -481,7 +584,31 @@ public sealed class DatabaseLifecycleService
             try { await _hubContext.Clients.All.SendAsync("FlowHistoryCleared"); }
             catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] SignalR broadcast 실패 (비중요)"); }
 
+            // 시각 기준 삭제와 함께 '현재 AASX 에 없는 flow' 잔존분도 정리한다. cutoff 이후에 기록된
+            // 유령 설비 행은 시각 조건으로는 절대 안 지워져서(리네임 직전까지 계속 쌓였으므로) 사용자가
+            // "오래된 데이터 삭제"를 해도 화면에서 사라지지 않던 원인이다.
+            var staleFlows = 0; var staleHist = 0; var staleDown = 0; var staleOv = 0;
+            var keep = _projectService.GetModelFlowNames();
+            if (keep is not null)
+            {
+                try
+                {
+                    var keepList = keep.ToList();
+                    var pruned = await _dspRepository.PruneByFlowNamesAsync(keepList);
+                    staleFlows = pruned.Flows + pruned.Calls;
+                    staleHist = pruned.History;
+                    using var scope = _scopeFactory.CreateScope();
+                    var oeeRepo = scope.ServiceProvider.GetRequiredService<IOeeRepository>();
+                    staleDown = await oeeRepo.PruneDowntimeEventsByFlowNamesAsync(keepList);
+                    staleOv = _settingsService.PruneFlowCycleOverrides(keepList);
+                }
+                catch (Exception ex) { _logger.LogWarning(ex, "[DBLifecycle] 유령 flow 정리 실패 (시각 기준 삭제는 완료)"); }
+            }
+
             var msg = $"삭제 완료 — plcTagLog: {plc}건, 알림이력: {alert}건, FlowHistory: {hist}건, OEE정지: {oeeDeleted}건";
+            if (staleFlows + staleHist + staleDown + staleOv > 0)
+                msg += $" · 모델에 없는 설비 정리: 정의 {staleFlows}건, 이력 {staleHist}건, " +
+                       $"정지 {staleDown}건, CT설정 {staleOv}건";
             _mirror.MarkDirty("delete-before"); // 삭제 전파는 write-through 가 커버하지만 대량 삭제라 보험 재적재
             OeeChangeSignal.NotifyInvalidate();
             _logger.LogInformation("[DBLifecycle] DeleteDataBefore complete: {Msg}", msg);
@@ -551,3 +678,16 @@ public sealed class DatabaseLifecycleService
 }
 
 public sealed record RebuildResult(bool Success, string Message);
+
+/// <summary>
+/// 현재 AASX 에 없는 flow('유령 설비')의 잔존 데이터 현황 — 정리 미리보기용.
+/// <paramref name="ModelLoaded"/>=false 면 AASX 미로드로 판정 자체를 못 한 것(모든 수치 0, "없음"과 구별).
+/// </summary>
+public sealed record StaleFlowReport(
+    IReadOnlyList<string> FlowNames,
+    int DspFlowRows, int DspCallRows, int HistoryRows,
+    int DowntimeEvents, int CycleOverrides,
+    bool ModelLoaded)
+{
+    public int Total => DspFlowRows + DspCallRows + HistoryRows + DowntimeEvents + CycleOverrides;
+}

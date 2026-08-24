@@ -1187,6 +1187,33 @@ public class DspRepositoryAdapter : IDspRepository
     }
 
     /// <summary>
+    /// <see cref="PruneByFlowNamesAsync"/> 의 미리보기 — 삭제하지 않고 대상 행 수만 센다.
+    /// 정리 UI 가 "무엇이 얼마나 지워지는지" 먼저 보여주기 위한 것으로, 같은 WHERE 절을 공유한다.
+    /// </summary>
+    public async Task<(int Flows, int Calls, int History)> CountStaleByFlowNamesAsync(IEnumerable<string> retainFlowNames)
+    {
+        if (!_enabled) return (0, 0, 0);
+
+        var retain = retainFlowNames?.Where(n => !string.IsNullOrEmpty(n)).Distinct().ToList() ?? [];
+        if (retain.Count == 0) return (0, 0, 0);
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+            return (0, 0, 0);
+
+        var param = new { Names = retain };
+        var flows = await conn.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM {_flowTable} WHERE FlowName NOT IN @Names", param);
+        var calls = await conn.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM {_callTable} WHERE FlowName NOT IN @Names", param);
+        var history = await TableExistsAsync(conn, HistoryTable)
+            ? await conn.ExecuteScalarAsync<int>(
+                $"SELECT COUNT(*) FROM {HistoryTable} WHERE FlowName NOT IN @Names", param)
+            : 0;
+        return (flows, calls, history);
+    }
+
+    /// <summary>
     /// retainFlowNames 에 없는 모든 dspFlow / dspCall / dspFlowHistory 행을 삭제.
     /// AASX 에서 사라진(삭제/리네임된) Flow 의 잔존 행 정리용 — 살아남은 Flow 의 통계 / 히스토리는 보존.
     /// retainFlowNames 가 비어 있으면(=실수 방지 안전장치) prune 을 수행하지 않고 (0,0,0) 을 반환한다.
