@@ -20,6 +20,7 @@ public partial class MainToolbar : UserControl
     private MainViewModel? VM => DataContext as MainViewModel;
 
     private void CloseSavePopup(object sender, RoutedEventArgs e) => SaveMenuToggle.IsChecked = false;
+    private void CloseUploadPopup(object sender, RoutedEventArgs e) => UploadMenuToggle.IsChecked = false;
     private void CloseOpenPopup(object sender, RoutedEventArgs e) => OpenMenuToggle.IsChecked = false;
     private void CloseEditPopup(object sender, RoutedEventArgs e) => EditMenuToggle.IsChecked = false;
 

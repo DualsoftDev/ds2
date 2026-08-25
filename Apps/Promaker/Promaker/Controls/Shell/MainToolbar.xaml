@@ -153,36 +153,62 @@
                             <ToggleButton x:Name="SaveMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="{x:Static res:Strings.SaveAs}" IsEnabled="{Binding HasProject}" Padding="0,4" MinWidth="14" VerticalAlignment="Stretch">
                                 <iconPacks:PackIconMaterial Kind="ChevronDown" Width="10" Height="10" Foreground="{DynamicResource IconGrayBrush}"/>
                             </ToggleButton>
+                            <!-- 저장 드롭다운 — 파일 저장 변형만. Agent 업로드는 독립 '업로드' 버튼으로 분리. -->
                             <Popup IsOpen="{Binding IsChecked, ElementName=SaveMenuToggle, Mode=TwoWay}" StaysOpen="False" Placement="Bottom" PlacementTarget="{Binding ElementName=SaveMenuToggle}" DataContext="{Binding DataContext, ElementName=ThisControl}">
                                 <Border Background="{DynamicResource SecondaryBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="220">
                                     <StackPanel>
                                         <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding SaveFileAsCommand}" Click="CloseSavePopup"><TextBlock Text="{x:Static res:Strings.SaveAs}"/></Button>
-                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding SaveToSharedLocationCommand}" Click="CloseSavePopup" ToolTip="현재 파일을 저장한 뒤, 모델(AASX)을 공유폴더에 내보내고 PLC 설정과 함께 Promaker.Agent 모니터링 세션을 업로드합니다. Agent/DSPilot 이 새 모델·설정으로 동기화됩니다."><TextBlock Text="Agent에 업로드"/></Button>
-                                        <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="4,4,4,4"/>
-                                        <TextBlock Text="Agent 대상" FontSize="10" FontWeight="SemiBold" Margin="8,0,8,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
-                                        <RadioButton GroupName="SaveAgentTarget" Content="로컬" Margin="8,0,8,2"
-                                                     Foreground="{DynamicResource PrimaryTextBrush}"
-                                                     IsChecked="{Binding AgentTransferIsLocal, Mode=TwoWay}"
-                                                     ToolTip="이 머신의 공유폴더 (%ProgramData%\DualSoft\Shared)"/>
-                                        <StackPanel Orientation="Horizontal" Margin="8,0,8,4">
-                                            <RadioButton GroupName="SaveAgentTarget" Content="네트워크" VerticalAlignment="Center"
-                                                         Foreground="{DynamicResource PrimaryTextBrush}"
-                                                         IsChecked="{Binding AgentTransferIsNetwork, Mode=TwoWay}"
-                                                         ToolTip="특정 IP 의 원격 Agent 로 모델/설정/세션을 zip 전송"/>
-                                            <TextBox Width="110" Margin="6,0,0,0" VerticalAlignment="Center"
-                                                     Text="{Binding AgentTransferIp, UpdateSourceTrigger=PropertyChanged}"
-                                                     IsEnabled="{Binding AgentTransferIsNetwork}"
-                                                     ToolTip="원격 Agent IP 주소"/>
-                                        </StackPanel>
-                                        <RadioButton GroupName="SaveAgentTarget" Content="클라우드" Margin="8,0,8,4"
-                                                     Foreground="{DynamicResource PrimaryTextBrush}"
-                                                     IsChecked="{Binding AgentTransferIsCloud, Mode=TwoWay}"
-                                                     ToolTip="PV 서버 로그인 후 사이트/단말 선택 — 그 단말 인스턴스의 Agent 로 업로드 (미로그인이면 로그인창)"/>
                                     </StackPanel>
                                 </Border>
                             </Popup>
                         </Grid>
                     </StackPanel>
+                    <!-- 업로드 — Agent 배포는 저장과 별개 행위라 독립 버튼. 팝업에서 대상 선택 후 실행. -->
+                    <Grid>
+                        <ToggleButton x:Name="UploadMenuToggle" Style="{StaticResource RibbonFlatToggleButton}"
+                                      ToolTip="모델(AASX)/PLC 설정/세션을 Agent 로 업로드 — 대상(로컬/네트워크/클라우드)을 골라 실행"
+                                      IsEnabled="{Binding HasProject}" Padding="6,4">
+                            <StackPanel Orientation="Vertical">
+                                <iconPacks:PackIconMaterial Kind="Upload" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
+                                <TextBlock Text="업로드" Style="{StaticResource RibbonIconLabel}"/>
+                            </StackPanel>
+                        </ToggleButton>
+                        <Popup IsOpen="{Binding IsChecked, ElementName=UploadMenuToggle, Mode=TwoWay}" StaysOpen="False" Placement="Bottom" PlacementTarget="{Binding ElementName=UploadMenuToggle}" DataContext="{Binding DataContext, ElementName=ThisControl}">
+                            <Border Background="{DynamicResource SecondaryBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="240">
+                                <StackPanel>
+                                    <TextBlock Text="Agent 대상" FontSize="10" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                    <RadioButton GroupName="UploadAgentTarget" Content="로컬" Margin="8,0,8,2"
+                                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                                 IsChecked="{Binding AgentTransferIsLocal, Mode=TwoWay}"
+                                                 ToolTip="이 머신의 공유폴더 (%ProgramData%\DualSoft\Shared)"/>
+                                    <StackPanel Orientation="Horizontal" Margin="8,0,8,4">
+                                        <RadioButton GroupName="UploadAgentTarget" Content="네트워크" VerticalAlignment="Center"
+                                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                                     IsChecked="{Binding AgentTransferIsNetwork, Mode=TwoWay}"
+                                                     ToolTip="특정 IP 의 원격 Agent 로 모델/설정/세션을 zip 전송"/>
+                                        <TextBox Width="110" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                 Text="{Binding AgentTransferIp, UpdateSourceTrigger=PropertyChanged}"
+                                                 IsEnabled="{Binding AgentTransferIsNetwork}"
+                                                 ToolTip="원격 Agent IP 주소"/>
+                                    </StackPanel>
+                                    <RadioButton GroupName="UploadAgentTarget" Content="클라우드" Margin="8,0,8,4"
+                                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                                 IsChecked="{Binding AgentTransferIsCloud, Mode=TwoWay}"
+                                                 ToolTip="PV 서버 로그인 후 사이트/단말 선택 — 그 단말 인스턴스의 Agent 로 업로드 (미로그인이면 로그인창)"/>
+                                    <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="4,2,4,4"/>
+                                    <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding SaveToSharedLocationCommand}" Click="CloseUploadPopup"
+                                            ToolTip="현재 파일을 저장한 뒤, 모델(AASX)을 공유폴더에 내보내고 PLC 설정과 함께 Promaker.Agent 모니터링 세션을 업로드합니다. Agent/DSPilot 이 새 모델·설정으로 동기화됩니다.">
+                                        <StackPanel Orientation="Horizontal">
+                                            <iconPacks:PackIconMaterial Kind="Upload" Width="14" Height="14"
+                                                                        Foreground="{DynamicResource AccentBrush}"
+                                                                        Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                            <TextBlock Text="Agent에 업로드" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                        </Popup>
+                    </Grid>
                     <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding CloseFileCommand}" ToolTip="{x:Static res:Strings.CloseFileTooltip}">
                         <StackPanel Orientation="Vertical"><iconPacks:PackIconMaterial Kind="FileDocumentRemoveOutline" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.CloseFile}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
                     </Button>
