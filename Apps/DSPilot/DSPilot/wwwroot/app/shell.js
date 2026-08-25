@@ -816,13 +816,31 @@ window.dspFmt = {
         var _agAdapters = [];   // [{name, ip, port, connected, error, vendor}]
         var _agPlcSource = '';  // 'agent' | 'ping' | 'none'
         var _agAddr = null;     // {expected, seen, missing[]} — 모델 주소 수신 커버리지(진단 표시 전용)
+        var _agAddrSystems = []; // [{system, expected, seen, missing[]}] — 멀티 PLC 시스템별 분해
         var _plcDetailOpen = false;
         function renderPlcDetail() {
             agPlcDetail.innerHTML = '';
             // 모델 주소 수신 커버리지 — "연결은 정상인데 그 주소만 0 건"(주소 오타/영역 불일치)은 어댑터
-            // 상태로는 안 보인다. 주소 정리 작업 중 즉시 확인할 수 있게 상세 패널 맨 위에 한 줄 노출.
+            // 상태로는 안 보인다. 주소 정리 작업 중 즉시 확인할 수 있게 상세 패널 맨 위에 노출.
             // 전부 수신 중이면 표시하지 않는다(정상 상태에 노이즈 금지).
-            if (_agAddr && _agAddr.expected > 0 && _agAddr.seen < _agAddr.expected) {
+            // 멀티 PLC(시스템 2개 이상)면 "어느 PLC 구간이 안 오는가"가 핵심이라 시스템별 행으로 분해해 보여준다.
+            var addrPartial = _agAddr && _agAddr.expected > 0 && _agAddr.seen < _agAddr.expected;
+            if (addrPartial && _agAddrSystems.length > 1) {
+                _agAddrSystems.forEach(function (s) {
+                    if (!s || !s.expected) return;
+                    var full = s.seen >= s.expected;
+                    var row = el('div', null, s.system + ' · 주소 ' + s.seen + '/' + s.expected + ' 수신'
+                        + (full ? '' : ' — ' + (s.expected - s.seen) + '개 미수신'));
+                    row.style.cssText = 'font-weight:700;color:'
+                        + (full ? AG_DOT.green : (s.seen === 0 ? AG_DOT.red : AG_DOT.orange)) + ';';
+                    if (!full && s.missing && s.missing.length)
+                        row.title = '미수신 주소: ' + s.missing.join(', ')
+                            + (s.expected - s.seen > s.missing.length ? ' …' : '');
+                    agPlcDetail.appendChild(row);
+                });
+                var gap = el('div'); gap.style.cssText = 'height:6px;';
+                agPlcDetail.appendChild(gap);
+            } else if (addrPartial) {
                 var warn = el('div', null, '모델 주소 ' + _agAddr.expected + '개 중 '
                     + _agAddr.seen + '개 수신 · ' + (_agAddr.expected - _agAddr.seen) + '개 미수신 — 주소 확인 필요');
                 warn.style.cssText = 'margin-bottom:6px;font-weight:700;color:' + AG_DOT.orange + ';';
@@ -1105,11 +1123,22 @@ window.dspFmt = {
                 : ((hub === 'connecting' || hub === 'reconnecting') ? AG_DOT.orange : AG_DOT.gray);
 
             // PLC 어댑터: agent=에이전트 보고 / ping=DSPilot 직접 핑 폴백 / none=대상 미설정.
+            // 멀티 PLC(2대 이상)는 몇 대가 죽었는지가 정보라 개수를 병기한다.
             var plcLabel, plcColor;
             if (plcSource === 'ping') {
                 if (plcTotal === 0) { plcLabel = 'PLC 어댑터: 대상 미설정'; plcColor = AG_DOT.gray; }
-                else if (plcDown > 0) { plcLabel = 'PLC 어댑터: 응답 없음 (직접확인)'; plcColor = AG_DOT.red; }
-                else { plcLabel = 'PLC 어댑터: 연결됨 (직접확인)'; plcColor = AG_DOT.green; }
+                else if (plcDown > 0) {
+                    plcLabel = 'PLC 어댑터: ' + (plcTotal > 1
+                        ? plcDown + '/' + plcTotal + '대 응답 없음 (직접확인)'
+                        : '응답 없음 (직접확인)');
+                    plcColor = AG_DOT.red;
+                }
+                else {
+                    plcLabel = 'PLC 어댑터: ' + (plcTotal > 1
+                        ? plcTotal + '대 연결 (직접확인)'
+                        : '연결됨 (직접확인)');
+                    plcColor = AG_DOT.green;
+                }
             } else if (plcSource === 'agent') {
                 plcLabel = plcTotal === 0 ? 'PLC 어댑터: 보고 없음'
                     : (plcDown > 0 ? 'PLC 어댑터: ' + plcDown + '대 끊김'
@@ -1126,6 +1155,7 @@ window.dspFmt = {
             // 상세(IP) 패널 데이터 갱신 — 열려 있으면 즉시 다시 렌더.
             _agAdapters = agent.adapters || [];
             _agAddr = { expected: agent.addrExpected || 0, seen: agent.addrSeen || 0, missing: agent.addrMissing || [] };
+            _agAddrSystems = agent.addrSystems || [];
             _agPlcSource = plcSource;
             if (_plcDetailOpen) renderPlcDetail();
 

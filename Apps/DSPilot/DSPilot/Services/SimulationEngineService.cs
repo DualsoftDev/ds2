@@ -117,6 +117,11 @@ public sealed class SimulationEngineService : IDisposable
     // EnsureUserTagAddressesRegistered() 가 갱신.
     private volatile HashSet<string> _userTagAddressesForDiag = new(StringComparer.OrdinalIgnoreCase);
 
+    // 현재 모델의 주소 우주(IOMap In/Out + UserTag) — BootstrapPlcTags 가 채운다.
+    // _plcTagIdByAddress 는 plcTag 테이블 전체(이전 모델 잔존 행 포함)라, 시스템(PLC)별 커버리지
+    // 그룹핑은 이 집합으로 한정해야 잔존 주소가 '기타 미수신'으로 쏟아지지 않는다.
+    private volatile HashSet<string> _modelAddresses = new(StringComparer.OrdinalIgnoreCase);
+
     // 주소별 최근 수신 시각(UTC) — 모델에 적힌 주소가 실제로 PLC 에서 오고 있는지 진단하는 소스.
     // 모델 주소 오타/영역 불일치(예: XGI %IX… ↔ XGB P000…)면 그 주소는 영원히 0 건인데, 연결·핑은 정상이라
     // 기존 지표(어댑터 상태·심박)로는 드러나지 않는다. 실제로 그 상태에서 4분 넘게 기록이 비었고 그 구간이
@@ -331,6 +336,21 @@ public sealed class SimulationEngineService : IDisposable
         return (expected.Count, expected.Count - missing.Count, missing.Take(missingLimit).ToList());
     }
 
+    /// <summary>
+    /// 주소별 수신 여부 스냅샷 — 멀티 PLC 에서 커버리지를 시스템(PLC)별로 묶어 보여주기 위한 원본.
+    /// (<see cref="GetAddressCoverage"/> 의 집계 전 형태. NavController 가 주소→시스템으로 그룹핑.)
+    /// <para><see cref="GetAddressCoverage"/> 와 달리 <b>현재 모델 주소 우주로 한정</b>한다 —
+    /// plcTag 테이블의 이전 모델 잔존 행은 시스템 귀속이 무의미하고 '기타 미수신' 노이즈만 만든다.</para>
+    /// </summary>
+    public List<(string Address, bool Seen)> GetAddressSeenSnapshot()
+    {
+        var model = _modelAddresses;
+        return _plcTagIdByAddress.Keys
+            .Where(a => model.Count == 0 || model.Contains(a))
+            .Select(a => (a, _lastSeenByAddress.ContainsKey(a)))
+            .ToList();
+    }
+
     /// <summary>미소비 backfill 하한(Local) — 없으면 null. 수집기 replay 로 과거 시각이 들어온 구간의
     /// 가장 오래된 지점. <see cref="PeriodicCycleRecomputeService"/> 가 증분 재도출 창 하한으로 쓴다.
     /// <para>Local 로 돌려주는 이유: 소비처(<see cref="CycleRecomputeService.RecomputeAllTrackedFlowsAsync"/>)의
@@ -515,6 +535,7 @@ public sealed class SimulationEngineService : IDisposable
 
             // 진단용 UserTag 주소 집합 초기화 (HandleHubTagChanged 의 hit/miss 로깅 한정).
             _userTagAddressesForDiag = userTagAddrs;
+            _modelAddresses = allAddresses;
 
             if (allAddresses.Count == 0) return;
 

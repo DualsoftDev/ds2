@@ -31,6 +31,7 @@ public class NavController : ControllerBase
     private readonly BlueprintService _blueprint;
     private readonly DemoAdminService _demoAdmin;
     private readonly SimulationEngineService _engine;
+    private readonly PlcToCallMapperService _mapper;
 
     public NavController(
         DsProjectService project,
@@ -43,7 +44,8 @@ public class NavController : ControllerBase
         AbnormalEventService abnormal,
         BlueprintService blueprint,
         DemoAdminService demoAdmin,
-        SimulationEngineService engine)
+        SimulationEngineService engine,
+        PlcToCallMapperService mapper)
     {
         _engine = engine;
         _project = project;
@@ -56,6 +58,7 @@ public class NavController : ControllerBase
         _abnormal = abnormal;
         _blueprint = blueprint;
         _demoAdmin = demoAdmin;
+        _mapper = mapper;
     }
 
     [HttpGet]
@@ -168,8 +171,12 @@ public class NavController : ControllerBase
         // 상세 패널에서 바로 보게 한다(판정에는 미사용 — GetAddressCoverage 주석 참조). 인메모리 카운트라 저비용.
         var (addrExpected, addrSeen, addrMissing) = _engine.GetAddressCoverage();
 
+        // 멀티 PLC: 같은 커버리지를 시스템(PLC)별로도 묶어 내려준다 — "어느 PLC 구간이 안 오는가"를
+        // 상세 패널에서 바로 식별. 시스템이 2개 이상일 때만 의미가 있어 UI 가 그때만 그린다.
+        var addrSystems = BuildAddressCoverageBySystem();
+
         var agent = new NavAgentDto(hubState, plcTotal, plcConnected, plcDisconnected, plcSource, adapters,
-            addrExpected, addrSeen, addrMissing);
+            addrExpected, addrSeen, addrMissing, addrSystems);
 
         // ── anomalyActiveCount (이상발생 활성) ── 최근 10분 Error. ack 가 창 안이면 시작점을 ack 로 당김.
         var nowUtc = DateTime.UtcNow;
@@ -217,6 +224,70 @@ public class NavController : ControllerBase
             DateTimeOffset.UtcNow,
             // 유입 공백 경과(초) — 배지가 "데이터 대기"에 길이를 병기해 15초 순간 공백과 수 분 장애를 구분한다.
             _db.InboundGapSeconds);
+    }
+
+    /// <summary>
+    /// 주소 수신 커버리지를 시스템(PLC)별로 그룹핑.
+    /// 1순위: AID 원천의 주소→시스템 매핑(<see cref="DsProjectService.GetAddressSystemMap"/> — UserTag·
+    /// 워드주소 포함 전체를 커버). 2순위: 주소→flow(CallMapper)→시스템 추정(AID systemRef 없는 구 모델).
+    /// 어느 쪽에도 없는 주소는 '기타' 그룹. 모델 미로드/주소 0개면 빈 목록.
+    /// 그룹 순서는 모델의 활성 시스템 순서, '기타'는 맨 뒤.
+    /// </summary>
+    private List<NavAddrSystemDto> BuildAddressCoverageBySystem()
+    {
+        const string EtcGroup = "기타";
+        const int MissingSamplePerSystem = 8;
+
+        var snapshot = _engine.GetAddressSeenSnapshot();
+        if (snapshot.Count == 0 || !_project.IsLoaded) return new List<NavAddrSystemDto>();
+
+        var addressToSystem = _project.GetAddressSystemMap();
+
+        var flowToSystem = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var systemOrder = new List<string>();
+        foreach (var system in _project.GetActiveSystems())
+        {
+            var flows = _project.GetFlows(system.Id);
+            if (flows.Count == 0) continue;
+            systemOrder.Add(system.Name);
+            foreach (var flow in flows)
+                flowToSystem.TryAdd(flow.Name, system.Name);
+        }
+        if (systemOrder.Count == 0) return new List<NavAddrSystemDto>();
+
+        var groups = new Dictionary<string, (int Expected, int Seen, List<string> Missing)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (address, seen) in snapshot)
+        {
+            string? systemName = null;
+            if (addressToSystem is not null && addressToSystem.TryGetValue(address, out var byAid))
+                systemName = byAid;
+            if (systemName is null)
+            {
+                var flowName = _mapper.FindCallByTag("", address)?.FlowName;
+                if (flowName is not null && flowToSystem.TryGetValue(flowName, out var byFlow))
+                    systemName = byFlow;
+            }
+            systemName ??= EtcGroup;
+
+            if (!groups.TryGetValue(systemName, out var g)) g = (0, 0, new List<string>());
+            g.Expected++;
+            if (seen) g.Seen++;
+            else if (g.Missing.Count < MissingSamplePerSystem) g.Missing.Add(address);
+            groups[systemName] = g;
+        }
+
+        var ordered = new List<NavAddrSystemDto>();
+        var emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in systemOrder)
+            if (groups.TryGetValue(name, out var g) && emitted.Add(name))
+                ordered.Add(new NavAddrSystemDto(name, g.Expected, g.Seen, g.Missing));
+        // 활성(flow 보유) 시스템 목록 밖의 그룹 — UserTag 가 passive 시스템 소속인 경우 등. 이름순으로 뒤에.
+        foreach (var kv in groups.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
+            if (!string.Equals(kv.Key, EtcGroup, StringComparison.Ordinal) && emitted.Add(kv.Key))
+                ordered.Add(new NavAddrSystemDto(kv.Key, kv.Value.Expected, kv.Value.Seen, kv.Value.Missing));
+        if (groups.TryGetValue(EtcGroup, out var etc))
+            ordered.Add(new NavAddrSystemDto(EtcGroup, etc.Expected, etc.Seen, etc.Missing));
+        return ordered;
     }
 
     // HubConnectionState → 셸/Blazor 가 동일하게 해석하는 소문자 토큰.
@@ -272,7 +343,12 @@ public record NavAgentDto(
     // Missing=미수신 주소 표본(상위 12개). 주소 오타/영역 불일치 진단용이며 판정에는 쓰지 않는다.
     int AddrExpected = 0,
     int AddrSeen = 0,
-    List<string>? AddrMissing = null);
+    List<string>? AddrMissing = null,
+    // 멀티 PLC: 위 커버리지의 시스템(PLC)별 분해 — 시스템 2개 이상일 때 UI 가 시스템별 행으로 그린다.
+    List<NavAddrSystemDto>? AddrSystems = null);
+
+// 시스템(PLC) 1개의 주소 수신 커버리지. Missing 은 표본(시스템당 최대 8개).
+public record NavAddrSystemDto(string System, int Expected, int Seen, List<string> Missing);
 
 public record NavPlcAdapterDto(
     string Name, string Vendor, string Ip, int Port, bool Connected, string? Error);

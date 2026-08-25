@@ -7,6 +7,8 @@ using Ds2.Core.Store;
 using Ds2.Editor;
 using DSPilot.Infrastructure;
 using Microsoft.FSharp.Collections;
+using AidXgtEndpointSettings = Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidXgtEndpointSettings;
+using AssetInterfacesDescription = Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AssetInterfacesDescription;
 
 namespace DSPilot.Services;
 
@@ -37,6 +39,9 @@ public class DsProjectService
     // 호출당 재계산하지 않도록 LoadProject 시점에 한 번 만들어 캐시한다. store 는
     // importIntoStore 의 ReplaceStore 로 통째 교체되므로 LoadProject 외에 무효화 지점이 없다.
     private volatile HashSet<string>? _modelFlowNames;
+
+    // AID 원천의 주소→시스템 이름 매핑 캐시 — LoadProject 마다 재구축(멀티 PLC 커버리지 그룹핑용).
+    private volatile Dictionary<string, string>? _addressSystemMap;
 
     /// <summary>
     /// 외부에서 AASX 파일 콘텐츠가 변경됐을 때 발생. AasxFileWatcherService 가 발행.
@@ -73,6 +78,7 @@ public class DsProjectService
             var result = Ds2.Aasx.AasxImporter.importIntoStore(_store, path);
             IsLoaded = result;
             _modelFlowNames = null;     // store 교체 — 다음 조회에서 재구축
+            _addressSystemMap = null;
             LastLoadedUtc = DateTime.UtcNow;
             LastLoadedSha256 = ComputeFileSha256(path);
             if (result)
@@ -156,6 +162,126 @@ public class DsProjectService
     public List<Flow> GetAllFlows()
     {
         return [.. Queries.allFlows(_store)];
+    }
+
+    /// <summary>
+    /// 모델 AID(AssetInterfacesDescription) 기준 시스템별 PLC 엔드포인트 — 멀티 PLC 접속정보의 정본.
+    /// systemRef 로 활성 시스템에 배정된 XGT 엔드포인트를 모두 나열하고(같은 ip:port 를 여러 시스템이
+    /// 공유하면 1건으로 합쳐 이름을 병기), 배정된 것이 하나도 없으면 legacy 단일(systemRef 없는
+    /// 첫 엔드포인트)로 폴백한다 — 단일 PLC 시절 모델 호환.
+    /// </summary>
+    public List<PlcEndpointInfo> GetPlcEndpoints()
+    {
+        var endpoints = new List<PlcEndpointInfo>();
+        if (!IsLoaded) return endpoints;
+
+        var aidOption = GetProject()?.AssetInterfaces;
+        if (aidOption is null
+            || !Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
+            return endpoints;
+        var aid = aidOption.Value;
+
+        foreach (var system in GetActiveSystems())
+        {
+            var info = AidXgtEndpointSettings.TryReadForSystem(aid, system.Id);
+            if (info is null || string.IsNullOrWhiteSpace(info.IpAddress) || info.Port <= 0) continue;
+
+            var dup = endpoints.FindIndex(e =>
+                string.Equals(e.Ip, info.IpAddress, StringComparison.OrdinalIgnoreCase) && e.Port == info.Port);
+            if (dup >= 0)
+                endpoints[dup] = endpoints[dup] with { SystemName = $"{endpoints[dup].SystemName}·{system.Name}" };
+            else
+                endpoints.Add(new PlcEndpointInfo(system.Name, info.Vendor, info.IpAddress, info.Port, info.TimeoutMs));
+        }
+
+        if (endpoints.Count == 0)
+        {
+            var first = AidXgtEndpointSettings.TryReadFirst(aid);
+            if (first is not null && !string.IsNullOrWhiteSpace(first.IpAddress) && first.Port > 0)
+                endpoints.Add(new PlcEndpointInfo("PLC", first.Vendor, first.IpAddress, first.Port, first.TimeoutMs));
+        }
+        return endpoints;
+    }
+
+    /// <summary>
+    /// AID 원천의 PLC 주소→시스템 이름 매핑(대소문자 무시) — 멀티 PLC 에서 "이 주소는 어느 PLC 것인가"의
+    /// 정본. 모든 바인딩(Xgt·OpcUa·Modbus·Mqtt·Http)의 interaction Href/SignalId 를 키로,
+    /// endpoint.SystemId → 활성 시스템 이름을 값으로 만든다.
+    /// 모델 미로드/AID 없음/systemRef 없는 구 모델이면 null(호출측은 flow 기반 추정으로 폴백).
+    /// LoadProject 마다 캐시 재구축.
+    /// </summary>
+    public Dictionary<string, string>? GetAddressSystemMap()
+    {
+        var cached = _addressSystemMap;
+        if (cached is not null) return cached;
+        if (!IsLoaded) return null;
+
+        var aidOption = GetProject()?.AssetInterfaces;
+        if (aidOption is null
+            || !Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
+            return null;
+
+        var nameBySystemId = new Dictionary<Guid, string>();
+        foreach (var system in GetActiveSystems())
+            nameBySystemId.TryAdd(system.Id, system.Name);
+
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? key, string systemName)
+        {
+            if (!string.IsNullOrWhiteSpace(key)) map.TryAdd(key, systemName);
+        }
+
+        string? ResolveSystem(Microsoft.FSharp.Core.FSharpOption<Guid> sysIdOpt)
+        {
+            if (!Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(sysIdOpt)) return null;
+            return nameBySystemId.TryGetValue(sysIdOpt.Value, out var name) ? name : null;
+        }
+
+        foreach (var binding in aidOption.Value.Interfaces)
+        {
+            switch (binding)
+            {
+                case Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidBinding.Xgt xgt:
+                    if (ResolveSystem(xgt.endpoint.SystemId) is { } xgtSystem)
+                        foreach (var i in xgt.interactions) { Add(i.Href, xgtSystem); Add(i.SignalId.Value, xgtSystem); }
+                    break;
+                case Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidBinding.OpcUa ua:
+                    if (ResolveSystem(ua.endpoint.SystemId) is { } uaSystem)
+                        foreach (var i in ua.interactions) { Add(i.Href, uaSystem); Add(i.SignalId.Value, uaSystem); }
+                    break;
+                case Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidBinding.Modbus mb:
+                    if (ResolveSystem(mb.endpoint.SystemId) is { } mbSystem)
+                        foreach (var i in mb.interactions) { Add(i.Href, mbSystem); Add(i.SignalId.Value, mbSystem); }
+                    break;
+                case Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidBinding.Mqtt mq:
+                    if (ResolveSystem(mq.endpoint.SystemId) is { } mqSystem)
+                        foreach (var i in mq.interactions) { Add(i.Href, mqSystem); Add(i.SignalId.Value, mqSystem); }
+                    break;
+                case Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidBinding.Http ht:
+                    if (ResolveSystem(ht.endpoint.SystemId) is { } htSystem)
+                        foreach (var i in ht.interactions) { Add(i.Href, htSystem); Add(i.SignalId.Value, htSystem); }
+                    break;
+            }
+        }
+
+        // UserTag(센서/에러로그/워드 주소)는 AID 바인딩 밖이지만 모델에서 소속 시스템이 명시된다 —
+        // 시스템별 커버리지의 '기타' 뭉치를 줄이는 두 번째 소스. AID 매핑이 이미 있으면 그쪽 우선(TryAdd).
+        try
+        {
+            foreach (var row in _store.GetAllUserTagsForProject())
+                if (!string.IsNullOrWhiteSpace(row.TagAddress) && !string.IsNullOrWhiteSpace(row.SystemName))
+                    Add(row.TagAddress.Trim(), row.SystemName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[DsProject] UserTag 주소→시스템 매핑 수집 실패 — AID 매핑만 사용");
+        }
+
+        if (map.Count == 0) return null;
+
+        _addressSystemMap = map;
+        return map;
     }
 
     /// <summary>
@@ -677,3 +803,9 @@ public record CalibrationWorkStatus(
     int CalibMinMs,
     int? ModelMinMs,
     bool StaleMin);
+
+/// <summary>
+/// 모델(AID)에서 읽은 PLC 엔드포인트 1건. <see cref="DsProjectService.GetPlcEndpoints"/> 산출물.
+/// SystemName = 배정된 활성 시스템 이름(여러 시스템이 한 PLC 를 공유하면 '·' 병기).
+/// </summary>
+public sealed record PlcEndpointInfo(string SystemName, string Vendor, string Ip, int Port, int TimeoutMs);
