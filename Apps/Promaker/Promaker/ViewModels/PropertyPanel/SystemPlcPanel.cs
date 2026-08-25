@@ -20,6 +20,8 @@ public partial class PropertyPanelState
 {
     [ObservableProperty] private bool _showSystemPlc;
     [ObservableProperty] private bool _plcHasEndpoint;
+    /// <summary>구버전(systemRef 없는) endpoint 표시 중 — 저장하면 이 System 으로 귀속(claim)된다.</summary>
+    [ObservableProperty] private bool _plcIsLegacyEndpoint;
     [ObservableProperty] private int _plcAddressCount;
     [ObservableProperty] private PlcVendorChoice _plcVendor = PlcVendorChoice.LsXgi;
     [ObservableProperty] private string _plcIpAddress = string.Empty;
@@ -38,9 +40,10 @@ public partial class PropertyPanelState
     public bool IsPlcVendorMx => PlcVendor == PlcVendorChoice.Mitsubishi;
     public bool IsPlcVendorLs => !IsPlcVendorMx;
 
-    public string SystemPlcHeader => PlcHasEndpoint
-        ? $"PLC 연결 · 주소 {PlcAddressCount}개"
-        : $"PLC 연결 · ⚠ 미지정 · 주소 {PlcAddressCount}개";
+    public string SystemPlcHeader =>
+        PlcIsLegacyEndpoint ? $"PLC 연결 · 구버전 — 저장 시 이 System 에 귀속 · 주소 {PlcAddressCount}개"
+        : PlcHasEndpoint   ? $"PLC 연결 · 주소 {PlcAddressCount}개"
+                           : $"PLC 연결 · ⚠ 미지정 · 주소 {PlcAddressCount}개";
 
     /// <summary>패널 로드 시 원본 스냅샷 — dirty 판정 기준. Refresh 중 재발화 방지용 suppress 와 짝.</summary>
     private (PlcVendorChoice Vendor, string Ip, int Port, int Timeout, int Scan,
@@ -50,8 +53,10 @@ public partial class PropertyPanelState
     private void UpdatePlcDirty()
     {
         if (_suppressPlcDirty) return;
+        // 구버전(무주인) endpoint 는 값이 같아도 저장할 변경(systemRef 귀속)이 남아 있다 — 항상 저장 가능.
         IsPlcDirty =
-            PlcVendor != _plcOriginal.Vendor
+            PlcIsLegacyEndpoint
+            || PlcVendor != _plcOriginal.Vendor
             || !string.Equals((PlcIpAddress ?? "").Trim(), _plcOriginal.Ip, StringComparison.OrdinalIgnoreCase)
             || PlcPort != _plcOriginal.Port
             || PlcTimeoutMs != _plcOriginal.Timeout
@@ -77,6 +82,7 @@ public partial class PropertyPanelState
     partial void OnPlcStationNumberChanged(int value) => UpdatePlcDirty();
     partial void OnPlcIsUdpChanged(bool value) => UpdatePlcDirty();
     partial void OnPlcHasEndpointChanged(bool value) => OnPropertyChanged(nameof(SystemPlcHeader));
+    partial void OnPlcIsLegacyEndpointChanged(bool value) => OnPropertyChanged(nameof(SystemPlcHeader));
     partial void OnPlcAddressCountChanged(int value) => OnPropertyChanged(nameof(SystemPlcHeader));
 
     /// <summary>선택된 System 의 AID endpoint 를 섹션 필드로 로드. Passive 면 섹션 숨김.</summary>
@@ -93,13 +99,22 @@ public partial class PropertyPanelState
         PlcAddressCount = sim.EnumeratePlcAddressesForSystem(systemId).Count;
 
         var conn = PromakerShared.AidXgtEndpointSynchronizer.TryReadFromStore(Store, systemId);
+        var legacyUnassigned = false;
+        if (conn is null)
+        {
+            // 구버전(8/5~8/20, systemRef 없는) endpoint 표시 폴백 — 단일 System 프로젝트만(소유 모호성 없음).
+            // 저장하면 EnsureBindingForSystem 의 "무주인 endpoint 1개 claim" 규칙이 이 System 으로 귀속시킨다.
+            conn = PromakerShared.AidXgtEndpointSynchronizer.TryReadLegacyUnassigned(Store);
+            legacyUnassigned = conn is not null;
+        }
         _suppressPlcDirty = true;
         try
         {
             if (conn is not null
                 && Enum.TryParse<PlcVendorChoice>(conn.Vendor, ignoreCase: true, out var vendor))
             {
-                PlcHasEndpoint = true;
+                PlcHasEndpoint = !legacyUnassigned;
+                PlcIsLegacyEndpoint = legacyUnassigned;
                 PlcVendor = vendor;
                 PlcIpAddress = conn.IpAddress;
                 PlcPort = conn.Port;
@@ -115,6 +130,7 @@ public partial class PropertyPanelState
                 // endpoint 미보유 — 현재 화면 벤더의 기본 프로파일로 시작하되 IP 는 비워
                 // 사용자가 명시 입력해야만 저장되게 한다(기본 IP 로 endpoint 가 생기는 사고 방지).
                 PlcHasEndpoint = false;
+                PlcIsLegacyEndpoint = false;
                 var fallbackVendor = sim.PlcSettings.Vendor;
                 var defaults = PromakerShared.PlcVendorProfile.Defaults(
                     (PromakerShared.PlcVendorChoice)fallbackVendor);
@@ -132,7 +148,8 @@ public partial class PropertyPanelState
             _plcOriginal = (PlcVendor, (PlcIpAddress ?? "").Trim(), PlcPort, PlcTimeoutMs,
                             PlcScanIntervalMs, PlcLocalEthernet, PlcNetworkNumber,
                             PlcStationNumber, PlcIsUdp);
-            IsPlcDirty = false;
+            // 구버전 endpoint 는 값 동일해도 귀속(claim) 커밋이 남아 있어 저장 버튼을 열어 둔다.
+            IsPlcDirty = PlcIsLegacyEndpoint;
         }
         finally
         {
@@ -143,6 +160,7 @@ public partial class PropertyPanelState
     private void ClearSystemPlcPanel()
     {
         ShowSystemPlc = false;
+        PlcIsLegacyEndpoint = false;
         IsPlcDirty = false;
     }
 

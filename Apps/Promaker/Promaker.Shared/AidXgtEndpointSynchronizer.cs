@@ -36,6 +36,25 @@ public static class AidXgtEndpointSynchronizer
         return TryReadFromStore(store, systemId.Value);
     }
 
+    /// <summary>단일 System 프로젝트에서 systemRef 없는 구버전(8/5~8/20 저장본) endpoint 를 읽는다 — 표시 폴백용.
+    /// <see cref="TryReadFromStore(DsStore,Guid)"/>(TryReadForSystem)는 무주인 endpoint 를 의도적으로 제외하므로,
+    /// 구버전 파일은 접속값이 있어도 UI 에 '미지정' 으로 보였다. 소유가 모호하지 않은 단일 active System
+    /// 프로젝트에서만 첫 XGT endpoint 를 돌려준다. 저장 시 귀속은 EnsureBindingForSystem 의
+    /// "무주인 endpoint 1개 claim" 규칙이 처리하므로 별도 쓰기 경로는 없다.</summary>
+    public static AidXgtConnectionInfo? TryReadLegacyUnassigned(DsStore? store)
+    {
+        var project = store?.Projects.Values.FirstOrDefault();
+        if (TryGetOnlyActiveSystemId(project) is null)
+            return null;
+
+        var aidOption = project?.AssetInterfaces;
+        if (aidOption is null
+            || !Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
+            return null;
+
+        return AidXgtEndpointSettings.TryReadFirst(aidOption.Value);
+    }
+
     /// <summary>지정한 active System에 연결된 AID InterfaceXGT endpoint를 읽는다.</summary>
     public static AidXgtConnectionInfo? TryReadFromStore(DsStore? store, Guid systemId)
     {
