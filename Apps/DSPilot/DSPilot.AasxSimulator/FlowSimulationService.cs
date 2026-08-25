@@ -116,7 +116,8 @@ public sealed class FlowSimulationService
             plcService = new PLCBackendService(
                 scanConfigs: scanConfigs,
                 tagHistoricWAL: FSharpOption<TagHistoricWAL>.None,
-                diagnostics: FSharpOption<DiagnosticsSettings>.None
+                diagnostics: FSharpOption<DiagnosticsSettings>.None,
+                autoScan: FSharpOption<AutoScanSettings>.None
             );
 
             disposable = plcService.Start();

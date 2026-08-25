@@ -62,13 +62,16 @@ public partial class MainViewModel
         _ => AgentTransferTarget.Local,
     };
 
-    /// <summary>'Agent에서 가져오기' — 로컬은 공유폴더 AASX, 네트워크는 원격 Agent(5050) 다운로드해 연다.</summary>
+    /// <summary>'Agent에서 가져오기' — 로컬은 공유폴더 AASX, 네트워크는 원격 Agent(5050),
+    /// 클라우드는 PV 사이트/단말 선택 후 그 단말 인스턴스의 Agent(5050)에서 다운로드해 연다.</summary>
     [RelayCommand]
     private async System.Threading.Tasks.Task OpenFromAgent()
     {
-        // 클라우드: 미로그인이면 로그인창부터 → 사이트/단말 선택 (다운로드 계층은 후속 단계).
+        string path;
         if (AgentTransferMode == AgentTransferTargetKind.Cloud)
         {
+            // 클라우드: 미로그인이면 로그인창부터 → 사이트/단말 선택 → 인스턴스 IP 로 다운로드.
+            // Save.cs 클라우드 업로드와 대칭 — 같은 인스턴스 Agent(5050) 경로를 GET 으로 탄다.
             if (!PvSession.IsLoggedIn)
             {
                 var login = PvLoginDialog.Show(PvSession.Client);
@@ -76,15 +79,26 @@ public partial class MainViewModel
                     return;
                 PvSession.Token = login.Token;
             }
-            var target = PvTargetDialog.Show(PvSession.Client, PvSession.Token ?? "");
+            var target = PvTargetDialog.Show(PvSession.Client, PvSession.Token ?? "", PvTransferIntent.Download);
             if (target is null)
                 return;
-            _dialogService.ShowWarning("클라우드 가져오기는 준비 중입니다 (다운로드 계층 구현 후 활성화됩니다).");
-            return;
+            var instanceIp = target.Value.Edge.PublicIp;
+            if (string.IsNullOrWhiteSpace(instanceIp))
+            {
+                _dialogService.ShowWarning("선택한 단말에 인스턴스 IP 가 없습니다 (인스턴스가 아직 생성 중일 수 있습니다).");
+                return;
+            }
+            StatusText = $"클라우드 모델 가져오는 중 — {target.Value.Site.DisplayName} / {target.Value.Edge.DisplayName} ({instanceIp})...";
+            var (cloudOk, cloudPath, cloudMsg) = await AgentUploadClient.DownloadAsync(instanceIp);
+            StatusText = cloudMsg;
+            if (!cloudOk)
+            {
+                _dialogService.ShowWarning(cloudMsg);
+                return;
+            }
+            path = cloudPath;
         }
-
-        string path;
-        if (CurrentAgentTransferTarget.Kind == AgentTransferTargetKind.Network)
+        else if (CurrentAgentTransferTarget.Kind == AgentTransferTargetKind.Network)
         {
             // 원격 Agent 에서 project.aasx 를 GET 으로 받아 임시 파일로 — 그 경로를 연다.
             StatusText = $"원격 Agent({AgentTransferIp}) 모델 가져오는 중...";

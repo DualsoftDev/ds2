@@ -42,6 +42,12 @@
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.MX.dll</HintPath>
       <Private>true</Private>
     </Reference>
+    <!-- MX-USB 가 별도 어셈블리로 분리됨(dsev2). MxConnector 공개 표면이 MxUsbCpuProfile 을
+         참조하므로 MX 경로 컴파일에 이 DLL 참조가 필수. -->
+    <Reference Include="Ev2.PLC.Protocol.MX.USB">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.MX.USB.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <Reference Include="Ev2.PLC.Protocol.S7">
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.S7.dll</HintPath>
       <Private>true</Private>

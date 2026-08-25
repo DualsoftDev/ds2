@@ -59,7 +59,7 @@ public partial class MainViewModel
             return;
         }
 
-        // 대상 결정: ◎로컬(이 머신 공유폴더) ○네트워크(특정 IP — 구조만, 미구현 안내).
+        // 대상 결정: ◎로컬(이 머신 공유폴더) ○네트워크(특정 IP zip 전송) ○클라우드(PV 단말 인스턴스).
         if (!AgentModelTransfer.TryResolveAasxPath(CurrentAgentTransferTarget, out var targetAasxPath, out var targetError))
         {
             _dialogService.ShowWarning(targetError);
@@ -140,7 +140,7 @@ public partial class MainViewModel
                     return;
                 PvSession.Token = login.Token;
             }
-            var target = PvTargetDialog.Show(PvSession.Client, PvSession.Token ?? "");
+            var target = PvTargetDialog.Show(PvSession.Client, PvSession.Token ?? "", PvTransferIntent.Upload);
             if (target is null)
                 return; // 사용자 취소
             var instanceIp = target.Value.Edge.PublicIp;

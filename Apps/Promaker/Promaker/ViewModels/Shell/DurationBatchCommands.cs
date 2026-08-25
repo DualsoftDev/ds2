@@ -70,9 +70,13 @@ public partial class MainViewModel
 
         if (TryEditorAction(() => _store.UpdateWorkDurationRangesBatch(changes)))
         {
+            // 사이드카 정합 — 바뀐 Min/Max 와 어긋난 실측 확정(calibration-state) 해제. 침묵 stale 방지.
+            var cleared = Promaker.Shared.CalibrationSidecar.ReconcileAfterDurationWrite(
+                changes.Select(c => (c.Item1, c.Item3, c.Item4)).ToList());
+            var clearedSuffix = cleared > 0 ? $" (실측 확정 {cleared}건 해제 — 재확정 필요)" : "";
             StatusText = invalidCount > 0
-                ? $"Duration/Range 일괄 변경: {changes.Count}건 적용, {invalidCount}건 제외"
-                : $"Duration/Range 일괄 변경: {changes.Count}건 적용됨";
+                ? $"Duration/Range 일괄 변경: {changes.Count}건 적용, {invalidCount}건 제외{clearedSuffix}"
+                : $"Duration/Range 일괄 변경: {changes.Count}건 적용됨{clearedSuffix}";
         }
     }
 

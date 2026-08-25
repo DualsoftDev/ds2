@@ -102,8 +102,8 @@
         </Grid>
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-            <Button x:Name="UploadButton" Content="이 단말로 업로드" Width="130" Margin="0,0,8,0"
-                    Style="{DynamicResource DarkButton}" IsEnabled="False" Click="Upload_Click"/>
+            <Button x:Name="ConfirmButton" Content="이 단말로 업로드" Width="140" Margin="0,0,8,0"
+                    Style="{DynamicResource DarkButton}" IsEnabled="False" Click="Confirm_Click"/>
             <Button Content="취소" Width="90" Style="{DynamicResource DarkButton}" IsCancel="True"/>
         </StackPanel>
     </Grid>
