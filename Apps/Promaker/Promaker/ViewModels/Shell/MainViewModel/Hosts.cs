@@ -84,6 +84,10 @@ public partial class MainViewModel
         public EntityNode? SelectedNode => Owner.SelectedNode;
         public IReadOnlyList<SelectionKey> OrderedNodeSelection => Owner.Selection.OrderedNodeSelection;
 
+        /// <summary>System 속성 패널의 PLC 연결 섹션이 endpoint 조회/저장에 사용 —
+        /// SavePlcEndpointForSystem · EnumeratePlcAddressesForSystem 등.</summary>
+        public SimulationPanelState Simulation => Owner.Simulation;
+
         public void RenameSelected(string newName) => Owner.RenameSelectedCommand.Execute(newName);
 
         public void OpenParentCanvasAndFocusNode(Guid entityId, EntityKind entityKind) =>

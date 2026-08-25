@@ -125,9 +125,7 @@ public partial class RuntimeSettingDialog : Window
         DirectRadio.IsEnabled = requiresPlc;
         DelegatedRadio.IsEnabled = requiresPlc && !isControl;
         if (isControl) DirectRadio.IsChecked = true;
-        // PLC 설정은 직접이든 위임이든 접속정보가 필요하다 → Control/Monitoring 이면 항상 열 수 있게 한다.
-        PlcSettingsButton.IsEnabled = requiresPlc;
-        // 자동 정합도 실 PLC 판정(Control/Monitoring)에서만 의미 — Sim/VP 에선 비활성.
+        // 자동 정합은 실 PLC 판정(Control/Monitoring)에서만 의미 — Sim/VP 에선 비활성.
         AutoCalibrateBox.IsEnabled = requiresPlc;
 
         UpdatePlcFooter();
@@ -135,24 +133,8 @@ public partial class RuntimeSettingDialog : Window
 
     private void PlcReadMode_Changed(object sender, RoutedEventArgs e) => UpdatePlcFooter();
 
-    private void PlcSettings_Click(object sender, RoutedEventArgs e)
-    {
-        // IO 매핑이 비어 있으면 사용자에게 즉시 알려준다 — 다이얼로그 안에서도 안내.
-        var tagCount = _vm.Simulation.CountAutoImportablePlcAddresses();
-        // 다중 System(멀티 PLC) 프로젝트면 System 목록을 넘겨 System별 endpoint 편집 모드로.
-        // 단일 System 이면 기존 단일 화면 동작 (다이얼로그가 목록 1개를 보고 콤보를 숨김).
-        var systems = _vm.Simulation.ListPlcSystemEndpoints();
-        var dialog = new PlcSettingsDialog(
-            _vm.Simulation.PlcSettings, tagCount,
-            systems, _vm.Simulation.SavePlcEndpointForSystem)
-        {
-            Owner = this
-        };
-        if (dialog.ShowDialog() == true)
-            UpdatePlcFooter();
-    }
-
-    /// <summary>하단 푸터의 PLC 연결 상태(점 색 + 텍스트)를 현재 모드/체크박스/PlcSettings 로 갱신.</summary>
+    /// <summary>하단 푸터의 PLC 연결 상태(점 색 + 텍스트) 갱신. 접속 편집은 System 속성 패널로 이사 —
+    /// 여기서는 상태 요약만. 다중 System 이면 endpoint 지정 현황을, 단일이면 접속값을 보여준다.</summary>
     private void UpdatePlcFooter()
     {
         var selected = _items.FirstOrDefault(v => v.IsSelected);
@@ -161,12 +143,22 @@ public partial class RuntimeSettingDialog : Window
 
         if (requiresPlc)
         {
-            var s = _vm.Simulation.PlcSettings;
-            var tagCount = _vm.Simulation.CountAutoImportablePlcAddresses();
             var mode = DelegatedRadio.IsChecked == true ? "Edge 단말 위임" : "Agent 직접";
             PlcStatusDot.Fill = PlcOnBrush;
-            PlcStatusText.Text =
-                $"PLC 읽기: {mode}  ·  {s.Vendor}  {s.IpAddress}:{s.Port}  ·  IO 자동 import {tagCount}개";
+            var entries = _vm.Simulation.ListPlcSystemEndpoints();
+            if (entries.Count > 1)
+            {
+                var assigned = entries.Count(entry => entry.HasEndpoint);
+                PlcStatusText.Text =
+                    $"PLC 읽기: {mode}  ·  System {entries.Count}개 중 접속 지정 {assigned}개  ·  접속 편집: 트리에서 System 선택 → 속성 패널";
+            }
+            else
+            {
+                var s = _vm.Simulation.PlcSettings;
+                var tagCount = _vm.Simulation.CountAutoImportablePlcAddresses();
+                PlcStatusText.Text =
+                    $"PLC 읽기: {mode}  ·  {s.Vendor}  {s.IpAddress}:{s.Port}  ·  IO 자동 import {tagCount}개  ·  접속 편집: System 속성 패널";
+            }
         }
         else
         {

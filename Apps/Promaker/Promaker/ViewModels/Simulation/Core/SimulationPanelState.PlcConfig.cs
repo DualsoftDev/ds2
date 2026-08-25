@@ -7,7 +7,8 @@ using Ds2.Runtime.IO;
 
 namespace Promaker.ViewModels;
 
-/// <summary>PLC 설정 다이얼로그용 System별 endpoint 항목.
+/// <summary>System별 AID endpoint 요약 항목 — 런타임 세팅(실행 대상·푸터)과 저장 시 endpoint 재보장
+/// (Save.StampPlcConnection)이 사용. 접속 편집 UI 는 System 속성 패널의 PLC 연결 섹션.
 /// AID 에 endpoint 가 아직 없으면 HasEndpoint=false + 기본 프로파일(이름=System명)로 시작한다.</summary>
 public sealed record PlcSystemEndpointEntry(
     System.Guid SystemId,
@@ -52,7 +53,7 @@ public partial class SimulationPanelState
     }
 
     /// <summary>active System 목록과 각 System 의 AID XGT endpoint 를 다이얼로그 편집용으로 투영.
-    /// 다중 System 프로젝트에서 System별 PLC 접속을 편집하는 PlcSettingsDialog 의 입력.</summary>
+    /// 런타임 세팅(실행 대상 콤보·푸터 요약)과 저장 시 endpoint 재보장이 사용.</summary>
     public IReadOnlyList<PlcSystemEndpointEntry> ListPlcSystemEndpoints()
     {
         var store = _storeProvider();
@@ -112,7 +113,9 @@ public partial class SimulationPanelState
         return set;
     }
 
-    /// <summary>다이얼로그에서 편집한 System별 PLC 접속을 그 System 의 AID XGT endpoint 에 저장.</summary>
+    /// <summary>System 속성 패널(PLC 연결 섹션)에서 편집한 접속을 그 System 의 AID XGT endpoint 에 저장.
+    /// AID 는 AASX 로 저장되는 모델 데이터이므로 성공 시 dirty 마킹. 단일 System 프로젝트면 전역
+    /// PlcSettings(런타임 세팅 푸터·PlcConnection.json)도 endpoint 값으로 동기해 표시/레거시 경로 정합 유지.</summary>
     public bool SavePlcEndpointForSystem(
         System.Guid systemId, PlcVendorChoice vendor, Promaker.Shared.PlcVendorProfile profile)
     {
@@ -129,8 +132,23 @@ public partial class SimulationPanelState
         poco.TimeoutMs = profile.TimeoutMs;
         poco.ScanIntervalMs = profile.ScanIntervalMs;
         poco.WasPersisted = true;
-        return Promaker.Shared.AidXgtEndpointSynchronizer.EnsureToStore(
+        var ok = Promaker.Shared.AidXgtEndpointSynchronizer.EnsureToStore(
             store, systemId, poco, EnumeratePlcAddressesForSystem(systemId));
+        if (!ok) return false;
+
+        var project = store.Projects.Values.FirstOrDefault();
+        if (project is not null && project.ActiveSystemIds.Count == 1)
+        {
+            var conn = Promaker.Shared.AidXgtEndpointSynchronizer.TryReadFromStore(store, systemId);
+            if (conn is not null)
+            {
+                PlcSettings.ApplyConnection(conn);
+                PlcSettings.Save();
+            }
+        }
+
+        MarkDirty?.Invoke();
+        return true;
     }
 
     /// <summary>현재 IO 매핑 + UI 의 PlcSettings 로 PlcGatewayConfig 를 빌드.

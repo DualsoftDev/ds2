@@ -108,6 +108,143 @@
                                     IsEnabled="{Binding IsSystemTypeDirty}"/>
                         </Grid>
 
+                        <!-- PLC 연결 (Active System = PLC 1대) — AID InterfaceXGT endpoint 인라인 편집.
+                             (구) PLC 설정 다이얼로그의 System별 접속 폼 승계. 저장 → store(AID) 기록,
+                             파일 저장 시 AASX 에 실림. Passive(디바이스) 시스템은 숨김. -->
+                        <Border BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                Margin="0,2,0,8"
+                                Visibility="{Binding ShowSystemPlc, Converter={StaticResource BoolToVis}}"
+                                Background="{DynamicResource TertiaryBackgroundBrush}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <Border Grid.Row="0"
+                                        Background="{DynamicResource SecondaryBackgroundBrush}"
+                                        Padding="4,3">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding SystemPlcHeader}"
+                                                   FontSize="11"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        <Button Grid.Column="1"
+                                                Content="저장"
+                                                ToolTip="이 System 의 PLC 접속을 AID endpoint 에 저장 — 파일 저장 시 AASX 에 기록됩니다"
+                                                Style="{StaticResource InlineListButton}"
+                                                Command="{Binding ApplySystemPlcCommand}"
+                                                IsEnabled="{Binding IsPlcDirty}"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Grid.Row="1" Margin="6,6,6,8">
+                                    <!-- 벤더 / Scan -->
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="벤더" FontSize="10"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                            <ComboBox ItemsSource="{Binding PlcVendorChoices}"
+                                                      SelectedItem="{Binding PlcVendor}"
+                                                      FontSize="11" Padding="4,2"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="Scan (ms)" FontSize="10"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                            <TextBox Text="{Binding PlcScanIntervalMs, UpdateSourceTrigger=PropertyChanged}"
+                                                     Padding="4,2" FontSize="11"
+                                                     ToolTip="PLC 스캔 주기 (ms)"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <!-- IP / Port -->
+                                    <Grid Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="IP" FontSize="10"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                            <TextBox Text="{Binding PlcIpAddress, UpdateSourceTrigger=PropertyChanged}"
+                                                     Padding="4,2" FontSize="11"
+                                                     ToolTip="예: 192.168.0.10"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="Port" FontSize="10"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                            <TextBox Text="{Binding PlcPort, UpdateSourceTrigger=PropertyChanged}"
+                                                     Padding="4,2" FontSize="11"
+                                                     ToolTip="LS 기본 2004 / Mitsubishi 기본 5007"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <!-- Timeout + LS 전용 -->
+                                    <Grid Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="Timeout (ms)" FontSize="10"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                            <TextBox Text="{Binding PlcTimeoutMs, UpdateSourceTrigger=PropertyChanged}"
+                                                     Padding="4,2" FontSize="11"/>
+                                        </StackPanel>
+                                        <CheckBox Grid.Column="2"
+                                                  Content="내장 이더넷"
+                                                  FontSize="11"
+                                                  VerticalAlignment="Bottom" Margin="0,0,0,4"
+                                                  Visibility="{Binding IsPlcVendorLs, Converter={StaticResource BoolToVis}}"
+                                                  IsChecked="{Binding PlcLocalEthernet}"
+                                                  ToolTip="체크 해제 시 FEnet 모듈"/>
+                                    </Grid>
+
+                                    <!-- MX 전용 -->
+                                    <StackPanel Visibility="{Binding IsPlcVendorMx, Converter={StaticResource BoolToVis}}"
+                                                Margin="0,6,0,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="8"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="Network No." FontSize="10"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                                <TextBox Text="{Binding PlcNetworkNumber, UpdateSourceTrigger=PropertyChanged}"
+                                                         Padding="4,2" FontSize="11"
+                                                         ToolTip="기본 0 (자국)"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock Text="Station No." FontSize="10"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                                                <TextBox Text="{Binding PlcStationNumber, UpdateSourceTrigger=PropertyChanged}"
+                                                         Padding="4,2" FontSize="11"
+                                                         ToolTip="기본 255 (자국 CPU, hex FF)"/>
+                                            </StackPanel>
+                                        </Grid>
+                                        <CheckBox Content="UDP 전송 (MC 프로토콜)"
+                                                  FontSize="11" Margin="0,6,0,0"
+                                                  IsChecked="{Binding PlcIsUdp}"
+                                                  ToolTip="PLC Ethernet 모듈이 UDP 로 설정된 경우 (모니터링에 흔함). 해제 시 TCP."/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
                         <Border BorderBrush="{DynamicResource BorderBrush}"
                                 BorderThickness="1"
                                 Margin="0,2,0,8"

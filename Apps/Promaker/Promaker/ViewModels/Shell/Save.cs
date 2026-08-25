@@ -199,7 +199,13 @@ public partial class MainViewModel
     }
 
     /// <summary>
-    /// 현재 PLC 입력값을 AID InterfaceXGT endpoint에 반영한다.
+    /// 저장 직전 AID InterfaceXGT 바인딩을 재보장한다 — 편집으로 늘어난 IO맵/UserTag 주소를
+    /// endpoint interaction 에 병합하는 것이 목적.
+    ///
+    /// endpoint 가 있는 System 은 <b>그 endpoint 자체 값</b>으로 재보장한다 — 접속 편집의 정본이
+    /// System 속성 패널(AID 직접 기록)로 옮겨져, 전역 PlcSettings 로 덮으면 stale 값이
+    /// 패널에서 편집한 endpoint 를 클로버할 수 있기 때문. endpoint 가 하나도 없는 모델만
+    /// 종전 경로(전역 PLC 설정 → 단일 System 바인딩 생성)를 탄다.
     /// </summary>
     private void StampPlcConnection()
     {
@@ -207,12 +213,41 @@ public partial class MainViewModel
         {
             var sim = Simulation;
             if (sim is null) return;
+
+            var entries = sim.ListPlcSystemEndpoints();
+            var stamped = 0;
+            foreach (var entry in entries)
+            {
+                if (!entry.HasEndpoint) continue;
+                var poco = sim.PlcSettings.ToPoco();
+                poco.Vendor = entry.Vendor.ToString();
+                poco.Name = entry.Profile.Name;
+                poco.IpAddress = entry.Profile.IpAddress;
+                poco.Port = entry.Profile.Port;
+                poco.IsUdp = entry.Profile.IsUdp;
+                poco.LocalEthernet = entry.Profile.LocalEthernet;
+                poco.NetworkNumber = entry.Profile.NetworkNumber;
+                poco.StationNumber = entry.Profile.StationNumber;
+                poco.TimeoutMs = entry.Profile.TimeoutMs;
+                poco.ScanIntervalMs = entry.Profile.ScanIntervalMs;
+                poco.WasPersisted = true;
+                var systemAddresses = sim.EnumeratePlcAddressesForSystem(entry.SystemId);
+                if (Promaker.Shared.AidXgtEndpointSynchronizer.EnsureToStore(
+                        _store, entry.SystemId, poco, systemAddresses))
+                    stamped++;
+            }
+            if (stamped > 0)
+            {
+                Log.Info($"AID XGT 바인딩 동기화 — System endpoint {stamped}개 (endpoint 값 기준, 주소 병합)");
+                return;
+            }
+
+            // endpoint 가 하나도 없는 모델 — 레거시 경로: 전역 PLC 설정으로 단일 System 바인딩 생성.
+            // (다중 System 이면 무인자 EnsureToStore 가 no-op — 속성 패널에서 System별로 지정해야 한다.)
             var settings = sim.PlcSettings.ToPoco();
-            // EnsureToStore: XGT 바인딩이 없으면 IO맵 주소로 새로 생성, 있으면 endpoint 갱신 + 새 주소 병합.
-            // (StampToStore 는 갱신만 해서, 바인딩 없던 모델은 IP 를 넣어도 반영이 안 됐다 — 그 구멍을 메움.)
             var addresses = sim.EnumeratePlcAddresses();
             var n = Promaker.Shared.AidXgtEndpointSynchronizer.EnsureToStore(_store, settings, addresses);
-            Log.Info($"AID XGT 바인딩 동기화 — interaction={n}, 주소 {addresses.Count}개");
+            Log.Info($"AID XGT 바인딩 동기화(레거시 단일) — interaction={n}, 주소 {addresses.Count}개");
         }
         catch (Exception ex)
         {

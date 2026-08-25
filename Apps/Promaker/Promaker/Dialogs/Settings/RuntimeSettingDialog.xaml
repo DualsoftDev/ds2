@@ -81,7 +81,8 @@
                 </Grid>
             </Border>
 
-            <!-- 상단 설정 패널 — 런타임 모드(드롭다운) / Hub 주소 / 실제 PLC 연결 / PLC 설정 -->
+            <!-- 상단 설정 패널 — 런타임 모드(드롭다운) / Hub 주소 / PLC 읽기 방식·자동정합.
+                 PLC 접속 편집은 System 속성 패널(트리에서 System 선택)로 이사 — 버튼 제거. -->
             <Border Grid.Row="1"
                     Background="{DynamicResource SecondaryBackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}"
@@ -95,9 +96,8 @@
                         <ColumnDefinition Width="34"/>
                         <ColumnDefinition Width="Auto"/>   <!-- Hub 주소 -->
                         <ColumnDefinition Width="34"/>
-                        <ColumnDefinition Width="Auto"/>   <!-- 실제 PLC 연결 -->
+                        <ColumnDefinition Width="Auto"/>   <!-- PLC 읽기 방식·자동정합 -->
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>   <!-- PLC 설정 버튼 -->
                     </Grid.ColumnDefinitions>
 
                     <!-- 런타임 모드 -->
@@ -161,20 +161,6 @@
                                   Foreground="{DynamicResource PrimaryTextBrush}"
                                   ToolTip="ON: device OUT→IN 동작시간을 실측 학습해 이상(ActionUnder/Over) 판정 기준으로 씁니다. 스캔주기 양자화 마진이 자동 포함됩니다. 모니터링 정지 시 '모델(AASX)에 반영?'을 묻고, 반영하면 OFF 로 전환되어 그 확정값으로 판정합니다."/>
                     </StackPanel>
-
-                    <!-- PLC 설정 버튼 -->
-                    <Button Grid.Column="6"
-                            x:Name="PlcSettingsButton"
-                            Content="PLC 설정…"
-                            Click="PlcSettings_Click"
-                            Width="120" Height="40"
-                            VerticalAlignment="Bottom"
-                            Background="{DynamicResource AccentBrush}"
-                            Foreground="{DynamicResource AccentTextBrush}"
-                            BorderThickness="0"
-                            FontWeight="SemiBold"
-                            Cursor="Hand"
-                            IsEnabled="False"/>
                 </Grid>
             </Border>
 
