@@ -29,17 +29,21 @@ public class OeeDowntimeController : OeeControllerBase
         ILogger<OeeDowntimeController> logger)
         : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, mirror, logger) { }
 
-    // ── GET /api/oee/downtime?from&to&status&reason&flow ──────────────────
+    // ── GET /api/oee/downtime?from&to&status&reason&flow[&system] ─────────
+    // system = 시스템 스코프(그 시스템 flow 의 정지만, flow 미상 라인 귀속 행은 보존). flow 지정이 우선.
     [HttpGet("downtime")]
     public async Task<ActionResult<List<OeeDowntimeDto>>> Downtime(
         [FromQuery] DateTime? from, [FromQuery] DateTime? to,
         [FromQuery] string? status, [FromQuery] string? reason, [FromQuery] string? flow,
-        CancellationToken ct)
+        [FromQuery] string? system, CancellationToken ct)
     {
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
+        var flowSet = flowName is null ? ResolveSystemFlowSet(system) : null;
         var rows = await _repo.QueryDowntimeAsync(fromUtc, toUtc, status, reason, flowName, ct);
-        var merged = rows.ToList();
+        var merged = flowSet is null
+            ? rows.ToList()
+            : rows.Where(d => d.FlowName is null || flowSet.Contains(d.FlowName)).ToList();
 
         // 이상치 초과 사이클(로그 테이블에 없는 failureCount 사이클 성분)을 합성해 병합 — 내역이 도넛/바 건수와 정합.
         //   status 필터(진행중)엔 해당 없음(합성은 전부 복구됨), reason 필터가 걸리면 합성 행(고정 reason)은 제외.
@@ -50,7 +54,8 @@ public class OeeDowntimeController : OeeControllerBase
         var slackScoped = new List<(string? Flow, double S, double E)>();
         if (!string.Equals(status, "open", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(reason))
         {
-            var (overCycles, npScoped, wScoped, slScoped) = await GetOverThresholdCycleDowntimeAsync(flowName, fromUtc, toUtc, ct);
+            var (overCycles, npScoped, wScoped, slScoped) =
+                await GetOverThresholdCycleDowntimeAsync(flowName, fromUtc, toUtc, ct, flowSet);
             nonProdScoped = npScoped;
             waitScoped = wScoped;
             slackScoped = slScoped;

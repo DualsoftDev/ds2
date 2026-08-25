@@ -73,6 +73,7 @@
                 view: (window.DSP_UPTIME_VIEW || 'both'),
                 period: 'today',
                 curFlow: '', // '' = 라인 전체, 그 외 = 특정 Flow (OEE/정지/도넛/계획시간을 그 설비로 필터)
+                curSystem: '', // '' = 스코프 없음, 그 외 = 시스템 단위 묶음(?system=, 좌측 나브 '○○ 관리' 헤더). curFlow 가 우선.
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
                 // stale 응답 가드 — 폴링/기간변경/페이지이동 응답이 뒤늦게 도착해 최신 상태를 덮어쓰는 경합 방지
@@ -167,6 +168,8 @@
                     const qp = new URLSearchParams(location.search);
                     // 설비(Flow) 필터는 URL(?flow=)에서만 온다(좌측 메뉴 '가동시간·이상' 트리). 없으면 라인 전체.
                     if (qp.has('flow')) this.curFlow = qp.get('flow') || '';
+                    // 시스템 스코프(?system=) — 좌측 나브 시스템 그룹 헤더 진입. 설비(?flow=)가 있으면 무시(설비 우선).
+                    if (!this.curFlow && qp.has('system')) this.curSystem = qp.get('system') || '';
                     if (qp.has('utSystem')) this.utSystem = qp.get('utSystem') || '';
                     if (qp.has('category')) this.utCategory = qp.get('category') || '';
                     if (qp.has('utSearch')) this.utSearch = qp.get('utSearch') || '';
@@ -286,6 +289,16 @@
                     } else if (this.period !== 'today') qp.set('period', this.period);
                     const qs = qp.toString();
                     history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+                },
+                // ── 스코프 헬퍼 — 설비(?flow=)가 시스템(?system=)보다 우선(나브 딥링크 규약과 동일) ──
+                scopeQs() {
+                    if (this.curFlow) return '&flow=' + encodeURIComponent(this.curFlow);
+                    if (this.curSystem) return '&system=' + encodeURIComponent(this.curSystem);
+                    return '';
+                },
+                scopeLabel() {
+                    return this.curFlow ? ('설비: ' + this.curFlow)
+                        : this.curSystem ? ('시스템: ' + this.curSystem) : '라인 전체';
                 },
                 // ── fetch 헬퍼 ──
                 async apiGet(url) {
@@ -780,8 +793,7 @@
                 async loadTeep() {
                     if (this.view !== 'teep') return;
                     const r = this.rangeForPeriod();
-                    let qs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
-                    if (this.curFlow) qs += `&flow=${encodeURIComponent(this.curFlow)}`;
+                    const qs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}` + this.scopeQs();
                     const seq = ++this._teepSeq;
                     try {
                         const dto = await this.apiGet('/api/oee/teep?' + qs);
@@ -846,8 +858,7 @@
                     if (this.view !== 'teep') return;
                     if (silent && Date.now() - this._teepMxAt < 60000) return;
                     const r = this.rangeForPeriod();
-                    let qs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
-                    if (this.curFlow) qs += `&flow=${encodeURIComponent(this.curFlow)}`;
+                    const qs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}` + this.scopeQs();
                     const seq = ++this._teepMxSeq;
                     try {
                         const dto = await this.apiGet('/api/oee/teep/matrix?' + qs);
@@ -1130,8 +1141,10 @@
                     if (this.view === 'alarm') return; // OEE 지표는 알람 전용 페이지에서 미사용
                     const r = this.rangeForPeriod();
                     const qs = `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
-                    // fqs = 기간 + 설비 필터. 순위(ranking)는 설비 비교용이라 항상 전체(qs).
-                    const fqs = this.curFlow ? qs + `&flow=${encodeURIComponent(this.curFlow)}` : qs;
+                    // fqs = 기간 + 스코프(설비 ▸ 시스템) 필터. 순위(ranking)는 설비 비교용이라 설비 필터는 안 걸되,
+                    // 시스템 스코프는 그 시스템 설비끼리의 비교가 목적이므로 함께 좁힌다.
+                    const fqs = qs + this.scopeQs();
+                    const rqs = qs + (this.curSystem ? '&system=' + encodeURIComponent(this.curSystem) : '');
                     const seq = ++this._oeeSeq;
                     // 생산효율 페이지 — OEE 는 참조 KPI(요약)만 필요. 정지/순위/추이/계획시간(무거운 4조회)은
                     // 설비효율 페이지 전용이라 10초 폴링 낭비를 막기 위해 요약 + TEEP + 매트릭스만 로드.
@@ -1156,7 +1169,7 @@
                         const [summary, downtime, ranking, daily] = await Promise.all([
                             this.apiGet('/api/oee/summary?' + fqs),
                             this.apiGet('/api/oee/downtime?' + fqs),
-                            this.apiGet('/api/oee/ranking?' + qs),
+                            this.apiGet('/api/oee/ranking?' + rqs),
                             this.apiGet('/api/oee/daily?' + fqs),
                         ]);
                         if (seq !== this._oeeSeq) return; // stale 응답 폐기
@@ -1181,8 +1194,10 @@
                     const r = this.rangeForPeriod();
                     const seq = ++this._mqSeq;
                     try {
+                        // 설비 선택 중에도 라인 전체 유지(다른 설비 IO 악화 감시) — 시스템 스코프만 함께 좁힌다.
                         const dto = await this.apiGet(
-                            `/api/oee/measurement-quality?from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`);
+                            `/api/oee/measurement-quality?from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`
+                            + (this.curSystem ? '&system=' + encodeURIComponent(this.curSystem) : ''));
                         if (seq !== this._mqSeq) return;
                         this.mq = dto;
                     } catch (e) {
@@ -1258,7 +1273,7 @@
 
                 // ── 내보내기 (종합효율 현황) ─────────────────────────────────────────────
                 // Excel = 화면 상태(요약·순위·정지) + 일자별 추이 차트(캔버스 캡처)를 서버(OeeExcelExporter)가 렌더 → WYSIWYG.
-                oeeExportName() { return this.curFlow ? this.curFlow : '라인전체'; },
+                oeeExportName() { return this.curFlow ? this.curFlow : this.curSystem ? this.curSystem : '라인전체'; },
                 _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
                 _downloadBlob(filename, blob) {
                     const url = URL.createObjectURL(blob);
@@ -1286,8 +1301,8 @@
                         }
                         const ac = this.availComp;
                         const model = {
-                            title: this.curFlow || '라인 전체',
-                            systemName: null,
+                            title: this.curFlow || this.curSystem || '라인 전체',
+                            systemName: this.curSystem || null,
                             flowName: this.curFlow || null,
                             periodStart: r.from, periodEnd: r.to,
                             kpi: {

@@ -571,6 +571,33 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         return (UnionMs(segs), list.Count);
     }
 
+    public async Task<(long DowntimeMs, int Count)> GetDowntimeAggregateForFlowsAsync(
+        DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<string> flowNames, CancellationToken ct = default)
+    {
+        if (flowNames.Count == 0) return (0, 0);   // 시스템 미매칭 — 정직하게 0(전체 폴백 금지)
+        await using var conn = await _mirror.TryOpenOeeReadAsync(fromUtc) ?? await OpenAsync();
+        var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
+        var p = new DynamicParameters();
+        p.Add("From", Iso(fromUtc));
+        p.Add("To", Iso(toUtc));
+        p.Add("Cap", Iso(capUtc));
+        p.Add("Flows", flowNames.ToList());
+        // GetDowntimeAggregateAsync(라인)와 같은 union 규칙 — flow 집합 + 라인 귀속(NULL) 행만 스코프.
+        var sql = $@"
+            SELECT
+              CAST((julianday(startAt)                      - julianday(@From)) * 86400000 AS INTEGER) AS S,
+              CAST((julianday(COALESCE(endAt, @Cap))        - julianday(@From)) * 86400000 AS INTEGER) AS E
+            FROM oeeDowntimeEvent
+            WHERE startAt >= @From AND startAt <= @To
+              AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}'
+              AND (flowName IS NULL OR flowName IN @Flows) {ModelFlowClause(p)}";
+        var rows = await conn.QueryAsync<SegRow>(sql, p);
+        var list = rows.ToList();
+        var periodMs = (long)(toUtc - fromUtc).TotalMilliseconds;
+        var segs = list.Select(r => (S: Math.Max(0L, r.S), E: Math.Min(periodMs, r.E)));
+        return (UnionMs(segs), list.Count);
+    }
+
     public async Task<(long FailureDurationMs, int FailureCount)> GetFailureAggregateAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default)
     {

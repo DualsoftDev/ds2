@@ -29,36 +29,40 @@ public class OeeMetricsController : OeeControllerBase
         ILogger<OeeMetricsController> logger)
         : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, mirror, logger) { }
 
-    // ── GET /api/oee/summary?from&to&flow ─────────────────────────────────
+    // ── GET /api/oee/summary?from&to&flow[&system] ────────────────────────
+    // system = 시스템 스코프(그 시스템 flow 합산, 2026-08-25 좌측 나브 시스템 화면). flow 지정이 우선.
     [HttpGet("summary")]
     public async Task<ActionResult<OeeSummaryDto>> Summary(
         [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow,
-        CancellationToken ct)
+        [FromQuery] string? system, CancellationToken ct)
     {
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
-        return await BuildSummaryAsync(flowName, fromUtc, toUtc, ct);
+        var flowSet = flowName is null ? ResolveSystemFlowSet(system) : null;
+        return await BuildSummaryAsync(flowName, fromUtc, toUtc, ct, flowFilter: flowSet);
     }
 
-    // ── GET /api/oee/teep?from&to&flow ────────────────────────────────────
+    // ── GET /api/oee/teep?from&to&flow[&system] ───────────────────────────
     [HttpGet("teep")]
     public async Task<ActionResult<OeeTeepDto>> Teep(
         [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow,
-        CancellationToken ct)
+        [FromQuery] string? system, CancellationToken ct)
     {
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
+        var flowSet = flowName is null ? ResolveSystemFlowSet(system) : null;
 
         var periodMs = (toUtc - fromUtc).TotalMilliseconds;
         if (periodMs < 0) periodMs = 0;
 
         var thresholds = await ResolveCtThresholdsAsync();
         var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
-        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct);
+        var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
+            flowFilter: flowSet);
 
         int flowCount = flowName is not null
             ? (thresholds.TryGetValue(flowName, out var t) && t.AvgMs > 0 ? 1 : 0)
-            : thresholds.Count(kv => kv.Value.AvgMs > 0);
+            : thresholds.Count(kv => (flowSet is null || flowSet.Contains(kv.Key)) && kv.Value.AvgMs > 0);
 
         double calendarMs = periodMs * flowCount;
         // 시간 분해는 달력 축이므로 각 항이 달력을 넘지 않아야 한다 — CT 합산(NormalCtMs/IdleCtMs/PlannedCtMs)은
@@ -100,10 +104,11 @@ public class OeeMetricsController : OeeControllerBase
     [HttpGet("teep/matrix")]
     public async Task<ActionResult<OeeTeepMatrixDto>> TeepMatrix(
         [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow,
-        CancellationToken ct)
+        [FromQuery] string? system, CancellationToken ct)
     {
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
+        var flowSet = flowName is null ? ResolveSystemFlowSet(system) : null;
 
         var thresholds = await ResolveCtThresholdsAsync();
         var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
@@ -113,6 +118,7 @@ public class OeeMetricsController : OeeControllerBase
                 ? thresholds.Where(kv => kv.Key == flowName)
                 : thresholds.AsEnumerable())
             .Where(kv => kv.Value.AvgMs > 0)
+            .Where(kv => flowSet is null || flowSet.Contains(kv.Key))   // 시스템 스코프 — teep FlowCount 와 동일 모집단
             .Select(kv => kv.Key)
             .OrderBy(x => x, StringComparer.Ordinal)
             .ToList();
@@ -176,18 +182,21 @@ public class OeeMetricsController : OeeControllerBase
             plannedFraction, avr.Source);
     }
 
-    // ── GET /api/oee/ranking?from&to ──────────────────────────────────────
+    // ── GET /api/oee/ranking?from&to[&system] ─────────────────────────────
     [HttpGet("ranking")]
     public async Task<ActionResult<List<OeeRankingDto>>> Ranking(
-        [FromQuery] DateTime? from, [FromQuery] DateTime? to, CancellationToken ct)
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? system,
+        CancellationToken ct)
     {
         var (fromUtc, toUtc) = ResolveRange(from, to);
+        var flowSet = ResolveSystemFlowSet(system);
         var byFlow = await _repo.GetDowntimeByFlowAsync(fromUtc, toUtc, ct);
         var thresholds = await ResolveCtThresholdsAsync();
 
         var result = new List<OeeRankingDto>(byFlow.Count);
         foreach (var (flowName, downtimeMs, count) in byFlow)
         {
+            if (flowSet is not null && !flowSet.Contains(flowName)) continue;   // 시스템 스코프
             var s = await BuildSummaryAsync(flowName, fromUtc, toUtc, ct, thresholds);
             result.Add(new OeeRankingDto(
                 flowName, downtimeMs, count, s.TotalCount,
@@ -302,14 +311,15 @@ public class OeeMetricsController : OeeControllerBase
             Histogram: win?.Histogram ?? new int[24]);
     }
 
-    // ── GET /api/oee/daily?from&to&flow ──────────────────────────────────
+    // ── GET /api/oee/daily?from&to&flow[&system] ──────────────────────────
     [HttpGet("daily")]
     public async Task<ActionResult<OeeDailyResponse>> Daily(
         [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow,
-        CancellationToken ct)
+        [FromQuery] string? system, CancellationToken ct)
     {
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
+        var flowSet = flowName is null ? ResolveSystemFlowSet(system) : null;
         var spanDays = (toUtc - fromUtc).TotalDays;
         var hourly = spanDays <= 2.0;
         var gran = hourly ? "hour" : "day";
@@ -321,12 +331,16 @@ public class OeeMetricsController : OeeControllerBase
         var thresholds = await ResolveCtThresholdsAsync();
         var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
         var evIntervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, flowName, ct);
+        if (flowSet is not null)
+            evIntervals = evIntervals
+                .Where(x => x.FlowName is null || flowSet.Contains(x.FlowName))   // 시스템 스코프(라인 귀속 보존)
+                .ToList();
         var maintIv = evIntervals
             .Where(x => x.Kind is 0 or 2 && x.EndMs > x.StartMs)   // 유지보수(계획정비/기타 = isFailure 0 계열)
             .Select(x => ((double)x.StartMs, (double)x.EndMs, x.FlowName))
             .ToList();
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
-            maintIntervals: maintIv);
+            maintIntervals: maintIv, flowFilter: flowSet);
 
         int flowCount = Math.Max(1, agg.FlowCount);
         static List<(long S, long E)> ToLong(IEnumerable<(double S, double E)>? iv)
@@ -404,12 +418,13 @@ public class OeeMetricsController : OeeControllerBase
     [HttpGet("measurement-quality")]
     public async Task<ActionResult<OeeMeasureQualityDto>> MeasurementQuality(
         [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] string? flow,
-        CancellationToken ct)
+        [FromQuery] string? system, CancellationToken ct)
     {
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
+        var flowSet = flowName is null ? ResolveSystemFlowSet(system) : null;
         var thresholds = await ResolveCtThresholdsAsync();
-        return await ComputeMeasureQualityAsync(flowName, fromUtc, toUtc, thresholds, ct);
+        return await ComputeMeasureQualityAsync(flowName, fromUtc, toUtc, thresholds, ct, flowSet);
     }
 
 }
