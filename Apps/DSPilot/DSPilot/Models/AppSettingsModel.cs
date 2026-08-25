@@ -281,13 +281,15 @@ public class AutoCalibrationSettings
     public bool FillMin { get; set; } = false;
 
     /// <summary>
-    /// ActionOver(동작 지연) 판정 주체 (2026-08-25) — "dspilot"(기본) | "agent".
+    /// ActionOver(동작 지연) 판정 주체 (2026-08-25) — "dspilot" | "agent".
     ///   dspilot : DSPilot 완료대기 시계가 판정·발행. 상류(Agent) ActionOver 페이로드는 버린다(이중 계상 방지).
     ///   agent   : 상류(Agent) 발행을 그대로 수용, DSPilot 자체 판정은 침묵(시계 관측은 계속 — 전환 시 이력 유지).
     /// 2026-08-24 소유권 이전(doc/ACTIONOVER_OWNERSHIP...)의 롤백 안전장치 — 현장에서 재빌드 없이 화면으로
     /// 즉시 전환할 수 있게 한다. 안정화 후 제거 후보. 미지의 값은 dspilot 으로 정규화(fail-safe).
+    /// ★ 임시(2026-08-25): 멀티 PLC 서비스 테스트 기간 동안 기본값을 "agent"(종전 방식·외부 신호 수용)로
+    /// 내림 — DSPilot 자체 판정은 검증 뒤 기본 복귀 예정. 이미 설정을 저장한 설치본은 저장값이 우선한다.
     /// </summary>
-    public string ActionOverJudge { get; set; } = "dspilot";
+    public string ActionOverJudge { get; set; } = "agent";
 
     /// <summary>ActionOverJudge 정규화 — "agent"(대소문자 무시)만 상류 위임, 그 외 전부 DSPilot 판정.</summary>
     public bool IsActionOverJudgeDsPilot()

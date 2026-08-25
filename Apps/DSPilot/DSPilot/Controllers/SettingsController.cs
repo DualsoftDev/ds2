@@ -1049,8 +1049,9 @@ public record AutoCalibrationDto(
     string? CompletedAt,
     string? LastAppliedAt,
     string? LastAppliedSummary,
-    // ActionOver 판정 주체 — "dspilot"(기본) | "agent". 끝에 추가(positional 호환).
-    string ActionOverJudge = "dspilot");
+    // ActionOver 판정 주체 — "dspilot" | "agent". 끝에 추가(positional 호환).
+    // 응답은 항상 명시 값으로 채워진다(이 기본값은 미사용) — 모델 기본은 AppSettingsModel.ActionOverJudge 참조.
+    string ActionOverJudge = "agent");
 
 // 수동 보정 저장 입력 — 편집 가능한 필드만(CompletedAt 은 서버 관리, 저장으로 변경 불가).
 // MedianMarginMaxPct 는 nullable — 구(캐시) 클라이언트가 이 필드 없이 보내면 서버가 기존값을 보존한다.
