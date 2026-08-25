@@ -21,6 +21,12 @@ public partial class GanttChartControl : UserControl
     private bool _isSyncingScroll;
     private DateTime _lastRowClickTime = DateTime.MinValue;
 
+    // 간트 표시 윈도우 프리셋(분) — 헤더 드롭다운. 선택 즉시 GanttChartState.RenderWindowMinutes 에 반영,
+    // 영속화는 앱 설정(ganttWindowMinutes.txt). 순수 뷰 설정이라 PLC 설정/Agent 업로드와 무관.
+    private static readonly (int Minutes, string Label)[] WindowPresets =
+        { (5, "5분"), (15, "15분"), (30, "30분"), (60, "1시간"), (180, "3시간"), (300, "5시간") };
+    private bool _syncingWindowPreset;
+
     public GanttChartControl()
     {
         InitializeComponent();
@@ -29,8 +35,35 @@ public partial class GanttChartControl : UserControl
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
 
+        foreach (var (_, label) in WindowPresets)
+            WindowPresetCombo.Items.Add(label);
+
         _renderTimer = new DispatcherTimer { Interval = RenderInterval };
         _renderTimer.Tick += (_, _) => OnRenderTick();
+    }
+
+    /// <summary>ViewModel 의 현재 윈도우 값으로 콤보 선택 동기화 — 이하 프리셋 중 가장 큰 것에 스냅.</summary>
+    private void SyncWindowPresetFromViewModel()
+    {
+        if (_viewModel is null) return;
+        var index = 0;
+        for (var i = 0; i < WindowPresets.Length; i++)
+            if (WindowPresets[i].Minutes <= _viewModel.RenderWindowMinutes) index = i;
+        _syncingWindowPreset = true;
+        try { WindowPresetCombo.SelectedIndex = index; }
+        finally { _syncingWindowPreset = false; }
+    }
+
+    private void OnWindowPresetChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingWindowPreset || _viewModel is null) return;
+        var index = WindowPresetCombo.SelectedIndex;
+        if (index < 0 || index >= WindowPresets.Length) return;
+        var minutes = WindowPresets[index].Minutes;
+        if (_viewModel.RenderWindowMinutes == minutes) return;
+        _viewModel.RenderWindowMinutes = minutes;
+        Presentation.AppSettingStore.SaveInt(Services.SettingsPaths.GanttWindowMinutes, minutes);
+        InvalidateTimeline();   // 정지 상태에서도 즉시 반영 (실행 중엔 렌더 타이머가 반영)
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -72,6 +105,7 @@ public partial class GanttChartControl : UserControl
         {
             _viewModel.Entries.CollectionChanged += OnEntriesChanged;
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            SyncWindowPresetFromViewModel();
         }
     }
 

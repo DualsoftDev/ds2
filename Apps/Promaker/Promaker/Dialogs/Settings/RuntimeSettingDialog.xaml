@@ -153,6 +153,13 @@
                                          Checked="PlcReadMode_Changed"
                                          ToolTip="Edge 단말(Pi5 수집기)이 PLC 를 읽어 Agent 로 전송한다 (분리 수집)."/>
                         </StackPanel>
+                        <!-- 자동 duration 정합 — (구) PLC 설정 다이얼로그에서 이사. 확인 시 커밋 → hub 전파 +
+                             PlcConnection.json 영속(Agent 가 재시작 후 같은 값으로 복원). -->
+                        <CheckBox x:Name="AutoCalibrateBox"
+                                  Margin="0,12,0,0"
+                                  Content="자동 duration 정합 (실측 학습)"
+                                  Foreground="{DynamicResource PrimaryTextBrush}"
+                                  ToolTip="ON: device OUT→IN 동작시간을 실측 학습해 이상(ActionUnder/Over) 판정 기준으로 씁니다. 스캔주기 양자화 마진이 자동 포함됩니다. 모니터링 정지 시 '모델(AASX)에 반영?'을 묻고, 반영하면 OFF 로 전환되어 그 확정값으로 판정합니다."/>
                     </StackPanel>
 
                     <!-- PLC 설정 버튼 -->

@@ -40,18 +40,12 @@ public partial class PlcSettingsDialog : Window
 
     private bool MultiSystem => _systems is { Count: > 1 };
 
-    /// <summary>다이얼로그 결과 — 자동 duration 정합 체크 상태. 호출자가 닫힌 후 SimulationPanelState 에 적용
-    /// (hub 전파). PlcSettings(연결) 와 별개 축이라 VM 에 안 섞고 결과 property 로 노출한다.</summary>
-    public bool AutoDurationCalibrate { get; private set; }
-
-    /// <summary>다이얼로그 결과 — 간트 표시 윈도우(분). 호출자가 닫힌 후 SimulationPanelState 에 적용
-    /// (GanttChart 갱신). 영속화는 Apply 에서 PlcSettings(_vm) 경유로 함께 저장된다.</summary>
-    public int GanttWindowMinutes { get; private set; }
+    // 간트 표시 윈도우 → 간트 차트 헤더 드롭다운, 자동 duration 정합 → 런타임 세팅으로 각각 이사.
+    // 이 다이얼로그는 이제 System별 PLC 접속 정보만 다룬다.
 
     public PlcSettingsDialog(
         PlcSettings settings,
         int? autoImportedTagCount = null,
-        bool autoCalibrate = true,
         IReadOnlyList<PlcSystemEndpointEntry>? systems = null,
         Func<Guid, PlcVendorChoice, PromakerShared.PlcVendorProfile, bool>? saveEndpoint = null)
     {
@@ -59,13 +53,6 @@ public partial class PlcSettingsDialog : Window
         _systems = systems;
         _saveEndpoint = saveEndpoint;
         InitializeComponent();
-
-        AutoDurationCalibrate = autoCalibrate;
-        AutoCalibrateBox.IsChecked = autoCalibrate;
-
-        // 간트 표시 윈도우 — 저장된 PlcSettings 값으로 슬라이더 초기화(5~300분).
-        GanttWindowMinutes = _vm.GanttWindowMinutes;
-        GanttWindowSlider.Value = Math.Clamp(_vm.GanttWindowMinutes, 5, 300);
 
         // VM 의 벤더 프로파일을 복사 — Cancel 시 영향 없도록 작업본을 따로 관리.
         _workingProfiles = new Dictionary<string, PromakerShared.PlcVendorProfile>(
@@ -345,17 +332,6 @@ public partial class PlcSettingsDialog : Window
             _vm.VendorProfiles[kv.Key] = kv.Value.Clone();
         _vm.Vendor = activeVendor;
         _vm.ApplyProfile(activeProfile);
-
-        // 간트 표시 윈도우 — 슬라이더 값을 PlcSettings 에 반영(저장 대상) + 결과 property 로 노출(호출자가
-        // SimulationPanelState 에 적용해 GanttChart 갱신). 슬라이더가 5~300/5 단위 보장 — 별도 검증 불필요.
-        _vm.GanttWindowMinutes = (int)GanttWindowSlider.Value;
-        GanttWindowMinutes = (int)GanttWindowSlider.Value;
-
-        // 자동 정합 토글 결과 — Save 전에 _vm(PlcSettings)에 반영해야 PlcConnection.json 에 담긴다(이게 빠져
-        // 다이얼로그로 끈 '보정 안함' 이 파일에 안 담겨 업로드 시 Agent 가 ON 으로 복원하던 버그).
-        // 결과 property 로도 노출 — 호출자가 SimulationPanelState 에 set 해 hub 로 전파한다.
-        AutoDurationCalibrate = AutoCalibrateBox.IsChecked == true;
-        _vm.AutoDurationCalibrate = AutoDurationCalibrate;
 
         // 다음 실행 시에도 같은 값이 채워지도록 영속화.
         _vm.Save();

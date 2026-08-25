@@ -86,10 +86,8 @@ public sealed class PlcConnectionSettings
     /// 첫 설치 기본 ON(모델값 모름 → 학습부터). 정지 시 "AASX 반영" 선택하면 OFF 로 저장돼 유지된다.</summary>
     public bool AutoDurationCalibrate { get; set; } = true;
 
-    /// <summary>간트 표시 윈도우(분) — 빨간 타임라인(현재시각) 기준 최근 N분만 간트에 보인다.
-    /// PLC 설정 슬라이더로 5~300분(5시간) 조정. 그보다 오래된 구간은 스크롤해도 닿지 않는다.
-    /// 순수 Promaker 표시 설정이지만 PLC 설정 다이얼로그 묶음이라 같은 파일에 영속화. 기본 300분(5시간).</summary>
-    public int GanttWindowMinutes { get; set; } = 300;
+    // 간트 표시 윈도우(GanttWindowMinutes)는 순수 뷰 설정이라 Promaker 앱 설정(ganttWindowMinutes.txt)으로
+    // 이사 — 이 파일은 Agent 업로드에 포함되므로 UI 취향값을 싣지 않는다. 구 json 의 잔여 필드는 역직렬화 시 무시됨.
 
     /// <summary>벤더 enum 이름 → 해당 벤더의 마지막 입력값. 빈 dict 로 저장된 옛 파일은
     /// <see cref="EnsureProfiles"/> 가 플랫 필드로부터 채워준다.</summary>

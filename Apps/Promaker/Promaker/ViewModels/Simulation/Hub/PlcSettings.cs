@@ -45,10 +45,6 @@ public partial class PlcSettings : ObservableObject
     /// 클라이언트가 그 모드로 붙어야 함 — 모니터링 통신용으로 UDP 를 쓰는 현장이 흔하다.</summary>
     [ObservableProperty] private bool _isUdp = false;
 
-    /// <summary>간트 표시 윈도우(분) — 빨간 타임라인 기준 최근 N분만 표시(5~300분). 벤더 무관 표시 설정이라
-    /// 프로파일이 아닌 단일 플랫 필드. PLC 설정 다이얼로그 슬라이더로 조정, PlcConnectionSettings 에 영속화.</summary>
-    [ObservableProperty] private int _ganttWindowMinutes = 300;
-
     /// <summary>자동 duration 정합 ON/OFF 의 영속 SSOT. OFF=모델 확정값 기준 판정(실측 학습 안 함).
     /// PlcConnection.json 에 기록되어 업로드 시 Agent 가 같은 값으로 복원한다(없으면 Agent 가 기본 ON 으로 되돌려
     /// '보정 안함' 이 반영 안 되던 버그). SimulationPanelState.AutoDurationCalibrate(UI/hub) 와 양방향 동기화. 기본 ON.</summary>
@@ -167,7 +163,6 @@ public partial class PlcSettings : ObservableObject
         NetworkNumber = NetworkNumber,
         StationNumber = StationNumber,
         IsUdp = IsUdp,
-        GanttWindowMinutes = GanttWindowMinutes,
         AutoDurationCalibrate = AutoDurationCalibrate,
         WasPersisted = WasPersisted,
         Profiles = VendorProfiles,
@@ -181,7 +176,6 @@ public partial class PlcSettings : ObservableObject
         var s = new PlcSettings
         {
             VendorProfiles = d.Profiles,
-            GanttWindowMinutes = d.GanttWindowMinutes,
             AutoDurationCalibrate = d.AutoDurationCalibrate,
             WasPersisted = d.WasPersisted,
         };

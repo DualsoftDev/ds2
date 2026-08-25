@@ -48,6 +48,10 @@ public static class SettingsPaths
     /// <summary>Log tab ComboBox 의 선택 LogLevelChoice (Debug/Info/Warn). AppLogState 가 세션 간 영속화.</summary>
     public static string LogFilterLevel                  => Of("logFilterLevel.txt");
 
+    /// <summary>간트 표시 윈도우(분) — 간트 차트 헤더 드롭다운(5~300분). 순수 뷰 설정이라 PLC 설정
+    /// (PlcConnection.json — Agent 업로드에 포함)이 아닌 앱 설정으로 영속화.</summary>
+    public static string GanttWindowMinutes              => Of("ganttWindowMinutes.txt");
+
     /// <summary>`.yaml` 저장 시 lossy 안내 dialog 의 "다시 보지 않기" persistence. true 면 다음 호출부터 dialog skip.</summary>
     public static string YamlSaveNoticeShown             => Of("yamlSaveNoticeShown.txt");
 

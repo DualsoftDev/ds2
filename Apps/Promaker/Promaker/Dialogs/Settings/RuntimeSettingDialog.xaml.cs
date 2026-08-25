@@ -43,6 +43,10 @@ public partial class RuntimeSettingDialog : Window
         // 현재 VM 의 PLC 읽기 방식 반영(직접=IsRealPlcConnected, 위임=그 반대) 후 모드에 맞춰 상태 갱신.
         if (vm.Simulation.IsRealPlcConnected) DirectRadio.IsChecked = true;
         else DelegatedRadio.IsChecked = true;
+
+        // 자동 duration 정합 초기값 — (구) PLC 설정 다이얼로그에서 이사. 확인 시 커밋.
+        AutoCalibrateBox.IsChecked = vm.Simulation.AutoDurationCalibrate;
+
         UpdateModeDependentState();
     }
 
@@ -123,6 +127,8 @@ public partial class RuntimeSettingDialog : Window
         if (isControl) DirectRadio.IsChecked = true;
         // PLC 설정은 직접이든 위임이든 접속정보가 필요하다 → Control/Monitoring 이면 항상 열 수 있게 한다.
         PlcSettingsButton.IsEnabled = requiresPlc;
+        // 자동 정합도 실 PLC 판정(Control/Monitoring)에서만 의미 — Sim/VP 에선 비활성.
+        AutoCalibrateBox.IsEnabled = requiresPlc;
 
         UpdatePlcFooter();
     }
@@ -137,19 +143,13 @@ public partial class RuntimeSettingDialog : Window
         // 단일 System 이면 기존 단일 화면 동작 (다이얼로그가 목록 1개를 보고 콤보를 숨김).
         var systems = _vm.Simulation.ListPlcSystemEndpoints();
         var dialog = new PlcSettingsDialog(
-            _vm.Simulation.PlcSettings, tagCount, _vm.Simulation.AutoDurationCalibrate,
+            _vm.Simulation.PlcSettings, tagCount,
             systems, _vm.Simulation.SavePlcEndpointForSystem)
         {
             Owner = this
         };
         if (dialog.ShowDialog() == true)
-        {
-            // 자동 정합 토글 결과 적용 — set 시 OnChanged 가 hub 로 전파(전 인스턴스 동기 + 엔진 적용).
-            _vm.Simulation.AutoDurationCalibrate = dialog.AutoDurationCalibrate;
-            // 간트 표시 윈도우 결과 적용 — set 시 OnChanged 가 GanttChart.RenderWindowMinutes 갱신.
-            _vm.Simulation.GanttWindowMinutes = dialog.GanttWindowMinutes;
             UpdatePlcFooter();
-        }
     }
 
     /// <summary>하단 푸터의 PLC 연결 상태(점 색 + 텍스트)를 현재 모드/체크박스/PlcSettings 로 갱신.</summary>
@@ -338,6 +338,16 @@ public partial class RuntimeSettingDialog : Window
         var requiresPlc = selected is not null
             && (selected.Mode == RuntimeMode.Control || selected.Mode == RuntimeMode.Monitoring);
         _vm.Simulation.IsRealPlcConnected = requiresPlc && DirectRadio.IsChecked == true;
+
+        // 자동 duration 정합 커밋 — set 시 OnChanged 가 PlcSettings 동기 + hub 전파(전 인스턴스 + 엔진).
+        // 파일 영속화는 여기서 명시 호출 — (구) PLC 설정 다이얼로그 Apply 의 _vm.Save() 역할을 승계.
+        // (Agent 업로드 전에 PlcConnection.json 에 반영돼 있어야 Agent 가 같은 값으로 복원한다.)
+        var autoCalibrate = AutoCalibrateBox.IsChecked == true;
+        if (_vm.Simulation.AutoDurationCalibrate != autoCalibrate)
+        {
+            _vm.Simulation.AutoDurationCalibrate = autoCalibrate;
+            _vm.Simulation.PlcSettings.Save();
+        }
 
         DialogResult = true;
         Close();

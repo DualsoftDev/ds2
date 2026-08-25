@@ -347,7 +347,7 @@ public partial class SimulationPanelState
             // 반영 = 모델 확정값으로 전환 → 자동 정합 OFF (hub 동기화로 Agent 판정도 모델 기준).
             AutoDurationCalibrate = false;
             var clearedSuffix = cleared > 0 ? $" (실측 확정 {cleared}건 해제 — 재확정 필요)" : "";
-            AddSimLog($"duration {applied}건 모델 반영 + 자동 정합 OFF — 저장하면 파일에 기록됩니다.{clearedSuffix}", LogSeverity.System);
+            AddSimLog($"duration {applied}건 모델 반영 + 자동 정합 OFF(런타임 세팅에서 재활성화 가능) — 저장하면 파일에 기록됩니다.{clearedSuffix}", LogSeverity.System);
         }
     }
 

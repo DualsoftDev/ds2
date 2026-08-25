@@ -64,14 +64,8 @@ public partial class SimulationPanelState : ObservableObject
         Hub.TrySetAutoCalibrate(value);   // 사용자 토글 → hub → 엔진 적용 + 전 인스턴스 broadcast
     }
 
-    // 간트 표시 윈도우(분) — 빨간 타임라인 기준 최근 N분만 보임(5~300). 순수 로컬 표시 설정(hub 무관).
-    // PLC 설정 슬라이더로 조정 → 여기서 GanttChart 에 적용. 영속화는 PlcSettings(PlcConnection.json).
-    [ObservableProperty] private int _ganttWindowMinutes = 300;
-
-    partial void OnGanttWindowMinutesChanged(int value)
-    {
-        GanttChart.RenderWindowMinutes = value;
-    }
+    // 간트 표시 윈도우는 간트 차트 헤더 드롭다운이 소유 — GanttChartControl 이 GanttChartState.RenderWindowMinutes
+    // 에 직접 반영하고 앱 설정(SettingsPaths.GanttWindowMinutes)에 영속화한다. (구) PLC 설정 다이얼로그에서 이사.
     /// <summary>모델을 dirty(미저장)로 표시 — MainViewModel 이 () => IsDirty=true 로 주입.</summary>
     public Action? MarkDirty { get; set; }
     private readonly Dispatcher _dispatcher;
@@ -194,9 +188,9 @@ public partial class SimulationPanelState : ObservableObject
         _allTreeNodes = allTreeNodes;
         _setStatusText = setStatusText;
 
-        // 간트 표시 윈도우 복원 — 저장된 PLC 설정값으로(빨간선 기준 최근 N분만 표시).
-        GanttWindowMinutes = PlcSettings.GanttWindowMinutes;
-        GanttChart.RenderWindowMinutes = PlcSettings.GanttWindowMinutes;
+        // 간트 표시 윈도우 복원 — 앱 설정(ganttWindowMinutes.txt). 이후 변경은 간트 헤더 드롭다운이 담당.
+        GanttChart.RenderWindowMinutes = Promaker.Presentation.AppSettingStore.LoadIntOrDefault(
+            Promaker.Services.SettingsPaths.GanttWindowMinutes, 300);
 
         // 자동 정합 ON/OFF 복원 — 저장된 PLC 설정값으로. hub 미연결 상태이므로 push 는 막는다.
         _suppressAutoCalibratePush = true;

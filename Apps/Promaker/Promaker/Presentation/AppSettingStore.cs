@@ -75,6 +75,40 @@ internal static class AppSettingStore
         }
     }
 
+    internal static int LoadIntOrDefault(string settingsPath, int defaultValue)
+    {
+        try
+        {
+            if (!File.Exists(settingsPath))
+                return defaultValue;
+
+            var raw = File.ReadAllText(settingsPath).Trim();
+            return int.TryParse(raw, out var value)
+                ? value
+                : defaultValue;
+        }
+        catch
+        {
+            return defaultValue;
+        }
+    }
+
+    internal static void SaveInt(string settingsPath, int value)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(settingsPath);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
+            File.WriteAllText(settingsPath, value.ToString());
+        }
+        catch
+        {
+            // Ignore persistence failures.
+        }
+    }
+
     internal static string LoadStringOrDefault(string settingsPath, string defaultValue)
     {
         try
