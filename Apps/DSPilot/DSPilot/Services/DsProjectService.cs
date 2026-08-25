@@ -40,6 +40,9 @@ public class DsProjectService
     // importIntoStore 의 ReplaceStore 로 통째 교체되므로 LoadProject 외에 무효화 지점이 없다.
     private volatile HashSet<string>? _modelFlowNames;
 
+    // 비활성(IsDisabled) 포함 모델 flow 이름 캐시 — 삭제/prune 보존 기준 전용(GetModelFlowNamesIncludingDisabled).
+    private volatile HashSet<string>? _modelFlowNamesAll;
+
     // AID 원천의 주소→시스템 이름 매핑 캐시 — LoadProject 마다 재구축(멀티 PLC 커버리지 그룹핑용).
     private volatile Dictionary<string, string>? _addressSystemMap;
 
@@ -78,6 +81,7 @@ public class DsProjectService
             var result = Ds2.Aasx.AasxImporter.importIntoStore(_store, path);
             IsLoaded = result;
             _modelFlowNames = null;     // store 교체 — 다음 조회에서 재구축
+            _modelFlowNamesAll = null;
             _addressSystemMap = null;
             LastLoadedUtc = DateTime.UtcNow;
             LastLoadedSha256 = ComputeFileSha256(path);
@@ -154,12 +158,26 @@ public class DsProjectService
         return [.. Queries.passiveSystemsOf(project.Id, _store)];
     }
 
+    /// <summary>
+    /// 시스템의 <b>활성</b> flow 목록 — Promaker 에서 비활성화(<c>Flow.IsDisabled</c>)한 flow 는 제외.
+    /// 엔진(SimIndex Build)도 같은 기준으로 런타임에서 제외하므로, 여기서 걸러야 화면(라인 수·OEE
+    /// 분모·nav)과 런타임이 일치한다 — 통신/보고성 flow(단일 call)를 모델에서 끄는 공식 경로.
+    /// 삭제/prune 의 보존 기준에는 쓰지 말 것 — 그쪽은 <see cref="GetAllFlowsIncludingDisabled"/>
+    /// (비활성은 숨김일 뿐, 복원하면 이력이 다시 보여야 하므로 데이터는 보존).
+    /// </summary>
     public List<Flow> GetFlows(Guid systemId)
     {
-        return [.. Queries.flowsOf(systemId, _store)];
+        return [.. Queries.flowsOf(systemId, _store).Where(f => !f.IsDisabled)];
     }
 
+    /// <summary>전체 <b>활성</b> flow — <see cref="GetFlows"/> 와 동일하게 IsDisabled 제외.</summary>
     public List<Flow> GetAllFlows()
+    {
+        return [.. Queries.allFlows(_store).Where(f => !f.IsDisabled)];
+    }
+
+    /// <summary>비활성 포함 전체 flow — 삭제/prune 보존 기준 전용(표시·집계에는 쓰지 않는다).</summary>
+    public List<Flow> GetAllFlowsIncludingDisabled()
     {
         return [.. Queries.allFlows(_store)];
     }
@@ -317,6 +335,28 @@ public class DsProjectService
 
         if (names.Count == 0) return null;   // 빈 모델 → 필터 비활성(전량 숨김 방지)
         _modelFlowNames = names;
+        return names;
+    }
+
+    /// <summary>
+    /// <b>비활성(IsDisabled) 포함</b> 모델 flow 이름 집합 — 삭제/prune 의 보존 기준 전용.
+    /// 비활성 flow 는 "숨김"이지 "모델에서 제거"가 아니다 — 보존 기준에서 빠지면 유령 정리·AASX 교체
+    /// prune 이 비활성 설비의 이력을 삭제해 버려, Promaker 에서 복원해도 이력이 돌아오지 않는다(비가역).
+    /// 표시·집계의 읽기 필터는 <see cref="GetModelFlowNames"/>(활성만)를 쓸 것.
+    /// null 규약은 동일 — 미로드/빈 모델이면 null(보존 기준 없음 = 정리 금지).
+    /// </summary>
+    public HashSet<string>? GetModelFlowNamesIncludingDisabled()
+    {
+        var cached = _modelFlowNamesAll;
+        if (cached is not null) return cached;
+        if (!IsLoaded) return null;
+
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in GetAllFlowsIncludingDisabled())
+            if (!IsInternalFlowName(f.Name)) names.Add(f.Name);
+
+        if (names.Count == 0) return null;
+        _modelFlowNamesAll = names;
         return names;
     }
 
