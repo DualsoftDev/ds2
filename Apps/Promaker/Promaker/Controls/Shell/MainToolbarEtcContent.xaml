@@ -48,6 +48,7 @@
                             <Separator Margin="4,4"/>
                             <TextBlock Text="파일 가져오기" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="CSV 로부터 모델만들기"/></Button>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportFromProjectCommand}" Click="CloseUtilPopup"><TextBlock Text="다른 프로젝트에서 시스템 가져오기"/></Button>
                             <Separator Margin="4,4"/>
                             <TextBlock Text="PLC" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenTagWizardCommand}" Click="CloseUtilPopup"><TextBlock Text="IO 생성"/></Button>

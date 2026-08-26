@@ -159,6 +159,14 @@ public partial class MainViewModel
                 ? [new SelectionKey(single.Id, single.EntityType)]
                 : (IReadOnlyList<SelectionKey>)[];
 
+        // System/디바이스 노드 → OS 클립보드 패키지(인스턴스 간 복사) 경로.
+        // 내부 클립보드(Flow/Work/Call) 경로와 별개 — isCopyableEntityKind 는 그대로 유지(무회귀).
+        if (candidates.Count > 0 && candidates.All(k => k.EntityKind == EntityKind.System))
+        {
+            CopySystemsToOsClipboard(candidates);
+            return;
+        }
+
         if (!TryEditorFunc(
                 () => _store.ValidateCopySelection(candidates),
                 out CopyValidationResult result,
@@ -306,6 +314,9 @@ public partial class MainViewModel
 
         if (_clipboardSelection.Count == 0)
         {
+            // 내부 클립보드가 비었으면 OS 클립보드의 시스템 패키지(다른 인스턴스 복사분) 시도
+            if (TryPasteSystemPackageFromOsClipboard())
+                return;
             StatusText = "Clipboard is empty.";
             return;
         }

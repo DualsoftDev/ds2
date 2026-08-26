@@ -74,7 +74,10 @@ public partial class MainViewModel
         Selection.OrderedNodeSelection.Count > 0 || SelectedNode is not null;
 
     private bool CanPasteCopied() =>
-        _clipboardSelection.Count > 0 && ResolvePasteTarget().HasValue;
+        (_clipboardSelection.Count > 0 && ResolvePasteTarget().HasValue)
+        // OS 클립보드에 시스템 패키지가 있으면(다른 인스턴스 복사분) 프로젝트 어디서든 붙여넣기 허용.
+        // HasPackage 는 클립보드 시퀀스 번호 캐시라 CanExecute 폴링에 저비용.
+        || (HasProject && Promaker.Services.SystemPackageClipboard.HasPackage());
 
     private bool CanConnectSelectedNodes() =>
         HasProject && Selection.CanConnectSelectedNodesInOrder();
