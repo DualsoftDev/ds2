@@ -12,35 +12,6 @@ namespace Promaker.ViewModels;
 
 public partial class MainViewModel
 {
-    /// <summary>
-    /// 붙여넣기/이동류 편집 작업의 BusyOverlay 실행 헬퍼 — 오버레이를 먼저 렌더(Yield)한 뒤
-    /// 본 작업을 실행하고, 트리 리빌드가 큐잉됐으면 리빌드 완료 시점에 해제 (파일 열기 패턴).
-    /// 다이얼로그가 필요한 분기는 다이얼로그를 먼저 다 받은 뒤 store 작업만 이 헬퍼로 감쌀 것
-    /// (BusyOverlay 가 입력을 차단하므로 오버레이와 모달이 겹치면 안 된다).
-    /// </summary>
-    private async void RunEditorWorkWithBusy(string busyMessage, Action work)
-    {
-        BusyMessage = busyMessage;
-        IsBusy = true;
-        try
-        {
-            await System.Windows.Threading.Dispatcher.Yield(
-                System.Windows.Threading.DispatcherPriority.Background);
-            work();
-        }
-        catch (Exception ex)
-        {
-            _dialogService.ShowWarning($"작업 실패:\n{ex.Message}");
-        }
-        finally
-        {
-            if (_rebuildQueued)
-                _pendingRebuildActions.Add(() => IsBusy = false);
-            else
-                IsBusy = false;
-        }
-    }
-
     [RelayCommand(CanExecute = nameof(CanDeleteSelected))]
     private void DeleteSelected()
     {
@@ -389,7 +360,7 @@ public partial class MainViewModel
         if (batchType == EntityKind.Flow)
         {
             if (_clipboardIsCut)
-                RunEditorWorkWithBusy("Flow 이동 중...", () => DispatchFlowMove(target.Value));
+                _ = RunBusyAsync("Flow 이동 중...", () => DispatchFlowMove(target.Value));
             else
                 PasteFlowsWithRename(target.Value);   // 이름 프롬프트 후 내부에서 busy 래핑
             return;
@@ -405,7 +376,7 @@ public partial class MainViewModel
         // Cut + same flow (다른 Work) → MoveCallsToWork (1 undo step 일괄 이동)
         if (batchType == EntityKind.Call && _clipboardIsCut)
         {
-            RunEditorWorkWithBusy("Call 이동 중...", () => DispatchCallMoveSameFlow(target.Value));
+            _ = RunBusyAsync("Call 이동 중...", () => DispatchCallMoveSameFlow(target.Value));
             return;
         }
 
@@ -417,7 +388,7 @@ public partial class MainViewModel
         }
 
         var pasteIndex = _pasteCount * _clipboardSelection.Count;
-        RunEditorWorkWithBusy($"{batchType} 붙여넣는 중...", () =>
+        _ = RunBusyAsync($"{batchType} 붙여넣는 중...", () =>
         {
             if (!TryEditorFunc(
                     () => _store.PasteEntities(
@@ -466,7 +437,7 @@ public partial class MainViewModel
 
         var resolvedMode = mode;
         // 디바이스 모드 다이얼로그를 받은 뒤의 store 작업만 busy — 오버레이/모달 겹침 방지.
-        RunEditorWorkWithBusy("Call 붙여넣는 중...", () => ExecuteCallAcrossFlows(target, resolvedMode));
+        _ = RunBusyAsync("Call 붙여넣는 중...", () => ExecuteCallAcrossFlows(target, resolvedMode));
     }
 
     private void ExecuteCallAcrossFlows(
@@ -578,7 +549,7 @@ public partial class MainViewModel
         // 디바이스 모드 다이얼로그를 받은 뒤의 store 작업만 busy — 오버레이/모달 겹침 방지.
         var targetFlowId = targetFlowOpt.Value;
         var resolvedMode = mode;
-        RunEditorWorkWithBusy("Work 이동 중...", () =>
+        _ = RunBusyAsync("Work 이동 중...", () =>
         {
             TryEditorFunc(
                 () => _store.MoveWorksAcrossFlow(workIds, targetFlowId, resolvedMode),
@@ -670,7 +641,7 @@ public partial class MainViewModel
 
         // 2) 실제 붙여넣기(트리 복제 + 리빌드)는 busy 아래에서.
         var skipped = skippedMissingFlows;
-        RunEditorWorkWithBusy("Flow 붙여넣는 중...", () =>
+        _ = RunBusyAsync("Flow 붙여넣는 중...", () =>
         {
             var pastedFlowIds = new List<Guid>();
             foreach (var (flowId, sysId, newName) in plans)

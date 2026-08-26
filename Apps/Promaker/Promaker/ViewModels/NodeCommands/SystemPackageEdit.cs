@@ -45,14 +45,8 @@ public partial class MainViewModel
             return;
         }
 
-        _ = CopySystemsToOsClipboardAsync(roots);
-    }
-
-    private async Task CopySystemsToOsClipboardAsync(List<SystemPackageClipboard.RootEntry> roots)
-    {
-        BusyMessage = "시스템 복사 중... (클립보드)";
-        IsBusy = true;
-        try
+        // 리빌드 없는 작업 — 즉시 해제(hideAfterRebuild: false).
+        _ = RunBusyAsync("시스템 복사 중... (클립보드)", async () =>
         {
             // 폐포 수집 + JSON 직렬화 = 배경 스레드 (store 읽기 전용). BusyOverlay 가 마우스를
             // 차단하지만 키보드 단축키는 못 막으므로 Revision 으로 변형 감지 → 안전 취소.
@@ -76,15 +70,7 @@ public partial class MainViewModel
             var names = string.Join(", ", roots.Select(r => r.Name));
             StatusText = $"시스템 복사됨(클립보드): {names} — 다른 프로메이커 창에서 Ctrl+V 로 붙여넣기";
             RefreshEditorCommandStates();
-        }
-        catch (Exception ex)
-        {
-            _dialogService.ShowWarning($"시스템 클립보드 복사 실패:\n{ex.Message}");
-        }
-        finally
-        {
-            IsBusy = false;
-        }
+        }, hideAfterRebuild: false, failPrefix: "시스템 클립보드 복사 실패");
     }
 
     /// <summary>
@@ -101,73 +87,59 @@ public partial class MainViewModel
         if (rawText is null)
             return false;
 
-        _ = PasteSystemPackageAsync(rawText);
+        _ = RunBusyAsync("시스템 붙여넣는 중... (클립보드)",
+            () => PasteSystemPackageCoreAsync(rawText),
+            failPrefix: "시스템 붙여넣기 실패");
         return true;
     }
 
-    private async Task PasteSystemPackageAsync(string rawText)
+    private async Task PasteSystemPackageCoreAsync(string rawText)
     {
-        BusyMessage = "시스템 붙여넣는 중... (클립보드)";
-        IsBusy = true;
-        try
+        // 봉투 파싱 + 부분 store 역직렬화 = 배경 스레드 (독립 객체 생성뿐 — 레이스 없음)
+        var (source, envelope, error) = await Task.Run(() =>
         {
-            // 봉투 파싱 + 부분 store 역직렬화 = 배경 스레드 (독립 객체 생성뿐 — 레이스 없음)
-            var (source, envelope, error) = await Task.Run(() =>
-            {
-                var env = SystemPackageClipboard.ParseEnvelope(rawText, out var err);
-                if (env is null)
-                    return ((DsStore?)null, env, err);
-                return (SystemPackageClipboard.DeserializeStore(env), env, "");
-            });
+            var env = SystemPackageClipboard.ParseEnvelope(rawText, out var err);
+            if (env is null)
+                return ((DsStore?)null, env, err);
+            return (SystemPackageClipboard.DeserializeStore(env), env, "");
+        });
 
-            if (envelope is null || source is null)
-            {
-                if (!string.IsNullOrEmpty(error))
-                    _dialogService.ShowWarning(error);
-                else
-                    StatusText = "클립보드에서 시스템 패키지를 찾지 못했습니다.";
-                return;
-            }
-
-            var project = Queries.allProjects(_store).FirstOrDefault();
-            if (project is null)
-            {
-                StatusText = "붙여넣을 프로젝트가 없습니다.";
-                return;
-            }
-
-            var roots = envelope.Roots
-                .Where(r => source.SystemsReadOnly.ContainsKey(r.Id))
-                .Select(r => new SystemImportRoot(r.Id, r.IsActive))
-                .ToList();
-            if (roots.Count == 0)
-            {
-                _dialogService.ShowWarning("클립보드 패키지에 가져올 시스템이 없습니다.");
-                return;
-            }
-
-            // 병합 + 트리 리빌드 = UI 스레드 계약 구간 (여기부터 스피너 정지 가능)
-            if (!TryEditorFunc(
-                    () => _store.ImportSystemsFrom(source, project.Id, roots),
-                    out SystemImportSummary? summary,
-                    fallback: null))
-                return;
-
-            if (summary is not null)
-                ReportSystemImport(summary, "클립보드");
-        }
-        catch (Exception ex)
+        if (envelope is null || source is null)
         {
-            _dialogService.ShowWarning($"시스템 붙여넣기 실패:\n{ex.Message}");
-        }
-        finally
-        {
-            // 병합이 트리 리빌드를 큐잉했으면 리빌드 완료 시점에 오버레이 해제 (파일 열기 패턴)
-            if (_rebuildQueued)
-                _pendingRebuildActions.Add(() => IsBusy = false);
+            if (!string.IsNullOrEmpty(error))
+                _dialogService.ShowWarning(error);
             else
-                IsBusy = false;
+                StatusText = "클립보드에서 시스템 패키지를 찾지 못했습니다.";
+            return;
         }
+
+        var project = Queries.allProjects(_store).FirstOrDefault();
+        if (project is null)
+        {
+            StatusText = "붙여넣을 프로젝트가 없습니다.";
+            return;
+        }
+
+        var roots = envelope.Roots
+            .Where(r => source.SystemsReadOnly.ContainsKey(r.Id))
+            .Select(r => new SystemImportRoot(r.Id, r.IsActive))
+            .ToList();
+        if (roots.Count == 0)
+        {
+            _dialogService.ShowWarning("클립보드 패키지에 가져올 시스템이 없습니다.");
+            return;
+        }
+
+        // 병합 + 트리 리빌드 = UI 스레드 계약 구간 (여기부터 스피너 정지 가능,
+        // 오버레이 해제는 RunBusyAsync 가 리빌드 완료 시점으로 미룬다)
+        if (!TryEditorFunc(
+                () => _store.ImportSystemsFrom(source, project.Id, roots),
+                out SystemImportSummary? summary,
+                fallback: null))
+            return;
+
+        if (summary is not null)
+            ReportSystemImport(summary, "클립보드");
     }
 
     /// <summary>임포트 결과 요약 표시 — 개명 내역/경고는 조용히 삼키지 않는다 (설계 §6 결과 요약).</summary>

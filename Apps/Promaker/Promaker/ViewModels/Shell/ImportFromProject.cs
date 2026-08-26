@@ -43,42 +43,40 @@ public partial class MainViewModel
         var fileName = Path.GetFileName(picker.FileName);
 
         // ── 1단계: headless 임시 store 로드 (배경 스레드 — 스피너 유지) ──────────
-        BusyMessage = $"프로젝트 파일 읽는 중... {fileName}";
-        IsBusy = true;
+        // 즉시 해제(hideAfterRebuild: false) — 선택 다이얼로그 전에 오버레이가 내려가야 한다.
         DsStore? temp = null;
         string? loadError = null;
-        try
+        await RunBusyAsync($"프로젝트 파일 읽는 중... {fileName}", async () =>
         {
-            temp = await Task.Run(() =>
+            try
             {
-                var store = DsStore.empty();
-                if (FileTypeProbe.IsAasx(picker.FileName))
+                temp = await Task.Run(() =>
                 {
-                    var result = AasxImporter.importIntoStoreWithError(store, picker.FileName);
-                    if (result.IsError)
+                    var store = DsStore.empty();
+                    if (FileTypeProbe.IsAasx(picker.FileName))
                     {
-                        loadError = $"AASX 파일 열기 실패:\n\n{result.ErrorValue}";
-                        return null;
+                        var result = AasxImporter.importIntoStoreWithError(store, picker.FileName);
+                        if (result.IsError)
+                        {
+                            // 배경 스레드 — 다이얼로그는 await 복귀 후 UI 스레드에서.
+                            loadError = $"AASX 파일 열기 실패:\n\n{result.ErrorValue}";
+                            return null;
+                        }
                     }
-                }
-                else
-                {
-                    store.LoadFromFile(picker.FileName);
-                }
-                // 레거시 파일 자동 복구 — 파일 열기 경로(Open.cs)와 동일 뒤처리.
-                _ = CallValidation.healMissingOriginFlowIds(store);
-                return store;
-            });
-        }
-        catch (Exception ex)
-        {
-            loadError = $"프로젝트 가져오기 실패:\n\n{ex.Message}";
-        }
-        finally
-        {
-            // 선택 다이얼로그 전에 오버레이 해제 — BusyOverlay 는 전체 입력을 차단한다.
-            IsBusy = false;
-        }
+                    else
+                    {
+                        store.LoadFromFile(picker.FileName);
+                    }
+                    // 레거시 파일 자동 복구 — 파일 열기 경로(Open.cs)와 동일 뒤처리.
+                    _ = CallValidation.healMissingOriginFlowIds(store);
+                    return store;
+                });
+            }
+            catch (Exception ex)
+            {
+                loadError = $"프로젝트 가져오기 실패:\n\n{ex.Message}";
+            }
+        }, hideAfterRebuild: false);
         if (loadError is not null)
         {
             Log.Warn($"Import from project failed: '{picker.FileName}' — {loadError}");
@@ -112,13 +110,9 @@ public partial class MainViewModel
         if (_dialogService.ShowDialog(dialog) != true)
             return;
 
-        // ── 3단계: 병합 + 리빌드 (UI 스레드 계약 — 오버레이 렌더 기회만 주고 진행) ──
-        BusyMessage = $"시스템 가져오는 중... {fileName}";
-        IsBusy = true;
-        try
+        // ── 3단계: 병합 + 리빌드 (UI 스레드 계약 — Action 어댑터가 오버레이 선렌더) ──
+        await RunBusyAsync($"시스템 가져오는 중... {fileName}", () =>
         {
-            await Dispatcher.Yield(DispatcherPriority.Background);   // 오버레이 먼저 렌더
-
             if (!TryEditorFunc(
                     () => _store.ImportSystemsFrom(temp, targetProject.Id, dialog.SelectedRoots),
                     out SystemImportSummary? summary,
@@ -127,13 +121,6 @@ public partial class MainViewModel
 
             if (summary is not null)
                 ReportSystemImport(summary, $"'{fileName}'");
-        }
-        finally
-        {
-            if (_rebuildQueued)
-                _pendingRebuildActions.Add(() => IsBusy = false);
-            else
-                IsBusy = false;
-        }
+        }, failPrefix: "시스템 가져오기 실패");
     }
 }
