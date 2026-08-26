@@ -776,6 +776,8 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
         public string? Value { get; set; }
         public string TagName { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
+        // SystemId 를 SELECT 하지 않는 쿼리에서는 "" — 귀속 미상으로 흡수된다.
+        public string SystemId { get; set; } = string.Empty;
     }
 
     private sealed class PlcTagLogValueRow
@@ -947,9 +949,11 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
                 l.dateTime AS DateTime,
                 l.value AS Value,
                 t.name AS TagName,
-                t.address AS Address
+                t.address AS Address,
+                COALESCE(p.systemId, '') AS SystemId
             FROM plcTagLog l
             INNER JOIN plcTag t ON l.plcTagId = t.id
+            LEFT JOIN plc p ON p.id = t.plcId
             WHERE l.id > @AfterId
             ORDER BY l.id ASC
             LIMIT @Limit";
@@ -962,7 +966,10 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
             DateTime = ParseSqliteDateTime(row.DateTime),
             Value = row.Value,
             TagName = row.TagName,
-            Address = row.Address
+            Address = row.Address,
+            // 전역 폴러(UserTagAlertService 등)는 systemId 인자로 스코프할 수 없으므로 —
+            // 어느 PLC 의 행인지 결과에 실어 보내 수신측이 (System, 주소)로 매칭하게 한다.
+            SystemId = row.SystemId
         }).ToList();
     }
 }

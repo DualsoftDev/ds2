@@ -19,7 +19,10 @@ public class PlcDatabaseMonitorService : BackgroundService
     private readonly IHubContext<MonitoringHub> _hubContext;
     private readonly PlcToCallMapperService _callMapper;
 
-    private readonly Dictionary<string, string> _lastTagValues = new();
+    // ★키는 plcTagId — 이 서비스는 whole-model 폴러라 systemId 로 조회를 좁힐 수 없다.
+    // 주소로 묶으면 같은 주소를 쓰는 두 PLC 의 값이 번갈아 덮여 가짜 변화가 브로드캐스트된다.
+    // plcTagId 는 1단계에서 (plcId, address) 단위로 갈라졌으므로 그 자체가 PLC 별 유일 키다.
+    private readonly Dictionary<int, string> _lastTagValues = new();
     private readonly int _pollIntervalMs = 500; // 500ms polling
     private long _lastCheckedMaxId;
     private int _changeCount;
@@ -90,12 +93,11 @@ public class PlcDatabaseMonitorService : BackgroundService
 
         try
         {
-            var (tagValues, maxLogId) = await plcRepo.GetLatestValuePerTagAsync();
-
-            foreach (var (address, value) in tagValues)
-            {
-                _lastTagValues[address] = value;
-            }
+            // GetLatestValuePerTagAsync 는 주소 키라 멀티 PLC 에서 collapse 된다 —
+            // 시드는 건너뛰고 첫 폴링의 로그(plcTagId 포함)로 상태를 채운다.
+            // 시드가 없으면 첫 변화 1회가 "직전값 없음"으로 흘러가는데, 이 서비스는 PlcDebug 화면
+            // 브로드캐스트 전용이라 무해하다(판정·기록 경로 아님).
+            var (_, maxLogId) = await plcRepo.GetLatestValuePerTagAsync();
 
             _lastCheckedMaxId = maxLogId;
 
@@ -137,10 +139,10 @@ public class PlcDatabaseMonitorService : BackgroundService
                     continue;
 
                 var currentValue = log.Value ?? "0";
-                var previousValue = _lastTagValues.GetValueOrDefault(address, "0");
+                var previousValue = _lastTagValues.GetValueOrDefault(log.PlcTagId, "0");
 
-                // 상태 업데이트 (모든 로그에 대해)
-                _lastTagValues[address] = currentValue;
+                // 상태 업데이트 (모든 로그에 대해) — 키는 PLC 별로 유일한 plcTagId.
+                _lastTagValues[log.PlcTagId] = currentValue;
 
                 // 값이 변경되었는지 확인
                 if (currentValue == previousValue)

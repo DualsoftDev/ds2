@@ -28,19 +28,22 @@ public class CycleAnalysisController : ControllerBase
     private readonly CycleAnalysisService _cycleAnalysis;
     private readonly IFlowMetricsService _flowMetrics;
     private readonly AppSettingsService _settings;
+    private readonly DsProjectService _project;
 
     public CycleAnalysisController(
         PlcToCallMapperService callMapper,
         IPlcRepository plcRepository,
         CycleAnalysisService cycleAnalysis,
         IFlowMetricsService flowMetrics,
-        AppSettingsService settings)
+        AppSettingsService settings,
+        DsProjectService project)
     {
         _callMapper = callMapper;
         _plcRepository = plcRepository;
         _cycleAnalysis = cycleAnalysis;
         _flowMetrics = flowMetrics;
         _settings = settings;
+        _project = project;
     }
 
     /// <summary>Flow 선택 목록 — Blazor LoadFlows() 와 동일(중복 제거 + 이름순).</summary>
@@ -198,7 +201,9 @@ public class CycleAnalysisController : ControllerBase
         }
 
         if (!string.IsNullOrEmpty(startTagAddress))
-            return await _plcRepository.FindRisingEdgesAsync(startTagAddress, start, end);
+            // 멀티 PLC: 이 Flow 의 PLC 로 한정 — 다른 PLC 의 엣지가 비가동 구간 판정에 섞이지 않게.
+        return await _plcRepository.FindRisingEdgesAsync(
+            startTagAddress, start, end, _project.TryGetSystemIdByFlowName(flowName));
         return await _cycleAnalysis.GetCycleBoundaryTimesAsync(flowName, start, end);
     }
 

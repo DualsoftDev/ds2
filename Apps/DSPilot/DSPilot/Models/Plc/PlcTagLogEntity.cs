@@ -39,6 +39,12 @@ public class PlcTagLogEntity
     public string TagName { get; set; } = string.Empty;
 
     /// <summary>
+    /// 이 로그를 남긴 PLC 의 소유 System(Guid 문자열). 멀티 PLC 에서 같은 주소를 다른 PLC 도
+    /// 쓸 수 있어 주소만으로는 귀속이 안 된다. "" = 귀속 미상(레거시 행·기본 plc 행).
+    /// </summary>
+    public string SystemId { get; set; } = string.Empty;
+
+    /// <summary>
     /// 태그 주소 (조인 시 사용)
     /// </summary>
     public string Address { get; set; } = string.Empty;

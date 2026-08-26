@@ -198,7 +198,8 @@ public class CallTestController : ControllerBase
         List<DateTime> cycleBoundaries;
         if (headId.HasValue && !string.IsNullOrWhiteSpace(req.HeadStartTag))
         {
-            cycleBoundaries = await _plcRepository.FindRisingEdgesAsync(req.HeadStartTag!, start, end);
+            cycleBoundaries = await _plcRepository.FindRisingEdgesAsync(
+                req.HeadStartTag!, start, end, _project.TryGetSystemIdByFlowName(req.FlowName));
         }
         else
         {
@@ -211,8 +212,10 @@ public class CallTestController : ControllerBase
             : default;
         List<DateTime> tailEdges = !string.IsNullOrWhiteSpace(tc.Tag)
             ? (tc.Falling
-                ? await _plcRepository.FindFallingEdgesAsync(tc.Tag!, start, end)
-                : await _plcRepository.FindRisingEdgesAsync(tc.Tag!, start, end))
+                ? await _plcRepository.FindFallingEdgesAsync(
+                    tc.Tag!, start, end, _project.TryGetSystemIdByFlowName(req.FlowName))
+                : await _plcRepository.FindRisingEdgesAsync(
+                    tc.Tag!, start, end, _project.TryGetSystemIdByFlowName(req.FlowName)))
             : new List<DateTime>();
 
         cycleBoundaries = cycleBoundaries.OrderBy(t => t).ToList();
@@ -354,13 +357,13 @@ public class CallTestController : ControllerBase
             : default;
 
         Task<List<DateTime>> headTask = headId.HasValue && !string.IsNullOrWhiteSpace(headStartTag)
-            ? _plcRepository.FindRisingEdgesAsync(headStartTag!, start, end)
+            ? _plcRepository.FindRisingEdgesAsync(headStartTag!, start, end, _project.TryGetSystemIdByFlowName(flowName))
             : _cycleAnalysis.GetCycleBoundaryTimesAsync(flowName, start, end);
 
         Task<List<DateTime>> tailTask = !string.IsNullOrWhiteSpace(tc.Tag)
             ? (tc.Falling
-                ? _plcRepository.FindFallingEdgesAsync(tc.Tag!, start, end)
-                : _plcRepository.FindRisingEdgesAsync(tc.Tag!, start, end))
+                ? _plcRepository.FindFallingEdgesAsync(tc.Tag!, start, end, _project.TryGetSystemIdByFlowName(flowName))
+                : _plcRepository.FindRisingEdgesAsync(tc.Tag!, start, end, _project.TryGetSystemIdByFlowName(flowName)))
             : Task.FromResult(new List<DateTime>());
 
         await Task.WhenAll(headTask, tailTask);

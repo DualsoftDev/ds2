@@ -38,6 +38,7 @@ public sealed class CycleRecomputeService
     private readonly DspDbService _dspDb;
     private readonly AppSettingsService _settings;
     private readonly IHubContext<MonitoringHub> _hub;
+    private readonly DsProjectService _project;
     private readonly ILogger<CycleRecomputeService> _logger;
 
     // 전체 이력(백그라운드) 잡은 한 번에 하나만. 증분(동기)은 이 게이트와 무관.
@@ -52,6 +53,7 @@ public sealed class CycleRecomputeService
         DspDbService dspDb,
         AppSettingsService settings,
         IHubContext<MonitoringHub> hub,
+        DsProjectService project,
         ILogger<CycleRecomputeService> logger)
     {
         _plc = plc;
@@ -61,6 +63,7 @@ public sealed class CycleRecomputeService
         _dspDb = dspDb;
         _settings = settings;
         _hub = hub;
+        _project = project;
         _logger = logger;
     }
 
@@ -221,7 +224,11 @@ public sealed class CycleRecomputeService
 
         // head==tail(단일 신호 Call)도 자기 OutTag↑→완료(InTag↑/OutTag↓)로 분해 — 화면(CallTestController)과 동일 규칙.
 
-        var starts = (await _plc.FindRisingEdgesAsync(headOutTag!, fromLocal, toLocal))
+        // 멀티 PLC: 이 Flow 의 PLC 로 한정. ★이 경로는 재도출 결과를 dspFlowHistory 에 **덮어쓰므로**,
+        // 다른 PLC 의 엣지가 섞이면 잘못된 이력이 영구 저장된다(다른 조회는 화면만 틀리고 끝).
+        var systemId = _project.TryGetSystemIdByFlowName(flowName);
+
+        var starts = (await _plc.FindRisingEdgesAsync(headOutTag!, fromLocal, toLocal, systemId))
             .OrderBy(t => t).ToList();
 
         // 시작 엣지가 0건이면(태그는 해석됐으나 구간에 데이터 없음 / 오매핑 / 부분기록 공백) 파괴적 삭제를 피하고
@@ -238,8 +245,8 @@ public sealed class CycleRecomputeService
 
         var tailEdges = !string.IsNullOrWhiteSpace(tailCompletion.Tag)
             ? (tailCompletion.Falling
-                ? (await _plc.FindFallingEdgesAsync(tailCompletion.Tag!, fromLocal, toLocal)).OrderBy(t => t).ToList()
-                : (await _plc.FindRisingEdgesAsync(tailCompletion.Tag!, fromLocal, toLocal)).OrderBy(t => t).ToList())
+                ? (await _plc.FindFallingEdgesAsync(tailCompletion.Tag!, fromLocal, toLocal, systemId)).OrderBy(t => t).ToList()
+                : (await _plc.FindRisingEdgesAsync(tailCompletion.Tag!, fromLocal, toLocal, systemId)).OrderBy(t => t).ToList())
             : new List<DateTime>();
 
         var cycles = CycleDerivation.BuildCycles(starts, tailEdges, toLocal);

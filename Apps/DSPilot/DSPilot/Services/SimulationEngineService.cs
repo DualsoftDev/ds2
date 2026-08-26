@@ -101,7 +101,9 @@ public sealed class SimulationEngineService : IDisposable
     private readonly ConcurrentDictionary<Guid, (long StartMs, bool Emitted)> _overClock = new();
 
     // OUT 주소별 직전 active — 상승엣지 판정용. 첫 관측은 baseline(상승 아님)으로 흘린다(중간 합류 배제).
-    private readonly ConcurrentDictionary<string, bool> _outLastActive = new(StringComparer.OrdinalIgnoreCase);
+    // ★키는 (SystemId, 주소) — 주소만으로 묶으면 두 PLC 의 OUT 값이 번갈아 덮여 진짜 상승엣지가
+    //   삼켜지거나 없는 엣지가 만들어져 ActionOver 오탐/미탐이 된다.
+    private readonly ConcurrentDictionary<string, bool> _outLastActive = new(StringComparer.Ordinal);
 
     // ActionOver 임계 산출의 입력이 되는 '모델 원본' Min/Max(ms) — 엔진 초기화 시점의 AASX 값 스냅샷.
     // index.WorkDurationRange 는 임계로 덮어쓰므로, 여유값 설정이 바뀌어 재산출할 때 원본이 필요하다
@@ -574,7 +576,7 @@ public sealed class SimulationEngineService : IDisposable
         }
 
         // ActionOver 완료대기 시계 — 엔진 상태와 무관하게 OUT↑~IN 도달 경과를 잰다(TickAbnormalWatchdog 가 판정).
-        ObserveActionOverEdges(address, value);
+        ObserveActionOverEdges(address, value, systemId);
 
         RuntimeHubEffect[] effects;
         try
@@ -1255,7 +1257,7 @@ public sealed class SimulationEngineService : IDisposable
     /// OUT/IN 엣지로 완료대기 시계를 갱신 — <see cref="HandleHubTagChanged"/> 의 관측 경로에서 호출.
     /// OUT 상승=시계 시작(재시작), IN 도달=해제. OUT 하강은 무시한다(<see cref="_overClock"/> 주석 참조).
     /// </summary>
-    private void ObserveActionOverEdges(string address, string value)
+    private void ObserveActionOverEdges(string address, string value, string? systemId)
     {
         var engine = _engine;
         if (engine is null || !_projectService.IsLoaded) return;
@@ -1269,8 +1271,9 @@ public sealed class SimulationEngineService : IDisposable
                 if (!FSharpOption<ApiCall>.get_IsSome(apiCallOpt)) continue;
                 var active = RuntimeSemantics.isActiveOutputValue(apiCallOpt.Value, value);
                 // 첫 관측은 baseline — 상승으로 보지 않는다(부팅/재연결 직후 진행 중 사이클 오판 방지).
-                var isRising = _outLastActive.TryGetValue(address, out var prev) && !prev && active;
-                _outLastActive[address] = active;
+                var edgeKey = TagCacheKey(SystemKey(systemId), address);
+                var isRising = _outLastActive.TryGetValue(edgeKey, out var prev) && !prev && active;
+                _outLastActive[edgeKey] = active;
                 if (isRising)
                     _overClock[m.ApiCallGuid] = (DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond, false);
             }
