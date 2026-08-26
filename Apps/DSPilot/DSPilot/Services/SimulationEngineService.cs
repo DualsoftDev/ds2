@@ -127,14 +127,6 @@ public sealed class SimulationEngineService : IDisposable
     private static string NormalizeAddress(string address) =>
         string.IsNullOrEmpty(address) ? "" : address.Trim().ToUpperInvariant();
 
-    /// SystemId 키 — Guid 문자열 소문자, 미상은 "". plc.systemId 컬럼과 같은 표기.
-    private static string SystemKey(Guid? systemId) =>
-        systemId.HasValue ? systemId.Value.ToString("D").ToLowerInvariant() : "";
-
-    private static string SystemKey(string? systemId) =>
-        string.IsNullOrWhiteSpace(systemId) ? ""
-        : Guid.TryParse(systemId, out var g) ? SystemKey(g) : "";
-
     private static string TagCacheKey(string sysKey, string address) =>
         sysKey + "|" + NormalizeAddress(address);
 
@@ -167,7 +159,7 @@ public sealed class SimulationEngineService : IDisposable
     private bool TryResolveTagId(string address, string? systemId, out int tagId, out bool ambiguous)
     {
         ambiguous = false;
-        var sysKey = SystemKey(systemId);
+        var sysKey = SystemKeyConvention.Key(systemId);
         if (sysKey.Length > 0 && _plcTagIdByKey.TryGetValue(TagCacheKey(sysKey, address), out tagId))
             return true;
 
@@ -731,7 +723,7 @@ public sealed class SimulationEngineService : IDisposable
             _tagIdsByAddress.Clear();
             var systemKeyByPlcId = conn
                 .Query<(int Id, string? SystemId)>("SELECT id, systemId FROM plc")
-                .ToDictionary(r => r.Id, r => SystemKey(r.SystemId));
+                .ToDictionary(r => r.Id, r => SystemKeyConvention.Key(r.SystemId));
             foreach (var row in conn.Query<(int Id, int PlcId, string Address)>(
                 "SELECT id, plcId, address FROM plcTag"))
             {
@@ -780,7 +772,15 @@ public sealed class SimulationEngineService : IDisposable
 
         foreach (var sid in systemIds)
         {
-            var key = SystemKey(sid);
+            var key = SystemKeyConvention.Key(sid);
+            // 빈 키 = 귀속 미상(Guid.Empty). plc 행을 만들면 systemId='' 인 유령 소유자가 생기므로
+            // 건너뛴다 — 해당 주소들은 기본 행(plcId=1)으로 떨어진다(데이터 손실 없음).
+            if (key.Length == 0)
+            {
+                _logger.LogWarning("[Engine] System id 가 비어 있어 plc 행 귀속을 건너뜁니다 — 기본 행으로 떨어집니다.");
+                continue;
+            }
+
             try
             {
                 var existing = conn.QuerySingleOrDefault<int?>(
@@ -859,7 +859,7 @@ public sealed class SimulationEngineService : IDisposable
             // 새로 INSERT 된 + 기존에 다른 시스템이 이미 넣어둔 행 모두 캐시에 반영.
             var systemKeyByPlcId = conn
                 .Query<(int Id, string? SystemId)>("SELECT id, systemId FROM plc")
-                .ToDictionary(r => r.Id, r => SystemKey(r.SystemId));
+                .ToDictionary(r => r.Id, r => SystemKeyConvention.Key(r.SystemId));
             foreach (var row in conn.Query<(int Id, int PlcId, string Address)>(
                 "SELECT id, plcId, address FROM plcTag WHERE address IN @Addrs",
                 new { Addrs = newAddresses }))
@@ -1271,7 +1271,7 @@ public sealed class SimulationEngineService : IDisposable
                 if (!FSharpOption<ApiCall>.get_IsSome(apiCallOpt)) continue;
                 var active = RuntimeSemantics.isActiveOutputValue(apiCallOpt.Value, value);
                 // 첫 관측은 baseline — 상승으로 보지 않는다(부팅/재연결 직후 진행 중 사이클 오판 방지).
-                var edgeKey = TagCacheKey(SystemKey(systemId), address);
+                var edgeKey = TagCacheKey(SystemKeyConvention.Key(systemId), address);
                 var isRising = _outLastActive.TryGetValue(edgeKey, out var prev) && !prev && active;
                 _outLastActive[edgeKey] = active;
                 if (isRising)

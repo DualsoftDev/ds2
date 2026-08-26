@@ -93,16 +93,14 @@ public class PlcDatabaseMonitorService : BackgroundService
 
         try
         {
-            // GetLatestValuePerTagAsync 는 주소 키라 멀티 PLC 에서 collapse 된다 —
-            // 시드는 건너뛰고 첫 폴링의 로그(plcTagId 포함)로 상태를 채운다.
-            // 시드가 없으면 첫 변화 1회가 "직전값 없음"으로 흘러가는데, 이 서비스는 PlcDebug 화면
-            // 브로드캐스트 전용이라 무해하다(판정·기록 경로 아님).
-            var (_, maxLogId) = await plcRepo.GetLatestValuePerTagAsync();
+            // 태그 상태 시드는 하지 않는다 — 주소 키 딕셔너리는 멀티 PLC 에서 collapse 되므로,
+            // 첫 폴링의 로그(plcTagId 포함)로 상태를 채운다. 시드가 없으면 첫 변화 1회가
+            // "직전값 없음"으로 흘러가는데, 이 서비스는 PlcDebug 화면 브로드캐스트 전용이라
+            // 무해하다(판정·기록 경로 아님).
+            _lastCheckedMaxId = await plcRepo.GetMaxLogIdAsync();
 
-            _lastCheckedMaxId = maxLogId;
-
-            _logger.LogDebug("Initialized {Count} tag states from database (maxLogId: {MaxId})",
-                _lastTagValues.Count, _lastCheckedMaxId);
+            _logger.LogDebug("Initialized delta-poll watermark from database (maxLogId: {MaxId})",
+                _lastCheckedMaxId);
             return true;
         }
         catch (Exception ex)

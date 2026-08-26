@@ -201,9 +201,12 @@ public class CycleAnalysisController : ControllerBase
         }
 
         if (!string.IsNullOrEmpty(startTagAddress))
+        {
             // 멀티 PLC: 이 Flow 의 PLC 로 한정 — 다른 PLC 의 엣지가 비가동 구간 판정에 섞이지 않게.
-        return await _plcRepository.FindRisingEdgesAsync(
-            startTagAddress, start, end, _project.TryGetSystemIdByFlowName(flowName));
+            return await _plcRepository.FindRisingEdgesAsync(
+                startTagAddress, start, end, _project.TryGetSystemIdByFlowName(flowName));
+        }
+
         return await _cycleAnalysis.GetCycleBoundaryTimesAsync(flowName, start, end);
     }
 

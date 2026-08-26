@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Models.Plc;
@@ -149,10 +149,14 @@ public interface IPlcRepository
         string tagAddress, DateTime startTime, DateTime endTime, Guid? systemId = null);
 
     /// <summary>
-    /// 모든 태그의 최신 값을 배치로 조회 (N+1 쿼리 방지)
+    /// 현재 plcTagLog 최대 id — 델타 폴링 워터마크 초기화용.
     /// </summary>
-    /// <returns>(address, value, maxLogId) 튜플 목록</returns>
-    Task<(Dictionary<string, string> TagValues, long MaxLogId)> GetLatestValuePerTagAsync();
+    /// <remarks>
+    /// 태그별 최신값 딕셔너리는 제공하지 않는다. 주소 키 딕셔너리는 멀티 PLC 에서 같은 주소가
+    /// collapse 되어 오귀속 소스가 되므로, 시드가 필요한 경로는 plcTagId 를 담은 로그
+    /// (<see cref="GetLogsAfterIdAsync"/>)로 상태를 채워야 한다.
+    /// </remarks>
+    Task<long> GetMaxLogIdAsync();
 
     /// <summary>
     /// 지정 ID 이후의 새 로그를 일괄 조회 (델타 폴링용). id ASC 정렬로 최대 <paramref name="limit"/>건 —

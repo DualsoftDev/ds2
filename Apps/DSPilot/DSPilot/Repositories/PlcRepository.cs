@@ -13,6 +13,20 @@ namespace DSPilot.Repositories;
 /// <summary>
 /// PLC 데이터 저장소 - Dapper 기반 SQLite 구현
 /// </summary>
+/// <remarks>
+/// <para><b>멀티 PLC 조회 스코프 규약</b> — 주소 기반 조회 쿼리는 모두 다음 두 조각을 함께 쓴다:</para>
+/// <code>
+/// LEFT JOIN plc p ON p.id = t.plcId
+/// ...
+/// AND (@SystemId IS NULL OR p.systemId = @SystemId)
+/// </code>
+/// <para>
+/// LEFT JOIN 이어야 plcId 가 끊긴 과거 행이 사라지지 않고, @SystemId 파라미터는 반드시
+/// <see cref="SystemKeyConvention.Scope(Guid?)"/> 로 만든다 — 표기(소문자 "D")가 <c>plc.systemId</c>
+/// 컬럼과 한 글자라도 어긋나면 예외 없이 결과가 0건이 되고, 빈 문자열을 넘기면 "전체 스코프"가 아니라
+/// systemId='' 인 행만 매칭된다. 스코프를 지정하지 않으면(null) 종전대로 주소 조건만으로 조회한다.
+/// </para>
+/// </remarks>
 public class PlcRepository : IPlcRepository
 {
     private readonly string _connectionString;
@@ -323,7 +337,7 @@ INNER JOIN max_times m
         {
             Addresses = addresses,
             AtOrBefore = atOrBeforeStr,
-            SystemId = Scope(systemId)
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return logs.ToList();
@@ -429,7 +443,7 @@ ORDER BY l.DateTime ASC";
             Address = address,
             StartTime = startStr,
             EndTime = endStr,
-            SystemId = Scope(systemId)
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return logs.ToList();
@@ -466,7 +480,7 @@ ORDER BY l.DateTime ASC";
             Addresses = addresses,
             StartTime = startStr,
             EndTime = endStr,
-            SystemId = Scope(systemId)
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         var logs = rows.Select(row => new PlcTagLogEntity
@@ -538,7 +552,7 @@ ORDER BY DateTime ASC, Id ASC";
             Addresses = addresses,
             StartTime = startStr,
             EndTime = endStr,
-            SystemId = Scope(systemId)
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return rows.Select(row => new PlcTagLogEntity
@@ -598,7 +612,7 @@ ORDER BY DateTime ASC, Id ASC";
             Address = address,
             StartTime = startStr,
             EndTime = endStr,
-            SystemId = Scope(systemId)
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
@@ -650,7 +664,7 @@ ORDER BY DateTime ASC, Id ASC";
             Address = address,
             StartTime = startStr,
             EndTime = endStr,
-            SystemId = Scope(systemId)
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
@@ -700,7 +714,7 @@ ORDER BY DateTime ASC, Id ASC";
             Address = address,
             StartTime = startStr,
             EndTime = endStr,
-            SystemId = Scope(systemId)
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return rows.Select(row => new PlcEdge(row.Id, ParseSqliteDateTime(row.DateTime))).ToList();
@@ -748,19 +762,11 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
         {
             Address = address,
             Count = count,
-            SystemId = Scope(systemId)
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
     }
-
-    /// <summary>
-    /// 조회 스코프용 System 키. plc.systemId 컬럼에 저장되는 표기(소문자 "D" 형식)와 정확히 같아야
-    /// 비교가 성립한다 — 쓰기 측 SimulationEngineService.SystemKey 와 같은 규약.
-    /// null 이면 SQL 의 <c>@SystemId IS NULL</c> 분기가 켜져 주소 조건만으로 조회한다(종전 동작).
-    /// </summary>
-    private static string? Scope(Guid? systemId) =>
-        systemId.HasValue ? systemId.Value.ToString("D").ToLowerInvariant() : null;
 
     private static DateTime ParseSqliteDateTime(string value)
     {
@@ -818,7 +824,7 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
         {
             Address = tagAddress,
             Count = count,
-            SystemId = Scope(systemId)
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return rows.Select(row => new PlcTagLogEntity
@@ -871,7 +877,7 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
                 Address = tagAddress,
                 StartTime = startStr,
                 EndTime = endStr,
-                SystemId = Scope(systemId)
+                SystemId = SystemKeyConvention.Scope(systemId)
             });
 
             return rows.Select(row => new PlcTagLogEntity
@@ -897,36 +903,17 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
     }
 
     /// <inheritdoc />
-    public async Task<(Dictionary<string, string> TagValues, long MaxLogId)> GetLatestValuePerTagAsync()
+    public async Task<long> GetMaxLogIdAsync()
     {
         using var connection = CreateConnection();
 
         if (!await RequiredTablesExistAsync(connection))
         {
-            _logger.LogDebug("Required tables (plcTag/plcTagLog) do not exist yet. Returning empty state.");
-            return (new Dictionary<string, string>(), 0L);
+            _logger.LogDebug("Required tables (plcTag/plcTagLog) do not exist yet. Returning 0 watermark.");
+            return 0L;
         }
 
-        // 모든 태그의 최신 로그 값을 단일 쿼리로 조회
-        const string sql = @"
-            SELECT t.address AS Address, l.value AS Value
-            FROM plcTag t
-            INNER JOIN plcTagLog l ON l.id = (
-                SELECT MAX(l2.id) FROM plcTagLog l2 WHERE l2.plcTagId = t.id
-            )
-            WHERE t.address IS NOT NULL AND t.address != ''";
-
-        var rows = await connection.QueryAsync<(string Address, string? Value)>(sql);
-        var dict = new Dictionary<string, string>();
-        foreach (var row in rows)
-        {
-            dict[row.Address] = row.Value ?? "0";
-        }
-
-        // 현재 최대 log ID 조회 (델타 폴링 시작점)
-        var maxId = await connection.ExecuteScalarAsync<long?>("SELECT MAX(id) FROM plcTagLog") ?? 0L;
-
-        return (dict, maxId);
+        return await connection.ExecuteScalarAsync<long?>("SELECT MAX(id) FROM plcTagLog") ?? 0L;
     }
 
     /// <inheritdoc />

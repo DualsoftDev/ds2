@@ -357,6 +357,27 @@ and SignalHub(
     /// null 이면 아직 config 가 조립/push 되지 않음(전송 생략).
     static let mutable collectorConfigCache : CollectorConfigPayload = Unchecked.defaultof<CollectorConfigPayload>
 
+    /// QueryTag 주소 모호(소유자 2개 이상) 경고 스로틀. Control 부팅 홈포지션 추론이 다수 주소를 연달아
+    /// 조회하므로 매 호출 경고하면 로그가 폭주한다. DSPilot 쪽 WarnAmbiguousTagOwner 와 같은 규약:
+    /// 60초에 1회만 남기고 그 사이 발생 건수를 동봉한다(경고 자체를 줄이지 않고 묶는다).
+    static let ambiguousQueryWarnInterval = TimeSpan.FromSeconds 60.0
+    static let ambiguousQueryWarnGate = obj ()
+    static let mutable ambiguousQueryWarnAt = DateTime.MinValue
+    static let mutable ambiguousQueryCount = 0
+
+    /// 모호 조회 1건 계상 — 스로틀 창이 열려 있으면 그때까지 누적 건수를 반환(없으면 None).
+    static let countAmbiguousQuery () =
+        lock ambiguousQueryWarnGate (fun () ->
+            ambiguousQueryCount <- ambiguousQueryCount + 1
+            let now = DateTime.UtcNow
+            if now - ambiguousQueryWarnAt >= ambiguousQueryWarnInterval then
+                ambiguousQueryWarnAt <- now
+                let pending = ambiguousQueryCount
+                ambiguousQueryCount <- 0
+                Some pending
+            else
+                None)
+
     /// Monitoring 모드 read-only flag. true 면 클라이언트 WriteTag/WriteTags 가 no-op.
     /// PlcScanService 의 PLC→Hub broadcast 는 영향 없음 (broadcaster 가 직접 SendAsync).
     static let mutable readOnlyMode = false
@@ -814,7 +835,10 @@ and SignalHub(
             | Ok (Some ownerSystemId) -> fromKey (TagKey.create ownerSystemId address)
             | Ok None -> None
             | Error owners ->
-                log.Warn($"QueryTag: address '{address}' 를 여러 PLC 가 보유해 값을 특정할 수 없습니다 (소유 연결 {owners.Length}개) — 빈 값 반환.")
+                match countAmbiguousQuery () with
+                | Some pending ->
+                    log.Warn($"QueryTag: address '{address}' 를 여러 PLC 가 보유해 값을 특정할 수 없습니다 (소유 연결 {owners.Length}개) — 빈 값 반환 (최근 {pending}건).")
+                | None -> ()
                 Some ""
         match resolved with
         | Some v -> Task.FromResult(v)

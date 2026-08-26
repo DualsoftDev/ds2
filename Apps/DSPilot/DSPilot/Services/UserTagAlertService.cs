@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.SignalR;
 using Ds2.Core;
 using Ds2.Editor;
 using DSPilot.Hubs;
+using DSPilot.Infrastructure;
 using DSPilot.Models.UserTagAlerts;
 using DSPilot.Repositories;
 using LoggingHelpers = Ds2.Core.LoggingHelpers;
@@ -51,14 +52,6 @@ public sealed class UserTagAlertService : BackgroundService
     // ★주소만으로 묶으면 한 PLC 의 해제가 다른 PLC 의 알람 배너를 지운다.
     private readonly Dictionary<string, ActiveUserAlarm> _activeUserAlarms =
         new(StringComparer.OrdinalIgnoreCase);
-
-    /// System 키 — plc.systemId 컬럼 표기(소문자 "D")와 같아야 로그 행과 매칭된다.
-    private static string SysKey(Guid systemId) =>
-        systemId == Guid.Empty ? "" : systemId.ToString("D").ToLowerInvariant();
-
-    private static string SysKey(string? systemId) =>
-        string.IsNullOrWhiteSpace(systemId) ? ""
-        : Guid.TryParse(systemId, out var g) ? SysKey(g) : "";
 
     /// (System, 주소) 복합키. System 이 미상이면 주소만 — 귀속 미상 로그의 폴백 경로와 키가 일치한다.
     private static string UserTagKey(string sysKey, string address) =>
@@ -242,7 +235,7 @@ public sealed class UserTagAlertService : BackgroundService
         foreach (var d in defs)
         {
             if (!byAddr.TryAdd(d.TagAddress, d)) shadowed.Add(d);
-            bySysAddr[UserTagKey(SysKey(d.SystemId), d.TagAddress)] = d;
+            bySysAddr[UserTagKey(SystemKeyConvention.Key(d.SystemId), d.TagAddress)] = d;
         }
         if (shadowed.Count > 0)
             _logger.LogWarning(
@@ -280,8 +273,7 @@ public sealed class UserTagAlertService : BackgroundService
         {
             try
             {
-                var (_, maxId) = await plcRepo.GetLatestValuePerTagAsync();
-                _lastCheckedLogId = maxId;
+                _lastCheckedLogId = await plcRepo.GetMaxLogIdAsync();
                 return;
             }
             catch (Exception ex)
@@ -318,13 +310,13 @@ public sealed class UserTagAlertService : BackgroundService
             // 멀티 PLC: 로그에 실려온 System 으로 정확히 매칭하고, 주소 단독 폴백은 **어느 한쪽이
             // System 을 모를 때만** 허용한다. 양쪽 다 귀속이 명확한데 (sys,addr) 미스라면 그 정의는
             // 다른 System 의 것이다 — 폴백시키면 PLC-A 신호가 B 전용 UserTag 를 발화시킨다(오귀속).
-            var logSysKey = SysKey(log.SystemId);
+            var logSysKey = SystemKeyConvention.Key(log.SystemId);
             if (!defsBySysSnap.TryGetValue(UserTagKey(logSysKey, log.Address), out var def))
             {
                 if (!defsSnap.TryGetValue(log.Address, out def)) continue;
                 // 로그도 정의도 System 이 밝혀져 있는데 복합키가 안 맞았다 = 남의 System 정의 → skip.
                 // (같은 System 이었다면 위 정본 인덱스에서 이미 잡혔다.)
-                if (logSysKey.Length > 0 && SysKey(def.SystemId).Length > 0) continue;
+                if (logSysKey.Length > 0 && SystemKeyConvention.Key(def.SystemId).Length > 0) continue;
             }
             var stateKey = UserTagKey(logSysKey, def.TagAddress);
 
