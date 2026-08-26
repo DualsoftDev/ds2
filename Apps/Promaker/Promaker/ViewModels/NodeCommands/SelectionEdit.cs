@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.Input;
@@ -315,7 +315,7 @@ public partial class MainViewModel
         if (_clipboardSelection.Count == 0)
         {
             // 내부 클립보드가 비었으면 OS 클립보드의 시스템 패키지(다른 인스턴스 복사분) 시도
-            if (TryPasteSystemPackageFromOsClipboard())
+            if (TryPasteSystemPackage())
                 return;
             StatusText = "Clipboard is empty.";
             return;

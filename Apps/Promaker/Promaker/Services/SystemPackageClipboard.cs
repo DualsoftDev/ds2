@@ -1,9 +1,11 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using Ds2.Core.Store;
 using Ds2.Editor;
@@ -22,6 +24,8 @@ namespace Promaker.Services;
 /// </summary>
 public static class SystemPackageClipboard
 {
+    private static readonly log4net.ILog Log = log4net.LogManager.GetLogger(typeof(SystemPackageClipboard));
+
     public const string EnvelopeType = "PromakerSystemPackage";
     public const int EnvelopeVersion = 1;
 
@@ -44,13 +48,91 @@ public static class SystemPackageClipboard
     {
         var pruned = store.BuildSystemPackageStore(roots.Select(r => r.Id));
         var storeJson = Ds2.Serialization.JsonConverter.serialize(pruned);
-        var appVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "";
-        var envelope = new Envelope(EnvelopeType, EnvelopeVersion, appVersion, roots.ToList(), storeJson);
+        var envelope = new Envelope(EnvelopeType, EnvelopeVersion, AppVersion, roots.ToList(), storeJson);
         return JsonSerializer.Serialize(envelope);
     }
 
+    /// <summary>실행 중인 프로메이커 버전 — 봉투/스풀 메타 공통.</summary>
+    public static string AppVersion =>
+        Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "";
+
+    /// <summary>
+    /// 클립보드 게시 결과. Flushed = OleFlushClipboard 성공(이 창을 닫아도 내용 유지),
+    /// Volatile = 플러시 실패로 이 프로세스 소유 상태로만 게시(창을 닫으면 내용 소멸),
+    /// Failed = 클립보드 게시 자체 불가(점유/차단) — 파일 채널(SystemPackageSpool)이 대신 성립시킨다.
+    /// </summary>
+    public enum WriteMode { Flushed, Volatile, Failed }
+
+    private const int SetRetryCount = 5;
+    private const int SetRetryDelayMs = 250;
+
+    /// <summary>
+    /// 봉투 JSON 을 클립보드에 게시. Windows 클립보드는 전역 단일 배타 자원이라
+    /// 다른 프로세스(클립보드 관리자·원격 데스크톱·Office 등)가 점유 중이면
+    /// OleSetClipboard 가 CLIPBRD_E_CANT_OPEN(0x800401D0) 으로 실패한다. WPF 자체 재시도
+    /// (10×100ms)만으로는 부족해 ①간격을 넓힌 재시도, ②플러시 없는 게시(copy:false)로
+    /// 2단 폴백한다. 둘 다 실패해도 <b>예외를 던지지 않고</b> Failed 를 돌려준다 — 파일 채널이
+    /// 이미 복사를 성립시켰으므로 클립보드 실패는 기능 실패가 아니다(호출부가 문구로만 안내).
+    ///
+    /// 스레드 계약: UI(STA) 스레드에서 호출할 것 — await 복귀 지점도 UI 스레드여야 하므로
+    /// SynchronizationContext 가 있는 곳에서만 호출한다.
+    /// </summary>
+    public static async Task<WriteMode> SetPackageTextAsync(string envelopeJson)
+    {
+        for (var attempt = 0; attempt < SetRetryCount; attempt++)
+        {
+            try
+            {
+                // copy:true = OleSetClipboard + OleFlushClipboard (프로세스 종료 후에도 유지)
+                Clipboard.SetDataObject(envelopeJson, copy: true);
+                return WriteMode.Flushed;
+            }
+            catch (Exception ex) when (IsClipboardBusy(ex))
+            {
+                // 결정적 실패(매 시도 동일 HRESULT)와 순간 경합을 사후 구분하기 위한 흔적.
+                Log.Warn($"Clipboard SetDataObject(copy:true) attempt {attempt + 1}/{SetRetryCount} failed — {Describe(ex, envelopeJson)}");
+                if (attempt < SetRetryCount - 1)
+                    await Task.Delay(SetRetryDelayMs);
+            }
+        }
+
+        // 폴백: 플러시 생략 — 클립보드 소유 시간이 짧아 성공률이 높다. 인스턴스 간 복사는
+        // 원본 창이 살아 있는 게 정상 시나리오라 실사용에 충분(창 닫으면 소멸은 호출부가 안내).
+        try
+        {
+            Clipboard.SetDataObject(envelopeJson, copy: false);
+            return WriteMode.Volatile;
+        }
+        catch (Exception ex) when (IsClipboardBusy(ex))
+        {
+            Log.Error($"Clipboard SetDataObject(copy:false) fallback failed — {Describe(ex, envelopeJson)}");
+        }
+
+        return WriteMode.Failed;
+    }
+
+    /// <summary>
+    /// 실패 원인 분류용 진단 문구. HRESULT 는 원인별로 다르고(0x800401D0=점유/OLE 미초기화),
+    /// 아파트먼트 상태·Dispatcher 접근은 스레드 계약 위반을 즉시 가려낸다.
+    /// </summary>
+    private static string Describe(Exception? ex, string envelopeJson)
+    {
+        var hr = ex is ExternalException ee ? $"0x{ee.ErrorCode:X8}" : "n/a";
+        var sta = Thread.CurrentThread.GetApartmentState();
+        var onUi = Application.Current?.Dispatcher.CheckAccess() ?? false;
+        var kb = envelopeJson.Length * 2 / 1024.0;
+        return $"hr={hr} apartment={sta} onDispatcher={onUi} payload={kb:F0}KB seq={GetClipboardSequenceNumber()} msg={ex?.Message}";
+    }
+
+    /// <summary>클립보드 점유/일시 실패 판별 — 그 외 예외(프로그래밍 오류)는 그대로 전파.</summary>
+    private static bool IsClipboardBusy(Exception ex) =>
+        ex is ExternalException or InvalidOperationException;
+
     [DllImport("user32.dll")]
     private static extern uint GetClipboardSequenceNumber();
+
+    /// <summary>현재 클립보드 시퀀스 번호 — 스풀이 "클립보드가 그 뒤로 안 바뀌었다"를 판정하는 근거.</summary>
+    public static uint CurrentSequence => GetClipboardSequenceNumber();
 
     private static uint _cachedSequence;
     private static bool _cachedHasPackage;
