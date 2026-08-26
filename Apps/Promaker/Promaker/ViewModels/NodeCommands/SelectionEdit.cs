@@ -12,6 +12,35 @@ namespace Promaker.ViewModels;
 
 public partial class MainViewModel
 {
+    /// <summary>
+    /// 붙여넣기/이동류 편집 작업의 BusyOverlay 실행 헬퍼 — 오버레이를 먼저 렌더(Yield)한 뒤
+    /// 본 작업을 실행하고, 트리 리빌드가 큐잉됐으면 리빌드 완료 시점에 해제 (파일 열기 패턴).
+    /// 다이얼로그가 필요한 분기는 다이얼로그를 먼저 다 받은 뒤 store 작업만 이 헬퍼로 감쌀 것
+    /// (BusyOverlay 가 입력을 차단하므로 오버레이와 모달이 겹치면 안 된다).
+    /// </summary>
+    private async void RunEditorWorkWithBusy(string busyMessage, Action work)
+    {
+        BusyMessage = busyMessage;
+        IsBusy = true;
+        try
+        {
+            await System.Windows.Threading.Dispatcher.Yield(
+                System.Windows.Threading.DispatcherPriority.Background);
+            work();
+        }
+        catch (Exception ex)
+        {
+            _dialogService.ShowWarning($"작업 실패:\n{ex.Message}");
+        }
+        finally
+        {
+            if (_rebuildQueued)
+                _pendingRebuildActions.Add(() => IsBusy = false);
+            else
+                IsBusy = false;
+        }
+    }
+
     [RelayCommand(CanExecute = nameof(CanDeleteSelected))]
     private void DeleteSelected()
     {
@@ -360,9 +389,9 @@ public partial class MainViewModel
         if (batchType == EntityKind.Flow)
         {
             if (_clipboardIsCut)
-                DispatchFlowMove(target.Value);
+                RunEditorWorkWithBusy("Flow 이동 중...", () => DispatchFlowMove(target.Value));
             else
-                PasteFlowsWithRename(target.Value);
+                PasteFlowsWithRename(target.Value);   // 이름 프롬프트 후 내부에서 busy 래핑
             return;
         }
 
@@ -376,7 +405,7 @@ public partial class MainViewModel
         // Cut + same flow (다른 Work) → MoveCallsToWork (1 undo step 일괄 이동)
         if (batchType == EntityKind.Call && _clipboardIsCut)
         {
-            DispatchCallMoveSameFlow(target.Value);
+            RunEditorWorkWithBusy("Call 이동 중...", () => DispatchCallMoveSameFlow(target.Value));
             return;
         }
 
@@ -388,29 +417,32 @@ public partial class MainViewModel
         }
 
         var pasteIndex = _pasteCount * _clipboardSelection.Count;
-        if (!TryEditorFunc(
-                () => _store.PasteEntities(
-                    batchType,
-                    _clipboardSelection.Select(k => k.Id),
-                    target.Value.EntityType,
-                    target.Value.EntityId,
-                    pasteIndex),
-                out PasteResult pasteResult,
-                fallback: PasteResult.NewOk(Microsoft.FSharp.Collections.ListModule.Empty<Guid>())))
-            return;
-
-        if (pasteResult is PasteResult.Blocked blocked)
+        RunEditorWorkWithBusy($"{batchType} 붙여넣는 중...", () =>
         {
-            if (blocked.Item.IsSameWorkPaste)
-                _dialogService.ShowWarning("같은 Work 내의 Call은 복사할 수 없습니다.");
-            else if (blocked.Item.IsDuplicateCallInWork)
-                _dialogService.ShowWarning("대상 Work에 이미 동일한 이름의 Call이 존재합니다.");
-            return;
-        }
+            if (!TryEditorFunc(
+                    () => _store.PasteEntities(
+                        batchType,
+                        _clipboardSelection.Select(k => k.Id),
+                        target.Value.EntityType,
+                        target.Value.EntityId,
+                        pasteIndex),
+                    out PasteResult pasteResult,
+                    fallback: PasteResult.NewOk(Microsoft.FSharp.Collections.ListModule.Empty<Guid>())))
+                return;
 
-        var pastedIds = ((PasteResult.Ok)pasteResult).Item;
-        _pasteCount++;
-        ApplyPasteSelection(pastedIds, $"Pasted {pastedIds.Length} {batchType}(s).");
+            if (pasteResult is PasteResult.Blocked blocked)
+            {
+                if (blocked.Item.IsSameWorkPaste)
+                    _dialogService.ShowWarning("같은 Work 내의 Call은 복사할 수 없습니다.");
+                else if (blocked.Item.IsDuplicateCallInWork)
+                    _dialogService.ShowWarning("대상 Work에 이미 동일한 이름의 Call이 존재합니다.");
+                return;
+            }
+
+            var pastedIds = ((PasteResult.Ok)pasteResult).Item;
+            _pasteCount++;
+            ApplyPasteSelection(pastedIds, $"Pasted {pastedIds.Length} {batchType}(s).");
+        });
     }
 
     /// <summary>
@@ -433,6 +465,17 @@ public partial class MainViewModel
         if (mode is null) return;  // cancelled
 
         var resolvedMode = mode;
+        // 디바이스 모드 다이얼로그를 받은 뒤의 store 작업만 busy — 오버레이/모달 겹침 방지.
+        RunEditorWorkWithBusy("Call 붙여넣는 중...", () => ExecuteCallAcrossFlows(target, resolvedMode));
+    }
+
+    private void ExecuteCallAcrossFlows(
+        (EntityKind EntityType, Guid EntityId) target, CrossFlowDeviceMode resolvedMode)
+    {
+        var targetWorkOpt = StoreHierarchyQueries.resolveTarget(_store, EntityKind.Work, target.EntityType, target.EntityId);
+        if (targetWorkOpt is null) return;
+        var targetWorkId = targetWorkOpt.Value;
+
         if (_clipboardIsCut)
         {
             if (!TryEditorFunc(
@@ -532,23 +575,29 @@ public partial class MainViewModel
         var workIds = _clipboardSelection.Select(k => k.Id).ToArray();
         if (!TryResolveWorkMoveDeviceMode(workIds, out var mode)) return;
 
-        TryEditorFunc(
-            () => _store.MoveWorksAcrossFlow(workIds, targetFlowOpt.Value, mode),
-            out var movedIds,
-            fallback: Microsoft.FSharp.Collections.ListModule.Empty<Guid>());
-        var moved = movedIds?.ToList() ?? new List<Guid>();
-        if (moved.Count > 0)
+        // 디바이스 모드 다이얼로그를 받은 뒤의 store 작업만 busy — 오버레이/모달 겹침 방지.
+        var targetFlowId = targetFlowOpt.Value;
+        var resolvedMode = mode;
+        RunEditorWorkWithBusy("Work 이동 중...", () =>
         {
-            _clipboardSelection.Clear();
-            _clipboardIsCut = false;
-            Selection.ApplyCutPendingVisuals([]);
-            ApplyPasteSelection(moved, $"Moved {moved.Count} Work(s) across Flow ({mode}).");
-            RefreshEditorCommandStates();
-        }
-        else
-        {
-            StatusText = "Nothing moved (invalid target).";
-        }
+            TryEditorFunc(
+                () => _store.MoveWorksAcrossFlow(workIds, targetFlowId, resolvedMode),
+                out var movedIds,
+                fallback: Microsoft.FSharp.Collections.ListModule.Empty<Guid>());
+            var moved = movedIds?.ToList() ?? new List<Guid>();
+            if (moved.Count > 0)
+            {
+                _clipboardSelection.Clear();
+                _clipboardIsCut = false;
+                Selection.ApplyCutPendingVisuals([]);
+                ApplyPasteSelection(moved, $"Moved {moved.Count} Work(s) across Flow ({resolvedMode}).");
+                RefreshEditorCommandStates();
+            }
+            else
+            {
+                StatusText = "Nothing moved (invalid target).";
+            }
+        });
     }
 
     private void ShowMoveValidationBlocked(CrossFlowMoveValidation v)
@@ -594,11 +643,13 @@ public partial class MainViewModel
 
     private void PasteFlowsWithRename((EntityKind EntityType, Guid EntityId) target)
     {
-        var pastedFlowIds = new List<Guid>();
-        var skippedMissingFlows = 0;
         var targetSystemIdOpt = StoreHierarchyQueries.resolveTarget(
             _store, EntityKind.System, target.EntityType, target.EntityId);
 
+        // 1) 이름 프롬프트를 먼저 전부 수집 — busy 오버레이와 모달이 겹치지 않게.
+        //    같은 배치에서 이미 정한 이름도 제안 목록에 반영 (코어 nextUniqueName 이 최종 가드).
+        var plans = new List<(Guid FlowId, Guid SysId, string NewName)>();
+        var skippedMissingFlows = 0;
         foreach (var key in _clipboardSelection)
         {
             if (!_store.FlowsReadOnly.TryGetValue(key.Id, out var srcFlow))
@@ -608,28 +659,40 @@ public partial class MainViewModel
             }
 
             var sysId = targetSystemIdOpt != null ? targetSystemIdOpt.Value : srcFlow.ParentId;
-            var existingNames = Queries.flowsOf(sysId, _store).Select(f => f.Name).ToList();
+            var existingNames = Queries.flowsOf(sysId, _store).Select(f => f.Name)
+                .Concat(plans.Where(p => p.SysId == sysId).Select(p => p.NewName))
+                .ToList();
             var suggestedName = GetUniqueName(srcFlow.Name, existingNames, "_");
             var newName = _dialogService.PromptName("Flow 복사 — 새 이름", suggestedName);
             if (newName is null) return;
-
-            if (!TryEditorRef(
-                    () => _store.PasteFlowWithRename(key.Id, sysId, newName),
-                    out var resultOpt))
-                return;
-
-            if (resultOpt != null)
-                pastedFlowIds.Add(resultOpt.Value);
+            plans.Add((key.Id, sysId, newName));
         }
 
-        var workIds = pastedFlowIds
-            .SelectMany(fId => Queries.worksOf(fId, _store))
-            .Select(w => w.Id)
-            .ToList();
+        // 2) 실제 붙여넣기(트리 복제 + 리빌드)는 busy 아래에서.
+        var skipped = skippedMissingFlows;
+        RunEditorWorkWithBusy("Flow 붙여넣는 중...", () =>
+        {
+            var pastedFlowIds = new List<Guid>();
+            foreach (var (flowId, sysId, newName) in plans)
+            {
+                if (!TryEditorRef(
+                        () => _store.PasteFlowWithRename(flowId, sysId, newName),
+                        out var resultOpt))
+                    return;
 
-        var status = skippedMissingFlows > 0
-            ? $"Pasted {pastedFlowIds.Count} Flow(s); skipped {skippedMissingFlows} missing Flow(s)."
-            : $"Pasted {pastedFlowIds.Count} Flow(s).";
-        ApplyPasteSelection(workIds, status);
+                if (resultOpt != null)
+                    pastedFlowIds.Add(resultOpt.Value);
+            }
+
+            var workIds = pastedFlowIds
+                .SelectMany(fId => Queries.worksOf(fId, _store))
+                .Select(w => w.Id)
+                .ToList();
+
+            var status = skipped > 0
+                ? $"Pasted {pastedFlowIds.Count} Flow(s); skipped {skipped} missing Flow(s)."
+                : $"Pasted {pastedFlowIds.Count} Flow(s).";
+            ApplyPasteSelection(workIds, status);
+        });
     }
 }

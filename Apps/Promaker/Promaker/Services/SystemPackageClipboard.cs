@@ -15,6 +15,10 @@ namespace Promaker.Services;
 /// payload = 폐포만 담은 부분 DsStore JSON. 직렬화기는 프로젝트 저장과 동일한
 /// Ds2.Serialization.JsonConverter (신규 wire format 없음 — 봉투는 얇은 라우팅 껍데기).
 /// 봉투 Version 불일치는 조용한 손실 방지를 위해 거부한다.
+///
+/// 스레드 계약: Clipboard 접근(TryGetRawText/HasPackage와 SetText 호출부)은 STA UI 스레드,
+/// 직렬화/파싱(BuildEnvelopeJson/ParseEnvelope/DeserializeStore)은 배경 스레드 안전 —
+/// 호출부가 Task.Run 으로 배경화해 UI 스피너를 살린다 (옵션 B).
 /// </summary>
 public static class SystemPackageClipboard
 {
@@ -31,24 +35,18 @@ public static class SystemPackageClipboard
     public sealed record Envelope(
         string Type, int Version, string AppVersion, List<RootEntry> Roots, string StoreJson);
 
-    /// <summary>선택 시스템들의 폐포를 부분 store 로 직렬화해 클립보드에 싣는다.</summary>
-    public static bool TryCopy(DsStore store, IReadOnlyList<RootEntry> roots, out string error)
+    /// <summary>
+    /// 선택 시스템들의 폐포를 부분 store 로 직렬화해 봉투 JSON 을 만든다.
+    /// 배경 스레드 안전 (store 는 읽기만) — 단 호출부가 실행 중 store 불변을 보장할 것
+    /// (BusyOverlay 입력 차단 + Revision 사전/사후 대조).
+    /// </summary>
+    public static string BuildEnvelopeJson(DsStore store, IReadOnlyList<RootEntry> roots)
     {
-        error = "";
-        try
-        {
-            var pruned = store.BuildSystemPackageStore(roots.Select(r => r.Id));
-            var storeJson = Ds2.Serialization.JsonConverter.serialize(pruned);
-            var appVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "";
-            var envelope = new Envelope(EnvelopeType, EnvelopeVersion, appVersion, roots.ToList(), storeJson);
-            Clipboard.SetText(JsonSerializer.Serialize(envelope));
-            return true;
-        }
-        catch (Exception ex)
-        {
-            error = ex.Message;
-            return false;
-        }
+        var pruned = store.BuildSystemPackageStore(roots.Select(r => r.Id));
+        var storeJson = Ds2.Serialization.JsonConverter.serialize(pruned);
+        var appVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "";
+        var envelope = new Envelope(EnvelopeType, EnvelopeVersion, appVersion, roots.ToList(), storeJson);
+        return JsonSerializer.Serialize(envelope);
     }
 
     [DllImport("user32.dll")]
@@ -61,6 +59,7 @@ public static class SystemPackageClipboard
     /// <summary>
     /// CanExecute 폴링용 저비용 체크 — 클립보드 시퀀스 번호로 캐시해서
     /// 클립보드 내용이 바뀐 경우에만 실제 텍스트를 읽는다 (수 MB 텍스트 반복 읽기 방지).
+    /// UI(STA) 스레드 전용.
     /// </summary>
     public static bool HasPackage()
     {
@@ -69,38 +68,34 @@ public static class SystemPackageClipboard
             return _cachedHasPackage;
         _cachedSequence = sequence;
         _cacheInitialized = true;
-        _cachedHasPackage = PeekEnvelope();
+        _cachedHasPackage = TryGetRawText() is not null;
         return _cachedHasPackage;
     }
 
-    private static bool PeekEnvelope()
+    /// <summary>클립보드에서 봉투 원문을 읽는다 (프리픽스 불일치/실패 시 null). UI(STA) 스레드 전용.</summary>
+    public static string? TryGetRawText()
     {
-        try
-        {
-            return Clipboard.ContainsText()
-                && Clipboard.GetText() is { } text
-                && text.StartsWith(EnvelopePrefix, StringComparison.Ordinal);
-        }
-        catch
-        {
-            // 클립보드 잠금 등 일시 실패 — 없음으로 간주 (다음 폴링에서 재시도)
-            return false;
-        }
-    }
-
-    /// <summary>봉투 파싱 + Version 가드. 반환 null 이면 error 에 사유(사용자 표시용).</summary>
-    public static Envelope? TryRead(out string error)
-    {
-        error = "";
         try
         {
             if (!Clipboard.ContainsText())
                 return null;
             var text = Clipboard.GetText();
-            if (!text.StartsWith(EnvelopePrefix, StringComparison.Ordinal))
-                return null;
+            return text.StartsWith(EnvelopePrefix, StringComparison.Ordinal) ? text : null;
+        }
+        catch
+        {
+            // 클립보드 잠금 등 일시 실패 — 없음으로 간주 (다음 폴링에서 재시도)
+            return null;
+        }
+    }
 
-            var envelope = JsonSerializer.Deserialize<Envelope>(text);
+    /// <summary>봉투 원문 파싱 + Version 가드. 배경 스레드 안전. null 이면 error 에 사유(사용자 표시용).</summary>
+    public static Envelope? ParseEnvelope(string rawText, out string error)
+    {
+        error = "";
+        try
+        {
+            var envelope = JsonSerializer.Deserialize<Envelope>(rawText);
             if (envelope is null || envelope.Roots is not { Count: > 0 } || string.IsNullOrEmpty(envelope.StoreJson))
             {
                 error = "클립보드의 시스템 패키지가 손상되었습니다.";
@@ -117,12 +112,12 @@ public static class SystemPackageClipboard
         }
         catch (Exception ex)
         {
-            error = $"클립보드 읽기 실패: {ex.Message}";
+            error = $"클립보드 패키지 파싱 실패: {ex.Message}";
             return null;
         }
     }
 
-    /// <summary>봉투 payload 를 소스 store 로 역직렬화 (ImportSystemsFrom 의 source 계약).</summary>
+    /// <summary>봉투 payload 를 소스 store 로 역직렬화 (ImportSystemsFrom 의 source 계약). 배경 스레드 안전.</summary>
     public static DsStore DeserializeStore(Envelope envelope) =>
         Ds2.Serialization.JsonConverter.deserialize<DsStore>(envelope.StoreJson);
 }
