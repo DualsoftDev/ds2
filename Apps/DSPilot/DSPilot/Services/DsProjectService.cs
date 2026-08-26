@@ -46,6 +46,9 @@ public class DsProjectService
     // AID 원천의 주소→시스템 이름 매핑 캐시 — LoadProject 마다 재구축(멀티 PLC 커버리지 그룹핑용).
     private volatile Dictionary<string, string>? _addressSystemMap;
 
+    // Flow 이름 → 소유 System Guid 캐시 — 멀티 PLC 이력 조회를 한 PLC 로 한정할 때 쓴다.
+    private volatile Dictionary<string, Guid>? _systemIdByFlowName;
+
     /// <summary>
     /// 외부에서 AASX 파일 콘텐츠가 변경됐을 때 발생. AasxFileWatcherService 가 발행.
     /// Settings 페이지가 구독해서 동기화 배지/토스트를 갱신.
@@ -83,6 +86,7 @@ public class DsProjectService
             _modelFlowNames = null;     // store 교체 — 다음 조회에서 재구축
             _modelFlowNamesAll = null;
             _addressSystemMap = null;
+            _systemIdByFlowName = null;
             LastLoadedUtc = DateTime.UtcNow;
             LastLoadedSha256 = ComputeFileSha256(path);
             if (result)
@@ -180,6 +184,41 @@ public class DsProjectService
     public List<Flow> GetAllFlowsIncludingDisabled()
     {
         return [.. Queries.allFlows(_store)];
+    }
+
+    /// <summary>
+    /// Flow 이름 → 소유 System Guid. 멀티 PLC 에서 이력 조회를 한 PLC 로 한정할 때 쓰는 표준 핸들이다
+    /// (<c>IPlcRepository</c> 의 <c>systemId</c> 인자). Flow.ParentId 가 곧 System Guid 라 유도는 1단계.
+    /// 이름이 중복되는 Flow 가 있으면 첫 번째만 잡히므로 null 대신 그 값을 쓰되, 그런 모델은
+    /// 애초에 Flow 이름으로 조회하는 모든 화면이 모호하다(이 메서드가 만든 문제가 아니다).
+    /// 미로드/미발견은 null → 호출부는 종전대로 전체 PLC 조회로 폴백한다.
+    /// </summary>
+    public Guid? TryGetSystemIdByFlowName(string? flowName)
+    {
+        if (string.IsNullOrWhiteSpace(flowName) || !IsLoaded) return null;
+        var map = _systemIdByFlowName;
+        if (map is null)
+        {
+            map = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            foreach (var flow in Queries.allFlows(_store))
+                map.TryAdd(flow.Name, flow.ParentId);
+            _systemIdByFlowName = map;
+        }
+        return map.TryGetValue(flowName.Trim(), out var systemId) ? systemId : null;
+    }
+
+    /// <summary>
+    /// Call Guid → 그 Call 을 담은 <b>능동</b> System Guid (Call→Work→Flow→System).
+    /// ※ <c>Queries.tryResolveCallTargetSystem</c> 은 호출 <i>대상</i> 디바이스(Passive) 시스템이라 다르다 —
+    ///   PLC 이력 귀속은 Call 을 소유한 쪽이므로 이 메서드를 쓸 것.
+    /// </summary>
+    public Guid? TryGetSystemIdByCallId(Guid callId)
+    {
+        if (!IsLoaded) return null;
+        var call = Queries.getCall(callId, _store);
+        if (!Microsoft.FSharp.Core.FSharpOption<Call>.get_IsSome(call)) return null;
+        var systemId = Queries.trySystemIdOfWork(call.Value.ParentId, _store);
+        return Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(systemId) ? systemId.Value : null;
     }
 
     /// <summary>

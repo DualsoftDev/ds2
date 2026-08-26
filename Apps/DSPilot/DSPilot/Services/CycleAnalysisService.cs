@@ -107,7 +107,10 @@ public class CycleAnalysisService
         var tag = ResolveWorkCompletionTag(flowName, workName);
         if (string.IsNullOrEmpty(tag)) return 0;
 
-        var edges = await _plcRepository.FindRisingEdgesAsync(tag, startUtc, endUtc);
+        // 멀티 PLC: 같은 주소를 다른 PLC 도 쓸 수 있으므로 이 Flow 의 PLC 로 한정한다
+        // (Flow.ParentId 가 곧 소유 System). 한정 안 하면 두 PLC 의 엣지가 합쳐져 개수가 부풀려진다.
+        var edges = await _plcRepository.FindRisingEdgesAsync(
+            tag, startUtc, endUtc, GetFlowByName(flowName)?.ParentId);
         return edges.Count;
     }
 
@@ -152,7 +155,9 @@ public class CycleAnalysisService
         if (!tags.HasValue || string.IsNullOrEmpty(tags.Value.OutTag)) return new();
 
         // 진영 B: Head OutTag↑(PLC 명령) = 사이클 시작 경계.
-        var edges = await _plcRepository.FindRisingEdgesAsync(tags.Value.OutTag, startTime, endTime);
+        // 멀티 PLC: 이 Flow 의 PLC 로 한정 — 안 하면 같은 주소를 쓰는 다른 PLC 의 엣지가 경계로 섞인다.
+        var edges = await _plcRepository.FindRisingEdgesAsync(
+            tags.Value.OutTag, startTime, endTime, flow.ParentId);
         return edges;
     }
 
@@ -187,9 +192,13 @@ public class CycleAnalysisService
 
         // 3개 쿼리를 병렬로 실행 — 각자 고유 SqliteConnection 사용해 contention 없음.
         // 직렬 합계 vs max 1개 → 시간 범위 클수록 효과 큼.
+        // 멀티 PLC: 이 Flow 의 PLC 로 한정 — 안 하면 같은 주소를 쓰는 다른 PLC 의 로그가 레인에 섞여
+        // IO 타임라인과 그 위에서 재도출되는 사이클이 통째로 틀어진다.
         var allTagsTask = _plcRepository.GetAllTagsAsync();
-        var latestBeforeTask = _plcRepository.GetLatestLogsByAddressesBeforeAsync(addresses, startTime);
-        var rangeLogsTask = _plcRepository.GetMultipleTagLogsInRangeAsync(addresses, startTime, endTime);
+        var latestBeforeTask = _plcRepository.GetLatestLogsByAddressesBeforeAsync(
+            addresses, startTime, flow.ParentId);
+        var rangeLogsTask = _plcRepository.GetMultipleTagLogsInRangeAsync(
+            addresses, startTime, endTime, flow.ParentId);
 
         await Task.WhenAll(allTagsTask, latestBeforeTask, rangeLogsTask);
 
