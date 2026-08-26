@@ -7,8 +7,11 @@
 
   <ItemGroup>
     <Compile Include="CsvTypes.fs" />
+    <Compile Include="BasicCsvTypes.fs" />
     <Compile Include="CsvParser.fs" />
+    <Compile Include="BasicCsvParser.fs" />
     <Compile Include="CsvMapper.fs" />
+    <Compile Include="BasicCsvMapper.fs" />
     <Compile Include="CsvImporter.fs" />
     <Compile Include="CsvExporter.fs" />
   </ItemGroup>

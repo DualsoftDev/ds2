@@ -33,6 +33,8 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="8"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="12"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
@@ -46,13 +48,59 @@
                                 Style="{StaticResource DarkButton}"
                                 Padding="12,4"
                                 Click="SaveSample_Click"/>
+                        <Button x:Name="CopyPromptButton"
+                                Grid.Column="4"
+                                Content="LLM 지침 복사"
+                                Style="{StaticResource DarkButton}"
+                                Padding="12,4"
+                                Visibility="Collapsed"
+                                ToolTip="ds2-basic-csv/v1 생성 지침을 클립보드에 복사합니다. ChatGPT·Gemini 등에 붙여넣고 공법을 설명하면 3열 CSV가 생성됩니다."
+                                Click="CopyPrompt_Click"/>
                         <TextBlock x:Name="SourceText"
-                                   Grid.Column="4"
+                                   Grid.Column="6"
                                    VerticalAlignment="Center"
                                    FontSize="12"
                                    Foreground="{DynamicResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"/>
                     </Grid>
+
+                    <TextBlock Text="CSV 형식"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Margin="0,4,0,4"/>
+                    <StackPanel Orientation="Horizontal"
+                                Margin="0,0,0,12">
+                        <RadioButton x:Name="StandardModeRadio"
+                                     GroupName="CsvImportMode"
+                                     IsChecked="True"
+                                     Checked="ImportMode_Checked"
+                                     Margin="0,0,32,0"
+                                     VerticalContentAlignment="Top">
+                            <StackPanel Margin="4,0,0,0">
+                                <TextBlock Text="표준 9열"
+                                           FontWeight="SemiBold"
+                                           FontSize="13"/>
+                                <TextBlock Text="Flow,Work,Device,System,Api + I/O 태그·주소"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           FontSize="11"
+                                           Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton x:Name="BasicModeRadio"
+                                     GroupName="CsvImportMode"
+                                     Checked="ImportMode_Checked"
+                                     VerticalContentAlignment="Top">
+                            <StackPanel Margin="4,0,0,0">
+                                <TextBlock Text="기본 3열 (ds2-basic-csv/v1)"
+                                           FontWeight="SemiBold"
+                                           FontSize="13"/>
+                                <TextBlock Text="FLOW,WORK,CALL — '&gt;' 순차 · ';' 병렬 DAG · 행 순서 = Work 실행 순서"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           FontSize="11"
+                                           Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </RadioButton>
+                    </StackPanel>
 
                     <TextBlock Text="CSV 내용"
                                FontSize="13"
@@ -139,6 +187,41 @@
                                 <DataGridTextColumn Header="InAddress" Binding="{Binding InAddress}" Width="80"/>
                                 <DataGridTextColumn Header="OutName" Binding="{Binding OutName}" Width="100"/>
                                 <DataGridTextColumn Header="OutAddress" Binding="{Binding OutAddress}" Width="*" MinWidth="80"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Border>
+
+                    <Border x:Name="BasicPreviewBorder"
+                            Background="{DynamicResource TertiaryBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="3"
+                            Margin="0,0,0,8"
+                            MinHeight="280"
+                            MaxHeight="400"
+                            Visibility="Collapsed">
+                        <DataGrid x:Name="BasicPreviewGrid"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  HeadersVisibility="Column"
+                                  GridLinesVisibility="All"
+                                  CanUserResizeColumns="True"
+                                  CanUserResizeRows="False"
+                                  CanUserSortColumns="False"
+                                  SelectionMode="Single"
+                                  FontSize="11"
+                                  Background="Transparent"
+                                  RowBackground="{DynamicResource TertiaryBackgroundBrush}"
+                                  AlternatingRowBackground="{DynamicResource SecondaryBackgroundBrush}"
+                                  BorderThickness="0"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Visible">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Flow" Binding="{Binding FlowName}" Width="110"/>
+                                <DataGridTextColumn Header="Work" Binding="{Binding WorkName}" Width="130"/>
+                                <DataGridTextColumn Header="Call 노드" Binding="{Binding NodeCount}" Width="70"/>
+                                <DataGridTextColumn Header="Start 엣지" Binding="{Binding EdgeCount}" Width="75"/>
+                                <DataGridTextColumn Header="Call 목록" Binding="{Binding CallSummary}" Width="*" MinWidth="220"/>
                             </DataGrid.Columns>
                         </DataGrid>
                     </Border>

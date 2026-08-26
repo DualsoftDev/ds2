@@ -36,7 +36,7 @@ module CsvParser =
                 |> sanitizePart
             if String.IsNullOrWhiteSpace(seed) then "Signal" else $"Signal_{seed}"
 
-    let private splitCsvLine (lineNumber: int) (line: string) : Result<string list, ParseError> =
+    let internal splitCsvLine (lineNumber: int) (line: string) : Result<string list, ParseError> =
         let values = ResizeArray<string>()
         let current = StringBuilder()
         let mutable index = 0
