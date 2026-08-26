@@ -315,11 +315,17 @@ public sealed class UserTagAlertService : BackgroundService
         {
             if (ct.IsCancellationRequested) break;
             if (string.IsNullOrEmpty(log.Address)) continue;
-            // 멀티 PLC: 로그에 실려온 System 으로 정확히 매칭하고, 귀속 미상(구버전 행)만 주소 폴백.
-            // 주소만으로 매칭하면 두 System 이 같은 주소를 정의했을 때 한쪽 정의가 통째로 죽는다.
+            // 멀티 PLC: 로그에 실려온 System 으로 정확히 매칭하고, 주소 단독 폴백은 **어느 한쪽이
+            // System 을 모를 때만** 허용한다. 양쪽 다 귀속이 명확한데 (sys,addr) 미스라면 그 정의는
+            // 다른 System 의 것이다 — 폴백시키면 PLC-A 신호가 B 전용 UserTag 를 발화시킨다(오귀속).
             var logSysKey = SysKey(log.SystemId);
-            if (!defsBySysSnap.TryGetValue(UserTagKey(logSysKey, log.Address), out var def)
-                && !defsSnap.TryGetValue(log.Address, out def)) continue;
+            if (!defsBySysSnap.TryGetValue(UserTagKey(logSysKey, log.Address), out var def))
+            {
+                if (!defsSnap.TryGetValue(log.Address, out def)) continue;
+                // 로그도 정의도 System 이 밝혀져 있는데 복합키가 안 맞았다 = 남의 System 정의 → skip.
+                // (같은 System 이었다면 위 정본 인덱스에서 이미 잡혔다.)
+                if (logSysKey.Length > 0 && SysKey(def.SystemId).Length > 0) continue;
+            }
             var stateKey = UserTagKey(logSysKey, def.TagAddress);
 
             matchedCount++;
