@@ -546,6 +546,16 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
                     error = $"AID InterfaceXGT config build failed: {string.Join(" / ", aidXgtPlan.Errors)}";
                     return false;
                 }
+                // 주소 중복 진단. System 간 중복은 복합키로 구분되는 정상 구성이라 정보 로그로만 남기고,
+                // 같은 System 안 중복은 복합키로도 못 갈라 사람이 모델을 고쳐야 하므로 경고로 남긴다.
+                foreach (var notice in aidXgtPlan.Notices)
+                {
+                    Log.Info($"[addr-dup] {notice}");
+                }
+                foreach (var warning in aidXgtPlan.Warnings)
+                {
+                    Log.Warn($"[addr-dup] {warning}");
+                }
                 gatewayConfig = aidXgtPlan.Config;
             }
             else if (aidSouthboundPlan is { HasBinding: true })

@@ -17,6 +17,8 @@ let private mapping (apiCallGuid: Guid) (callGuid: Guid) (outAddr: string) (inAd
     RxWorkGuid = rxWork
     OutAddress = outAddr
     InAddress = inAddr
+    // 이 테스트는 단일 System 시나리오라 귀속 미상(None) = System 필터 없음.
+    SystemId = None
 }
 
 /// SignalIOMap 을 mappings 리스트로부터 빌드.

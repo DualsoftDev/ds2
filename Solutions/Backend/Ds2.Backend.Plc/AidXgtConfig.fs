@@ -18,9 +18,18 @@ type AidXgtSignalDescriptor internal (connectionName: string, systemId: Guid opt
 /// C# Agent 호출을 위한 AID XGT 계획 결과.
 [<Sealed>]
 type AidXgtConfigResult internal
-    (config: PlcGatewayConfig, errors: string array, hasBinding: bool, signals: AidXgtSignalDescriptor array) =
+    (config: PlcGatewayConfig, errors: string array, warnings: string array, notices: string array,
+     hasBinding: bool, signals: AidXgtSignalDescriptor array) =
     member _.Config = config
     member _.Errors = errors
+    /// 활성화를 막지는 않지만 **사람이 모델을 고쳐야 하는** 사항. 현재는 같은 System 안 주소 충돌
+    /// (복합키로도 구분 불가). Errors 와 달리 Success 판정에 영향을 주지 않는다 — 기존 현장이 그대로
+    /// 뜨는 게 우선이고, 대신 눈에 띄게 남긴다.
+    member _.Warnings = warnings
+    /// 정상 지원되는 구성인데 기록해 둘 가치가 있는 사항. 현재는 System 간 주소 중복 —
+    /// (SystemId, 주소) 복합키로 구분되므로 조치가 필요 없다. 다만 systemId 를 안 싣는 구버전
+    /// 수집기/DSPilot 이 섞이면 여전히 구분이 안 되므로 진단 근거로 남긴다.
+    member _.Notices = notices
     member _.HasBinding = hasBinding
     member _.Signals = signals
     member _.Success = not (obj.ReferenceEquals(config, null)) && errors.Length = 0
@@ -153,10 +162,41 @@ module AidXgtGatewayConfig =
         if connections.Count = 0 && errors.Count = 0 then
             errors.Add "AASX에 InterfaceXGT 바인딩이 없습니다."
 
+        // 연결(=PLC) 간 주소 중복 진단. 주소는 System 마다 독립적으로 쓸 수 있게 설계돼 있고
+        // 하위 계층이 (SystemId, 주소) 복합키를 쓰므로 System 간 중복은 **에러도 경고도 아니다**(정보).
+        // 반면 같은 System 안 중복은 복합키로도 못 가르므로 사람이 고쳐야 한다 → 경고.
+        let describeOwners (dup: TagAddressDuplicate) =
+            dup.Owners
+            |> List.map (fun o ->
+                match o.SystemId with
+                | Some sid -> sprintf "%s(system %O)" o.ConnectionName sid
+                | None     -> sprintf "%s(system 미상)" o.ConnectionName)
+            |> String.concat ", "
+        let duplicates = PlcGatewayConfig.duplicateAddresses { Connections = List.ofSeq connections }
+        let notices =
+            duplicates
+            |> List.filter (fun dup -> dup.Conflict = AcrossSystems)
+            |> List.map (fun dup ->
+                sprintf
+                    "주소 '%s'를 서로 다른 System 의 PLC 가 함께 사용합니다: %s. \
+                     (SystemId, 주소) 복합키로 구분되므로 조치는 필요 없습니다. \
+                     단, systemId 를 싣지 않는 구버전 수집기/DSPilot 이 섞여 있으면 구분되지 않습니다."
+                    dup.Address (describeOwners dup))
+        let warnings =
+            duplicates
+            |> List.filter (fun dup -> dup.Conflict = WithinSameSystem)
+            |> List.map (fun dup ->
+                sprintf
+                    "주소 '%s'를 같은 System(또는 귀속 미상)의 연결 여러 개가 사용합니다: %s. \
+                     복합키로도 구분되지 않으므로 모델의 주소 배정을 수정해야 합니다."
+                    dup.Address (describeOwners dup))
+
         let config =
             if errors.Count > 0 then Unchecked.defaultof<PlcGatewayConfig>
             else { Connections = List.ofSeq connections }
-        AidXgtConfigResult(config, errors.ToArray(), index > 0, signals.ToArray())
+        AidXgtConfigResult(
+            config, errors.ToArray(), List.toArray warnings, List.toArray notices,
+            index > 0, signals.ToArray())
 
     let build (aid: AssetInterfacesDescription) : AidXgtConfigResult =
         let empty = Dictionary<string, int>() :> IReadOnlyDictionary<string, int>
@@ -202,6 +242,10 @@ module AidXgtGatewayConfig =
         // One-System legacy files had no endpoint owner.  The association is
         // unambiguous there, so normalize it before the plan is built/exported.
         bindLegacyEndpointsToOnlySystem systems aid
+        // 중복 주소 모델은 AASX 저장까지는 성공하고 활성화에서만 실패하므로, 현장에 "저장은 됐는데
+        // 안 뜨는" 파일이 이미 있을 수 있다. 같은 자동 분화 규칙으로 여기서 복구해 사용자가
+        // 아무것도 하지 않아도 뜨게 한다(systemRef 귀속이 끝난 뒤여야 한정자를 만들 수 있어 순서가 중요).
+        AidXgtEndpointSettings.deduplicateSignalIds aid |> ignore
         let policies =
             systems
             |> Seq.collect (fun system ->
@@ -215,5 +259,7 @@ module AidXgtGatewayConfig =
             AidXgtConfigResult(
                 Unchecked.defaultof<PlcGatewayConfig>,
                 Array.append result.Errors (ownershipErrors |> List.toArray),
+                result.Warnings,
+                result.Notices,
                 result.HasBinding,
                 result.Signals)

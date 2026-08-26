@@ -68,6 +68,9 @@ type HubClientPusher(hubCfg: HubConfig, buffer: EventLog, chunkSize: int,
           Value = change.Value
           Source = change.Source
           OriginTsMs = change.OriginTsMs
+          // 소유 System 전파 — Agent 가 CollectorConfig 로 내려준 systemId 가 여기까지 와야
+          // 분리 아키텍처(Pi5 수집)에서도 멀티 PLC 주소 중복이 구분된다. "" = 미지정(레거시).
+          SystemId = TagWriteSystem.ofGuid change.SystemId
           // 스캔 직후 각인된 event_log.wall_clock_ms — DSPilot 이 plcTagLog.dateTime 을 이 값으로 기록해
           // 핑 두절→replay 시 신호가 원래 시각으로 복원된다(도착시각으로 찍으면 복구 순간에 뭉침).
           WallClockMs = wallClockMs }

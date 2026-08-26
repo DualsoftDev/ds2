@@ -218,7 +218,34 @@ type TagWrite = {
     /// 핑 두절→버퍼 replay 시 신호가 원래 시각으로 복원된다(없으면 replay 가 복구 순간에 뭉쳐 그래프 왜곡).
     /// 0 = 미제공(구버전 송신자) → 수신측은 도착시각 폴백.
     WallClockMs: int64
+    /// 이 태그를 보유한 PLC 의 소유 System(Guid 문자열). 멀티 PLC 에서 서로 다른 PLC 가 같은 주소를
+    /// 쓸 수 있어 주소 단독으로는 식별이 안 되므로, 수신측이 (SystemId, 주소) 복합키로 귀속시킨다.
+    /// **"" 또는 null = 미제공(구버전 송신자)** → 수신측은 주소 단독 폴백(소유자가 유일하면 확정,
+    /// 중복이면 귀속 불가로 처리). WallClockMs 의 "0 = 미제공" 과 같은 추가형 진화 규약이며,
+    /// 절대 필수 필드로 만들지 말 것 — 구버전 수집기 스트림이 통째로 거부되어 수집이 죽는다.
+    SystemId: string
 }
+
+/// TagWrite.SystemId 취급 규약. C# 은 CLIMutable 레코드를 object initializer 로 만들기 때문에
+/// 필드를 안 채우면 "" 이 아니라 **null** 이 들어온다 — 반드시 이 헬퍼로 정규화할 것.
+[<RequireQualifiedAccess>]
+module TagWriteSystem =
+    /// 미제공(구버전 송신자)인가. null 과 "" 를 동일 취급.
+    let isUnset (systemId: string) = String.IsNullOrWhiteSpace systemId
+
+    /// 와이어 값 → Guid option. 파싱 실패(구버전·손상값)는 None = 귀속 미상으로 흡수한다.
+    let toGuid (systemId: string) : Guid option =
+        if isUnset systemId then None
+        else
+            match Guid.TryParse systemId with
+            | true, value -> Some value
+            | _ -> None
+
+    /// Guid option → 와이어 값. None 은 "" (미제공).
+    let ofGuid (systemId: Guid option) : string =
+        match systemId with
+        | Some value -> value.ToString()
+        | None -> ""
 
 /// PLC 어댑터 1개의 연결 상태 스냅샷. SignalR JSON 직렬화로 양방향 전달되는 contract.
 /// 같은 이유로 [<CLIMutable>] 필요 — DSPilot 측 System.Text.Json 역직렬화 호환.
@@ -285,6 +312,10 @@ type CollectorConnectionConfig = {
     [<JsonPropertyName("localEthernet")>] LocalEthernet: bool
     [<JsonPropertyName("timeoutMs")>]     TimeoutMs: int
     [<JsonPropertyName("scanMs")>]        ScanMs: int
+    /// 이 접속을 소유한 System(Guid 문자열). 수집기가 push 하는 TagWrite.SystemId 의 출처 —
+    /// 이게 있어야 분리 아키텍처(Pi5)에서도 멀티 PLC 주소 중복이 구분된다.
+    /// "" = 미지정(레거시 단일 System·수동 설정). 구버전 수집기는 이 필드를 무시하므로 추가는 안전.
+    [<JsonPropertyName("systemId")>]      SystemId: string
     [<JsonPropertyName("tags")>]          Tags: CollectorTagConfig[]
 }
 

@@ -87,12 +87,14 @@ let ``Pi5 delegated ingress preserves the accepted WriteTags batch`` () =
              Value = "true"
              Source = HubSource.Plc
              OriginTsMs = 123L
-             WallClockMs = 456L }
+             WallClockMs = 456L
+             SystemId = "" }
            { Address = "%IX0.0.2"
              Value = "17"
              Source = HubSource.Plc
              OriginTsMs = 124L
-             WallClockMs = 457L } |]
+             WallClockMs = 457L
+             SystemId = "" } |]
     let mutable received : RuntimeIOAddressBatchCommand option = None
 
     SignalHubRuntimeIngress.injectBatch identity items (fun command ->

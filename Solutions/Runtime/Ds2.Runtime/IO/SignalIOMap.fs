@@ -13,6 +13,11 @@ type SignalMapping = {
     RxWorkGuid: Guid option
     OutAddress: string          // OutTag.Address (빈 문자열이면 매핑 없음)
     InAddress: string           // InTag.Address
+    /// 이 Call 을 소유한 System (Call→Work→Flow→System). 주소 맵이 주소 단독 키라
+    /// 서로 다른 PLC 가 같은 주소를 쓰면 한 신호가 두 System 의 Call 을 모두 발화시킨다(팬아웃).
+    /// 관측값에 실려온 SystemId 와 이 값을 대조해 남의 System 신호를 걸러낸다.
+    /// None = 귀속 미상(그래프가 끊긴 경우) → 종전대로 필터 없이 통과.
+    SystemId: Guid option
 }
 
 /// 빌드타임 IO 매핑 결과
@@ -67,7 +72,24 @@ module SignalIOMap =
             | Some ids -> store.Calls.Values |> Seq.filter (fun c -> ids.Contains c.Id)
             | None -> store.Calls.Values :> seq<_>
 
+        // Call → Work → Flow → System 부모 체인으로 소유 System 을 유도한다.
+        // (Ds2.Core 는 수정하지 않는다 — 기존 조회 API 만 사용.)
+        // Flow 단위로 결과를 캐시: 한 Flow 의 Call 이 수십~수백 개라 매번 2단 조회는 낭비다.
+        let systemIdByFlow = System.Collections.Generic.Dictionary<Guid, Guid option>()
+        let systemIdOfCall (call: Call) : Guid option =
+            match Queries.getWork call.ParentId store with
+            | None -> None
+            | Some work ->
+                match systemIdByFlow.TryGetValue work.ParentId with
+                | true, cached -> cached
+                | _ ->
+                    let resolved =
+                        Queries.getFlow work.ParentId store |> Option.map (fun flow -> flow.ParentId)
+                    systemIdByFlow.[work.ParentId] <- resolved
+                    resolved
+
         for call in calls do
+            let callSystemId = systemIdOfCall call
             for apiCall in call.ApiCalls do
                 let apiDef =
                     apiCall.ApiDefId
@@ -86,6 +108,7 @@ module SignalIOMap =
                         RxWorkGuid = apiDef |> Option.bind (fun d -> d.RxGuid)
                         OutAddress = outAddr
                         InAddress = inAddr
+                        SystemId = callSystemId
                     })
 
         let list = mappings |> Seq.toList

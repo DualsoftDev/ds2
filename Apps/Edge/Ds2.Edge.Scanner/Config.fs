@@ -21,6 +21,9 @@ type ConnDto =
       localEthernet: bool
       timeoutMs: int
       scanMs: int
+      /// 이 접속을 소유한 System(Guid 문자열). Agent 가 CollectorConfig 로 내려준다.
+      /// "" 또는 누락(구버전 Agent) = 미지정 → 종전처럼 귀속 없이 동작.
+      systemId: string
       tags: TagDto[] }
 
 /// SignalR Hub 접속 설정.
@@ -85,9 +88,16 @@ let private toPlcConfig (conns: ConnDto[]) : PlcGatewayConfig =
         |> Array.toList
         |> List.map (fun c ->
             { Name = c.name
-              // SystemId: multi-System(멀티 PLC) 스코프 태그. 엣지 스캐너는 collector.json 한 벌 =
-              // 단일 접속이라 None. (Agent 가 CollectorConfig 로 내려줄 땐 System 스코프가 이미 반영됨.)
-              SystemId = None
+              // SystemId: multi-System(멀티 PLC) 스코프 태그. Agent 가 CollectorConfig 로 내려준 값을
+              // 그대로 신는다 — 이게 있어야 스캔한 태그마다 소유 System 이 각인돼(PlcTagChange.SystemId)
+              // 서로 다른 PLC 의 같은 주소가 수신측에서 구분된다.
+              // 구버전 Agent payload 에는 이 필드가 없어 null → None(종전 동작).
+              SystemId =
+                if String.IsNullOrWhiteSpace c.systemId then None
+                else
+                    match Guid.TryParse c.systemId with
+                    | true, sid -> Some sid
+                    | _ -> None
               Vendor = toVendor c.vendor
               IpAddress = c.ip
               Port = c.port
@@ -170,6 +180,8 @@ let applyCollectorConfig (cfgPath: string) (payload: CollectorConfigPayload) (lo
             |> Array.map (fun ac ->
                 { name = ac.Name; vendor = ac.Vendor; ip = ac.Ip; port = ac.Port
                   localEthernet = ac.LocalEthernet; timeoutMs = ac.TimeoutMs; scanMs = ac.ScanMs
+                  // 구버전 Agent 는 이 필드를 안 보내 null 이 온다 — plc.json 엔 "" 로 기록.
+                  systemId = (if isNull ac.SystemId then "" else ac.SystemId)
                   tags = (if isNull ac.Tags then [||] else ac.Tags) |> Array.map toTag })
         let outDto =
             match localDto with

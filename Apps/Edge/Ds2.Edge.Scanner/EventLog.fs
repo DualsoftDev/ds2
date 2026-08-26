@@ -58,6 +58,15 @@ type EventLog(dbPath: string, retentionMs: float, maxRows: int, log: string -> u
             );
             """
         ddl.ExecuteNonQuery() |> ignore
+        // system_id 추가 마이그레이션. CREATE TABLE IF NOT EXISTS 는 기존 파일에 컬럼을 더해주지 않으므로
+        // 구버전 수집기가 만든 버퍼에는 ALTER 가 필요하다. 이미 있으면 예외가 나므로 조용히 흡수한다.
+        // 옛 행은 system_id='' (귀속 미상) → 수신측이 주소 단독 폴백. 리텐션(기본 1시간)으로 곧 사라진다.
+        (try
+            use alter = conn.CreateCommand()
+            alter.CommandText <- "ALTER TABLE event_log ADD COLUMN system_id TEXT NOT NULL DEFAULT ''"
+            alter.ExecuteNonQuery() |> ignore
+            log "[buffer] event_log.system_id 컬럼 추가(구버전 버퍼 마이그레이션)"
+         with _ -> ())
         // 앵커 캡처 — 첫 Append 전에 이전 세션 마지막 행을 읽는다(이후엔 현재 세션 행으로 덮이므로 지금).
         use anchorCmd = conn.CreateCommand()
         anchorCmd.CommandText <- "SELECT seq, origin_ts_ms, wall_clock_ms FROM event_log ORDER BY seq DESC LIMIT 1"
@@ -135,18 +144,22 @@ type EventLog(dbPath: string, retentionMs: float, maxRows: int, log: string -> u
                 use cmd = conn.CreateCommand()
                 cmd.Transaction <- tx
                 cmd.CommandText <-
-                    "INSERT INTO event_log(origin_ts_ms, wall_clock_ms, addr, value, source) VALUES(@o,@w,@a,@v,@s)"
+                    "INSERT INTO event_log(origin_ts_ms, wall_clock_ms, addr, value, source, system_id) VALUES(@o,@w,@a,@v,@s,@sys)"
                 let pO = cmd.Parameters.Add("@o", SqliteType.Integer)
                 let pW = cmd.Parameters.Add("@w", SqliteType.Integer)
                 let pA = cmd.Parameters.Add("@a", SqliteType.Text)
                 let pV = cmd.Parameters.Add("@v", SqliteType.Text)
                 let pS = cmd.Parameters.Add("@s", SqliteType.Text)
+                let pSys = cmd.Parameters.Add("@sys", SqliteType.Text)
                 for ch in changes do
                     pO.Value <- ch.OriginTsMs
                     pW.Value <- wallNow
                     pA.Value <- ch.HubAddress
                     pV.Value <- ch.Value
                     pS.Value <- ch.Source
+                    // 소유 System 을 버퍼에도 각인 — 두절 중 쌓인 행을 나중에 replay 할 때도
+                    // 어느 PLC 의 신호였는지 유지돼야 수신측이 주소 중복을 구분할 수 있다.
+                    pSys.Value <- (match ch.SystemId with Some sid -> string sid | None -> "")
                     cmd.ExecuteNonQuery() |> ignore
                 tx.Commit())
 
@@ -159,7 +172,7 @@ type EventLog(dbPath: string, retentionMs: float, maxRows: int, log: string -> u
         lock gate (fun () ->
             use cmd = conn.CreateCommand()
             cmd.CommandText <-
-                "SELECT seq, origin_ts_ms, wall_clock_ms, addr, value, source FROM event_log WHERE seq > @o ORDER BY seq ASC LIMIT @n"
+                "SELECT seq, origin_ts_ms, wall_clock_ms, addr, value, source, system_id FROM event_log WHERE seq > @o ORDER BY seq ASC LIMIT @n"
             cmd.Parameters.AddWithValue("@o", offset) |> ignore
             cmd.Parameters.AddWithValue("@n", chunk) |> ignore
             use rdr = cmd.ExecuteReader()
@@ -167,11 +180,21 @@ type EventLog(dbPath: string, retentionMs: float, maxRows: int, log: string -> u
                 let seq = rdr.GetInt64 0
                 let rawOrigin = rdr.GetInt64 1
                 let wall = rdr.GetInt64 2
+                // 구버전 버퍼에서 마이그레이션된 행은 '' — 귀속 미상으로 흡수(수신측 주소 단독 폴백).
+                let systemId =
+                    if rdr.IsDBNull 6 then None
+                    else
+                        match Guid.TryParse(rdr.GetString 6) with
+                        | true, sid -> Some sid
+                        | _ -> None
                 let change =
                     { HubAddress = rdr.GetString 3
                       Value = rdr.GetString 4
                       Source = rdr.GetString 5
-                      OriginTsMs = restoreOrigin seq rawOrigin wall }  // 전송값 = 복원
+                      OriginTsMs = restoreOrigin seq rawOrigin wall   // 전송값 = 복원
+                      SystemId = systemId
+                      // 연결 이름은 버퍼에 담지 않는다(진단용일 뿐이고 행마다 반복 저장할 가치가 없다).
+                      ConnectionName = "" }
                 yield (seq, change, wall) ])
 
     /// Agent 가 처리 확정한 마지막 seq. 이 값보다 큰 것만 재전송.

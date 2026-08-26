@@ -33,4 +33,13 @@
     <ProjectReference Include="..\..\Backend\Ds2.Backend.Plc\Ds2.Backend.Plc.fsproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- PlcTagDef.DataType 의 형식(CoreDataTypesModule.PlcDataType)이 이 어셈블리에 정의돼 있어,
+         테스트가 PlcGatewayConfig 를 직접 조립하려면 참조가 필요하다(F# 형식 이름 해석 요구). -->
+    <Reference Include="Ev2.PLC.Common.FS">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Common.FS.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
 </Project>
