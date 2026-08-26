@@ -102,6 +102,91 @@ public class DspRepositoryAdapter : IDspRepository
         }
     }
 
+    /// <summary>
+    /// plcTag 의 주소 유일성을 address 단독 → (plcId, address) 로 교체한다.
+    /// 멀티 PLC 에서 서로 다른 PLC 가 같은 주소를 쓸 수 있어야 하기 때문. SQLite 는 제약 삭제가
+    /// 불가해 테이블 재작성이 유일한 방법이다.
+    ///
+    /// ★id 를 반드시 보존한다 — plcTagLog.plcTagId(수백만 행)가 이 값을 참조하므로 id 가 바뀌면
+    ///   이력 전체가 끊긴다. plcTagLog 자체는 건드리지 않는다(테이블이 크고 손댈 이유도 없다).
+    /// ★AUTOINCREMENT 를 유지한다 — 빼면 삭제된 id 가 재사용되어 옛 plcTagLog 행이 엉뚱한 태그에
+    ///   붙을 수 있다.
+    /// 판정은 "컬럼이 address 하나뿐인 UNIQUE 인덱스가 있는가" 로 한다(DDL 문자열 매칭은 취약).
+    /// 이미 교체된 DB 에서는 아무 것도 하지 않는다(멱등).
+    /// </summary>
+    private async Task MigratePlcTagUniquenessAsync(SqliteConnection conn)
+    {
+        try
+        {
+            if (!await TableExistsAsync(conn, "plcTag")) return;
+
+            var needsMigration = false;
+            var indexes = (await conn.QueryAsync("PRAGMA index_list('plcTag')")).ToList();
+            foreach (var idx in indexes)
+            {
+                var row = (IDictionary<string, object?>)idx;
+                var name = row.TryGetValue("name", out var n) ? n?.ToString() : null;
+                var isUnique = row.TryGetValue("unique", out var u) && Convert.ToInt64(u) == 1;
+                if (!isUnique || string.IsNullOrEmpty(name)) continue;
+
+                var cols = (await conn.QueryAsync<string>(
+                    $"SELECT name FROM pragma_index_info('{name}')")).ToList();
+                if (cols.Count == 1 && string.Equals(cols[0], "address", StringComparison.OrdinalIgnoreCase))
+                {
+                    needsMigration = true;
+                    break;
+                }
+            }
+
+            if (!needsMigration) return;
+
+            var before = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM plcTag");
+
+            // foreign_keys PRAGMA 는 트랜잭션 안에서 바꿀 수 없어 밖에서 끈다.
+            await conn.ExecuteAsync("PRAGMA foreign_keys=off");
+            try
+            {
+                using var tx = conn.BeginTransaction();
+                await conn.ExecuteAsync(@"
+                    CREATE TABLE plcTag_migrate (
+                        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                        plcId     INTEGER NOT NULL DEFAULT 1,
+                        name      NVARCHAR(128) NOT NULL,
+                        address   NVARCHAR(128) NOT NULL,
+                        dataType  NVARCHAR(32)  NOT NULL DEFAULT 'BOOL',
+                        UNIQUE(plcId, address)
+                    )", transaction: tx);
+                await conn.ExecuteAsync(@"
+                    INSERT INTO plcTag_migrate (id, plcId, name, address, dataType)
+                    SELECT id, plcId, name, address, dataType FROM plcTag", transaction: tx);
+                await conn.ExecuteAsync("DROP TABLE plcTag", transaction: tx);
+                await conn.ExecuteAsync("ALTER TABLE plcTag_migrate RENAME TO plcTag", transaction: tx);
+                tx.Commit();
+            }
+            finally
+            {
+                await conn.ExecuteAsync("PRAGMA foreign_keys=on");
+            }
+
+            var after = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM plcTag");
+            var orphans = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM plcTagLog l LEFT JOIN plcTag t ON t.id = l.plcTagId WHERE t.id IS NULL");
+            _logger.LogInformation(
+                "plcTag 유일성 마이그레이션 완료 — UNIQUE(address) → UNIQUE(plcId, address). " +
+                "행 {Before}→{After} (id 보존), 고아 plcTagLog {Orphans}건",
+                before, after, orphans);
+            if (before != after || orphans > 0)
+                _logger.LogError(
+                    "plcTag 마이그레이션 정합성 이상 — 행 {Before}→{After}, 고아 {Orphans}. 확인 필요.",
+                    before, after, orphans);
+        }
+        catch (Exception ex)
+        {
+            // 실패해도 부팅은 계속한다(구 제약이 남아 멀티 PLC 만 안 되는 상태 = 종전 동작).
+            _logger.LogError(ex, "plcTag 유일성 마이그레이션 실패 — 기존 제약 유지");
+        }
+    }
+
     private async Task EnsureIsIdleColumnAsync(SqliteConnection conn)
     {
         var exists = await ColumnExistsAsync(conn, HistoryTable, "IsIdle");
@@ -252,13 +337,17 @@ public class DspRepositoryAdapter : IDspRepository
                     connection TEXT
                 )";
 
+            // 주소 유일성은 **PLC 단위**다 — 멀티 PLC 에서 서로 다른 PLC 가 같은 주소를 쓸 수 있어
+            // address 단독 UNIQUE 로 두면 두 번째 PLC 의 태그 행이 아예 안 생기고 두 PLC 의 신호가
+            // 한 plcTagId 이력으로 섞인다(복구 불가). 기존 DB 는 MigratePlcTagUniquenessAsync 가 교체.
             const string createPlcTag = @"
                 CREATE TABLE IF NOT EXISTS plcTag (
                     id        INTEGER PRIMARY KEY AUTOINCREMENT,
                     plcId     INTEGER NOT NULL DEFAULT 1,
                     name      NVARCHAR(128) NOT NULL,
-                    address   NVARCHAR(128) NOT NULL UNIQUE,
-                    dataType  NVARCHAR(32)  NOT NULL DEFAULT 'BOOL'
+                    address   NVARCHAR(128) NOT NULL,
+                    dataType  NVARCHAR(32)  NOT NULL DEFAULT 'BOOL',
+                    UNIQUE(plcId, address)
                 )";
 
             const string createPlcTagLog = @"
@@ -348,6 +437,14 @@ public class DspRepositoryAdapter : IDspRepository
             await conn.ExecuteAsync(createPlc);
             await conn.ExecuteAsync(createPlcTag);
             await conn.ExecuteAsync(createPlcTagLog);
+            // plc 에 소유 System 각인 — 이름이 아니라 이 컬럼이 귀속의 키다(System 이름은 사용자가 바꾼다).
+            // plc.name 에는 UNIQUE 가 걸려 있어 이름을 키로 쓰면 이름 변경·중복에서 깨진다.
+            await EnsureColumnAsync(conn, "plc", "systemId", "TEXT");
+            await conn.ExecuteAsync(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_plc_systemId ON plc(systemId) WHERE systemId IS NOT NULL");
+            // ★인덱스 생성보다 먼저 — 테이블을 재작성하면 그 테이블의 인덱스가 함께 사라지므로,
+            //   교체를 끝낸 뒤 아래 CREATE INDEX 들이 새 테이블에 인덱스를 만들게 한다.
+            await MigratePlcTagUniquenessAsync(conn);
             await conn.ExecuteAsync(createPlcTagLogIdx);
             await conn.ExecuteAsync(createPlcTagLogTagIdx);
             await conn.ExecuteAsync(createPlcTagLogTagDateTimeIdx);

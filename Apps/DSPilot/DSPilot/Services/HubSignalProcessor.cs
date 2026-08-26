@@ -16,7 +16,8 @@ namespace DSPilot.Services;
 public sealed class HubSignalProcessor
 {
     private readonly HashSet<string> _acceptedSources;
-    private readonly Action<string, string, string, long> _handleSignal;
+    // (address, value, source, wallClockMs, systemId) — systemId 는 "" 가능(구버전 송신자).
+    private readonly Action<string, string, string, long, string?> _handleSignal;
     private readonly Action<string, long>? _onDrop;
     private readonly Action<string, Exception, int, int>? _onRetry;
     private readonly Action<string, string, string, Exception, long>? _onDeadLetter;
@@ -47,7 +48,7 @@ public sealed class HubSignalProcessor
 
     public HubSignalProcessor(
         IEnumerable<string> acceptedSources,
-        Action<string, string, string, long> handleSignal,
+        Action<string, string, string, long, string?> handleSignal,
         int maxRetries = 3,
         int channelCapacity = DefaultChannelCapacity,
         Func<int, TimeSpan>? retryDelay = null,
@@ -81,14 +82,15 @@ public sealed class HubSignalProcessor
     /// channel write 실패 시 drop count 증가 + 콜백.
     /// wallClockMs: 원천 관측 시각(UTC epoch ms, TagWrite.WallClockMs). 0 = 미제공(단건 OnTagChanged 등)
     /// → 소비측이 도착시각 폴백. replay 시 원래 시각 복원을 위해 반드시 관통 전달.</summary>
-    public EnqueueResult TryEnqueue(string address, string value, string source, long wallClockMs = 0)
+    public EnqueueResult TryEnqueue(
+        string address, string value, string source, long wallClockMs = 0, string? systemId = null)
     {
         if (!_acceptedSources.Contains(source))
             return EnqueueResult.Ignored;
 
         // TryWrite 전에 depth 를 예약해야 writer 성공 직후 reader 가 먼저 dequeue 해도 음수가 되지 않는다.
         var depth = Interlocked.Increment(ref _currentDepth);
-        if (SignalChannel.Writer.TryWrite(new HubSignal(address, value, source, 0, wallClockMs)))
+        if (SignalChannel.Writer.TryWrite(new HubSignal(address, value, source, 0, wallClockMs, systemId)))
         {
             Interlocked.Increment(ref _intervalEnqueuedCount);
             UpdateIntervalMaxDepth(depth);
@@ -141,7 +143,7 @@ public sealed class HubSignalProcessor
             {
                 try
                 {
-                    _handleSignal(sig.Address, sig.Value, sig.Source, sig.WallClockMs);
+                    _handleSignal(sig.Address, sig.Value, sig.Source, sig.WallClockMs, sig.SystemId);
                     return;
                 }
                 catch (Exception ex)
@@ -195,7 +197,9 @@ public readonly record struct HubSignalIntervalDiagnostics(
 
 /// <summary>처리 큐 항목. RetryCount 는 재시도 추적용.
 /// WallClockMs = 원천 관측 시각(UTC epoch ms, 0=미제공→도착시각 폴백).</summary>
-public readonly record struct HubSignal(string Address, string Value, string Source, int RetryCount, long WallClockMs = 0);
+/// <param name="SystemId">신호를 보유한 PLC 의 소유 System(Guid 문자열). "" / null = 미제공(구버전 송신자).</param>
+public readonly record struct HubSignal(
+    string Address, string Value, string Source, int RetryCount, long WallClockMs = 0, string? SystemId = null);
 
 /// <summary>TryEnqueue 결과 — accepted(정상 enqueue), ignored(unaccepted source), dropped(채널 백압).</summary>
 public enum EnqueueResult { Accepted, Ignored, Dropped }

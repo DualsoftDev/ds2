@@ -241,7 +241,8 @@ public sealed class HubSubscriberService : BackgroundService
 
         _processor = new HubSignalProcessor(
             acceptedSources: configuredSources,
-            handleSignal: (addr, val, src, wallMs) => _engineService.HandleHubTagChanged(addr, val, src, wallMs),
+            handleSignal: (addr, val, src, wallMs, sysId) =>
+                _engineService.HandleHubTagChanged(addr, val, src, wallMs, sysId),
             maxRetries: HandleHubTagMaxRetries,
             onDrop: OnChannelDrop,
             onRetry: (addr, ex, attempt, max) =>
@@ -470,14 +471,20 @@ public sealed class HubSubscriberService : BackgroundService
                     resyncFullPass = now - last >= ResyncFullPassIntervalTicks
                         && Interlocked.CompareExchange(ref _lastResyncFullPassTicks, now, last) == last;
                 }
-                var unchanged = _lastResyncValueByAddress.TryGetValue(it.Address, out var lastVal)
+                // dedupe 키에 System 을 포함 — 주소만으로 묶으면 두 PLC 가 같은 주소를 같은 값으로
+                // 들고 있을 때 뒤쪽 PLC 의 baseline 이 중복으로 판정돼 조용히 버려진다.
+                var resyncKey = string.IsNullOrWhiteSpace(it.SystemId)
+                    ? it.Address
+                    : it.SystemId + "|" + it.Address;
+                var unchanged = _lastResyncValueByAddress.TryGetValue(resyncKey, out var lastVal)
                     && string.Equals(lastVal, it.Value, StringComparison.Ordinal);
-                _lastResyncValueByAddress[it.Address] = it.Value;
+                _lastResyncValueByAddress[resyncKey] = it.Value;
                 if (unchanged && !resyncFullPass) continue;
             }
             // WallClockMs = 원천 관측 시각(Pi5 스캔 직후 각인). plcTagLog 기록 시각으로 관통 —
             // 도착시각으로 찍으면 핑 두절→replay 신호가 복구 순간에 뭉쳐 그래프가 왜곡된다.
-            var result = _processor.TryEnqueue(it.Address, it.Value, it.Source, it.WallClockMs);
+            // SystemId = 신호를 보유한 PLC 의 소유 System("" 가능) — 수신측이 (SystemId, 주소)로 귀속.
+            var result = _processor.TryEnqueue(it.Address, it.Value, it.Source, it.WallClockMs, it.SystemId);
             if (result == EnqueueResult.Ignored)
                 _logger.LogTrace("[Hub] Ignored {Address}={Value} from={Source}", it.Address, it.Value, it.Source);
         }

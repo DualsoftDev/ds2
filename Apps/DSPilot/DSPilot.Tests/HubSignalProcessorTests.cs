@@ -15,7 +15,7 @@ namespace DSPilot.Tests;
 public class HubSignalProcessorTests
 {
     private static HubSignalProcessor CreateProcessor(
-        Action<string, string, string, long>? handle = null,
+        Action<string, string, string, long, string?>? handle = null,
         IEnumerable<string>? accepted = null,
         int maxRetries = 3,
         int channelCapacity = 1024,
@@ -26,7 +26,7 @@ public class HubSignalProcessorTests
         Action? onProcessed = null) =>
         new(
             acceptedSources: accepted ?? HubSource.DefaultAcceptedSources,
-            handleSignal: handle ?? ((_, _, _, _) => { }),
+            handleSignal: handle ?? ((_, _, _, _, _) => { }),
             maxRetries: maxRetries,
             channelCapacity: channelCapacity,
             retryDelay: retryDelay ?? (_ => TimeSpan.Zero), // 테스트 빠르게
@@ -124,7 +124,7 @@ public class HubSignalProcessorTests
         var attempts = 0;
         var retryCalls = new List<int>();
         var proc = CreateProcessor(
-            handle: (_, _, _, _) =>
+            handle: (_, _, _, _, _) =>
             {
                 attempts++;
                 if (attempts < 3) throw new InvalidOperationException("transient");
@@ -148,7 +148,7 @@ public class HubSignalProcessorTests
         var attempts = 0;
         var deadLetters = new List<(string addr, string val, string src, long count)>();
         var proc = CreateProcessor(
-            handle: (_, _, _, _) =>
+            handle: (_, _, _, _, _) =>
             {
                 attempts++;
                 throw new InvalidOperationException("permanent");
@@ -171,7 +171,7 @@ public class HubSignalProcessorTests
     public async Task ProcessSignalAsync_Multiple_dead_letters_accumulate_count()
     {
         var proc = CreateProcessor(
-            handle: (_, _, _, _) => throw new InvalidOperationException("permanent"),
+            handle: (_, _, _, _, _) => throw new InvalidOperationException("permanent"),
             maxRetries: 1);
 
         await proc.ProcessSignalAsync(new HubSignal("a1", "v", HubSource.Plc, 0), CancellationToken.None);
@@ -188,7 +188,7 @@ public class HubSignalProcessorTests
     {
         var processed = new List<(string addr, string val, string src)>();
         var proc = CreateProcessor(
-            handle: (addr, val, src, _) =>
+            handle: (addr, val, src, _, _) =>
             {
                 lock (processed) processed.Add((addr, val, src));
             });
@@ -211,7 +211,7 @@ public class HubSignalProcessorTests
     {
         var processed = new List<string>();
         var proc = CreateProcessor(
-            handle: (addr, _, _, _) =>
+            handle: (addr, _, _, _, _) =>
             {
                 if (addr == "fail") throw new InvalidOperationException("boom");
                 lock (processed) processed.Add(addr);
