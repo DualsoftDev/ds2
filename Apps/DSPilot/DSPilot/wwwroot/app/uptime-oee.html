@@ -930,6 +930,22 @@
                                 </div>
                             </div>
 
+                            <!-- 분기 미분류 급증(≥5%) — 분기 정의 오류 또는 제외 call 센서 오감지의 조기 경보. -->
+                            <div class="up-mq-bnd" x-show="mqUnclassifiedRows.length > 0" x-cloak>
+                                <span class="material-icons">call_split</span>
+                                <div>
+                                    <b>분기 미분류 사이클이 많은 설비가 있습니다</b> — 어느 분기에도 속하지 않는 사이클은
+                                    분기 통계(설비효율)에서 빠집니다. 방치하면 분기 지표가 조용히 얇아집니다.
+                                    <template x-for="f in mqUnclassifiedRows" :key="'unb-' + f.flowName">
+                                        <div class="up-mq-bnd-row">
+                                            <a :href="'/flow-cycle?name=' + encodeURIComponent(f.flowName)" x-text="f.flowName"></a>
+                                            <span class="tag" x-text="'미분류 ' + mqPct(f.unclassifiedRate)"></span>
+                                            <span x-text="mqUnclassifiedText(f)"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
                             <!-- 측정 불가 설비 — 제외율이 아무리 낮아도 이게 있으면 라인 지표를 그대로 믿을 수 없다 -->
                             <div class="up-mq-unmeas" x-show="mq.unmeasurableFlowCount > 0" x-cloak>
                                 <span class="material-icons">report_off</span>
@@ -955,15 +971,16 @@
 
                             <!-- 설비별 상세 — 제외율 내림차순(나쁜 설비가 위로) -->
                             <div class="up-mq-rows" x-show="mqOpen" x-cloak>
-                                <div class="up-mq-row up-mq-head">
+                                <div class="up-mq-row up-mq-head" :class="{ 'has-br': mqHasBranched }">
                                     <span>설비</span>
                                     <span class="up-mq-bar-h">정상 수집률</span>
                                     <span class="num">수집률</span>
                                     <span class="num">미검출</span>
+                                    <span class="num" x-show="mqHasBranched" x-cloak title="사이클 분기 미분류 — 어느 분기의 제외 필터도 통과하지 못한 사이클(분기 통계 제외, 부모 flow 단위 계수)">미분류</span>
                                     <span class="num">가동 수</span>
                                 </div>
                                 <template x-for="f in mqRows" :key="f.flowName">
-                                    <div class="up-mq-row" :class="(curFlow === f.flowName ? 'is-cur ' : '') + (f.measurable === false ? 'is-unmeas' : '')">
+                                    <div class="up-mq-row" :class="(curFlow === f.flowName ? 'is-cur ' : '') + (f.measurable === false ? 'is-unmeas ' : '') + (mqHasBranched ? 'has-br' : '')">
                                         <a class="up-mq-name" :href="'/uptime-oee?flow=' + encodeURIComponent(f.flowName)"
                                            :title="f.measurable === false
                                                    ? (f.flowName + ' — 측정 불가: 표준 가동시간 미학습(클린샘플 0). 설비 경계(Head/Tail) 지정을 확인하세요.')
@@ -985,6 +1002,10 @@
                                         </template>
                                         <span class="num up-mq-rate" x-text="f.measurable === false ? '—' : mqPct(mqCollectRate(f))"></span>
                                         <span class="num" x-text="f.measurable === false ? '—' : f.incompleteCycles.toLocaleString()"></span>
+                                        <span class="num" x-show="mqHasBranched" x-cloak
+                                              :class="f.branched && f.unclassifiedRate >= 0.05 ? 'up-mq-un-warn' : ''"
+                                              :title="f.branched ? mqUnclassifiedText(f) : '분기 미사용 flow'"
+                                              x-text="f.branched ? f.unclassifiedCycles.toLocaleString() + ' (' + mqPct(f.unclassifiedRate) + ')' : '—'"></span>
                                         <span class="num" x-text="f.measurable === false ? '0' : f.totalCycles.toLocaleString()"></span>
                                     </div>
                                 </template>

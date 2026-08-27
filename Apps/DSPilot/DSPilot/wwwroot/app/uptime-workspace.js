@@ -1243,6 +1243,19 @@
                 // 경계 문제가 있는 설비 목록 — 카드 상단 배너용.
                 get mqIssueRows() { return ((this.mq && this.mq.flows) || []).filter(f => !!f.boundaryIssue); },
 
+                // ── 사이클 분기 미분류 (2026-08-27) ──────────────────────────────
+                //   미분류 = 어느 분기의 제외 필터도 통과 못한 사이클(통계 제외·여기서만 계수).
+                //   급등 = 분기 정의 오류(제외 call 이 실제 IO 패턴과 불일치) 또는 센서 오감지 조기 경보.
+                get mqHasBranched() { return ((this.mq && this.mq.flows) || []).some(f => f.branched); },
+                get mqUnclassifiedRows() {
+                    return ((this.mq && this.mq.flows) || [])
+                        .filter(f => f.branched && f.unclassifiedRate != null && f.unclassifiedRate >= 0.05);
+                },
+                mqUnclassifiedText(f) {
+                    if (!f) return '';
+                    return `가동 ${f.totalCycles.toLocaleString()}회 중 ${f.unclassifiedCycles.toLocaleString()}회(${this.mqPct(f.unclassifiedRate)})가 어느 분기에도 속하지 않습니다 — 분기 정의(제외 call)가 실제 IO 패턴과 맞는지, 제외 call 의 센서 오감지가 없는지 확인하세요.`;
+                },
+
                 // 수집률 = 정상 CT / 전체 CT — 이 카드의 주 수치(2026-08-21).
                 //   제외율(나쁜 비율)이 아니라 "얼마나 제대로 수집했나"를 앞세운다. OEE 가 CT축으로 바뀌어
                 //   수집된 정상 CT 가 곧 지표의 근거이므로, 그 근거의 양을 보여주는 게 이 카드의 역할이다.

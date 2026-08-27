@@ -353,11 +353,16 @@ public class FlowMetricsService : IFlowMetricsService
                 // 소비 후엔 다음 tail 완료가 CurrentMT 를 다시 채울 때까지 head start 가 아무 행도 쓰지 않는다.
                 DateTime? prevFinish;
                 int? prevCompletedMT;
+                List<string>? firedInPrevCycle;
                 lock (state.LatchLock)
                 {
                     prevFinish = state.PreviousCycleFinish;
                     prevCompletedMT = state.CurrentMT;
                     state.CurrentMT = null;
+                    // 직전 사이클의 발화 call 스냅샷(분기 라이브 분류용) — 새 사이클 집합은 이번 head 로 시작.
+                    firedInPrevCycle = state.FiredCalls.Count > 0 ? state.FiredCalls.ToList() : null;
+                    state.FiredCalls.Clear();
+                    state.FiredCalls.Add(callName);
                 }
 
                 // 이전 사이클이 완료되었고 MT가 계산된 경우 WT/CT 계산 및 DB 업데이트.
@@ -372,7 +377,7 @@ public class FlowMetricsService : IFlowMetricsService
                     state.CurrentCT = ct;
 
                     // 평균 계산 및 DB 갱신
-                    _ = UpdateFlowMetricsWithAveragesAsync(state, flowName, prevMT, wt, ct);
+                    _ = UpdateFlowMetricsWithAveragesAsync(state, flowName, prevMT, wt, ct, firedInPrevCycle);
                 }
 
                 // 사이클 시작: 단일 Call Flow 는 항상, 다중 Call Flow 는 진행 중 사이클이 없을 때만(파이프라인 방어).
@@ -383,6 +388,15 @@ public class FlowMetricsService : IFlowMetricsService
                         state.CurrentCycleStart = timestamp;
                         state.IsCycleActive = true;
                     }
+                }
+            }
+            else
+            {
+                // 비-head call 발화 추적 — 분기(branch) 라이브 분류의 근거 집합. 사이클 경계와 무관하게
+                // 집합에만 쌓고, head start 때 스냅샷/리셋된다. 분기 미사용 flow 도 집합 유지 비용은 무시 수준.
+                lock (state.LatchLock)
+                {
+                    state.FiredCalls.Add(callName);
                 }
             }
         }
@@ -455,7 +469,8 @@ public class FlowMetricsService : IFlowMetricsService
         string flowName,
         int mt,
         int wt,
-        int ct)
+        int ct,
+        IReadOnlyCollection<string>? firedCalls = null)
     {
         try
         {
@@ -523,6 +538,7 @@ public class FlowMetricsService : IFlowMetricsService
                 IsIdle = isIdle,
                 HeadCallName = state.HeadCallName,
                 TailCallName = state.TailCallName,
+                BranchName = ClassifyBranchLive(flowName, firedCalls),
             };
 
             await _dspRepository.InsertFlowHistoryAsync(history);
@@ -530,6 +546,43 @@ public class FlowMetricsService : IFlowMetricsService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to update metrics with averages for Flow '{FlowName}'", flowName);
+        }
+    }
+
+    /// <summary>
+    /// 분기(branch) 라이브 분류 — 발화 call 집합에 대해 제외 필터만 판정(정의 순서 첫 통과 승).
+    /// 라이브 사이클 경계는 flow 단일 Head/Tail 이라 분기별 Head 와 어긋날 수 있는 <b>근사</b>다 —
+    /// 정본은 주기 재도출(<see cref="CycleRecomputeService"/> 병합 스트림)이 덮어쓰는 라벨.
+    /// 분기 미사용 flow 는 null(비용 = 설정 조회 1회, GetEffectiveCycleRangeMs 와 동급).
+    /// </summary>
+    private string? ClassifyBranchLive(string flowName, IReadOnlyCollection<string>? firedCalls)
+    {
+        try
+        {
+            var set = _appSettingsService.GetFlowBranchSet(flowName);
+            if (set is null || set.Branches.Count == 0) return null;
+
+            var fired = firedCalls is null
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(firedCalls, StringComparer.OrdinalIgnoreCase);
+            foreach (var b in set.Branches)
+            {
+                var refuted = false;
+                foreach (var ex in b.ExcludedCallNames)
+                {
+                    // 자기 Head/Tail 이 제외 목록에 있으면 무시(재도출 경로와 동일한 방어).
+                    if (string.Equals(ex, b.StartCallName, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(ex, b.EndCallName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (fired.Contains(ex)) { refuted = true; break; }
+                }
+                if (!refuted) return b.Name;
+            }
+            return null; // 미분류
+        }
+        catch
+        {
+            return null; // 분류 실패가 라이브 기록을 막으면 안 됨
         }
     }
 
@@ -894,6 +947,12 @@ public class FlowCycleState
     public int? CurrentMT { get; set; }
     public int? CurrentWT { get; set; }
     public int? CurrentCT { get; set; }
+
+    /// <summary>
+    /// 현재 사이클에서 Going 이 시작된 call 이름 집합 — 분기(branch) 라이브 분류의 근거.
+    /// head start 때 스냅샷 후 리셋. <see cref="LatchLock"/> 으로 보호.
+    /// </summary>
+    internal readonly HashSet<string> FiredCalls = new(StringComparer.OrdinalIgnoreCase);
 
     // 평균 계산용 필드
     // CycleCount = 비가동-제외 사이클의 누적 카운트(주로 history CycleNo 표시·로그용).

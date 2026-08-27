@@ -23,6 +23,7 @@
     // ── 레이아웃 상수 (flow.html:1056-1057 동일) ──
     // 모바일(≤480px): MIN_PLOT_WIDTH 640px 는 360px 폰에서 과도한 가로 스크롤을 강제한다.
     //   좁은 화면에서는 플롯 최소 폭을 컨테이너에 맞춰 줄인다(데스크톱은 640 유지).
+    var WORK_ROW_H = 22;   // Work 그룹 헤더 행 높이(사이드바·SVG 공통, 2026-08-27)
     var TOP_MARGIN = 50, LANE_HEIGHT = 44, BAR_HEIGHT = 18, RIBBON_H = 48,
         LEFT_PAD = 12, RIGHT_PAD = 40, BOTTOM_PAD = 20, MAX_ZOOM = 24;
     var MIN_PLOT_WIDTH = (typeof window !== 'undefined' && window.matchMedia &&
@@ -77,8 +78,25 @@
     function laneLayout(s) {
         var rows = [];
         var y = 0;
+        // Work 그룹 헤더(2026-08-27) — 서로 다른 Work 가 2개 이상일 때만 lane 사이에 얇은 헤더 행을 끼워
+        // Work 경계를 시각화한다(단일 Work flow 는 종전과 동일). lane 순서는 서버가 Work→Call 정렬로
+        // 내려주므로 연속 구간 = 같은 Work. 사이드바(flow-workspace laneLayout)와 반드시 같은 규칙 유지.
+        var workSet = {};
+        var workCount = 0;
+        for (var wi = 0; wi < s.callLanes.length; wi++) {
+            var wn0 = s.callLanes[wi].workName || '';
+            if (!workSet[wn0]) { workSet[wn0] = true; workCount++; }
+        }
+        var useWorkRows = workCount >= 2;
+        var prevWork = null;
         for (var li = 0; li < s.callLanes.length; li++) {
             var lane = s.callLanes[li];
+            var wn = lane.workName || '';
+            if (useWorkRows && wn !== prevWork) {
+                rows.push({ kind: 'work', key: 'w:' + wn + ':' + li, workName: wn || '(Work 없음)', y: y, h: WORK_ROW_H });
+                y += WORK_ROW_H;
+                prevWork = wn;
+            }
             rows.push({ kind: 'call', key: 'c:' + lane.callId, lane: lane, y: y, h: LANE_HEIGHT });
             y += LANE_HEIGHT;
             if (s.expandedCalls && s.expandedCalls[lane.callId] && hasApiCalls(lane)) {
@@ -97,7 +115,10 @@
         if (s.tailCallId === lane.callId) return 'ct-lane-row is-tail';
         return 'ct-lane-row';
     }
-    function rowClass(s, row) { return row.kind === 'call' ? laneRowClass(s, row.lane) : 'ct-api-row'; }
+    function rowClass(s, row) {
+        if (row.kind === 'work') return 'ct-work-row';
+        return row.kind === 'call' ? laneRowClass(s, row.lane) : 'ct-api-row';
+    }
 
     // ════════════════════════════════════════════════════════════════════════
     //  실측 duration 페어링 + AASX 변경 빌드 — flow.html:2021-2062
@@ -280,6 +301,13 @@
             var row = layout.rows[ri];
             var lane = row.lane;
             var rowY = laneAreaTop + row.y;
+
+            if (row.kind === 'work') {
+                // Work 그룹 헤더 밴드 — 사이드바 헤더 행과 같은 높이의 옅은 띠(경계 시각화 전용, 신호 없음).
+                sb += '<rect x="0" y="' + f(rowY) + '" width="' + chartW + '" height="' + WORK_ROW_H + '" fill="#eceff1" opacity="0.6"/>';
+                sb += '<line x1="0" y1="' + f(rowY + WORK_ROW_H) + '" x2="' + chartW + '" y2="' + f(rowY + WORK_ROW_H) + '" stroke="#cfd8dc" stroke-width="1"/>';
+                continue;
+            }
 
             if (row.kind === 'api') {
                 sb += '<rect x="0" y="' + f(rowY) + '" width="' + chartW + '" height="' + API_ROW_HEIGHT + '" fill="#f5f7fa" opacity="0.7"/>';

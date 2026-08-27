@@ -201,7 +201,8 @@ public abstract class OeeControllerBase : ControllerBase
             string? flowName, DateTime fromUtc, DateTime toUtc, CancellationToken ct,
             IReadOnlySet<string>? flowFilter = null)
     {
-        var thresholds = await ResolveCtThresholdsAsync();
+        (flowName, flowFilter) = NormalizeOeeScope(flowName, flowFilter);
+        var thresholds = await ResolveCtThresholdsAsync(branchView: true);
         var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
             collectDowntimeCycles: true, flowFilter: flowFilter);
@@ -286,6 +287,10 @@ public abstract class OeeControllerBase : ControllerBase
             foreach (var sys in _project.GetActiveSystems())
                 foreach (var f in _project.GetFlows(sys.Id))
                     map[f.Name] = sys.Name;
+            // 사이클 분기 — 가상 이름("부모_분기")도 부모의 시스템으로 매핑(정지 로그 합성 행 표기용).
+            foreach (var kv in _settings.GetBranchVirtualMap())
+                if (map.TryGetValue(kv.Value.Parent, out var sysName))
+                    map[kv.Key] = sysName;
         }
         catch (Exception ex) { _logger.LogDebug(ex, "[OEE] flow→system map build failed (AASX 미로드?)"); }
         return map;
@@ -601,32 +606,41 @@ public abstract class OeeControllerBase : ControllerBase
         var periodMs = (toUtc - fromUtc).TotalMilliseconds;
         if (periodMs < 0) periodMs = 0;
 
+        // 사이클 분기 — 이벤트/생산수/카운트는 부모 이름 축(oee.db·plcTagLog 세계)이라 부모로 번역해 조회하고,
+        // 사이클 집계(agg)만 가상 이름 그대로(코어가 분기 스코프 SQL 로 태운다).
+        var dbFlowName = TranslateToDbFlow(flowName);
+        var dbFilter = TranslateToDbFlows(flowFilter);
+
         // 시스템 스코프(flowFilter) — 라인 경로와 같은 구간 union 집계(flow별 합산은 동시 정지를 이중 계상, 실측 6배).
         var (downtimeMs, downtimeCount) = flowFilter is null
-            ? await _repo.GetDowntimeAggregateAsync(fromUtc, toUtc, flowName, ct)
-            : await _repo.GetDowntimeAggregateForFlowsAsync(fromUtc, toUtc, flowFilter.ToList(), ct);
-        int? totalCount = await CountFlowHistoryAsync(flowName, fromUtc, toUtc, flowFilter);
+            ? await _repo.GetDowntimeAggregateAsync(fromUtc, toUtc, dbFlowName, ct)
+            : await _repo.GetDowntimeAggregateForFlowsAsync(fromUtc, toUtc, dbFilter!, ct);
+        int? totalCount = await CountFlowHistoryAsync(flowName, fromUtc, toUtc,
+            dbFilter is null ? null : new HashSet<string>(dbFilter, StringComparer.Ordinal));
         int prodReject; bool hasReject;
         if (flowFilter is null)
             (_, _, prodReject, hasReject) =
-                await _repo.QueryProductionAsync(fromUtc.ToLocalTime(), toUtc.ToLocalTime(), flowName, ct);
+                await _repo.QueryProductionAsync(fromUtc.ToLocalTime(), toUtc.ToLocalTime(), dbFlowName, ct);
         else
         {
             prodReject = 0; hasReject = false;
-            foreach (var f in flowFilter)
+            foreach (var f in dbFilter!)
             {
                 var (_, _, rj, hr) = await _repo.QueryProductionAsync(fromUtc.ToLocalTime(), toUtc.ToLocalTime(), f, ct);
                 prodReject += rj; hasReject |= hr;
             }
         }
 
-        var thresholds = ctThresholds ?? await ResolveCtThresholdsAsync();
+        var thresholds = ctThresholds ?? await ResolveCtThresholdsAsync(branchView: true);
         var (plannedWindows, plannedSource, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
-        var evIntervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, flowName, ct);
+        var evIntervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, dbFlowName, ct);
         if (flowFilter is not null)
+        {
+            var dbSet = new HashSet<string>(dbFilter!, StringComparer.OrdinalIgnoreCase);
             evIntervals = evIntervals
-                .Where(x => x.FlowName is null || flowFilter.Contains(x.FlowName))   // flow 미상(라인 귀속)은 보존
+                .Where(x => x.FlowName is null || dbSet.Contains(x.FlowName))   // flow 미상(라인 귀속)은 보존
                 .ToList();
+        }
         var maintIv = evIntervals
             .Where(x => x.Kind is 0 or 2 && x.EndMs > x.StartMs)
             .Select(x => ((double)x.StartMs, (double)x.EndMs, x.FlowName))
@@ -799,23 +813,104 @@ public abstract class OeeControllerBase : ControllerBase
     // (구 BuildExcludedWeekdayIntervalsMs[휴무 요일] 은 2026-07-08 당일 비생산 판정 모델로 제거 — 쉬는 날은
     //  사이클이 없어 10×CT 장시간 정지 규칙이 자동으로 비생산 처리한다.)
 
+    // ── 사이클 분기(branch) 스코프 헬퍼 ─────────────────────────────────────
+    //   가상 이름("부모_분기") 세계(OEE 열거·사이클 집계)와 부모 이름 세계(oee.db 이벤트·생산수·nav 모델)
+    //   사이의 번역기. 분기 미사용이면 전부 항등 — 종전 경로와 완전 동일.
+
+    /// <summary>가상 flow 이름 → 부모 flow 이름(이벤트/카운트 조회용). 분기 아님이면 그대로.</summary>
+    protected string? TranslateToDbFlow(string? flowName)
+        => flowName is not null && _settings.GetBranchVirtualMap().TryGetValue(flowName, out var m)
+            ? m.Parent : flowName;
+
+    /// <summary>flow 집합의 가상 이름들을 부모 이름으로 번역(중복 제거, 순서 무관). null → null.</summary>
+    protected List<string>? TranslateToDbFlows(IReadOnlySet<string>? flowSet)
+    {
+        if (flowSet is null) return null;
+        var map = _settings.GetBranchVirtualMap();
+        if (map.Count == 0) return flowSet.ToList();
+        return flowSet.Select(f => map.TryGetValue(f, out var m) ? m.Parent : f)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// 시스템 스코프(부모 이름 집합)를 OEE 분기 뷰용으로 확장 — 분기 활성 부모는 그 가상(분기) 이름들로
+    /// 치환한다(분기 뷰 thresholds 키와 교집합이 성립하도록). 분기 미사용이면 원본 그대로.
+    /// </summary>
+    protected IReadOnlySet<string>? ExpandBranchFlowSet(IReadOnlySet<string>? flowSet)
+    {
+        if (flowSet is null) return null;
+        var map = _settings.GetBranchVirtualMap();
+        if (map.Count == 0) return flowSet;
+        var branched = _settings.GetBranchedParentFlows();
+        var res = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var f in flowSet)
+        {
+            if (branched.Contains(f))
+            {
+                foreach (var kv in map)
+                    if (string.Equals(kv.Value.Parent, f, StringComparison.OrdinalIgnoreCase))
+                        res.Add(kv.Key);
+            }
+            else res.Add(f);
+        }
+        return res;
+    }
+
+    /// <summary>
+    /// OEE 스코프 정규화 — flow 가 분기 활성 <b>부모</b>면(예: TEEP 드릴 링크) 분기 뷰에 그 항목이 없으므로
+    /// "그 부모의 분기 집합 필터"로 폴백한다. flow 가 가상/일반이면 그대로.
+    /// </summary>
+    protected (string? FlowName, IReadOnlySet<string>? FlowSet) NormalizeOeeScope(
+        string? flowName, IReadOnlySet<string>? flowSet)
+    {
+        flowSet = ExpandBranchFlowSet(flowSet);
+        if (flowName is null || !_settings.GetBranchedParentFlows().Contains(flowName))
+            return (flowName, flowSet);
+        var virts = _settings.GetBranchVirtualMap()
+            .Where(kv => string.Equals(kv.Value.Parent, flowName, StringComparison.OrdinalIgnoreCase))
+            .Select(kv => kv.Key);
+        return (null, new HashSet<string>(virts, StringComparer.Ordinal));
+    }
+
     // ── CT 이상치(임계) 산출 ─────────────────────────────────────────────────
 
-    protected async Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ResolveCtThresholdsAsync()
+    /// <param name="branchView">
+    /// true = 설비효율(OEE) 열거 뷰: 분기 활성 flow 를 "부모_분기" 가상 항목으로 치환(부모 제외).
+    /// false = 부모 뷰(TEEP/공용): 종전과 완전 동일 — 분기 도입 전후 수치 불변이 규약.
+    /// </param>
+    protected async Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ResolveCtThresholdsAsync(
+        bool branchView = false)
     {
         var thr = await _ctStats.ComputeCtThresholdAsync(
             excludeUntilUtc: DateTime.Today.ToUniversalTime(),
-            decayHalfLifeDays: 7.0);
-        var thrToday = await _ctStats.ComputeCtThresholdAsync();
+            decayHalfLifeDays: 7.0, branchView: branchView);
+        var thrToday = await _ctStats.ComputeCtThresholdAsync(branchView: branchView);
         foreach (var (flow, val) in thrToday)
             thr.TryAdd(flow, val);
         var settings = _settings.LoadSettings();
+        // 수동 표준CT 는 부모 flow 이름으로 저장돼 있다 — 분기 뷰에선 부모 키를 되살리면 이중 계상이므로
+        // 그 부모의 모든 가상(분기) 항목에 같은 값을 적용한다(분기별 수동 표준CT 는 아직 미지원).
+        var branchSets = branchView
+            ? settings.FlowCycle.BranchSets.Where(s => s.Branches.Count > 0)
+                .ToDictionary(s => s.FlowName, StringComparer.OrdinalIgnoreCase)
+            : null;
         foreach (var ov in settings.FlowCycle.Overrides)
         {
             if (string.IsNullOrWhiteSpace(ov.FlowName)) continue;
             var src = ov.IdealCycleTimeSource;
             var isManual = ov.IdealCycleTimeMs is > 0 && src != "auto" && src != "auto-median";
-            if (isManual) thr[ov.FlowName] = (ov.IdealCycleTimeMs!.Value, ov.IdealCycleTimeMs!.Value, int.MaxValue);
+            if (!isManual) continue;
+            var v = (ov.IdealCycleTimeMs!.Value, (double)ov.IdealCycleTimeMs!.Value, int.MaxValue);
+            if (branchSets is not null && branchSets.TryGetValue(ov.FlowName, out var bs))
+            {
+                foreach (var b in bs.Branches)
+                    thr[AppSettingsService.ComposeBranchFlowName(bs.FlowName, b.Name)] =
+                        (v.Item1, v.Item2, v.Item3);
+            }
+            else
+            {
+                thr[ov.FlowName] = (v.Item1, v.Item2, v.Item3);
+            }
         }
         return thr;
     }
@@ -888,7 +983,10 @@ public abstract class OeeControllerBase : ControllerBase
         IReadOnlySet<string>? flowFilter)
     {
         var sb = new System.Text.StringBuilder(256);
-        sb.Append("v28|");   // 분모/분류 모델 버전 — 모델 변경 배포 직후 L1 캐시 혼재 방지
+        sb.Append("v29|");   // 분모/분류 모델 버전 — 모델 변경 배포 직후 L1 캐시 혼재 방지
+                             // v29(2026-08-27): 사이클 분기(branch) — 가상 flow("부모_분기") 스코프 집계 +
+                             //                  형제가동 카빙(분모 사슬 미계측▸비생산▸형제가동▸비가동) +
+                             //                  무사이클 이벤트 분기 복제
                              // v28(2026-08-24): 고장 유발자 판별을 CT축 → MT축(평균MT×고장배수)으로 전환 +
                              //                  비생산 기본 배수 10×→15×
                              // v27(2026-08-19): dtCond ct 기준 추가(정지 후 재개 사이클 비가동 편입) + wt 폭주 행
@@ -1046,6 +1144,12 @@ public abstract class OeeControllerBase : ControllerBase
         IReadOnlySet<string>? flowFilter = null)
     {
         mtThresholds ??= new Dictionary<string, double>();
+        // ── 사이클 분기(2026-08-27) — 가상 이름("부모_분기") 해석. targetFlows/내부 귀속 키는 가상 이름을
+        //    그대로 쓰고, "부모 이름 세계"와 만나는 지점(DB flowName 바인딩·신호·유지보수·수동재분류·
+        //    무사이클 이벤트·MT 임계)만 dbFlow 로 번역한다. 분기 미사용이면 빈 맵 = 종전 경로와 완전 동일.
+        var branchMap = _settings.GetBranchVirtualMap();
+        (string DbFlow, string? Branch) MapF(string f)
+            => branchMap.TryGetValue(f, out var m) ? (m.Parent, m.Branch) : (f, null);
         var onsets = new List<double>();
         var repairs = new List<double>();
         // 미계측(수신 공백, doc/22 §3.4) — 통신 헬스 심박이 보증하지 못한 구간. 가동/비가동/비생산 어디에도
@@ -1174,6 +1278,9 @@ public abstract class OeeControllerBase : ControllerBase
         //   빠져 plannedCtMs(TEEP 축)와 벽시계 A 가 같은 파티션을 공유한다. 여기서는 flow별 정상 사이클 구간만 모아 둔다.
         double periodStartMs = ToMs(fromUtc), periodEndMs = ToMs(toUtc);
         var flowRunByFlow = new Dictionary<string, List<(double S, double E)>>(StringComparer.Ordinal);
+        // 형제가동(분기 전용) — 같은 부모의 다른 분기/미분류 정상 사이클 스팬. 패스 2에서 그 분기의
+        // 생산가능(availF)에서 통째로 카빙된다(카빙 사슬: 미계측 ▸ 비생산 ▸ 형제가동 ▸ 비가동).
+        var siblingRunByFlow = new Dictionary<string, List<(double S, double E)>>(StringComparer.Ordinal);
 
         const string dtCond = DtCondSql;
         var nonProdStartSql = BuildNonProductionStartSql(plannedWindows);
@@ -1301,14 +1408,20 @@ public abstract class OeeControllerBase : ControllerBase
             //   이 구간과 겹치는 다른 flow 의 정지는 "유발자가 특정된 여파"라 대기로 강등한다.
             //   signalFlows(=전 flow) 를 돈다 — targetFlows 로 좁히면 per-flow 조회에서 강등이 죽는다(위 주석).
             //   flow 당 인덱스 시크 1회(idx_dspFlowHistory_flow_recordedAt)라 라인 전체로 넓혀도 비용은 무시할 수준.
+            // 분기: mtOverrunByFlow 는 <b>부모(물리 설비) 이름</b>으로 키를 잡는다 — 같은 설비의 과주행은
+            // 그 설비의 모든 분기에 "자기 유발"(OwnMtOverrun)이고, 형제 분기가 이를 외부 유발자로 오인해
+            // 자기 정지를 대기로 강등하면 안 된다(자기 설비가 늘어진 것). MT 임계도 부모 키(물리 축) 조회.
+            var mtPreDone = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var fPre in signalFlows)
             {
+                var fPreDb = MapF(fPre).DbFlow;
+                if (!mtPreDone.Add(fPreDb)) continue;   // 분기 여러 개 = 같은 부모 1회만
                 // 유발자 판별 경계 = 평균 MT × 고장배수(2026-08-24). CT 축이 아니다 — 라인이 서면 모든 flow 의
                 // CT 가 함께 늘어나 유발자를 못 가리지만, MT 는 자기 설비가 실제로 움직인 시간이라 유발자만 는다.
                 // 평균 MT 미보유 flow 는 판별 불가로 건너뛴다(0 으로 두면 모든 정지가 과주행이 된다).
-                if (!mtThresholds.TryGetValue(fPre, out var mtThrPre) || mtThrPre <= 0) continue;
+                if (!mtThresholds.TryGetValue(fPreDb, out var mtThrPre) || mtThrPre <= 0) continue;
                 var pPre = new DynamicParameters();
-                pPre.Add("From", fromStr); pPre.Add("To", toStr); pPre.Add("Flow", fPre);
+                pPre.Add("From", fromStr); pPre.Add("To", toStr); pPre.Add("Flow", fPreDb);
                 pPre.Add("Thr", mtThrPre * faultMult);
                 try
                 {
@@ -1320,12 +1433,12 @@ public abstract class OeeControllerBase : ControllerBase
                     foreach (var r in ovRows)
                         if (r.Ct is long oc && oc > 0 && ParseUtcMs(r.RecordedAt) is double orec)
                         {
-                            if (!mtOverrunByFlow.TryGetValue(fPre, out var l))
-                                mtOverrunByFlow[fPre] = l = new List<(double S, double E)>();
+                            if (!mtOverrunByFlow.TryGetValue(fPreDb, out var l))
+                                mtOverrunByFlow[fPreDb] = l = new List<(double S, double E)>();
                             l.Add((orec - oc, orec));
                         }
                 }
-                catch (Exception ex) { _logger.LogDebug(ex, "[OEE] MT 과주행 사전 수집 실패: {Flow}", fPre); }
+                catch (Exception ex) { _logger.LogDebug(ex, "[OEE] MT 과주행 사전 수집 실패: {Flow}", fPreDb); }
             }
 
             foreach (var f in targetFlows)
@@ -1336,13 +1449,20 @@ public abstract class OeeControllerBase : ControllerBase
                 thrSum += thr; thrCount++;
                 ctSampleMin = Math.Min(ctSampleMin, thresholds[f].Sample);
 
+                // 분기 스코프 — DB 는 부모 flowName + branchName 라벨로 저장돼 있다. 분기 미사용이면
+                // branchCond="" = 종전 SQL 그대로(옛 DB/미러에 branchName 컬럼이 없어도 안전).
+                var (dbFlow, branch) = MapF(f);
+                var branchCond = branch is null ? "" : " AND branchName = @Branch ";
+
                 var p = new DynamicParameters();
                 // @Thr = 비가동 판정 경계(thr×배수, 2026-07-13 사용자 설정화) — dtCond 3개 쿼리(정상 집계/정상 구간/
                 // 비가동 행)가 이 파라미터 하나를 공유해 KPI·정지 내역이 함께 움직인다. 경계 아래 느린 사이클은
                 // 정상으로 편입돼 성능 P(표준=1×thr, perfNumerator)가 속도 손실로 흡수한다.
-                p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", f); p.Add("Thr", thr * idleMult);
+                p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", dbFlow); p.Add("Thr", thr * idleMult);
+                if (branch is not null) p.Add("Branch", branch);
                 // MT 축 경계 — 기준 미보유 flow 는 CT 축으로 폴백(종전 동작 유지). 0 바인딩 금지(전 사이클 비가동).
-                p.Add("MtThr", mtThresholds.TryGetValue(f, out var mtThrRow) && mtThrRow > 0
+                //   분기는 부모(물리 축) MT 기준을 공유한다.
+                p.Add("MtThr", mtThresholds.TryGetValue(dbFlow, out var mtThrRow) && mtThrRow > 0
                     ? mtThrRow * faultMult
                     : thr * idleMult);
 
@@ -1352,7 +1472,7 @@ public abstract class OeeControllerBase : ControllerBase
                       COALESCE(SUM(CASE WHEN ct>0 AND NOT ({dtCond}) AND NOT ({nonProdStartSql}) THEN 1  ELSE 0 END),0)  AS NormalCount,
                       COALESCE(SUM(CASE WHEN ct>0 AND NOT ({dtCond}) AND ({nonProdStartSql}) THEN ct ELSE 0 END),0)  AS NonProdNormalCt
                     FROM dspFlowHistory
-                    WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow", p);
+                    WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow{branchCond}", p);
                 if (aggRow is not null)
                 {
                     // 건수만 SQL 집계에서 취한다. CT 합은 아래 루프에서 기간 클립 후 누적 —
@@ -1369,7 +1489,7 @@ public abstract class OeeControllerBase : ControllerBase
                     var runRows = await conn.QueryAsync<DtCycleRaw>($@"
                         SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
                         FROM dspFlowHistory
-                        WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow
+                        WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow{branchCond}
                           AND ct > 0 AND NOT ({dtCond})", p);
                     foreach (var r in runRows)
                         if (r.Ct is long rc && rc > 0 && ParseUtcMs(r.RecordedAt) is double rrec)
@@ -1398,10 +1518,27 @@ public abstract class OeeControllerBase : ControllerBase
                 // 벽시계 가동/비가동은 비생산 확정 후 패스 2(루프 아래)에서 — 여기선 flow별 정상 사이클 구간만 보관.
                 flowRunByFlow[f] = flowRun;
 
+                // 형제가동 수집(분기 전용) — 같은 부모의 다른 분기/미분류 정상 사이클 스팬. 형제 <b>정지</b>
+                // 사이클(dtCond)은 카빙에서 제외한다: 물리 정지는 이 분기에도 손실로 남아야 한다(양쪽 표시).
+                if (branch is not null)
+                {
+                    var sibRows = await conn.QueryAsync<DtCycleRaw>($@"
+                        SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
+                        FROM dspFlowHistory
+                        WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow
+                          AND COALESCE(branchName,'') <> @Branch
+                          AND ct > 0 AND NOT ({dtCond})", p);
+                    var sib = new List<(double S, double E)>();
+                    foreach (var r in sibRows)
+                        if (r.Ct is long sc && sc > 0 && ParseUtcMs(r.RecordedAt) is double srec)
+                            sib.Add((srec - sc, srec));
+                    if (sib.Count > 0) siblingRunByFlow[f] = sib;
+                }
+
                 var rows = await conn.QueryAsync<DtCycleRaw>($@"
                     SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
                     FROM dspFlowHistory
-                    WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow AND {dtCond}
+                    WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow{branchCond} AND {dtCond}
                     ORDER BY recordedAt", p);
                 foreach (var r in rows)
                 {
@@ -1427,7 +1564,7 @@ public abstract class OeeControllerBase : ControllerBase
                     // 초과분은 사이클 끝(rec)에 붙인다 — mt 가 사이클 안 어디서 났는지는 알 수 없고, 행 구간이
                     // rec 기준으로 잡히는 기존 규약과 맞춘다. 분류·신호 매칭 창은 startMs~rec 원값을 그대로 쓴다.
                     var ctBoundaryMs = thr * idleMult;
-                    var mtBoundaryMs = mtThresholds.TryGetValue(f, out var mtMedianMs) && mtMedianMs > 0
+                    var mtBoundaryMs = mtThresholds.TryGetValue(dbFlow, out var mtMedianMs) && mtMedianMs > 0
                         ? mtMedianMs * faultMult
                         : ctBoundaryMs;
                     var accrualStartMs = rec - OeeMath.ResolveDowntimeAccrualMs(
@@ -1454,7 +1591,8 @@ public abstract class OeeControllerBase : ControllerBase
                         continue;
                     }
                     // 사용자 오버라이드 ① 비생산 강제 — 수동 non_production 이벤트와 겹친 부분은 자동 판정보다 우선 카빙.
-                    var forcedNp = Intervals.Intersect(rowSegs, ScopedIv(toNonProdIv, f));
+                    //   (이벤트 flow 라벨은 부모 이름 — 분기 스코프에선 dbFlow 로 매칭.)
+                    var forcedNp = Intervals.Intersect(rowSegs, ScopedIv(toNonProdIv, dbFlow));
                     if (forcedNp.Count > 0)
                     {
                         plannedCtMs += Intervals.Total(forcedNp);
@@ -1471,13 +1609,15 @@ public abstract class OeeControllerBase : ControllerBase
                     // 유발자 판별 — 위 적립 범위 결정과 같은 경계를 재사용한다(두 곳이 어긋나면
                     // "적립은 초과분인데 분류는 정상" 같은 불일치가 난다).
                     var mtOverrun = r.Mt is long mtOv && mtOv > mtBoundaryMs && mtMedianMs > 0;
-                    if (applyLongStop && !mtOverrun && !OverlapsAny(toDownIv, f, startMs, rec))
+                    // 신호/유발자/오버라이드 세계는 부모 이름 축 — 분기 스코프는 dbFlow 로 판정한다.
+                    //   부모의 abnormal 신호 = 그 부모의 모든 분기에 '자기 신호'(물리 정지는 전 분기 공통).
+                    if (applyLongStop && !mtOverrun && !OverlapsAny(toDownIv, dbFlow, startMs, rec))
                     {
                         var cls = OeeMath.ClassifyStopWindow(signalRulesActive,
-                            HasOwnSignal(f, startMs, rec), LineHasCulprit(f, startMs, rec),
+                            HasOwnSignal(dbFlow, startMs, rec), LineHasCulprit(dbFlow, startMs, rec),
                             LineHasUnresolvedUsertag(startMs, rec),
                             measuredMs, thr, nonProdMult,
-                            lineHasMtOverrun: LineHasMtOverrun(f, startMs, rec));
+                            lineHasMtOverrun: LineHasMtOverrun(dbFlow, startMs, rec));
                         if (cls is OeeMath.StopClass.NonProduction or OeeMath.StopClass.WaitNonProd)
                         {
                             var wait = cls == OeeMath.StopClass.WaitNonProd;
@@ -1486,7 +1626,7 @@ public abstract class OeeControllerBase : ControllerBase
                             {
                                 AddNonProdFor(f, seg, wait);        // 유휴 사이클 → 비생산/대기(분모 밖) 시각화
                                 nonProdDetections.Add(NewNonProdDetection(
-                                    f, seg.S, seg.E, thr, wait ? "wait-starve" : "idle-cycle", nonProdMult));
+                                    dbFlow, seg.S, seg.E, thr, wait ? "wait-starve" : "idle-cycle", nonProdMult));
                             }
                             downtimeCycles?.Add((f, startMs, rec, cMs, true, wait));   // 팝업 비생산 탭(건수·MTBF 미반영)
                             continue;
@@ -1508,7 +1648,7 @@ public abstract class OeeControllerBase : ControllerBase
                     // 유지보수 이벤트(같은 flow)와 겹친 만큼 유지보수로 귀속(잔여 = 고장) — 가용성 바 3분할용.
                     // 계측 잔여(rowSegs) 기준으로 겹침 계산 — 미계측 안에만 있는 유지보수가 잔여 idle 로 오귀속되지 않게.
                     var maintOverlapMs = Math.Min(measuredMs,
-                        rowSegs.Sum(seg => OverlapMs(maintByFlow?.GetValueOrDefault(f), seg.S, seg.E)));
+                        rowSegs.Sum(seg => OverlapMs(maintByFlow?.GetValueOrDefault(dbFlow), seg.S, seg.E)));
                     idleMaintCtMs += maintOverlapMs;
                     if (OeeMath.IsMaintenanceCovered(measuredMs, maintOverlapMs))
                         continue;                                   // 유지보수 확정 — A 손실은 유지, 고장 통계만 제외
@@ -1527,12 +1667,37 @@ public abstract class OeeControllerBase : ControllerBase
             // 감지정지 사이클만 쓴다. 종전 라인 조회의 flow-blind 차감(타 flow 사이클이 형제 갭을 지움)과 라인
             // 공통 귀속(AddIdleFor(null))이 flow별/전체 분류 불일치의 원인이었다(2026-07-16 kit_test 실증).
             // 부수 변화: 라인 failureCount 가 병합 세그먼트 수 → flow별 이벤트 수(Σ)로 바뀌어 정지 로그 건수와 정합.
-            var nocycleRows = await GetNocycleIntervalsByFlowAsync(flowName, fromUtc, toUtc);
+            // 무사이클 이벤트는 부모 이름으로 기록된다(상태머신은 분기 무관) — 스코프 조회도 부모 이름으로.
+            var nocycleRows = await GetNocycleIntervalsByFlowAsync(
+                flowName is null ? null : MapF(flowName).DbFlow, fromUtc, toUtc);
+            // 분기: 부모 귀속 무사이클 이벤트를 이 집계의 분기(가상) 대상으로 복제 — 물리 정지는 모든 분기의
+            // 정지다(설계: 양쪽 표시). 갭 안엔 정의상 부모 사이클이 없어 형제가동과 겹칠 수 없고, 라인/시스템
+            // 합산의 이중계상은 기존 구간 union(GetDowntimeAggregateForFlowsAsync)이 막는다.
+            if (branchMap.Count > 0 && nocycleRows.Count > 0)
+            {
+                var virtByParent = targetFlows
+                    .Where(t => branchMap.ContainsKey(t))
+                    .GroupBy(t => branchMap[t].Parent, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+                if (virtByParent.Count > 0)
+                {
+                    var expanded = new List<(string? Flow, double S, double E)>(nocycleRows.Count);
+                    foreach (var r in nocycleRows)
+                    {
+                        if (r.Flow is not null && virtByParent.TryGetValue(r.Flow, out var virts))
+                            foreach (var v in virts) expanded.Add((v, r.S, r.E));
+                        else
+                            expanded.Add(r);
+                    }
+                    nocycleRows = expanded;
+                }
+            }
             if (nocycleRows.Count > 0)
             {
                 foreach (var byFlow in nocycleRows.GroupBy(r => r.Flow ?? "", StringComparer.Ordinal))
                 {
                     var gapFlow = string.IsNullOrEmpty(byFlow.Key) ? null : byFlow.Key;
+                    var gapDb = gapFlow is null ? null : MapF(gapFlow).DbFlow;
                     // 시스템 스코프 — 스코프 밖 flow 의 갭은 이 집계의 시간이 아니다(flow 미상 = 라인 귀속은 보존).
                     if (gapFlow is not null && flowFilter is not null && !flowFilter.Contains(gapFlow)) continue;
                     var thrGap = gapFlow is not null && thresholds.TryGetValue(gapFlow, out var tg) && tg.AvgMs > 0
@@ -1596,8 +1761,8 @@ public abstract class OeeControllerBase : ControllerBase
                             : new List<(double S, double E)> { u };
                         var len = Intervals.Total(uSegs);
                         if (len <= 0) continue;                     // 전 구간 미계측 — 비가동/비생산/onset 전부 미계상
-                        // 사용자 오버라이드 ① 비생산 강제 — 이벤트 flow 스코프로 겹침 카빙.
-                        var forcedNpU = Intervals.Intersect(uSegs, ScopedIv(toNonProdIv, gapFlow));
+                        // 사용자 오버라이드 ① 비생산 강제 — 이벤트 flow 스코프로 겹침 카빙(부모 이름 축).
+                        var forcedNpU = Intervals.Intersect(uSegs, ScopedIv(toNonProdIv, gapDb));
                         if (forcedNpU.Count > 0)
                         {
                             plannedCtMs += Intervals.Total(forcedNpU);
@@ -1609,13 +1774,13 @@ public abstract class OeeControllerBase : ControllerBase
                         }
                         // 신호 기반 분류(doc/25 §1) + 사용자 오버라이드 ② 비가동 확정 겹침 → 승격/강등 억제.
                         //   자기 MT 과주행(=유발자 본인)은 over-cycle 경로와 동일하게 분류를 우회해 무조건 고장.
-                        if (applyLongStop && gapFlow is not null && !OwnMtOverrun(gapFlow, u.S, u.E)
-                            && !OverlapsAny(toDownIv, gapFlow, u.S, u.E))
+                        if (applyLongStop && gapFlow is not null && !OwnMtOverrun(gapDb, u.S, u.E)
+                            && !OverlapsAny(toDownIv, gapDb, u.S, u.E))
                         {
                             var cls = OeeMath.ClassifyStopWindow(signalRulesActive,
-                                HasOwnSignal(gapFlow, u.S, u.E), LineHasCulprit(gapFlow, u.S, u.E),
+                                HasOwnSignal(gapDb, u.S, u.E), LineHasCulprit(gapDb, u.S, u.E),
                                 LineHasUnresolvedUsertag(u.S, u.E), len, thrGap, nonProdMult,
-                                lineHasMtOverrun: LineHasMtOverrun(gapFlow, u.S, u.E));
+                                lineHasMtOverrun: LineHasMtOverrun(gapDb, u.S, u.E));
                             if (cls is OeeMath.StopClass.NonProduction or OeeMath.StopClass.WaitNonProd)
                             {
                                 var wait = cls == OeeMath.StopClass.WaitNonProd;
@@ -1624,7 +1789,7 @@ public abstract class OeeControllerBase : ControllerBase
                                 {
                                     AddNonProdFor(gapFlow, us, wait);   // 무사이클 갭 → 비생산/대기(제외) 시각화
                                     nonProdDetections.Add(NewNonProdDetection(
-                                        gapFlow, us.S, us.E, thrGap, wait ? "wait-starve" : "nocycle-gap", nonProdMult));
+                                        gapDb, us.S, us.E, thrGap, wait ? "wait-starve" : "nocycle-gap", nonProdMult));
                                 }
                                 continue;
                             }
@@ -1641,7 +1806,7 @@ public abstract class OeeControllerBase : ControllerBase
                         AddIdleFor(gapFlow, uSegs);                 // 감지 정지(무사이클 갭) — 이벤트 flow 귀속
                         // 무사이클 잔여의 유지보수 귀속 — 이벤트 flow 의 유지보수 구간과 겹침(미계측 오귀속 방지).
                         var maintOverlapGapMs = Math.Min(len, uSegs.Sum(us => OverlapMs(
-                            gapFlow is not null ? maintByFlow?.GetValueOrDefault(gapFlow) : maintAll, us.S, us.E)));
+                            gapDb is not null ? maintByFlow?.GetValueOrDefault(gapDb) : maintAll, us.S, us.E)));
                         idleMaintCtMs += maintOverlapGapMs;
                         if (OeeMath.IsMaintenanceCovered(len, maintOverlapGapMs))
                             continue;                               // 유지보수 확정 — A 손실은 유지, 고장 통계만 제외
@@ -1677,7 +1842,10 @@ public abstract class OeeControllerBase : ControllerBase
         if (applyLongStop && unmeasuredTrusted && !suppressDetectionLog)
             NonProdWriteQueueService.Enqueue(new NonProdWriteQueueService.Batch(
                 nonProdDetections, fromUtc, toUtc,
-                flowRunByFlow.Keys.ToList(),            // 이번 패스가 실제 처리한 flow(임계 보유)만 무효화 대상
+                // 이번 패스가 실제 처리한 flow(임계 보유)만 무효화 대상 — 감지 행은 부모 이름으로 기록되므로
+                // 분기(가상) 키는 부모로 번역해 넘긴다(가상 이름으론 stale 행 정리가 매칭되지 않는다).
+                flowRunByFlow.Keys.Select(k => MapF(k).DbFlow)
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
                 IncludeLineScope: flowName is null));   // 라인 패스만 라인 스코프('') 구 행 정리
 
         // ── 패스 2 — 벽시계 산출(2026-07-08, doc/25 §3.1 flow별 분모 전환): 비생산(지정 창 + 당일 승격 + 대기 +
@@ -1698,6 +1866,11 @@ public abstract class OeeControllerBase : ControllerBase
             // flow별 비생산 창 = 지정 시각대(라인 공통) ∪ 이 flow 의 승격/강제/대기 구간.
             var npF = Intervals.Union(plannedIvCommon.Concat(nonProdByFlow.GetValueOrDefault(f) ?? new List<(double S, double E)>()).ToList());
             var availF = Intervals.Subtract(periodIv, npF.Concat(unmeasured).ToList());
+            // 형제가동 카빙(사이클 분기, 2026-08-27) — 카빙 사슬: 미계측 ▸ 비생산 ▸ <b>형제가동</b> ▸ 비가동.
+            //   형제 분기가 돌던 시간은 이 분기의 생산가능이 아니다(이 분기의 손실로 세면 A 가 혼합비만큼
+            //   무너진다). 미분류 사이클 스팬도 같은 이유로 전 분기 분모에서 빠진다.
+            if (siblingRunByFlow.TryGetValue(f, out var sib) && sib.Count > 0)
+                availF = Intervals.Subtract(availF, Intervals.Union(sib));
             availableWallMs += Intervals.Total(availF);
             // 비생산 벽시계(도넛/표시) = 기간 클립 후 미계측 차감(미계측 우선 — daily 표시와 동일 규칙).
             var npClipped = Intervals.Subtract(Intervals.Intersect(npF, periodIv), unmeasured);
@@ -1729,7 +1902,7 @@ public abstract class OeeControllerBase : ControllerBase
             runWallIntervals.AddRange(flowRunAvail);
             var flowDownIv = Intervals.Subtract(availF, flowRun);
             var flowMaintIv = Intervals.Intersect(flowDownIv,
-                maintByFlow?.GetValueOrDefault(f) ?? new List<(double S, double E)>());
+                maintByFlow?.GetValueOrDefault(MapF(f).DbFlow) ?? new List<(double S, double E)>());
             downMaintWallMs += Intervals.Total(flowMaintIv);
             downMaintWallIntervals.AddRange(flowMaintIv);
             var flowIdleEv = idleLineIntervals.Count > 0 || idleByFlow.ContainsKey(f)
@@ -1867,13 +2040,24 @@ public abstract class OeeControllerBase : ControllerBase
             var flowClause = "";
             if (!string.IsNullOrWhiteSpace(flowName))
             {
-                flowClause = " AND flowName = @Flow ";
-                p.Add("Flow", flowName.Trim());
+                // 분기 가상 이름이면 부모 + branchName 라벨로 좁힌다(가동 수 = 그 분기의 사이클만).
+                var name = flowName.Trim();
+                if (_settings.GetBranchVirtualMap().TryGetValue(name, out var bm))
+                {
+                    flowClause = " AND flowName = @Flow AND branchName = @Branch ";
+                    p.Add("Flow", bm.Parent);
+                    p.Add("Branch", bm.Branch);
+                }
+                else
+                {
+                    flowClause = " AND flowName = @Flow ";
+                    p.Add("Flow", name);
+                }
             }
             else if (flowFilter is not null)
             {
-                flowClause = " AND flowName IN @Flows ";   // 시스템 스코프 — Dapper 리스트 확장
-                p.Add("Flows", flowFilter.ToList());
+                flowClause = " AND flowName IN @Flows ";   // 시스템 스코프 — Dapper 리스트 확장(부모 이름 축)
+                p.Add("Flows", TranslateToDbFlows(new HashSet<string>(flowFilter, StringComparer.Ordinal)));
             }
             return await conn.ExecuteScalarAsync<int>($@"
                 SELECT COUNT(*) FROM dspFlowHistory
@@ -2089,6 +2273,7 @@ public abstract class OeeControllerBase : ControllerBase
         public long Excluded { get; set; }
         public long Incomplete { get; set; }
         public long Idle { get; set; }
+        public long Unclassified { get; set; }   // 분기 미분류(branchName NULL) — 분기 활성 flow 만 계수
     }
 
     /// <summary>
@@ -2108,6 +2293,7 @@ public abstract class OeeControllerBase : ControllerBase
         // dtCond 의 MT 축 경계 — 집계 경로와 같은 소스(SSOT). 미보유 flow 는 CT 축 폴백.
         var mqFaultMult = _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
         var mqMtThresholds = await _ctStats.ComputeMtThresholdAsync();
+        var branchedParentsMq = _settings.GetBranchedParentFlows();   // 분기 활성 flow — 미분류 계수 대상
         var rows = new List<OeeMeasureQualityRowDto>();
 
 
@@ -2197,6 +2383,12 @@ public abstract class OeeControllerBase : ControllerBase
                             continue;
                         }
                         var thrMs = thresholds[f].AvgMs * idleMult;
+                        // 분기 활성 flow — 미분류(branchName NULL) 사이클을 함께 계수한다. 분기 미사용이면
+                        // 컬럼을 참조하지 않아(상수 0) branchName 없는 옛 DB/미러에서도 안전.
+                        var isBranched = branchedParentsMq.Contains(f);
+                        var unclassifiedSel = isBranched
+                            ? "COALESCE(SUM(CASE WHEN branchName IS NULL THEN 1 ELSE 0 END),0)"
+                            : "0";
                         var p = new DynamicParameters();
                         p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", f); p.Add("Thr", thrMs);
                         p.Add("MtThr", mqMtThresholds.TryGetValue(f, out var mqMt) && mqMt > 0
@@ -2207,13 +2399,15 @@ public abstract class OeeControllerBase : ControllerBase
                               COUNT(*)                                                          AS Total,
                               COALESCE(SUM(CASE WHEN {DtCondSql} THEN 1 ELSE 0 END),0)          AS Excluded,
                               COALESCE(SUM(CASE WHEN mt IS NULL THEN 1 ELSE 0 END),0)           AS Incomplete,
-                              COALESCE(SUM(CASE WHEN COALESCE(IsIdle,0)=1 THEN 1 ELSE 0 END),0) AS Idle
+                              COALESCE(SUM(CASE WHEN COALESCE(IsIdle,0)=1 THEN 1 ELSE 0 END),0) AS Idle,
+                              {unclassifiedSel}                                                 AS Unclassified
                             FROM dspFlowHistory
                             WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow AND ct > 0", p);
                         var total = (int)(q?.Total ?? 0);
                         var dg = Diagnose(f, total);
                         var excluded = (int)(q?.Excluded ?? 0);
                         var incomplete = (int)(q?.Incomplete ?? 0);
+                        var unclassified = (int)(q?.Unclassified ?? 0);
                         rows.Add(new OeeMeasureQualityRowDto(
                             FlowName: f,
                             TotalCycles: total,
@@ -2226,7 +2420,10 @@ public abstract class OeeControllerBase : ControllerBase
                             ThresholdMs: thrMs,
                             Measurable: true,
                             BoundaryIssue: dg.Issue, HeadCall: dg.H, TailCall: dg.T,
-                            HeadGoingCount: dg.HG, TailGoingCount: dg.TG));
+                            HeadGoingCount: dg.HG, TailGoingCount: dg.TG,
+                            Branched: isBranched,
+                            UnclassifiedCycles: unclassified,
+                            UnclassifiedRate: total > 0 ? unclassified / (double)total : null));
                     }
                 }
             }

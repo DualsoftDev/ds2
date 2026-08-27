@@ -79,6 +79,12 @@ public class NavController : ControllerBase
             .Select((o, i) => (o.FlowName, i))
             .ToDictionary(x => x.FlowName, x => x.i, StringComparer.OrdinalIgnoreCase);
 
+        // 사이클 분기 — flow 별 분기 이름 목록(분기 활성 flow 만 항목 존재). 셸이 설비효율/가동시간 분석
+        // 그룹에서 부모 행을 "부모_분기" 행들로 치환하는 데 쓴다(생산효율/추이는 부모 그대로 = 설계 규약).
+        var branchSets = _settings.GetAllFlowBranchSets()
+            .ToDictionary(s => s.FlowName, s => s.Branches.Select(b => b.Name).ToList(),
+                StringComparer.OrdinalIgnoreCase);
+
         var systems = new List<NavSystemDto>();
         if (_project.IsLoaded)
         {
@@ -93,7 +99,11 @@ public class NavController : ControllerBase
                         .ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
                         .Select(f => f.Name)
                         .ToList();
-                    systems.Add(new NavSystemDto(system.Name, sorted));
+                    var flowBranches = sorted
+                        .Where(branchSets.ContainsKey)
+                        .ToDictionary(f => f, f => branchSets[f], StringComparer.OrdinalIgnoreCase);
+                    systems.Add(new NavSystemDto(system.Name, sorted,
+                        flowBranches.Count > 0 ? flowBranches : null));
                 }
             }
         }
@@ -307,7 +317,9 @@ public record NavDto(bool ShowPlcDebug, List<NavSystemDto> Systems, List<NavShor
 // 사이드바 외부 도구 바로가기 1행(절대 URL). 데모 전환 활성 + 개별 노출 체크 시에만 내려온다.
 public record NavShortcutDto(string Label, string Href, string Icon);
 
-public record NavSystemDto(string Name, List<string> Flows);
+// FlowBranches: 분기 활성 flow → 분기 이름 목록(정의 순서). null/미포함 = 그 flow 분기 미사용.
+public record NavSystemDto(string Name, List<string> Flows,
+    Dictionary<string, List<string>>? FlowBranches = null);
 
 public record NavSummaryDto(
     NavLinesDto Lines,

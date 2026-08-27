@@ -479,7 +479,14 @@ public sealed record OeeMeasureQualityRowDto(
     string? HeadCall,
     string? TailCall,
     int HeadGoingCount,
-    int TailGoingCount);
+    int TailGoingCount,
+    // ── 사이클 분기(2026-08-27) — 분기 활성 flow 전용 ─────────────────────
+    //   미분류 = 어느 분기의 제외 필터도 통과하지 못한 사이클(branchName NULL). 통계(임계·분기 A/P)에선
+    //   빠지지만 여기서 계수한다 — 급등 = 분기 정의 오류 또는 센서 오감지(제외 call 오발화) 조기 경보.
+    bool Branched = false,          // 이 flow 에 분기 정의가 활성인가
+    int UnclassifiedCycles = 0,     // 미분류 사이클 수(분기 활성 flow 만 의미)
+    double? UnclassifiedRate = null // UnclassifiedCycles / TotalCycles. Total=0 이면 null
+);
 
 /// <summary>
 /// 계측 품질 응답 — 라인 합계 + 설비별 행.

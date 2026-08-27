@@ -39,7 +39,9 @@ public class OeeMetricsController : OeeControllerBase
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
         var flowSet = flowName is null ? ResolveSystemFlowSet(system) : null;
-        return await BuildSummaryAsync(flowName, fromUtc, toUtc, ct, flowFilter: flowSet);
+        // 분기 스코프 정규화 — 가상 이름은 통과, 분기 부모/시스템 스코프는 분기(가상) 집합으로 확장.
+        var (scopedFlow, scopedSet) = NormalizeOeeScope(flowName, flowSet);
+        return await BuildSummaryAsync(scopedFlow, fromUtc, toUtc, ct, flowFilter: scopedSet);
     }
 
     // ── GET /api/oee/teep?from&to&flow[&system] ───────────────────────────
@@ -191,12 +193,28 @@ public class OeeMetricsController : OeeControllerBase
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var flowSet = ResolveSystemFlowSet(system);
         var byFlow = await _repo.GetDowntimeByFlowAsync(fromUtc, toUtc, ct);
-        var thresholds = await ResolveCtThresholdsAsync();
+        var thresholds = await ResolveCtThresholdsAsync(branchView: true);
+        var branchMap = _settings.GetBranchVirtualMap();
+        var branchedParents = _settings.GetBranchedParentFlows();
 
         var result = new List<OeeRankingDto>(byFlow.Count);
         foreach (var (flowName, downtimeMs, count) in byFlow)
         {
-            if (flowSet is not null && !flowSet.Contains(flowName)) continue;   // 시스템 스코프
+            if (flowSet is not null && !flowSet.Contains(flowName)) continue;   // 시스템 스코프(부모 이름 축)
+            if (branchedParents.Contains(flowName))
+            {
+                // 분기 부모 → 분기(가상) 행으로 치환. 정지 이벤트는 부모 단위 기록이므로 물리 정지의
+                // 시간·건수는 각 분기 행에 동일 표시(정지는 전 분기 공통 — 양쪽 표시 설계).
+                foreach (var kv in branchMap)
+                {
+                    if (!string.Equals(kv.Value.Parent, flowName, StringComparison.OrdinalIgnoreCase)) continue;
+                    var sv = await BuildSummaryAsync(kv.Key, fromUtc, toUtc, ct, thresholds);
+                    result.Add(new OeeRankingDto(
+                        kv.Key, downtimeMs, count, sv.TotalCount,
+                        sv.Availability, sv.Performance, sv.Quality, sv.Oee));
+                }
+                continue;
+            }
             var s = await BuildSummaryAsync(flowName, fromUtc, toUtc, ct, thresholds);
             result.Add(new OeeRankingDto(
                 flowName, downtimeMs, count, s.TotalCount,
@@ -318,8 +336,10 @@ public class OeeMetricsController : OeeControllerBase
         [FromQuery] string? system, CancellationToken ct)
     {
         var (fromUtc, toUtc) = ResolveRange(from, to);
-        var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
-        var flowSet = flowName is null ? ResolveSystemFlowSet(system) : null;
+        var flowNameRaw = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
+        var flowSetRaw = flowNameRaw is null ? ResolveSystemFlowSet(system) : null;
+        // 분기 스코프 정규화 — Summary 와 동일 규칙(설비효율 추이도 분기 단위 축).
+        var (flowName, flowSet) = NormalizeOeeScope(flowNameRaw, flowSetRaw);
         var spanDays = (toUtc - fromUtc).TotalDays;
         var hourly = spanDays <= 2.0;
         var gran = hourly ? "hour" : "day";
@@ -328,13 +348,16 @@ public class OeeMetricsController : OeeControllerBase
         //   슬롯별 [가동 / 고장 / 유지보수 / 비생산 / 미계측] flow 합산 — 세로 합 = 정산, 정지부 = 도넛.
         //   가동·유지보수·비생산(doc/25 §3.1 flow 귀속화)은 flow별 구간 연결(concat) SumOverlap(=flow 합),
         //   미계측만 라인 공통이라 ×flow수.
-        var thresholds = await ResolveCtThresholdsAsync();
+        var thresholds = await ResolveCtThresholdsAsync(branchView: true);
         var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
-        var evIntervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, flowName, ct);
+        var evIntervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, TranslateToDbFlow(flowName), ct);
         if (flowSet is not null)
+        {
+            var dbSet = new HashSet<string>(TranslateToDbFlows(flowSet)!, StringComparer.OrdinalIgnoreCase);
             evIntervals = evIntervals
-                .Where(x => x.FlowName is null || flowSet.Contains(x.FlowName))   // 시스템 스코프(라인 귀속 보존)
+                .Where(x => x.FlowName is null || dbSet.Contains(x.FlowName))   // 시스템 스코프(라인 귀속 보존, 부모 이름 축)
                 .ToList();
+        }
         var maintIv = evIntervals
             .Where(x => x.Kind is 0 or 2 && x.EndMs > x.StartMs)   // 유지보수(계획정비/기타 = isFailure 0 계열)
             .Select(x => ((double)x.StartMs, (double)x.EndMs, x.FlowName))

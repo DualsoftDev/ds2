@@ -59,4 +59,11 @@ public class DspFlowHistoryEntity
     /// 이 사이클이 측정된 시점의 tail Call 이름 (boundary 박제).
     /// </summary>
     public string? TailCallName { get; set; }
+
+    /// <summary>
+    /// 사이클 분기 라벨. 분기 미사용 flow = null. 분기 사용 flow 에서 null = 미분류
+    /// (어느 분기의 제외 필터도 통과하지 못한 사이클 — 통계 제외하되 무결성 카드에 계수).
+    /// FlowName 은 분기와 무관하게 항상 부모 flow — ct 축(다음 시작, 분기 무관)도 불변이 규약.
+    /// </summary>
+    public string? BranchName { get; set; }
 }

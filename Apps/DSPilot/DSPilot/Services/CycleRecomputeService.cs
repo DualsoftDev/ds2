@@ -3,6 +3,7 @@
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Adapters;
 using DSPilot.Hubs;
+using DSPilot.Models;
 using DSPilot.Models.Dsp;
 using DSPilot.Repositories;
 using Microsoft.AspNetCore.SignalR;
@@ -212,6 +213,12 @@ public sealed class CycleRecomputeService
         if (string.IsNullOrWhiteSpace(flowName) || toLocal <= fromLocal)
             return RecomputeOutcome.Skipped;
 
+        // 분기 활성 flow 는 전용 경로 — 호출측이 넘긴 flow 단일 Head/Tail 은 무시하고 분기 정의로 도출한다
+        // (수동 저장·주기 self-heal 모두 이 관문을 지나므로 통합 지점은 여기 한 곳).
+        var branchSet = _settings.GetFlowBranchSet(flowName);
+        if (branchSet is not null && branchSet.Branches.Count > 0)
+            return await RederiveBranchesAndReplaceAsync(flowName, branchSet, fromLocal, toLocal);
+
         var (headOutTag, tailCompletion) = ResolveTags(flowName, headCallName, tailCallName);
         if (string.IsNullOrWhiteSpace(headOutTag))
         {
@@ -324,6 +331,200 @@ public sealed class CycleRecomputeService
             });
         }
         return rows;
+    }
+
+    // ── 분기(branch) 재도출 — 분기 활성 flow 전용 경로 (2026-08-27) ─────────────────────
+    /// <summary>
+    /// 분기 정의(자기 Head/Tail + 제외 call)별 시작 엣지를 <b>시간순 병합 스트림</b>으로 합쳐 사이클을
+    /// 만든다. ct = 다음 시작(분기 무관) — 분기 미사용과 동일한 부모 축이라 TEEP·평균·임계 소비자가
+    /// 분기 도입 전후로 흔들리지 않는다(설계 규약: ct 부모 의미 불변).
+    /// <para>분류: 병합 스팬 [시작, 다음 시작) 안에서 제외 call OutTag↑ 발화 = 그 분기 아님(반증).
+    /// 같은 시작 시각에 후보 분기가 여럿이고(공유 Head) 복수가 통과하면 정의 순서 첫 매칭 승.
+    /// 전멸 = 미분류(BranchName=null) — 행은 보존하되 무결성 카드 계수 대상.</para>
+    /// <para>MT(tail 완료)도 <b>병합 스팬</b> 안에서만 찾는다 — 분기 자체 주기(다음 동일분기 시작)로
+    /// 찾으면 형제 사이클 너머의 tail 을 집어 MT 가 형제 구동시간을 삼킨다.</para>
+    /// </summary>
+    private async Task<RecomputeOutcome> RederiveBranchesAndReplaceAsync(
+        string flowName, FlowBranchSet set, DateTime fromLocal, DateTime toLocal)
+    {
+        var systemId = _project.TryGetSystemIdByFlowName(flowName);
+
+        // 태그 주소 → 엣지 목록 캐시 — Head/제외 call 이 분기 간에 겹칠 때 재조회 방지.
+        var edgeCache = new Dictionary<string, List<DateTime>>(StringComparer.OrdinalIgnoreCase);
+        async Task<List<DateTime>> EdgesAsync(string tag, bool falling)
+        {
+            var key = (falling ? "F|" : "R|") + tag;
+            if (edgeCache.TryGetValue(key, out var hit)) return hit;
+            var edges = falling
+                ? await _plc.FindFallingEdgesAsync(tag, fromLocal, toLocal, systemId)
+                : await _plc.FindRisingEdgesAsync(tag, fromLocal, toLocal, systemId);
+            edges.Sort();
+            edgeCache[key] = edges;
+            return edges;
+        }
+
+        if (!_mapper.IsInitialized) _mapper.Initialize();
+        var pairs = _mapper.GetAllCallTagPairs();
+        string? OutTagOf(string callName) => pairs
+            .Where(p => string.Equals(p.FlowName, flowName, StringComparison.OrdinalIgnoreCase)
+                     && string.Equals(p.CallName, callName, StringComparison.OrdinalIgnoreCase))
+            .Select(p => p.OutTag)
+            .FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
+
+        var resolved = new List<BranchRuntime>(set.Branches.Count);
+        foreach (var def in set.Branches)
+        {
+            var (headOut, tailCompletion) = ResolveTags(flowName, def.StartCallName, def.EndCallName);
+            if (string.IsNullOrWhiteSpace(headOut))
+            {
+                // 시작 경계 미해석 분기가 하나라도 있으면 병합 스트림 자체가 불완전 — 파괴적 덮어쓰기를 피한다.
+                _logger.LogWarning(
+                    "[CycleRecompute] '{Flow}' 분기 '{Branch}' Head '{Head}' OutTag 미해석 — 재계산 건너뜀 (history 보존)",
+                    flowName, def.Name, def.StartCallName);
+                return RecomputeOutcome.Skipped;
+            }
+
+            var exclEdges = new List<List<DateTime>>();
+            foreach (var callName in def.ExcludedCallNames)
+            {
+                // 자기 Head/Tail 이 제외 목록에 섞이면 모든 자기 사이클을 스스로 반증 → 방어적으로 무시.
+                if (string.Equals(callName, def.StartCallName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(callName, def.EndCallName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var tag = OutTagOf(callName);
+                if (string.IsNullOrWhiteSpace(tag))
+                {
+                    // 관측 불가 call 은 "미발화"로 간주하고 필터에서만 빠진다 — 재도출 전체를 막지 않는다.
+                    _logger.LogWarning(
+                        "[CycleRecompute] '{Flow}' 분기 '{Branch}' 제외 call '{Call}' OutTag 미해석 — 분류에서 무시",
+                        flowName, def.Name, callName);
+                    continue;
+                }
+                exclEdges.Add(await EdgesAsync(tag!, falling: false));
+            }
+
+            var starts = await EdgesAsync(headOut!, falling: false);
+            var tailEdges = !string.IsNullOrWhiteSpace(tailCompletion.Tag)
+                ? await EdgesAsync(tailCompletion.Tag!, tailCompletion.Falling)
+                : new List<DateTime>();
+            resolved.Add(new BranchRuntime(def, starts, tailEdges, exclEdges));
+        }
+
+        // 시작 시각 병합 — 같은 시각에 여러 분기(공유 Head)면 정의 순서대로 후보 적재.
+        var byStart = new SortedDictionary<DateTime, List<BranchRuntime>>();
+        foreach (var rt in resolved)
+            foreach (var s in rt.Starts)
+            {
+                if (!byStart.TryGetValue(s, out var list)) byStart[s] = list = new List<BranchRuntime>(1);
+                if (!list.Contains(rt)) list.Add(rt);
+            }
+
+        if (byStart.Count == 0)
+        {
+            _logger.LogInformation(
+                "[CycleRecompute] '{Flow}' [{From:o},{To:o}) 분기 Head rising edge 0건 — 삭제 없이 건너뜀 (history 보존)",
+                flowName, fromLocal, toLocal);
+            return new RecomputeOutcome(true, 0, 0, 0);
+        }
+
+        var mergedStarts = new List<DateTime>(byStart.Keys);
+        var (maxCT, minCT) = _settings.GetEffectiveCycleRangeMs(flowName);
+        var fromUtc = fromLocal.ToUniversalTime();
+        var toUtc = toLocal.ToUniversalTime();
+        var rows = new List<DspFlowHistoryEntity>(mergedStarts.Count);
+        int cycleNo = 0, unclassified = 0;
+
+        for (int i = 0; i < mergedStarts.Count; i++)
+        {
+            var s = mergedStarts[i];
+            bool hasNext = i + 1 < mergedStarts.Count;
+            var end = hasNext ? mergedStarts[i + 1] : toLocal;
+            double? periodMs = hasNext ? (mergedStarts[i + 1] - s).TotalMilliseconds : (double?)null;
+
+            var candidates = byStart[s];
+            BranchRuntime? winner = null;
+            foreach (var cand in candidates)
+            {
+                var fired = false;
+                foreach (var edges in cand.ExclusionEdges)
+                    if (HasEdgeInRange(edges, s, end)) { fired = true; break; }
+                if (!fired) { winner = cand; break; }
+            }
+            var basis = winner ?? candidates[0]; // 미분류 행도 측정 경계(Head/Tail)는 첫 후보 것으로 박제
+            if (winner is null) unclassified++;
+
+            var complete = FirstEdgeInRange(basis.TailEdges, s, end);
+            double? activeMs = complete.HasValue ? (complete.Value - s).TotalMilliseconds : (double?)null;
+
+            if (!periodMs.HasValue && !activeMs.HasValue)
+                continue; // 주기도 활성도 없는 마지막 빈 사이클 — 단일 경로(BuildRows)와 동일 규칙
+
+            int? mt = activeMs.HasValue ? ClampMs(activeMs.Value) : (int?)null;
+            int? wt = null, ct = null;
+            if (periodMs.HasValue && activeMs.HasValue)
+            {
+                wt = ClampMs(periodMs.Value - activeMs.Value);
+                ct = mt + wt;
+            }
+            else if (periodMs.HasValue)
+            {
+                ct = ClampMs(periodMs.Value);
+            }
+
+            DateTime recordedLocal = periodMs.HasValue
+                ? s.AddMilliseconds(periodMs.Value)
+                : (complete ?? s);
+            var recordedUtc = recordedLocal.ToUniversalTime();
+            if (recordedUtc < fromUtc || recordedUtc >= toUtc)
+                continue;
+
+            bool isIdle = !ct.HasValue || (maxCT > 0 && ct > maxCT) || (minCT > 0 && ct < minCT);
+
+            rows.Add(new DspFlowHistoryEntity
+            {
+                FlowName = flowName,
+                MT = mt,
+                WT = wt,
+                CT = ct,
+                CycleNo = ++cycleNo,
+                RecordedAt = DateTime.SpecifyKind(recordedUtc, DateTimeKind.Utc),
+                IsIdle = isIdle,
+                HeadCallName = basis.Def.StartCallName,
+                TailCallName = basis.Def.EndCallName,
+                BranchName = winner?.Def.Name,
+            });
+        }
+
+        var (deleted, inserted) = await _dsp.ReplaceFlowHistoryRangeAsync(flowName, fromUtc, toUtc, rows);
+        _logger.LogInformation(
+            "[CycleRecompute] '{Flow}' 분기 재도출 [{From:o},{To:o}): cycles={Cycles} (미분류 {Un}), deleted={Del}, inserted={Ins}",
+            flowName, fromLocal, toLocal, rows.Count, unclassified, deleted, inserted);
+        return new RecomputeOutcome(true, rows.Count, deleted, inserted);
+    }
+
+    /// <summary>분기 1개의 도출 재료 — 정의 + 시작/완료/제외 엣지 목록(전부 오름차순).</summary>
+    private sealed record BranchRuntime(
+        FlowBranchDef Def,
+        List<DateTime> Starts,
+        List<DateTime> TailEdges,
+        List<List<DateTime>> ExclusionEdges);
+
+    /// <summary>[from, to) 안에 엣지 존재 여부 — from 포함(사이클 시작 시각 동시 발화도 그 사이클 소속).</summary>
+    private static bool HasEdgeInRange(List<DateTime> edges, DateTime fromInclusive, DateTime toExclusive)
+    {
+        var i = edges.BinarySearch(fromInclusive);
+        if (i < 0) i = ~i;
+        else while (i > 0 && edges[i - 1] == fromInclusive) i--; // 중복 시 첫 항목까지 후퇴
+        return i < edges.Count && edges[i] < toExclusive;
+    }
+
+    /// <summary>(from, to) 안의 첫 엣지 — from 초과(BuildCycles 의 tail 매칭 '&lt;= cStart 스킵' 과 동일 규약).</summary>
+    private static DateTime? FirstEdgeInRange(List<DateTime> edges, DateTime fromExclusive, DateTime toExclusive)
+    {
+        var i = edges.BinarySearch(fromExclusive);
+        if (i < 0) i = ~i;
+        else { do { i++; } while (i < edges.Count && edges[i] == fromExclusive); } // 동시각 전부 스킵(초과 조건)
+        return i < edges.Count && edges[i] < toExclusive ? edges[i] : (DateTime?)null;
     }
 
     /// <summary>ms(double) → 음수 0, int 초과는 상한 클램프, 그 외 절단. dspFlowHistory 의 int 컬럼 안전 변환.</summary>

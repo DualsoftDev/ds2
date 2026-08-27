@@ -857,3 +857,10 @@
         .up-bnd-top-msg { margin-top: 3px; font-size: 0.72rem; color: var(--color-text-secondary); }
         .up-bnd-top-act { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 0.72rem; }
         .up-bnd-top-act a { color: var(--color-primary); font-weight: 700; }
+
+        /* ── 사이클 분기 미분류 열(2026-08-27) — 분기 활성 flow 가 있을 때만 6열로 확장 ── */
+        .up-mq-row.has-br { grid-template-columns: minmax(72px, 1.1fr) minmax(90px, 2fr) 66px 62px 84px 68px; }
+        .up-mq-un-warn { color: var(--amber); font-weight: 800; }
+        @media (max-width: 720px) {
+            .up-mq-row.has-br { grid-template-columns: minmax(60px, 1fr) 60px 52px 66px 60px; }
+        }

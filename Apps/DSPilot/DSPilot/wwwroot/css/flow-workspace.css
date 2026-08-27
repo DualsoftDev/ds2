@@ -390,3 +390,43 @@
            드래그가 실제 시작되면 _beginDrag 가 touchmove 를 preventDefault 해 스크롤을 멈춘다. */
         .ct-gantt-chart-area { touch-action: pan-x pan-y; }
         .ct-gantt-wrapper { touch-action: none; }
+
+/* ════ Work 그룹 헤더 행 (간트 사이드바, 2026-08-27) — laneLayout 이 Work 경계마다 삽입(높이 WORK_ROW_H=22 고정) ════ */
+.ct-work-row { display: flex; align-items: center; background: color-mix(in srgb, var(--color-text-secondary) 8%, var(--color-surface)); border-bottom: 1px solid var(--color-lines); overflow: hidden; }
+.ct-work-label { display: flex; align-items: center; gap: 5px; padding: 0 10px; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.02em; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ct-work-label .material-icons { font-size: 14px; opacity: 0.7; }
+
+/* ════ 사이클 분기(branch) 편집기 (2026-08-27) ════ */
+.fb-chip { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 0.7rem; font-weight: 800; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-primary) 35%, transparent); white-space: nowrap; }
+.fb-branch { border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--color-surface); }
+.fb-branch.is-url { border-color: color-mix(in srgb, var(--color-primary) 55%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent); }
+.fb-brow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fb-dot { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 50%; }
+.fb-name { width: 140px; font-weight: 700; }
+.fb-sel { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); }
+.fb-sel select { min-width: 130px; }
+.fb-mini { width: 28px; height: 28px; }
+.fb-mini .material-icons { font-size: 16px; }
+.fb-del:hover { color: var(--color-danger, #e5494f); }
+.fb-excl { display: flex; flex-direction: column; gap: 6px; }
+.fb-excl-title { font-size: 0.7rem; color: var(--color-text-secondary); }
+.fb-work { display: flex; flex-direction: column; gap: 4px; }
+.fb-work-h { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; color: var(--color-text-secondary); cursor: pointer; user-select: none; }
+.fb-work-h.is-some input { opacity: 0.55; } /* 부분 선택 — indeterminate 대용(체크박스 반투명) */
+.fb-calls { display: flex; flex-wrap: wrap; gap: 5px; padding-left: 18px; }
+.fb-call { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--color-lines); font-size: 0.72rem; cursor: pointer; user-select: none; transition: background 0.1s, border-color 0.1s; }
+.fb-call input { margin: 0; }
+.fb-call.is-on { background: color-mix(in srgb, #e5494f 12%, transparent); border-color: color-mix(in srgb, #e5494f 45%, transparent); font-weight: 700; }
+.fb-call.is-bound { opacity: 0.5; cursor: not-allowed; }
+.fb-preview { display: flex; flex-direction: column; gap: 6px; }
+.fb-strip { position: relative; height: 26px; border: 1px solid var(--color-lines); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-text-secondary) 4%, var(--color-surface)); overflow: hidden; }
+.fb-seg { position: absolute; top: 0; bottom: 0; opacity: 0.85; }
+.fb-seg + .fb-seg { border-left: 1px solid rgba(255,255,255,0.55); }
+.fb-strip-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; color: var(--color-text-secondary); }
+.fb-stats { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; font-size: 0.72rem; }
+.fb-stat { display: inline-flex; align-items: center; gap: 5px; }
+.fb-stat i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.fb-stat b { font-family: var(--font-mono, monospace); }
+.fb-stat.is-warn b { color: #e5494f; }
+.fb-hint { font-size: 0.68rem; color: var(--color-text-secondary); }
+.fb-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

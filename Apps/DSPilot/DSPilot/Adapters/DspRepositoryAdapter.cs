@@ -189,6 +189,10 @@ public class DspRepositoryAdapter : IDspRepository
 
     private async Task EnsureIsIdleColumnAsync(SqliteConnection conn)
     {
+        // branchName(2026-08-27, 사이클 분기)도 같은 lazy-ensure 경로에 편승 — insert/replace 직전에
+        // 호출되므로 스키마 init 을 안 거친 옛 DB 파일에서도 컬럼 누락 에러가 나지 않는다.
+        await EnsureColumnAsync(conn, HistoryTable, "branchName", "NVARCHAR(128)");
+
         var exists = await ColumnExistsAsync(conn, HistoryTable, "IsIdle");
         if (exists) return;
         try
@@ -284,7 +288,8 @@ public class DspRepositoryAdapter : IDspRepository
                     recordedAt    DATETIME,
                     IsIdle        INTEGER NOT NULL DEFAULT 0,
                     headCallName  NVARCHAR(128),
-                    tailCallName  NVARCHAR(128)
+                    tailCallName  NVARCHAR(128),
+                    branchName    NVARCHAR(128)
                 )";
 
             // 모델 변경 이력 — Promaker 의 AASX 가 바뀔 때마다 audit row 1건.
@@ -480,6 +485,7 @@ public class DspRepositoryAdapter : IDspRepository
             await EnsureColumnAsync(conn, "dspFlow", "avgCT",             "REAL");
             await EnsureColumnAsync(conn, "dspFlowHistory", "headCallName", "NVARCHAR(128)");
             await EnsureColumnAsync(conn, "dspFlowHistory", "tailCallName", "NVARCHAR(128)");
+            await EnsureColumnAsync(conn, "dspFlowHistory", "branchName",   "NVARCHAR(128)");
 
             _logger.LogInformation(
                 "DSP/PLC schema ensured (dspFlow / dspCall / dspFlowHistory / plc / plcTag / plcTagLog)");
@@ -1060,8 +1066,8 @@ public class DspRepositoryAdapter : IDspRepository
         {
             // RETURNING id — 미러 write-through 가 "파일에서 이 행을 read-back" 하는 식별자로 사용.
             var sql = $@"
-                INSERT INTO {HistoryTable} (FlowName, MT, WT, CT, CycleNo, RecordedAt, IsIdle, HeadCallName, TailCallName)
-                VALUES (@FlowName, @MT, @WT, @CT, @CycleNo, @RecordedAt, @IsIdle, @HeadCallName, @TailCallName)
+                INSERT INTO {HistoryTable} (FlowName, MT, WT, CT, CycleNo, RecordedAt, IsIdle, HeadCallName, TailCallName, BranchName)
+                VALUES (@FlowName, @MT, @WT, @CT, @CycleNo, @RecordedAt, @IsIdle, @HeadCallName, @TailCallName, @BranchName)
                 RETURNING Id";
 
             var newId = await conn.ExecuteScalarAsync<long?>(sql, new
@@ -1075,6 +1081,7 @@ public class DspRepositoryAdapter : IDspRepository
                 history.IsIdle,
                 history.HeadCallName,
                 history.TailCallName,
+                history.BranchName,
             });
 
             if (newId is long id)
@@ -1128,8 +1135,8 @@ public class DspRepositoryAdapter : IDspRepository
             {
                 // Dapper: IEnumerable 파라미터 → 트랜잭션 안에서 항목당 1회 실행(배치).
                 var insertSql = $@"
-                    INSERT INTO {HistoryTable} (FlowName, MT, WT, CT, CycleNo, RecordedAt, IsIdle, HeadCallName, TailCallName)
-                    VALUES (@FlowName, @MT, @WT, @CT, @CycleNo, @RecordedAt, @IsIdle, @HeadCallName, @TailCallName)";
+                    INSERT INTO {HistoryTable} (FlowName, MT, WT, CT, CycleNo, RecordedAt, IsIdle, HeadCallName, TailCallName, BranchName)
+                    VALUES (@FlowName, @MT, @WT, @CT, @CycleNo, @RecordedAt, @IsIdle, @HeadCallName, @TailCallName, @BranchName)";
                 inserted = await conn.ExecuteAsync(insertSql, rows, transaction: tx);
             }
 

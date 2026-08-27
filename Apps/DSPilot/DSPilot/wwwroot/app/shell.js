@@ -429,6 +429,8 @@ window.dspFmt = {
         // Flow 분석 페이지(/flow-trend·/flow-cycle, 구 통합 /flow)에 있을 때: 해당 시스템/분석/Flow 행을 강조.
         var onFlowPage = path === '/flow' || path === '/flow-trend' || path === '/flow-cycle';
         var curFlowName = onFlowPage ? (qs.get('name') || '') : '';
+        // 사이클 분기 — /flow-cycle?name=부모&branch=분기 로 진입하면 그 분기 행을 강조.
+        var curFlowBranch = onFlowPage ? (qs.get('branch') || '') : '';
         // 현재 페이지의 분석 유형: 'trend'(추이 분석) | 'cycle'(사이클 분석) | ''(구 /flow — 특정 분석 아님).
         var curFlowView = path === '/flow-trend' ? 'trend' : (path === '/flow-cycle' ? 'cycle' : '');
         // 사이클 분석 '전체'(= /flow-cycle 에 ?name= 없이 진입) — 모든 Flow 사이클 간트 일괄 편집(bulkCycleApp).
@@ -594,8 +596,12 @@ window.dspFmt = {
 
                 var groupHasCurrent = false;
 
-                (sysFlows || []).forEach(function (flowName) {
-                    var isCur = isActivePage && flowName === activeFlowName;
+                // 항목 = 문자열(flow 이름) 또는 객체 {label, href, active} — 사이클 분기 행처럼 표시명과
+                // 이동 주소가 표준 규칙(base?queryParam=이름)과 다른 항목을 지원한다(2026-08-27).
+                (sysFlows || []).forEach(function (entry) {
+                    var isObj = entry !== null && typeof entry === 'object';
+                    var flowName = isObj ? entry.label : entry;
+                    var isCur = isActivePage && (isObj ? !!entry.active : flowName === activeFlowName);
                     if (isCur) groupHasCurrent = true;
                     var fb = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant'
                         + (isCur ? '' : ' hover:bg-surface-container-high dark:hover:bg-inverse-surface'));
@@ -609,7 +615,10 @@ window.dspFmt = {
                     fb.appendChild(fl);
                     fb.addEventListener('click', function (ev) {
                         ev.stopPropagation();
-                        navigateTo(withPeriodCarry(base + '?' + queryParam + '=' + encodeURIComponent(flowName)));
+                        var href = isObj && entry.href
+                            ? entry.href
+                            : base + '?' + queryParam + '=' + encodeURIComponent(flowName);
+                        navigateTo(withPeriodCarry(href));
                     });
                     list.appendChild(fb);
                 });
@@ -645,11 +654,25 @@ window.dspFmt = {
 
             systems.forEach(function (sys) {
                 var flows = sys.flows || [];
+                // 사이클 분기 — flow → 분기 이름 목록(분기 활성 flow 만). 설비효율/가동시간 분석 그룹에서
+                // 부모 행을 "부모_분기" 행들로 치환한다(생산효율/추이/동작편차는 부모 그대로 = 설계 규약).
+                var fbr = sys.flowBranches || {};
+                function inSysFlows(name) {
+                    if (!name) return false;
+                    if (flows.indexOf(name) !== -1) return true;
+                    for (var i = 0; i < flows.length; i++) {
+                        var brs = fbr[flows[i]];
+                        if (!brs) continue;
+                        for (var j = 0; j < brs.length; j++)
+                            if (flows[i] + '_' + brs[j] === name) return true;
+                    }
+                    return false;
+                }
                 var sysHasCurrent =
                        (onFlowPage      && flows.indexOf(curFlowName) !== -1)
                     || (onFlowCycleBulk && flowCycleSystem === sys.name)
                     || (onHeatmapPage   && flows.indexOf(heatmapFlow) !== -1)
-                    || (onOeePage     && (flows.indexOf(oeeFlow)  !== -1 || oeeSystem  === sys.name))
+                    || (onOeePage     && (inSysFlows(oeeFlow) || oeeSystem  === sys.name))
                     || (onTeepPage    && (flows.indexOf(teepFlow) !== -1 || teepSystem === sys.name))
                     || (onAlarmPage   && flows.indexOf(alarmFlow)   !== -1);
 
@@ -688,19 +711,47 @@ window.dspFmt = {
                 // 공통 구조(2026-07-02): 모든 그룹에서 별도 '전체' 항목 제거(withAll=false). header 클릭이 곧 '전체' 페이지
                 //   이동(headerHref)이며, 이동한 페이지에서 isActivePage=true 로 자동 펼쳐져 FLOW 를 바로 선택한다.
                 var gTrend = buildAnalysisGroup(flows, '추이 분석',  'timeline',      '/flow-trend',   'name', onFlowPage && curFlowView === 'trend', curFlowName, false, '/flow-trend');
-                // 가동시간 분석: base(/flow-cycle?name=) 는 단일 Flow. '전체'(header 클릭) 는 /flow-cycle?system=
-                //   (그 시스템 모든 Flow 간트 일괄 편집)로 보낸다. 그룹은 단일(?name=)이든 전체(bulk)이든 이 시스템이면 활성/자동펼침.
+                // 가동시간 분석: base(/flow-cycle?name=) 는 단일 Flow. '전체'(일괄 편집, /flow-cycle?system=) 는
+                //   임시 비활성(2026-08-27, 분기 기능 포함 개편까지 보류) — headerHref 미지정 → 헤더 클릭 = 토글만.
+                //   해제 = headerHref 에 '/flow-cycle?system=' + encodeURIComponent(sys.name) 복원.
+                //   분기 활성 flow 는 "부모_분기" 행으로 치환 — 클릭 = 부모 페이지 + ?branch=(그 분기 강조).
                 var cycleActive = (onFlowPage && curFlowView === 'cycle') || (onFlowCycleBulk && flowCycleSystem === sys.name);
-                var gCycle = buildAnalysisGroup(flows, '가동시간 분석', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false,
-                    '/flow-cycle?system=' + encodeURIComponent(sys.name));
+                var cycleItems = [];
+                flows.forEach(function (f) {
+                    var brs = fbr[f];
+                    if (brs && brs.length) brs.forEach(function (b) {
+                        cycleItems.push({
+                            label: f + '_' + b,
+                            href: '/flow-cycle?name=' + encodeURIComponent(f) + '&branch=' + encodeURIComponent(b),
+                            active: curFlowName === f && curFlowBranch === b,
+                        });
+                    });
+                    else cycleItems.push(f);
+                });
+                var gCycle = buildAnalysisGroup(cycleItems, '가동시간 분석', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false,
+                    '');
                 var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, '/heatmap');
                 // 종합효율 현황 → 설비효율(OEE)/생산효율(TEEP) 물리 분리(2026-07-03) — 구 내부 탭(?section=) 폐지.
                 // 헤더 클릭 = 이 시스템 스코프(?system=) — 전 시스템 합산은 최상위 NAV_ITEMS 링크가 담당(2026-08-25).
                 //   활성/자동펼침도 이 시스템 스코프(설비가 이 시스템 소속이거나 ?system= 일치)일 때만 — 종전엔
                 //   /uptime-oee 진입 시 모든 시스템 그룹이 활성이었다(전체/시스템 구분이 없던 시절의 잔재).
-                var oeeActive  = onOeePage  && (oeeFlow  ? flows.indexOf(oeeFlow)  !== -1 : oeeSystem  === sys.name);
+                var oeeActive  = onOeePage  && (oeeFlow  ? inSysFlows(oeeFlow) : oeeSystem  === sys.name);
                 var teepActive = onTeepPage && (teepFlow ? flows.indexOf(teepFlow) !== -1 : teepSystem === sys.name);
-                var gOee   = buildAnalysisGroup(flows, '설비효율 현황', 'speed',       '/uptime-oee',   'flow', oeeActive,  oeeFlow,  false,
+                // 설비효율: 분기 활성 flow 는 "부모_분기" 행으로 치환(부모 행 소멸) — ?flow=부모_분기 로 스코프.
+                var oeeItems = [];
+                flows.forEach(function (f) {
+                    var brs = fbr[f];
+                    if (brs && brs.length) brs.forEach(function (b) {
+                        var v = f + '_' + b;
+                        oeeItems.push({
+                            label: v,
+                            href: '/uptime-oee?flow=' + encodeURIComponent(v),
+                            active: oeeFlow === v,
+                        });
+                    });
+                    else oeeItems.push(f);
+                });
+                var gOee   = buildAnalysisGroup(oeeItems, '설비효율 현황', 'speed',       '/uptime-oee',   'flow', oeeActive,  oeeFlow,  false,
                     '/uptime-oee?system=' + encodeURIComponent(sys.name));
                 var gTeep  = buildAnalysisGroup(flows, '생산효율 현황', 'trending_up', '/uptime-teep',  'flow', teepActive, teepFlow, false,
                     '/uptime-teep?system=' + encodeURIComponent(sys.name));
