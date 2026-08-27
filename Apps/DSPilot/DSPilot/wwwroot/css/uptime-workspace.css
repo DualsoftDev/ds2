@@ -145,8 +145,13 @@
         .up-bar-lbl-dark { color: var(--color-text); text-shadow: 0 1px 2px rgba(255,255,255,0.4); }
         .up-legend-name { font-weight: 700; flex: 1; }
         .up-legend-share { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-secondary); }
-        .up-legend-val { width: 56px; text-align: right; font-family: var(--font-mono); font-weight: 800; }
+        /* 정지 구성 범례 값 — 라인 스코프는 설비 합산이라 '68시간 12분'까지 길어진다(폭 여유 + 설비당 평균 2행). */
+        .up-legend-vals { display: flex; flex-direction: column; align-items: flex-end; min-width: 78px; line-height: 1.25; }
+        .up-legend-val { text-align: right; font-family: var(--font-mono); font-weight: 800; white-space: nowrap; }
+        .up-legend-per { font-size: 0.62rem; font-family: var(--font-mono); font-weight: 600; color: var(--color-text-secondary); white-space: nowrap; }
         .up-dist-empty { grid-column: 1 / -1; }
+        /* 정지 로그 '지속' 병기 — 기간 경계를 걸친 정지의 사건 전체 길이(작은 회색 2행) */
+        .up-dt-clip { display: block; font-size: 0.62rem; font-family: var(--font-mono); font-weight: 600; color: var(--color-text-secondary); white-space: nowrap; }
 
         /* 구분 분포 — 통계 카드. 왼쪽 Top 10 차트(250px) 높이에 맞춤 */
         .up-cat-stats { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr auto; gap: 10px; min-height: 250px; margin-bottom: 12px; }

@@ -151,7 +151,8 @@
                 <section class="card up-section">
                     <div class="ds-card-h">
                         <h4>시간 분해 (캘린더 기준)</h4>
-                        <span class="ds-card-h-sub" x-text="teep && teep.calendarMs > 0 ? ('캘린더 ' + durShort(teep.calendarMs)) : ''"></span>
+                        <span class="ds-card-h-sub" x-text="teep && teep.calendarMs > 0 ? ('캘린더 ' + durSum(teep.calendarMs)) : ''"
+                              :title="teep ? sumFlowNote(teep.calendarMs) : ''"></span>
                     </div>
 
                     <template x-if="teep && teep.calendarMs > 0">
@@ -169,11 +170,11 @@
                             </div>
                             <!-- 범례 + 값 -->
                             <div class="up-teep-legend">
-                                <div class="up-teep-leg"><span class="sw" style="background:var(--oee-run);"></span>가동 <b x-text="durShort(teep.runningMs)"></b> <em x-text="'(' + teepPct('runningMs') + '%)'"></em></div>
-                                <div class="up-teep-leg"><span class="sw hatch-fault"></span>정지 <b x-text="durShort(teep.downMs)"></b> <em x-text="'(' + teepPct('downMs') + '%)'"></em></div>
-                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 <b x-text="durShort(teep.nonProdMs || 0)"></b> <em x-text="'(' + teepPct('nonProdMs') + '%)'"></em></div>
+                                <div class="up-teep-leg"><span class="sw" style="background:var(--oee-run);"></span>가동 <b x-text="durSum(teep.runningMs)" :title="sumFlowNote(teep.runningMs)"></b> <em x-text="'(' + teepPct('runningMs') + '%)'"></em></div>
+                                <div class="up-teep-leg"><span class="sw hatch-fault"></span>정지 <b x-text="durSum(teep.downMs)" :title="sumFlowNote(teep.downMs)"></b> <em x-text="'(' + teepPct('downMs') + '%)'"></em></div>
+                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 <b x-text="durSum(teep.nonProdMs || 0)" :title="sumFlowNote(teep.nonProdMs || 0)"></b> <em x-text="'(' + teepPct('nonProdMs') + '%)'"></em></div>
                                 <template x-if="(teep.unmeasuredMs || 0) > 0">
-                                    <div class="up-teep-leg"><span class="sw hatch-unmeas"></span>미계측 <b x-text="durShort(teep.unmeasuredMs || 0)"></b> <em x-text="'(' + teepPct('unmeasuredMs') + '%)'"></em></div>
+                                    <div class="up-teep-leg"><span class="sw hatch-unmeas"></span>미계측 <b x-text="durSum(teep.unmeasuredMs || 0)" :title="sumFlowNote(teep.unmeasuredMs || 0)"></b> <em x-text="'(' + teepPct('unmeasuredMs') + '%)'"></em></div>
                                 </template>
                             </div>
                             <div class="up-form-hint" style="margin-top:12px;">
@@ -220,7 +221,7 @@
                                                 <div class="up-npd-now" :style="`left:${nowMin() / 1440 * 100}%;`"></div>
                                             </template>
                                         </div>
-                                        <div class="up-npd-sum" x-text="teepNpDayMs(d) > 0 ? durShort(teepNpDayMs(d)) : '—'"></div>
+                                        <div class="up-npd-sum" x-text="teepNpDayMs(d) > 0 ? durSum(teepNpDayMs(d)) : '—'" :title="sumFlowNote(teepNpDayMs(d))"></div>
                                     </div>
                                 </template>
                                 <!-- 시각 눈금 — sticky bottom(스크롤 중에도 상시 노출 + 트랙과 정확 정렬), 좌 날짜/우 합계 컬럼과 동일 flex 골격 -->

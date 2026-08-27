@@ -12,7 +12,11 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
 // 비-defer 스크립트(uptime-workspace.js 등)의 로드 시점엔 아직 없다(호출 시점엔 항상 있음).
 window.dspFmt = {
     // 짧은 지속시간 — 구 durShort/cctvFmtDuration 대체. 값 없음/0 이하는 empty(기본 '—').
-    dur(ms, empty) {
+    //   opts.maxUnit: 'h' 를 주면 일(日) 단위로 올리지 않고 '68시간 12분' 으로 표기한다.
+    //   설비 합산(Σ_flow) 값 전용 — 24h 를 넘는 합산을 '2일 20시간' 으로 쓰면 달력 날짜로 오독된다
+    //   (설비 7대 라인은 하루에 최대 168시간이 정상). opts 를 2번째 인자로 바로 줘도 된다.
+    dur(ms, empty, opts) {
+        if (empty !== null && typeof empty === 'object') { opts = empty; empty = undefined; }
         const e = (empty === undefined) ? '—' : empty;
         if (ms == null) return e;
         const n = Number(ms);
@@ -20,7 +24,8 @@ window.dspFmt = {
         if (n < 1000) return Math.round(n) + 'ms';
         if (n < 60000) return (n / 1000).toFixed(1) + '초';
         if (n < 3600000) return Math.floor(n / 60000) + '분 ' + Math.floor(n % 60000 / 1000) + '초';
-        if (n < 86400000) return Math.floor(n / 3600000) + '시간 ' + Math.floor(n % 3600000 / 60000) + '분';
+        const capHours = !!(opts && (opts.maxUnit === 'h' || opts.maxUnit === '시간'));
+        if (n < 86400000 || capHours) return Math.floor(n / 3600000) + '시간 ' + Math.floor(n % 3600000 / 60000) + '분';
         return Math.floor(n / 86400000) + '일 ' + Math.floor(n % 86400000 / 3600000) + '시간';
     },
     // 시(hour) 실수값 → '2시간 15분' / '15분'. 차트 툴팁처럼 이미 시간 단위인 축에서 사용.

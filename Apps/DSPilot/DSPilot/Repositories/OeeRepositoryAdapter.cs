@@ -480,10 +480,16 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     private (string Where, DynamicParameters Params) BuildDowntimeFilter(
         DateTime fromUtc, DateTime toUtc, string? status, string? reasonCode, string? flowName)
     {
-        var sb = new StringBuilder(" WHERE startAt >= @From AND startAt <= @To ");
+        // 구간 겹침(2026-08-27) — 종전 onset 앵커(startAt >= @From)는 <b>기간 시작 전에 시작된 정지를 전건 누락</b>했다
+        //   (어제 23:50 시작 → 오늘 03:00 복구 정지가 '오늘' 목록·건수에서 사라짐). 겹치면 포함하고
+        //   지속시간은 표시단에서 기간 내로 클립한다(OeeDowntimeDto.InRangeMs).
+        //   open(endAt NULL) 은 지금까지 진행중이므로 @Cap(=min(now,to)) 로 대체해 판정한다.
+        var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
+        var sb = new StringBuilder(" WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From ");
         var p = new DynamicParameters();
         p.Add("From", Iso(fromUtc));
         p.Add("To", Iso(toUtc));
+        p.Add("Cap", Iso(capUtc));
         sb.Append(ModelFlowClause(p));
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -562,7 +568,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
               CAST((julianday(startAt)                      - julianday(@From)) * 86400000 AS INTEGER) AS S,
               CAST((julianday(COALESCE(endAt, @Cap))        - julianday(@From)) * 86400000 AS INTEGER) AS E
             FROM oeeDowntimeEvent
-            WHERE startAt >= @From AND startAt <= @To
+            WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From
               AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' {flowClause} {ModelFlowClause(p)}";
         var rows = await conn.QueryAsync<SegRow>(sql, p);
         var list = rows.ToList();
@@ -588,7 +594,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
               CAST((julianday(startAt)                      - julianday(@From)) * 86400000 AS INTEGER) AS S,
               CAST((julianday(COALESCE(endAt, @Cap))        - julianday(@From)) * 86400000 AS INTEGER) AS E
             FROM oeeDowntimeEvent
-            WHERE startAt >= @From AND startAt <= @To
+            WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From
               AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}'
               AND (flowName IS NULL OR flowName IN @Flows) {ModelFlowClause(p)}";
         var rows = await conn.QueryAsync<SegRow>(sql, p);
@@ -612,6 +618,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             p.Add("Flow", flowName.Trim());
         }
         // 마감된(durationMs IS NOT NULL) 고장만 MTTR 분자에 — open 은 durationMs 무한증가 위험 제외.
+        // 여기만 onset 앵커(startAt in [From,To]) 유지 — MTTR/평균 복구 시간은 '사건 1건의 전체 복구 길이'를
+        // 평균하는 값이라 기간으로 잘린 조각을 섞으면 평균이 왜곡된다(목록·정지시간 합산은 겹침+클립 규칙).
         var sql = $@"
             SELECT COALESCE(SUM(durationMs), 0) AS DowntimeMs, COUNT(*) AS Cnt
             FROM oeeDowntimeEvent
@@ -636,7 +644,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
               CAST((julianday(startAt)                - julianday(@From)) * 86400000 AS INTEGER) AS S,
               CAST((julianday(COALESCE(endAt, @Cap))  - julianday(@From)) * 86400000 AS INTEGER) AS E
             FROM oeeDowntimeEvent
-            WHERE startAt >= @From AND startAt <= @To AND flowName IS NOT NULL
+            WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From AND flowName IS NOT NULL
               AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' {ModelFlowClause(p)}";
         var rows = await conn.QueryAsync<FlowSegRow>(sql, p);
         var periodMs = (long)(toUtc - fromUtc).TotalMilliseconds;

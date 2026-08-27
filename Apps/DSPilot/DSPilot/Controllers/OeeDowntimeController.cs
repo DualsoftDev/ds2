@@ -145,7 +145,19 @@ public class OeeDowntimeController : OeeControllerBase
         }
         var classified = await AttachCluesAsync(merged, fromUtc, toUtc, ct);
         LogClassifyTransitions(classified);   // 판정 전이 로그(doc/25 §4.3) — 프로세스 수명 내 구분 변화 계측
-        return classified;
+        // 기간 내 클립 지속시간(2026-08-27) — 목록 필터가 '구간 겹침'이 되며 기간 경계를 걸친 정지가 들어온다.
+        //   표시는 InRangeMs(기간과 겹친 몫)로 하고 사건 전체 길이(DurationMs)는 병기 — 합계가 KPI(정지시간)와 맞도록.
+        //   open(endAt=null) 은 now 로 캡(미래 시간을 정지로 계상하지 않는다).
+        var fromMs = ToMs(fromUtc);
+        var toMs = Math.Min(ToMs(toUtc), ToMs(DateTime.UtcNow));
+        var nowMsL = ToMs(DateTime.UtcNow);
+        return classified.Select(d =>
+        {
+            var s0 = ToMs(DateTime.SpecifyKind(d.StartAt, DateTimeKind.Local));
+            var e0 = d.EndAt.HasValue ? ToMs(DateTime.SpecifyKind(d.EndAt.Value, DateTimeKind.Local)) : nowMsL;
+            var inRange = (long)Math.Max(0, Math.Min(e0, toMs) - Math.Max(s0, fromMs));
+            return d with { InRangeMs = inRange };
+        }).ToList();
     }
 
     // ── 판정 전이 로그 (doc/25 §4.3) — 같은 정지 행의 구분(비가동/비생산/대기)이 이전 조회와 달라지면 1줄 기록.

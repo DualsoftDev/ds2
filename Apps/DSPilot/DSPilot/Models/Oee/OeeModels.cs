@@ -393,8 +393,11 @@ public sealed record OeeDowntimeDto(
     string? ClassifySource = null,    // 분류 출처: manual / auto-bit / auto-heuristic / auto-longstop / null(미분류)
     OeeDowntimeClue? Clue = null,     // abnormal/usertag 시간겹침 단서(표시 전용 — 건수·MTBF 미반영, doc/21 §4)
     bool IsNonProd = false,           // 구분=비생산(A 분모 밖). 수동(reasonCode='non_production') 또는 당일 자동(10×CT) 판정
-    bool IsWait = false);             // 대기(고장 여파, doc/25 §1) — 같은 창에 유발 flow 고장 존재. IsNonProd=true 면
+    bool IsWait = false,              // 대기(고장 여파, doc/25 §1) — 같은 창에 유발 flow 고장 존재. IsNonProd=true 면
                                       // 대기 비생산(분모 밖), false 면 대기 공백(A 손실·건수 미반영). 라벨 표시용
+    long? InRangeMs = null);          // 조회 기간([from,to], open 은 now 로 캡)과 겹친 몫만 클립한 지속시간(2026-08-27).
+                                      // 기간 경계를 걸친 정지는 DurationMs(사건 전체) > InRangeMs(기간 내). 목록 표시는
+                                      // InRangeMs 를 쓰고 전체 길이는 병기 — KPI(정지시간 합산)와 눈으로 맞도록.
 
 /// <summary>
 /// 정지 구간에 시간이 겹친 abnormal/usertag 점 이벤트 단서 (읽기전용 표시 — 정지 소스 아님).
