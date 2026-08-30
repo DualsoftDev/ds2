@@ -71,6 +71,13 @@ public interface IFlowMetricsService
     bool AbandonLatchedCycle(string flowName);
 
     /// <summary>
+    /// 마지막 워치독 abandon 증거 (사이클 시작, abandon 시각 — 둘 다 로컬 시각). 없거나 래치 부적격이면 null.
+    /// 정지 자세(midCycle) 판정용: abandon 이 무사이클 onset 보다 먼저 와도 "일감을 쥔 채 멈췄던" 사실이
+    /// 소실되지 않게 한다(사이클 통계에는 여전히 아무것도 남기지 않는다).
+    /// </summary>
+    (DateTime CycleStart, DateTime AbandonedAt)? GetLastAbandonedCycle(string flowName);
+
+    /// <summary>
     /// head-start 엣지 유실 복구(Phase 3 교차검증) — 닫힌 래치를 추정 시작 시각으로 연다. WT/CT 계산은 하지 않는다.
     /// 닫혀 있던 래치를 열었으면 true.
     /// </summary>

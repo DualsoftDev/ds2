@@ -63,6 +63,17 @@ public sealed class OeeDowntimeEvent
     /// <summary>plcTagLog.id (usertag onset dedupe 키). nocycle 은 NULL.</summary>
     public long? SourceLogId { get; set; }
 
+    /// <summary>
+    /// 정지 감지 시점의 flow 자세(posture) (2026-08-30, nocycle 전용):
+    /// 1 = 사이클 도중 멈춤(head 이후 tail 미도달 — 일감을 쥔 채 정지) → 이 flow 가 정지의 <b>유발자</b>.
+    /// 0 = 사이클 사이 멈춤(마지막 사이클 정상 완료 후 무입력 — 굶주림/대기 후보).
+    /// NULL = 판정 불가(엔진 미추적·재시작 등) → 기존 신호 기반 분류로 폴백.
+    /// Going 박제 유발자는 사이클이 완료되지 않아 dspFlowHistory 에 MT 과주행 증거를 남기지 못한다
+    /// (2026-08-28 실증: 검사 박제 → usertag-only 분기 → 전원 고장). 자세는 그 사각을 감지 순간의
+    /// 영속 사실로 메운다 — 집계 재계산이 언제 돌아도 같은 값을 본다(재현성).
+    /// </summary>
+    public int? MidCycle { get; set; }
+
     public string? Note { get; set; }
 
     public DateTime CreatedAt { get; set; }

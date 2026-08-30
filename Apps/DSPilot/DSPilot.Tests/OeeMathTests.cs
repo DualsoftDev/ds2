@@ -251,6 +251,19 @@ public class OeeMathTests
     public void Fault_mt_multiplier_default_is_two_point_five()
         => Assert.Equal(2.5, OeeMath.FaultMtMultiplierDefault);
 
+    // ── MT 과주행 경계 하한 (2026-08-30) ─────────────────────────────────────
+    //   초저 MT flow(중앙값 수십 ms)에선 중앙값×배수가 지터 수준 — mt=238ms 잡음이 "고장 유발자"가 되어
+    //   다른 flow 강등 근거로 오염됐다(2026-08-28 Prog2 실증). 1초 하한으로 물리적으로 무의미한 경계를 막는다.
+
+    [Theory]
+    [InlineData(22, 2.5, 1000)]       // 지터 수준 중앙값(22ms×2.5=55ms) → 하한 1s 로 승격
+    [InlineData(300, 2.5, 1000)]      // 300ms×2.5=750ms → 여전히 하한 미만 → 1s
+    [InlineData(400, 2.5, 1000)]      // 정확히 하한(400×2.5=1000)
+    [InlineData(5000, 2.5, 12500)]    // 정상 flow(중앙값 5s) → 종전과 동일 12.5s
+    [InlineData(0, 2.5, 1000)]        // 중앙값 0(비정상 입력)도 경계가 0 이 되지 않는다
+    public void ResolveMtFaultBoundary_applies_floor(double medianMs, double mult, double expected)
+        => Assert.Equal(expected, OeeMath.ResolveMtFaultBoundaryMs(medianMs, mult));
+
     [Theory]
     [InlineData(1000, 15000, true)]   // 정확히 15× → 비생산
     [InlineData(1000, 14999, false)]  // 15× 직전 → 다운타임 유지

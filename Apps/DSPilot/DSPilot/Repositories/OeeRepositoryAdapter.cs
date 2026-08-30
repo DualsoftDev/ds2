@@ -185,6 +185,10 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             // 없음). detectSource(감지 출처)와 의미 구분: 분류가 어떻게 정해졌는지(manual/auto-bit/auto-heuristic/NULL).
             await EnsureColumnAsync(conn, "oeeDowntimeEvent", "classifySource", "TEXT");
 
+            // midCycle — 정지 감지 시점 자세(1=사이클 도중 멈춤=유발자 / 0=사이클 사이 / NULL=미상).
+            // Going 박제 유발자의 증거를 감지 순간에 영속화(2026-08-30) — OeeDowntimeEvent.MidCycle 주석 참조.
+            await EnsureColumnAsync(conn, "oeeDowntimeEvent", "midCycle", "INTEGER");
+
             // 자가치유(doc/25 §4.1, 2026-07-16) — 감지 로그의 판정 뒤집힘 대응.
             //   lastConfirmedAt: 마지막으로 집계 패스가 재확인(UPSERT)한 시각 — 생존 마커.
             //   invalidatedAt : 재판정으로 무효화된 시각(NULL=유효). 삭제 대신 마킹 — 감사 행 보존, 표시에서 제외.
@@ -256,10 +260,10 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         const string sql = @"
             INSERT INTO oeeDowntimeEvent
                 (systemName, flowName, deviceName, startAt, endAt, durationMs,
-                 reasonCode, category, isFailure, detectSource, sourceLogId, note)
+                 reasonCode, category, isFailure, detectSource, sourceLogId, midCycle, note)
             VALUES
                 (@SystemName, @FlowName, @DeviceName, @StartAt, @EndAt, @DurationMs,
-                 @ReasonCode, @Category, @IsFailure, @DetectSource, @SourceLogId, @Note)
+                 @ReasonCode, @Category, @IsFailure, @DetectSource, @SourceLogId, @MidCycle, @Note)
             ON CONFLICT(detectSource, sourceLogId) WHERE sourceLogId IS NOT NULL DO NOTHING
             RETURNING id;";
 
@@ -276,6 +280,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             e.IsFailure,
             e.DetectSource,
             e.SourceLogId,
+            e.MidCycle,
             e.Note,
         }) ?? 0L;
 
@@ -312,6 +317,20 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             WHERE id = @Id AND endAt IS NULL";
         var n = await conn.ExecuteAsync(sql, new { Id = id, EndAt = Iso(endAtUtc) });
         await MirrorDowntimeAsync(id);
+        return n;
+    }
+
+    public async Task<int> SetDowntimeMidCycleAsync(long id, int midCycle, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync();
+        // 자세는 승격만(NULL/0 → 1) — "일감을 쥔 채 멈췄다"는 증거는 이후 abandon 으로도 소멸하지 않는다.
+        // 1 → 0 강등 금지: 유발자 증거를 지우는 방향의 갱신은 존재하지 않는다.
+        const string sql = @"
+            UPDATE oeeDowntimeEvent
+            SET midCycle = @MidCycle
+            WHERE id = @Id AND COALESCE(midCycle, 0) < @MidCycle";
+        var n = await conn.ExecuteAsync(sql, new { Id = id, MidCycle = midCycle });
+        if (n > 0) await MirrorDowntimeAsync(id);
         return n;
     }
 
@@ -535,7 +554,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         await using var conn = await OpenAsync();
         var sql = @"
             SELECT id, systemName, flowName, deviceName, startAt, endAt, durationMs,
-                   reasonCode, category, isFailure, detectSource, classifySource, sourceLogId, note
+                   reasonCode, category, isFailure, detectSource, classifySource, sourceLogId, midCycle, note
             FROM oeeDowntimeEvent
             WHERE endAt IS NULL";
         if (!string.IsNullOrWhiteSpace(flowName))
@@ -1070,6 +1089,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         DetectSource = r.DetectSource ?? "nocycle",
         ClassifySource = r.ClassifySource,
         SourceLogId = r.SourceLogId,
+        MidCycle = r.MidCycle,
         Note = r.Note,
     };
 
@@ -1088,6 +1108,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         public string? DetectSource { get; set; }
         public string? ClassifySource { get; set; }
         public long? SourceLogId { get; set; }
+        public int? MidCycle { get; set; }
         public string? Note { get; set; }
     }
 

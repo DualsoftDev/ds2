@@ -883,12 +883,30 @@ public class FlowMetricsService : IFlowMetricsService
         lock (state.LatchLock)
         {
             if (!state.IsCycleActive) return false;
+            // abandon 증거 보존(2026-08-30) — "일감을 쥔 채 멈췄던" 사실은 사이클 통계에선 폐기돼도
+            // 정지 유발자 판정(OeeDowntimeStateMachine 자세 스탬프)에는 남아야 한다. 통계 행을 쓰지
+            // 않는 기존 규약(mt 오염 방지)은 그대로 — 시각 두 개만 메모한다.
+            state.LastAbandonedCycleStart = state.CurrentCycleStart;
+            state.LastAbandonedAt = DateTime.Now;
             // 사이클/통계 미기록 — 기존 _timeoutAbandoned 의미와 동일. CurrentCycleStart 를 비워
             // 이후 tail 완료가 폐기된 시작으로 사이클을 기록하지 못하게 한다(다음 head-start 가 새로 세팅).
             state.IsCycleActive = false;
             state.CurrentCycleStart = null;
         }
         return true;
+    }
+
+    /// <inheritdoc />
+    public (DateTime CycleStart, DateTime AbandonedAt)? GetLastAbandonedCycle(string flowName)
+    {
+        if (!_flowCycleStates.TryGetValue(flowName, out var state) || !state.LatchEligible)
+            return null;
+        lock (state.LatchLock)
+        {
+            return state.LastAbandonedCycleStart.HasValue && state.LastAbandonedAt.HasValue
+                ? (state.LastAbandonedCycleStart.Value, state.LastAbandonedAt.Value)
+                : null;
+        }
     }
 
     /// <inheritdoc />
@@ -944,6 +962,13 @@ public class FlowCycleState
     public bool IsCycleActive { get; set; }
     public DateTime? CurrentCycleStart { get; set; }
     public DateTime? PreviousCycleFinish { get; set; }
+
+    /// <summary>
+    /// 마지막 워치독 abandon 의 (사이클 시작, abandon 시각) — 자세(midCycle) 판정용 증거 메모(2026-08-30).
+    /// 사이클/통계엔 여전히 아무것도 기록하지 않는다. <see cref="LatchLock"/> 으로 보호.
+    /// </summary>
+    public DateTime? LastAbandonedCycleStart { get; set; }
+    public DateTime? LastAbandonedAt { get; set; }
     public int? CurrentMT { get; set; }
     public int? CurrentWT { get; set; }
     public int? CurrentCT { get; set; }
