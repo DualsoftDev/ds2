@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.SignalR;
 using Ds2.Core;
 using Ds2.Editor;
 using DSPilot.Hubs;
+using DSPilot.Infrastructure;
 using DSPilot.Models.UserTagAlerts;
 using DSPilot.Repositories;
 using LoggingHelpers = Ds2.Core.LoggingHelpers;
@@ -35,17 +36,26 @@ public sealed class UserTagAlertService : BackgroundService
     private readonly object _stateLock = new();
     private Dictionary<string, UserTagDefinition> _definitionsByAddress =
         new(StringComparer.OrdinalIgnoreCase);
+    // (System, 주소) → 정의. 멀티 PLC 에서 두 System 이 같은 주소를 정의해도 둘 다 살아 있는 정본 인덱스.
+    private Dictionary<string, UserTagDefinition> _definitionsBySystemAddress =
+        new(StringComparer.OrdinalIgnoreCase);
     private List<UserTagDefinition> _definitions = new();
     private DateTime? _projectLoadedAt;
 
-    // 주소별 직전 값 — edge / 임계치 전이 평가에 필요.
+    // 직전 값 — edge / 임계치 전이 평가에 필요. ★키는 (System, 주소) — 주소만으로 묶으면
+    // 두 PLC 의 값이 번갈아 덮여 없는 전이가 만들어지거나 진짜 전이가 삼켜진다.
     private readonly Dictionary<string, string> _lastValueByAddress =
         new(StringComparer.OrdinalIgnoreCase);
 
-    // 라이브 활성 알람(대시보드/전체화면 배너용) — 주소별 1건. fire 시 등록, 조건 풀림 시 제거.
+    // 라이브 활성 알람(대시보드/전체화면 배너용) — (System, 주소)별 1건. fire 시 등록, 조건 풀림 시 제거.
     // 히스토리 큐(_alerts)/DB 로그와 별개: 표시 목록에서 자동 해소되는 "현재 걸려 있는 알람" 집합.
+    // ★주소만으로 묶으면 한 PLC 의 해제가 다른 PLC 의 알람 배너를 지운다.
     private readonly Dictionary<string, ActiveUserAlarm> _activeUserAlarms =
         new(StringComparer.OrdinalIgnoreCase);
+
+    /// (System, 주소) 복합키. System 이 미상이면 주소만 — 귀속 미상 로그의 폴백 경로와 키가 일치한다.
+    private static string UserTagKey(string sysKey, string address) =>
+        sysKey.Length == 0 ? address : sysKey + "|" + address;
 
     private readonly LinkedList<UserTagAlert> _alerts = new();
     private long _lastCheckedLogId;
@@ -216,16 +226,29 @@ public sealed class UserTagAlertService : BackgroundService
                 r.MatchOp ?? string.Empty, r.MatchValue ?? string.Empty))
             .ToList();
 
+        // 주소 단독 인덱스 — systemId 를 모르는 로그(레거시 행·귀속 미상)의 폴백.
+        // ★TryAdd first-wins 라 두 System 이 같은 주소를 정의하면 한쪽이 조용히 사라진다.
+        //   그래서 아래 (System,주소) 인덱스를 정본으로 두고, 이건 폴백 겸 진단용으로만 쓴다.
         var byAddr = new Dictionary<string, UserTagDefinition>(StringComparer.OrdinalIgnoreCase);
+        var bySysAddr = new Dictionary<string, UserTagDefinition>(StringComparer.OrdinalIgnoreCase);
+        var shadowed = new List<UserTagDefinition>();
         foreach (var d in defs)
         {
-            byAddr.TryAdd(d.TagAddress, d);
+            if (!byAddr.TryAdd(d.TagAddress, d)) shadowed.Add(d);
+            bySysAddr[UserTagKey(SystemKeyConvention.Key(d.SystemId), d.TagAddress)] = d;
         }
+        if (shadowed.Count > 0)
+            _logger.LogWarning(
+                "[UserTagAlert] 주소가 겹치는 UserTag 정의 {Count}건 — 로그에 systemId 가 실려 오면 정확히 " +
+                "구분되지만, 귀속 미상 로그는 먼저 등록된 정의로만 매칭된다 (예: {Sample})",
+                shadowed.Count,
+                string.Join(", ", shadowed.Take(3).Select(d => $"{d.SystemName}/{d.TagAddress}")));
 
         lock (_stateLock)
         {
             _definitions = defs;
             _definitionsByAddress = byAddr;
+            _definitionsBySystemAddress = bySysAddr;
             _projectLoadedAt = loadedAt;
             _initialized = true;
         }
@@ -250,8 +273,7 @@ public sealed class UserTagAlertService : BackgroundService
         {
             try
             {
-                var (_, maxId) = await plcRepo.GetLatestValuePerTagAsync();
-                _lastCheckedLogId = maxId;
+                _lastCheckedLogId = await plcRepo.GetMaxLogIdAsync();
                 return;
             }
             catch (Exception ex)
@@ -266,8 +288,8 @@ public sealed class UserTagAlertService : BackgroundService
 
         _lastCheckedLogId = newLogs.Max(l => l.Id);
 
-        Dictionary<string, UserTagDefinition> defsSnap;
-        lock (_stateLock) defsSnap = _definitionsByAddress;
+        Dictionary<string, UserTagDefinition> defsSnap, defsBySysSnap;
+        lock (_stateLock) { defsSnap = _definitionsByAddress; defsBySysSnap = _definitionsBySystemAddress; }
 
         // 사용자정의 알람 차단 — 차단된 UserTag 는 이번 폴링에서 아예 발화시키지 않는다(라이브 큐/DB/SignalR 미기록).
         // 디바이스 차단(AbnormalEventService.ProcessAsync skip)의 UserTag 대응물. 해제하면 이후 발생분부터 다시 기록된다.
@@ -285,7 +307,18 @@ public sealed class UserTagAlertService : BackgroundService
         {
             if (ct.IsCancellationRequested) break;
             if (string.IsNullOrEmpty(log.Address)) continue;
-            if (!defsSnap.TryGetValue(log.Address, out var def)) continue;
+            // 멀티 PLC: 로그에 실려온 System 으로 정확히 매칭하고, 주소 단독 폴백은 **어느 한쪽이
+            // System 을 모를 때만** 허용한다. 양쪽 다 귀속이 명확한데 (sys,addr) 미스라면 그 정의는
+            // 다른 System 의 것이다 — 폴백시키면 PLC-A 신호가 B 전용 UserTag 를 발화시킨다(오귀속).
+            var logSysKey = SystemKeyConvention.Key(log.SystemId);
+            if (!defsBySysSnap.TryGetValue(UserTagKey(logSysKey, log.Address), out var def))
+            {
+                if (!defsSnap.TryGetValue(log.Address, out def)) continue;
+                // 로그도 정의도 System 이 밝혀져 있는데 복합키가 안 맞았다 = 남의 System 정의 → skip.
+                // (같은 System 이었다면 위 정본 인덱스에서 이미 잡혔다.)
+                if (logSysKey.Length > 0 && SystemKeyConvention.Key(def.SystemId).Length > 0) continue;
+            }
+            var stateKey = UserTagKey(logSysKey, def.TagAddress);
 
             matchedCount++;
 
@@ -298,9 +331,9 @@ public sealed class UserTagAlertService : BackgroundService
             string? prevValue;
             lock (_stateLock)
             {
-                _lastValueByAddress.TryGetValue(def.TagAddress, out var p);
+                _lastValueByAddress.TryGetValue(stateKey, out var p);
                 prevValue = p; // null 이면 첫 샘플 (== F# 의 None 와 동치)
-                _lastValueByAddress[def.TagAddress] = newValue;
+                _lastValueByAddress[stateKey] = newValue;
             }
 
             // F# 매칭 평가 — ValueType / MatchOp / MatchValue 에 따라 fire 여부 결정.
@@ -352,7 +385,7 @@ public sealed class UserTagAlertService : BackgroundService
                 MatchOp: LoggingHelpers.UserTagHelpers.matchOpToString(op),
                 MatchValue: def.MatchValue ?? string.Empty,
                 Value: newValue);
-            lock (_stateLock) _activeUserAlarms[def.TagAddress] = active;
+            lock (_stateLock) _activeUserAlarms[stateKey] = active;
         }
 
         // DB INSERT — 한 건씩 (트랜잭션 누적은 단순화. 폴링 1회 분량은 보통 ≤ 수십건).

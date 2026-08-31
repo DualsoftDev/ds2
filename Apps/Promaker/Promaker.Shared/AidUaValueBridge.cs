@@ -55,8 +55,15 @@ public sealed class AidUaValueBridge
                     ? DateTimeOffset.FromUnixTimeMilliseconds(item.WallClockMs).UtcDateTime
                     : DateTime.UtcNow;
 
+                // 송신자가 소유 System 을 알려줬다면 그 System 의 신호에만 반영한다.
+                // 주소만으로 매칭하면 서로 다른 PLC 가 같은 주소를 쓸 때 한 PLC 의 값이 다른 System 의
+                // UA 변수까지 덮어썼다(팬아웃). systemId 가 없는 구버전 송신자는 종전대로 전체 반영.
+                var itemSystem = TagWriteSystem.toGuid(item.SystemId);
                 foreach (var signal in signals)
                 {
+                    if (itemSystem is not null && signal.SystemId.HasValue
+                        && signal.SystemId.Value != itemSystem.Value)
+                        continue;
                     if (_connectionStates.TryGetValue(signal.ConnectionName, out var state) && !state.IsConnected)
                         continue;
                     try

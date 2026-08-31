@@ -11,6 +11,7 @@
     <Compile Include="DsStore\DsStore.CrudHistoryTests.fs" />
     <Compile Include="DsStore\DsStore.EntityMutationTests.fs" />
     <Compile Include="DsStore\DsStore.CopyPastePanelTests.fs" />
+    <Compile Include="DsStore\SystemPackageTests.fs" />
     <Compile Include="DsStore\DsStore.MoveCallAcrossFlowsTests.fs" />
     <Compile Include="DsStore\DsStore.PasteAcrossFlowsModeTests.fs" />
     <Compile Include="DsStore\StoreQueryOwnerTests.fs" />

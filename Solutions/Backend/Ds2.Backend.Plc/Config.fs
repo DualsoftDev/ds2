@@ -1,6 +1,7 @@
 namespace Ds2.Backend.Plc
 
 open System
+open System.Collections.Generic
 open Ev2.PLC.Common
 open Ev2.PLC.Protocol.LS
 
@@ -86,6 +87,113 @@ module PlcConnectionConfig =
         ScanInterval = Some (TimeSpan.FromMilliseconds 100.0)
         Tags = []
     }
+
+/// 태그 1개를 전역에서 유일하게 식별하는 복합키 — (SystemId, 주소).
+/// 멀티 PLC 에서는 서로 다른 PLC 가 같은 주소를 쓸 수 있어 주소 단독으로는 식별이 안 된다
+/// (예전 라우팅 테이블이 주소 단독 키라 "마지막 등록만 살아남는" 문제가 있었다).
+///
+/// **Address 는 반드시 TagKey.create 로 정규화해서 만들 것.** 기존 계층들이 주소를
+/// StringComparer.OrdinalIgnoreCase 로 비교해 왔는데, 레코드 기본 비교는 대소문자를 구분하므로
+/// 생성 시점에 대문자로 정규화해 둔다. 그래야 기본 구조적 비교가 곧 대소문자 무시 비교가 된다.
+/// 원본 표기가 필요한 곳(로그/UI)은 정규화 전 주소를 따로 보관해야 한다.
+[<StructuralEquality; StructuralComparison>]
+type TagKey = {
+    /// 이 태그를 보유한 연결의 소유 System. None = 귀속 미상(레거시 AASX·수동 설정·구버전 송신자).
+    SystemId : Guid option
+    /// 정규화(Trim + 대문자)된 주소.
+    Address  : string
+}
+
+[<RequireQualifiedAccess>]
+module TagKey =
+    /// 주소 정규화 — 키 생성과 조회가 반드시 같은 규칙을 쓰도록 여기 한 곳에만 둔다.
+    let normalize (address: string) =
+        if isNull address then "" else address.Trim().ToUpperInvariant()
+
+    /// 정본 생성자.
+    let create (systemId: Guid option) (address: string) =
+        { SystemId = systemId; Address = normalize address }
+
+    /// System 귀속이 없는 키 — 레거시 설정 및 systemId 를 안 실어 보내는 구버전 송신자용.
+    let legacy (address: string) = create None address
+
+    /// 로그/오류 메시지용 표기. 귀속 미상은 "(system 미상)".
+    let describe (key: TagKey) =
+        match key.SystemId with
+        | Some sid -> sprintf "%s@%O" key.Address sid
+        | None     -> sprintf "%s@(system 미상)" key.Address
+
+/// 한 주소를 보유한 연결 1개. 중복 진단과 폴백 판정에 함께 쓴다.
+type TagAddressOwner = {
+    ConnectionName : string
+    SystemId       : Guid option
+}
+
+/// 주소 중복의 성격. 복합키로 해결되는지 여부가 갈린다.
+type TagAddressConflict =
+    /// SystemId 가 서로 달라 (SystemId, 주소) 복합키로 구분된다.
+    /// 다만 systemId 를 안 싣는 구버전 송신자(구 Pi5 수집기 등)와 섞이면 여전히 구분 불가.
+    | AcrossSystems
+    /// 같은 System 안에서(또는 양쪽 다 귀속 미상) 두 연결이 같은 주소를 보유 —
+    /// 복합키로도 구분되지 않는다. 모델/설정 자체를 고쳐야 하는 케이스.
+    | WithinSameSystem
+
+/// 주소 중복 1건.
+type TagAddressDuplicate = {
+    /// 정규화된 주소.
+    Address  : string
+    Owners   : TagAddressOwner list
+    Conflict : TagAddressConflict
+}
+
+[<RequireQualifiedAccess>]
+module PlcGatewayConfig =
+
+    /// 정규화 주소 → 그 주소를 보유한 연결 목록(설정 순서 유지).
+    /// 게이트웨이 라우팅 폴백(systemId 미제공 요청의 소유자 판정)과 중복 진단이 공유하는 단일 인덱스.
+    let addressOwners (cfg: PlcGatewayConfig) : IReadOnlyDictionary<string, TagAddressOwner list> =
+        let acc = Dictionary<string, ResizeArray<TagAddressOwner>>(StringComparer.Ordinal)
+        for connection in cfg.Connections do
+            for tag in connection.Tags do
+                let address = TagKey.normalize tag.HubAddress
+                let bucket =
+                    match acc.TryGetValue address with
+                    | true, existing -> existing
+                    | _ ->
+                        let created = ResizeArray<TagAddressOwner>()
+                        acc.[address] <- created
+                        created
+                // 같은 연결이 같은 주소를 두 번 들고 있는 건 연결 내부 중복이라 여기서 세지 않는다
+                // (AID 빌드 단계에서 이미 dedup 됨). 연결 간 중복만 진단 대상.
+                if not (bucket |> Seq.exists (fun o -> String.Equals(o.ConnectionName, connection.Name, StringComparison.Ordinal))) then
+                    bucket.Add { ConnectionName = connection.Name; SystemId = connection.SystemId }
+        let result = Dictionary<string, TagAddressOwner list>(StringComparer.Ordinal)
+        for kv in acc do
+            result.[kv.Key] <- List.ofSeq kv.Value
+        result :> IReadOnlyDictionary<_, _>
+
+    /// 2개 이상의 연결이 보유한 주소 목록. 없으면 빈 리스트 = 멀티 PLC 라도 주소가 안 겹치는 정상 상태.
+    let duplicateAddresses (cfg: PlcGatewayConfig) : TagAddressDuplicate list =
+        [ for kv in addressOwners cfg do
+            if kv.Value.Length > 1 then
+                // 소유자들의 SystemId 가 전부 다르고 하나도 None 이 아니어야 복합키로 구분된다.
+                let distinctSystems = kv.Value |> List.map _.SystemId |> List.distinct
+                let anyUnowned = kv.Value |> List.exists (fun o -> o.SystemId.IsNone)
+                let conflict =
+                    if anyUnowned || distinctSystems.Length <> kv.Value.Length then WithinSameSystem
+                    else AcrossSystems
+                yield { Address = kv.Key; Owners = kv.Value; Conflict = conflict } ]
+
+    /// systemId 를 싣지 않은(구버전) 요청의 소유 System 판정.
+    ///   Ok (Some sid) = 소유자 유일 → 그 System 으로 확정
+    ///   Ok None       = 그 주소를 아무도 안 가짐 → 호출자가 "알 수 없는 주소"로 처리
+    ///   Error owners  = 소유자 2개 이상 → 모호. 조용히 아무 데나 보내지 말고 명시적으로 실패시킬 것.
+    let resolveSoleOwner (owners: IReadOnlyDictionary<string, TagAddressOwner list>) (address: string)
+        : Result<Guid option option, TagAddressOwner list> =
+        match owners.TryGetValue(TagKey.normalize address) with
+        | true, [ single ] -> Ok (Some single.SystemId)
+        | true, many when many.Length > 1 -> Error many
+        | _ -> Ok None
 
 /// C# 호출자(Promaker)가 Ev2.PLC.Common 네임스페이스를 직접 import 하지 않고도
 /// PlcDataType 을 얻을 수 있도록 노출하는 팩토리.
@@ -180,6 +288,9 @@ module CollectorConfig =
                   Port = c.Port
                   LocalEthernet = c.LocalEthernet
                   TimeoutMs = c.TimeoutMs
+                  // 수집기가 push 하는 TagWrite.SystemId 의 출처. 예전엔 여기서 SystemId 가 누락돼
+                  // 분리 아키텍처(Pi5)에서는 System 귀속이 통째로 소실됐다.
+                  SystemId = TagWriteSystem.ofGuid c.SystemId
                   ScanMs =
                     c.ScanInterval
                     |> Option.map (fun t -> int t.TotalMilliseconds)

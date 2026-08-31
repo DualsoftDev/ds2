@@ -198,12 +198,13 @@ public abstract class OeeControllerBase : ControllerBase
             List<(string? Flow, double S, double E)> WaitScoped,
             List<(string? Flow, double S, double E)> SlackScoped)>
         GetOverThresholdCycleDowntimeAsync(
-            string? flowName, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
+            string? flowName, DateTime fromUtc, DateTime toUtc, CancellationToken ct,
+            IReadOnlySet<string>? flowFilter = null)
     {
         var thresholds = await ResolveCtThresholdsAsync();
         var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
-            collectDowntimeCycles: true);
+            collectDowntimeCycles: true, flowFilter: flowFilter);
         var nonProdScoped = agg.NonProdScoped ?? new List<(string? Flow, double S, double E)>();
         var waitScoped = agg.WaitScoped ?? new List<(string? Flow, double S, double E)>();
         var slackScoped = agg.SlackScoped ?? new List<(string? Flow, double S, double E)>();
@@ -250,6 +251,30 @@ public abstract class OeeControllerBase : ControllerBase
                 IsWait: c.Wait));
         }
         return (list, nonProdScoped, waitScoped, slackScoped);
+    }
+
+    /// <summary>
+    /// ?system= 스코프 → 그 시스템의 flow 이름 집합(시스템 단위 묶음 조회, 2026-08-25 좌측 나브 시스템 화면).
+    /// system 미지정 = null(전체 = 종전 동작). 지정했는데 시스템이 없거나 AASX 미로드면 <b>빈 집합</b> —
+    /// 전체로 폴백하면 라인 수치가 그 시스템 것처럼 보이므로(가장 위험한 오해) 정직하게 0건으로 둔다.
+    /// flow(설비) 필터가 함께 오면 호출측이 이 함수를 아예 부르지 않는다(설비 지정이 시스템보다 우선).
+    /// </summary>
+    protected HashSet<string>? ResolveSystemFlowSet(string? system)
+    {
+        if (string.IsNullOrWhiteSpace(system)) return null;
+        var name = system.Trim();
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var sys in _project.GetActiveSystems())
+            {
+                if (!string.Equals(sys.Name, name, StringComparison.Ordinal)) continue;
+                foreach (var f in _project.GetFlows(sys.Id)) set.Add(f.Name);
+                break;
+            }
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[OEE] system→flow 집합 해석 실패: {System}", name); }
+        return set;
     }
 
     // flowName → systemName. AASX 미로드/예외 시 빈 맵(합성 행 systemName 은 빈 문자열로 폴백).
@@ -570,25 +595,44 @@ public abstract class OeeControllerBase : ControllerBase
 
     protected async Task<OeeSummaryDto> BuildSummaryAsync(
         string? flowName, DateTime fromUtc, DateTime toUtc, CancellationToken ct,
-        IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)>? ctThresholds = null)
+        IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)>? ctThresholds = null,
+        IReadOnlySet<string>? flowFilter = null)
     {
         var periodMs = (toUtc - fromUtc).TotalMilliseconds;
         if (periodMs < 0) periodMs = 0;
 
-        var (downtimeMs, downtimeCount) = await _repo.GetDowntimeAggregateAsync(fromUtc, toUtc, flowName, ct);
-        int? totalCount = await CountFlowHistoryAsync(flowName, fromUtc, toUtc);
-        var (_, _, prodReject, hasReject) =
-            await _repo.QueryProductionAsync(fromUtc.ToLocalTime(), toUtc.ToLocalTime(), flowName, ct);
+        // 시스템 스코프(flowFilter) — 라인 경로와 같은 구간 union 집계(flow별 합산은 동시 정지를 이중 계상, 실측 6배).
+        var (downtimeMs, downtimeCount) = flowFilter is null
+            ? await _repo.GetDowntimeAggregateAsync(fromUtc, toUtc, flowName, ct)
+            : await _repo.GetDowntimeAggregateForFlowsAsync(fromUtc, toUtc, flowFilter.ToList(), ct);
+        int? totalCount = await CountFlowHistoryAsync(flowName, fromUtc, toUtc, flowFilter);
+        int prodReject; bool hasReject;
+        if (flowFilter is null)
+            (_, _, prodReject, hasReject) =
+                await _repo.QueryProductionAsync(fromUtc.ToLocalTime(), toUtc.ToLocalTime(), flowName, ct);
+        else
+        {
+            prodReject = 0; hasReject = false;
+            foreach (var f in flowFilter)
+            {
+                var (_, _, rj, hr) = await _repo.QueryProductionAsync(fromUtc.ToLocalTime(), toUtc.ToLocalTime(), f, ct);
+                prodReject += rj; hasReject |= hr;
+            }
+        }
 
         var thresholds = ctThresholds ?? await ResolveCtThresholdsAsync();
         var (plannedWindows, plannedSource, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
         var evIntervals = await _repo.GetDowntimeIntervalsAsync(fromUtc, toUtc, flowName, ct);
+        if (flowFilter is not null)
+            evIntervals = evIntervals
+                .Where(x => x.FlowName is null || flowFilter.Contains(x.FlowName))   // flow 미상(라인 귀속)은 보존
+                .ToList();
         var maintIv = evIntervals
             .Where(x => x.Kind is 0 or 2 && x.EndMs > x.StartMs)
             .Select(x => ((double)x.StartMs, (double)x.EndMs, x.FlowName))
             .ToList();
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
-            maintIntervals: maintIv);
+            maintIntervals: maintIv, flowFilter: flowFilter);
 
         // 가용성 A = CT축 단일모델(2026-08-21). 추이·정산·도넛 3뷰 공통 SSOT.
         //   수집된 정상 CT 만 근거로 삼는다 — 벽시계 폴백(시프트/자동추정/달력근사) 제거.
@@ -611,7 +655,13 @@ public abstract class OeeControllerBase : ControllerBase
             var ratios = await _ctStats.ComputeMtRatioAsync(excludeUntilUtc: DateTime.Today.ToUniversalTime());
             foreach (var (k, v) in await _ctStats.ComputeMtRatioAsync()) ratios.TryAdd(k, v);
             if (flowName is not null) { if (ratios.TryGetValue(flowName, out var r1)) mtRatio = r1; }
-            else if (ratios.Count > 0) mtRatio = ratios.Values.Average();
+            else
+            {
+                var vals = flowFilter is null
+                    ? ratios.Values.ToList()
+                    : ratios.Where(kv => flowFilter.Contains(kv.Key)).Select(kv => kv.Value).ToList();
+                if (vals.Count > 0) mtRatio = vals.Average();
+            }
         }
 
         var (performance, perfNote) = OeeMath.ComputeCyclePerformance(
@@ -834,7 +884,8 @@ public abstract class OeeControllerBase : ControllerBase
         bool collectRunIntervals, IReadOnlyList<(double S, double E, string? Flow)>? maintIntervals,
         bool collectNormalCycles, bool collectDowntimeCycles,
         double idleMult, double nonProdMult,
-        double faultMult, IReadOnlyDictionary<string, double> mtThresholds)
+        double faultMult, IReadOnlyDictionary<string, double> mtThresholds,
+        IReadOnlySet<string>? flowFilter)
     {
         var sb = new System.Text.StringBuilder(256);
         sb.Append("v28|");   // 분모/분류 모델 버전 — 모델 변경 배포 직후 L1 캐시 혼재 방지
@@ -861,6 +912,12 @@ public abstract class OeeControllerBase : ControllerBase
         sb.Append('|');
         if (maintIntervals is not null)
             foreach (var m in maintIntervals) sb.Append(m.S).Append(':').Append(m.E).Append(':').Append(m.Flow).Append(';');
+        sb.Append('|');
+        if (flowFilter is not null)   // 시스템 스코프(모집단 축소) — 라인 집계와 키가 섞이면 스코프 수치가 라인에 오염
+        {
+            sb.Append("ff:");
+            foreach (var k in flowFilter.OrderBy(x => x, StringComparer.Ordinal)) sb.Append(k).Append(';');
+        }
         return sb.ToString();
     }
 
@@ -896,13 +953,19 @@ public abstract class OeeControllerBase : ControllerBase
         bool collectDowntimeCycles = false,
         double? idleMultOverride = null,        // 판정 기준 미리보기 전용 — 저장 없이 배수를 바꿔 계산(ct-multipliers/preview)
         double? nonProdMultOverride = null,
-        double? faultMultOverride = null)       // 고장(MT축) 배수 미리보기 오버라이드 — 위와 동일 규약
+        double? faultMultOverride = null,       // 고장(MT축) 배수 미리보기 오버라이드 — 위와 동일 규약
+        // 시스템 스코프(?system=) — 집계 <b>모집단</b>(targetFlows·무사이클 갭 귀속)만 이 집합으로 좁힌다.
+        //   신호(abnormal/usertag/MT 과주행) 유발자 판별 시야는 종전 per-flow 조회와 동일하게 라인 전체 유지 —
+        //   스코프를 시야까지 좁히면 같은 정지가 라인/설비 조회와 시스템 조회에서 다르게 분류된다(doc/25 §3.2 함정).
+        IReadOnlySet<string>? flowFilter = null)
     {
         var (idleMult, nonProdMult) = ResolveCtMultipliers();
         // 오버라이드(미리보기)는 저장 전 what-if 계산 — 결과는 정상 계산과 동일 경로지만, 감지로그 materialize 는
         // 막는다(제안 배수의 판정이 oeeNonProdDetectionLog 에 영구 기록되면 TEEP/actual 이 오염).
+        // 시스템 스코프 패스도 읽기 전용 — 라인 패스(flowName=null·필터 없음)의 자가치유(라인 스코프 invalidate)와
+        // 섞이면 스코프 밖 flow 의 감지 행이 오폭되므로 기록 자체를 막는다(라인/설비 패스가 로그 신선도를 유지).
         var suppressDetectionLog = idleMultOverride is not null || nonProdMultOverride is not null
-                                   || faultMultOverride is not null;
+                                   || faultMultOverride is not null || flowFilter is not null;
         if (idleMultOverride is double io && double.IsFinite(io))
             idleMult = Math.Clamp(io, OeeManualSettings.IdleMultMin, OeeManualSettings.IdleMultMax);
         if (nonProdMultOverride is double no && double.IsFinite(no))
@@ -918,7 +981,7 @@ public abstract class OeeControllerBase : ControllerBase
 
         var key = BuildAggKey(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop,
             collectRunIntervals, maintIntervals, collectNormalCycles, collectDowntimeCycles, idleMult, nonProdMult,
-            faultMult, mtThresholds);
+            faultMult, mtThresholds, flowFilter);
 
         if (s_aggCache.TryGetValue(key, out var hit) && hit.ExpiresUtc > DateTime.UtcNow)
             return CloneAgg(hit.Value);
@@ -926,7 +989,7 @@ public abstract class OeeControllerBase : ControllerBase
         Task<CycleAgg> ComputeSelfAsync() => ComputeCycleAggregateCoreAsync(
             flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
             collectRunIntervals, maintIntervals, collectNormalCycles, collectDowntimeCycles,
-            idleMult, nonProdMult, suppressDetectionLog, faultMult, mtThresholds);
+            idleMult, nonProdMult, suppressDetectionLog, faultMult, mtThresholds, flowFilter);
 
         var lazy = new Lazy<Task<CycleAgg>>(ComputeSelfAsync);
         var winner = s_aggInflight.GetOrAdd(key, lazy);
@@ -978,7 +1041,9 @@ public abstract class OeeControllerBase : ControllerBase
         bool suppressDetectionLog = false,
         // 고장(MT축) 배수 + flow별 14일 중앙 MT — 호출측(wrapper)이 캐시 키에 서명한 뒤 전달(§3 배수와 동일 규약).
         double faultMult = OeeMath.FaultMtMultiplierDefault,
-        IReadOnlyDictionary<string, double>? mtThresholds = null)
+        IReadOnlyDictionary<string, double>? mtThresholds = null,
+        // 시스템 스코프 — 모집단(targetFlows·갭 귀속)만 축소. 신호 시야는 라인 유지(wrapper 주석 참조).
+        IReadOnlySet<string>? flowFilter = null)
     {
         mtThresholds ??= new Dictionary<string, double>();
         var onsets = new List<double>();
@@ -995,7 +1060,7 @@ public abstract class OeeControllerBase : ControllerBase
         if (!string.IsNullOrWhiteSpace(flowName))
             targetFlows = thresholds.ContainsKey(flowName) ? new List<string> { flowName } : new List<string>();
         else
-            targetFlows = thresholds.Keys.ToList();
+            targetFlows = thresholds.Keys.Where(k => flowFilter is null || flowFilter.Contains(k)).ToList();
         if (targetFlows.Count == 0) return empty;
 
         var dbPath = _pathResolver.GetSharedDbPath();
@@ -1468,6 +1533,8 @@ public abstract class OeeControllerBase : ControllerBase
                 foreach (var byFlow in nocycleRows.GroupBy(r => r.Flow ?? "", StringComparer.Ordinal))
                 {
                     var gapFlow = string.IsNullOrEmpty(byFlow.Key) ? null : byFlow.Key;
+                    // 시스템 스코프 — 스코프 밖 flow 의 갭은 이 집계의 시간이 아니다(flow 미상 = 라인 귀속은 보존).
+                    if (gapFlow is not null && flowFilter is not null && !flowFilter.Contains(gapFlow)) continue;
                     var thrGap = gapFlow is not null && thresholds.TryGetValue(gapFlow, out var tg) && tg.AvgMs > 0
                         ? tg.AvgMs : avgThr;                        // 임계 미보유 flow 갭 — 라인 대표 평균 폴백(종전 동일)
                     // 정지 이벤트 구간에서 "실제로 사이클이 돈 시간"을 차감한다 — 감지 정지 사이클(cycleIdle)
@@ -1780,8 +1847,10 @@ public abstract class OeeControllerBase : ControllerBase
 
     // ── dspFlowHistory 조회 헬퍼 ─────────────────────────────────────────────
 
-    protected async Task<int> CountFlowHistoryAsync(string? flowName, DateTime fromUtc, DateTime toUtc)
+    protected async Task<int> CountFlowHistoryAsync(string? flowName, DateTime fromUtc, DateTime toUtc,
+        IReadOnlyCollection<string>? flowFilter = null)
     {
+        if (flowName is null && flowFilter is { Count: 0 }) return 0;   // 시스템 미매칭 — 정직하게 0(전체 폴백 금지)
         var dbPath = _pathResolver.GetSharedDbPath();
         if (!System.IO.File.Exists(dbPath)) return 0;
         try
@@ -1800,6 +1869,11 @@ public abstract class OeeControllerBase : ControllerBase
             {
                 flowClause = " AND flowName = @Flow ";
                 p.Add("Flow", flowName.Trim());
+            }
+            else if (flowFilter is not null)
+            {
+                flowClause = " AND flowName IN @Flows ";   // 시스템 스코프 — Dapper 리스트 확장
+                p.Add("Flows", flowFilter.ToList());
             }
             return await conn.ExecuteScalarAsync<int>($@"
                 SELECT COUNT(*) FROM dspFlowHistory
@@ -2027,7 +2101,8 @@ public abstract class OeeControllerBase : ControllerBase
     protected async Task<OeeMeasureQualityDto> ComputeMeasureQualityAsync(
         string? flowName, DateTime fromUtc, DateTime toUtc,
         Dictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlySet<string>? flowFilter = null)
     {
         var (idleMult, _) = ResolveCtMultipliers();
         // dtCond 의 MT 축 경계 — 집계 경로와 같은 소스(SSOT). 미보유 flow 는 CT 축 폴백.
@@ -2080,6 +2155,7 @@ public abstract class OeeControllerBase : ControllerBase
                     var targets = configured
                         .Concat(thresholds.Where(kv => kv.Value.AvgMs > 0).Select(kv => kv.Key))
                         .Where(f => flowName is null || string.Equals(f, flowName, StringComparison.OrdinalIgnoreCase))
+                        .Where(f => flowFilter is null || flowFilter.Contains(f))   // 시스템 스코프
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .OrderBy(x => x, StringComparer.Ordinal)
                         .ToList();

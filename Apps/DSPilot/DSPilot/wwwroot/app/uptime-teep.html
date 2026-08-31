@@ -56,12 +56,15 @@
                     </template>
                 </div>
 
-                <!-- 오른쪽: 설비(Flow) 필터 상태 (설비효율 페이지와 동일 패턴) -->
+                <!-- 오른쪽: 스코프(설비/시스템) 필터 상태 (설비효율 페이지와 동일 패턴) -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end;">
                     <template x-if="curFlow">
                         <span class="chip chip-info">설비: <b x-text="curFlow"></b></span>
                     </template>
-                    <template x-if="curFlow">
+                    <template x-if="!curFlow && curSystem">
+                        <span class="chip chip-info">시스템: <b x-text="curSystem"></b></span>
+                    </template>
+                    <template x-if="curFlow || curSystem">
                         <a class="btn btn-sm btn-outlined color-default" href="/uptime-teep">
                             <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
                         </a>
@@ -76,7 +79,7 @@
                 <section class="card up-section">
                     <div class="ds-card-h">
                         <h4>생산효율 지표</h4>
-                        <span class="ds-card-h-sub" x-text="curFlow ? ('설비: ' + curFlow) : ('라인 전체 · flow ' + (teep ? teep.flowCount : '—') + '개 합산')"></span>
+                        <span class="ds-card-h-sub" x-text="curFlow ? ('설비: ' + curFlow) : ((curSystem ? ('시스템: ' + curSystem) : '라인 전체') + ' · flow ' + (teep ? teep.flowCount : '—') + '개 합산')"></span>
                     </div>
 
                     <div class="up-oee-row">

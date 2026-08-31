@@ -82,6 +82,14 @@ public interface IOeeRepository
     Task<(long DowntimeMs, int Count)> GetDowntimeAggregateAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default);
 
+    /// <summary>
+    /// 기간 정지 합(ms)·건수 — flow <b>집합</b> 스코프(시스템 단위 묶음, 2026-08-25). 라인(flowName=null) 경로와
+    /// 동일하게 구간 union 으로 잰다 — flow별 합산은 동시 정지를 flow 수만큼 이중 계상한다(실측 6배).
+    /// flowName IS NULL(라인 귀속) 이벤트는 포함(라인 정지는 이 시스템에도 걸친 시간). 빈 집합 → (0, 0).
+    /// </summary>
+    Task<(long DowntimeMs, int Count)> GetDowntimeAggregateForFlowsAsync(
+        DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<string> flowNames, CancellationToken ct = default);
+
     /// <summary>기간/flow 고장(isFailure=1) durationMs 합·건수 (MTBF/MTTR 분자).</summary>
     Task<(long FailureDurationMs, int FailureCount)> GetFailureAggregateAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default);

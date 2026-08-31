@@ -317,12 +317,18 @@ public sealed class DatabaseLifecycleService
             if (!_projectService.IsLoaded)
                 return new RebuildResult(false, "AASX 파싱 실패 — 구 포맷일 수 있습니다. ds2 에디터에서 다시 Export 하세요.");
 
-            // 2) 새 모델에 살아있는 Flow 수집 — DspDatabaseServiceAdapter 와 동일하게 "*_Flow" 접미사 제외
-            var keepFlows = _projectService.GetAllFlows()
+            // 2) 새 모델에 살아있는 Flow 수집 — DspDatabaseServiceAdapter 와 동일하게 "*_Flow" 접미사 제외.
+            //    prune 보존 기준(keepNames)은 비활성(IsDisabled) 포함 — 비활성은 숨김이지 삭제가 아니므로,
+            //    여기서 빠지면 AASX 교체 prune 이 비활성 설비의 이력을 지워 Promaker 복원이 무의미해진다.
+            //    레이아웃 기준(keepIds)은 활성만 — 비활성 flow 는 대시보드 배치 슬롯을 차지하지 않는다.
+            var keepNames = _projectService.GetAllFlowsIncludingDisabled()
                 .Where(f => !f.Name.EndsWith("_Flow", StringComparison.OrdinalIgnoreCase))
+                .Select(f => f.Name)
                 .ToList();
-            var keepNames = keepFlows.Select(f => f.Name).ToList();
-            var keepIds = keepFlows.Select(f => f.Id).ToHashSet();
+            var keepIds = _projectService.GetAllFlows()
+                .Where(f => !f.Name.EndsWith("_Flow", StringComparison.OrdinalIgnoreCase))
+                .Select(f => f.Id)
+                .ToHashSet();
 
             // added / removed 산출 — audit log 용
             var priorSet = new HashSet<string>(priorFlowNames, StringComparer.OrdinalIgnoreCase);
@@ -446,7 +452,8 @@ public sealed class DatabaseLifecycleService
     /// </summary>
     public async Task<StaleFlowReport> GetStaleFlowReportAsync()
     {
-        var keep = _projectService.GetModelFlowNames();
+        // 보존 기준은 비활성(IsDisabled) 포함 — 비활성 설비를 '유령'으로 집계하면 정리 실행 시 이력이 지워진다.
+        var keep = _projectService.GetModelFlowNamesIncludingDisabled();
         if (keep is null) return new StaleFlowReport([], 0, 0, 0, 0, 0, false);
 
         var keepList = keep.ToList();
@@ -483,7 +490,8 @@ public sealed class DatabaseLifecycleService
     /// </summary>
     public async Task<RebuildResult> PruneStaleFlowsAsync()
     {
-        var keep = _projectService.GetModelFlowNames();
+        // 보존 기준은 비활성(IsDisabled) 포함 — 비활성은 숨김이지 삭제 대상이 아니다(복원 시 이력 복귀).
+        var keep = _projectService.GetModelFlowNamesIncludingDisabled();
         if (keep is null)
             return new RebuildResult(false, "AASX 모델이 로드되지 않아 정리 기준을 알 수 없습니다. 모델을 먼저 불러오세요.");
 
@@ -588,7 +596,8 @@ public sealed class DatabaseLifecycleService
             // 유령 설비 행은 시각 조건으로는 절대 안 지워져서(리네임 직전까지 계속 쌓였으므로) 사용자가
             // "오래된 데이터 삭제"를 해도 화면에서 사라지지 않던 원인이다.
             var staleFlows = 0; var staleHist = 0; var staleDown = 0; var staleOv = 0;
-            var keep = _projectService.GetModelFlowNames();
+            // 보존 기준은 비활성(IsDisabled) 포함 — 아래 GetStaleFlowReport/PruneStaleFlows 와 동일 이유.
+            var keep = _projectService.GetModelFlowNamesIncludingDisabled();
             if (keep is not null)
             {
                 try

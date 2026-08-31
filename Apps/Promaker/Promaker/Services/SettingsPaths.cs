@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 
 namespace Promaker.Services;
@@ -83,6 +83,10 @@ public static class SettingsPaths
 
     /// <summary>사용자 정의 LLM 작업 지침 폴더 — AppData\Dualsoft\Promaker\Instructions. 명시 승인된 항목만 instruction-tier 로 주입.</summary>
     public static string CustomInstructionsDir => Path.Combine(AppDataRoot, "Instructions");
+
+    /// <summary>인스턴스 간 시스템 복사의 파일 채널 스풀 — OS 클립보드가 막혀도 복사/붙여넣기가
+    /// 성립하게 하는 정본 저장소. 사용자별 AppData 라 같은 계정의 두 인스턴스가 공유한다.</summary>
+    public static string ClipboardSpoolDir => Path.Combine(AppDataRoot, "ClipboardSpool");
 
     /// <summary>v0.x 사용자 prompts 폴더 — Dualsoft 누락된 옛 경로. 부트 시 존재 감지용 (마이그레이션 안내).</summary>
     public static string LegacyUserPromptsDir => Path.Combine(

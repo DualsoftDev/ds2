@@ -257,16 +257,62 @@ module AssetInterfacesDescriptionTypes =
             |> Array.take 6
             |> Convert.ToHexString
 
+        /// System 별 signalId 한정자. **이름이 아니라 GUID 로 만든다** — System 이름은 사용자가 바꿀 수
+        /// 있는데 signalId 는 다운스트림 영속 키(OPC UA NodeId·Collector 시계열)라 흔들리면 안 된다.
+        let private systemHash (systemId: Guid) =
+            SHA256.HashData(systemId.ToByteArray())
+            |> Array.take 6
+            |> Convert.ToHexString
+            |> fun hex -> hex.ToLowerInvariant()
+
+        /// signalId 자동 부여. 기본값은 주소 원문(종전과 완전히 동일)이고,
+        /// **그 값을 다른 endpoint 가 이미 쓰고 있을 때만** System 한정자를 붙여 분화한다.
+        /// 멀티 PLC 에서 서로 다른 System 이 같은 주소를 써도 사용자가 아무것도 하지 않게 하는 장치다.
+        /// (signalId 는 AID 전체에서 유일해야 하며, 예전엔 이 충돌이 곧 활성화 실패였다.)
+        /// 한 번 부여된 id 는 이후 저장에서 그대로 보존되므로(ensureBinding 이 기존 interaction 유지)
+        /// 이미 배포된 signalId 는 이 규칙으로도 절대 움직이지 않는다.
+        let private mintSignalId (claimed: HashSet<string>) (systemId: Guid option) (address: string) =
+            if not (claimed.Contains address) then address
+            else
+                match systemId with
+                // 귀속 미상 endpoint 는 분화 근거가 없다 — 종전대로 두고 상위 검증이 드러내게 한다.
+                | None -> address
+                | Some sid ->
+                    let qualified = $"{address}@{systemHash sid}"
+                    // 한정자까지 겹치는 건 같은 System 안 중복(모델 오류)이라 여기서 더 손대지 않는다.
+                    qualified
+
         /// PLC 주소는 `%QX0.1`처럼 AAS idShort/URN에 허용되지 않는 문자를 포함한다.
         /// 주소 원문은 href/signalId에 보존하고 식별자는 충돌 없는 고정 해시로 분리한다.
-        let private interactionForAddress (address: string) =
+        /// claimed = 이 AID 의 다른 endpoint 들이 이미 점유한 signalId 집합(자동 분화 판정 근거).
+        /// 새로 부여한 id 도 집합에 넣어, 같은 배치 안 뒤 주소들이 다시 충돌하지 않게 한다.
+        let private interactionForAddressIn (claimed: HashSet<string>) (systemId: Guid option) (address: string) =
             let hash = addressHash address
+            let signalId = mintSignalId claimed systemId address
+            claimed.Add signalId |> ignore
             { IdShort = $"Xgt_{hash}"
               SemanticId = SemanticId $"urn:dualsoft:cd:xgt:io:{hash.ToLowerInvariant()}:1:0"
               ValueType = XsBoolean
               Unit = None
               Href = address
-              SignalId = SignalId address }
+              SignalId = SignalId signalId }
+
+        /// System 귀속을 모르는 경로(레거시 ensureBinding·구버전 정규화)용 — 종전 동작 그대로.
+        let private interactionForAddress (address: string) =
+            interactionForAddressIn (HashSet<string>(StringComparer.Ordinal)) None address
+
+        /// 이 AID 안에서 excludeIndex 를 제외한 endpoint 들이 점유한 signalId 집합.
+        let private claimedSignalIdsExcept (aid: AssetInterfacesDescription) (excludeIndex: int) =
+            let claimed = HashSet<string>(StringComparer.Ordinal)
+            aid.Interfaces
+            |> Seq.iteri (fun index binding ->
+                if index <> excludeIndex then
+                    match binding with
+                    | Xgt (_, interactions) ->
+                        for interaction in interactions do
+                            claimed.Add interaction.SignalId.Value |> ignore
+                    | _ -> ())
+            claimed
 
         let private normalizeLegacyGeneratedInteraction (interaction: OpcUaInteraction) =
             // 구버전 자동 생성본은 IdShort/SignalId/Href가 모두 PLC 주소였다. SDF로 먼저 저장된 모델도
@@ -557,9 +603,14 @@ module AssetInterfacesDescriptionTypes =
                 | Some (index, existingEndpoint, existing) ->
                     let normalizedExisting = existing |> List.map normalizeLegacyGeneratedInteraction
                     let seen = HashSet<string>(normalizedExisting |> Seq.map _.Href, StringComparer.OrdinalIgnoreCase)
+                    // 다른 System 의 endpoint 가 이미 쓰는 signalId 는 피해서 부여한다(자동 분화).
+                    // 이 endpoint 자신이 이미 가진 id 는 보존 대상이라 제외한다.
+                    let claimed = claimedSignalIdsExcept aid index
                     let added =
                         normalizedAddresses
-                        |> List.choose (fun address -> if seen.Add address then Some (interactionForAddress address) else None)
+                        |> List.choose (fun address ->
+                            if seen.Add address then Some (interactionForAddressIn claimed (Some systemId) address)
+                            else None)
                     let nextEndpoint =
                         { existingEndpoint with
                             SystemId = Some systemId
@@ -576,6 +627,42 @@ module AssetInterfacesDescriptionTypes =
                     List.length merged
                 | None when normalizedAddresses.IsEmpty -> 0
                 | None ->
-                    let interactions = normalizedAddresses |> List.map interactionForAddress
+                    // 새 endpoint — 기존 endpoint 전체가 점유한 signalId 를 피해서 부여한다.
+                    let claimed = claimedSignalIdsExcept aid -1
+                    let interactions =
+                        normalizedAddresses |> List.map (interactionForAddressIn claimed (Some systemId))
                     aid.Interfaces.Add(Xgt (requestedEndpoint, interactions))
                     List.length interactions
+
+        /// 이미 저장된 모델의 signalId 중복 **자동 복구**.
+        /// 중복 주소 모델은 AASX 저장 자체는 성공하고 불러와 활성화할 때만 실패하므로,
+        /// 현장에 "저장은 됐는데 안 뜨는" 파일이 이미 존재할 수 있다. 그런 파일도 사용자가
+        /// 아무것도 하지 않고 뜨도록, 불러오는 시점에 같은 규칙(주소@System해시)으로 분화시킨다.
+        /// 그 모델은 지금 아예 활성화가 안 되는 상태라 깨질 다운스트림이 존재하지 않는다 — 안전하다.
+        /// 앞선 endpoint 가 선점한 id 는 그대로 두고 뒤에 오는 중복만 바꾼다(기존 id 보존 우선).
+        /// 반환 = 바뀐 interaction 수(0 이면 손댈 것이 없었음).
+        [<CompiledName("DeduplicateSignalIds")>]
+        let deduplicateSignalIds (aid: AssetInterfacesDescription) : int =
+            if isNull (box aid) then 0
+            else
+                let claimed = HashSet<string>(StringComparer.Ordinal)
+                let mutable repaired = 0
+                for index = 0 to aid.Interfaces.Count - 1 do
+                    match aid.Interfaces.[index] with
+                    | Xgt (endpoint, interactions) ->
+                        let mutable changedHere = false
+                        let next =
+                            interactions
+                            |> List.map (fun interaction ->
+                                let current = interaction.SignalId.Value
+                                if claimed.Add current then interaction
+                                else
+                                    let minted = mintSignalId claimed endpoint.SystemId interaction.Href
+                                    if minted = current || not (claimed.Add minted) then interaction
+                                    else
+                                        changedHere <- true
+                                        repaired <- repaired + 1
+                                        { interaction with SignalId = SignalId minted })
+                        if changedHere then aid.Interfaces.[index] <- Xgt (endpoint, next)
+                    | _ -> ()
+                repaired

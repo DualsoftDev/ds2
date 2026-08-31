@@ -13,6 +13,20 @@ namespace DSPilot.Repositories;
 /// <summary>
 /// PLC 데이터 저장소 - Dapper 기반 SQLite 구현
 /// </summary>
+/// <remarks>
+/// <para><b>멀티 PLC 조회 스코프 규약</b> — 주소 기반 조회 쿼리는 모두 다음 두 조각을 함께 쓴다:</para>
+/// <code>
+/// LEFT JOIN plc p ON p.id = t.plcId
+/// ...
+/// AND (@SystemId IS NULL OR p.systemId = @SystemId)
+/// </code>
+/// <para>
+/// LEFT JOIN 이어야 plcId 가 끊긴 과거 행이 사라지지 않고, @SystemId 파라미터는 반드시
+/// <see cref="SystemKeyConvention.Scope(Guid?)"/> 로 만든다 — 표기(소문자 "D")가 <c>plc.systemId</c>
+/// 컬럼과 한 글자라도 어긋나면 예외 없이 결과가 0건이 되고, 빈 문자열을 넘기면 "전체 스코프"가 아니라
+/// systemId='' 인 행만 매칭된다. 스코프를 지정하지 않으면(null) 종전대로 주소 조건만으로 조회한다.
+/// </para>
+/// </remarks>
 public class PlcRepository : IPlcRepository
 {
     private readonly string _connectionString;
@@ -288,7 +302,7 @@ public class PlcRepository : IPlcRepository
 
     /// <inheritdoc />
     public async Task<List<PlcTagLogEntity>> GetLatestLogsByAddressesBeforeAsync(
-        List<string> addresses, DateTime atOrBefore)
+        List<string> addresses, DateTime atOrBefore, Guid? systemId = null)
     {
         if (addresses.Count == 0) return new List<PlcTagLogEntity>();
 
@@ -304,7 +318,9 @@ WITH max_times AS (
     SELECT l.plcTagId AS PlcTagId, MAX(l.dateTime) AS MaxDateTime
     FROM plcTagLog l
     INNER JOIN plcTag t ON l.plcTagId = t.id
+    LEFT JOIN plc p ON p.id = t.plcId
     WHERE t.address IN @Addresses
+      AND (@SystemId IS NULL OR p.systemId = @SystemId)
       AND l.dateTime <= @AtOrBefore
     GROUP BY l.plcTagId
 )
@@ -320,7 +336,8 @@ INNER JOIN max_times m
         var logs = await connection.QueryAsync<PlcTagLogEntity>(sql, new
         {
             Addresses = addresses,
-            AtOrBefore = atOrBeforeStr
+            AtOrBefore = atOrBeforeStr,
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return logs.ToList();
@@ -404,7 +421,7 @@ INNER JOIN max_times m
     }
 
     public async Task<List<PlcTagLogEntity>> GetTagLogsByAddressInRangeAsync(
-        string address, DateTime startTime, DateTime endTime)
+        string address, DateTime startTime, DateTime endTime, Guid? systemId = null)
     {
         using var connection = CreateConnection();
         var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
@@ -414,7 +431,9 @@ INNER JOIN max_times m
 SELECT l.Id, l.PlcTagId, l.DateTime, l.Value
 FROM plcTagLog l
 INNER JOIN plcTag t ON l.PlcTagId = t.Id
+LEFT JOIN plc p ON p.id = t.plcId
 WHERE t.Address = @Address
+  AND (@SystemId IS NULL OR p.systemId = @SystemId)
   AND l.DateTime >= @StartTime
   AND l.DateTime <= @EndTime
 ORDER BY l.DateTime ASC";
@@ -423,14 +442,15 @@ ORDER BY l.DateTime ASC";
         {
             Address = address,
             StartTime = startStr,
-            EndTime = endStr
+            EndTime = endStr,
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return logs.ToList();
     }
 
     public async Task<List<PlcTagLogEntity>> GetMultipleTagLogsInRangeAsync(
-        List<string> addresses, DateTime startTime, DateTime endTime)
+        List<string> addresses, DateTime startTime, DateTime endTime, Guid? systemId = null)
     {
         if (addresses.Count == 0) return new List<PlcTagLogEntity>();
 
@@ -448,7 +468,9 @@ SELECT
     t.Address AS Address
 FROM plcTagLog l
 INNER JOIN plcTag t ON l.PlcTagId = t.Id
+LEFT JOIN plc p ON p.id = t.plcId
 WHERE t.Address IN @Addresses
+  AND (@SystemId IS NULL OR p.systemId = @SystemId)
   AND l.DateTime >= @StartTime
   AND l.DateTime <= @EndTime
 ORDER BY l.DateTime ASC";
@@ -457,7 +479,8 @@ ORDER BY l.DateTime ASC";
         {
             Addresses = addresses,
             StartTime = startStr,
-            EndTime = endStr
+            EndTime = endStr,
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         var logs = rows.Select(row => new PlcTagLogEntity
@@ -477,7 +500,7 @@ ORDER BY l.DateTime ASC";
     }
 
     public async Task<List<PlcTagLogEntity>> GetMultipleTagRisingEdgesInRangeAsync(
-        List<string> addresses, DateTime startTime, DateTime endTime)
+        List<string> addresses, DateTime startTime, DateTime endTime, Guid? systemId = null)
     {
         if (addresses.Count == 0) return new List<PlcTagLogEntity>();
 
@@ -506,7 +529,9 @@ WITH ordered_logs AS (
         ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
     FROM plcTagLog l
     INNER JOIN plcTag t ON l.PlcTagId = t.Id
+    LEFT JOIN plc p ON p.id = t.plcId
     WHERE t.Address IN @Addresses
+      AND (@SystemId IS NULL OR p.systemId = @SystemId)
       AND l.DateTime >= @StartTime
       AND l.DateTime <= @EndTime
 )
@@ -526,7 +551,8 @@ ORDER BY DateTime ASC, Id ASC";
         {
             Addresses = addresses,
             StartTime = startStr,
-            EndTime = endStr
+            EndTime = endStr,
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return rows.Select(row => new PlcTagLogEntity
@@ -544,7 +570,7 @@ ORDER BY DateTime ASC, Id ASC";
     }
 
     public async Task<List<DateTime>> FindRisingEdgesAsync(
-        string address, DateTime startTime, DateTime endTime)
+        string address, DateTime startTime, DateTime endTime, Guid? systemId = null)
     {
         using var connection = CreateConnection();
         var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
@@ -567,7 +593,9 @@ WITH ordered_logs AS (
         ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
     FROM plcTagLog l
     INNER JOIN plcTag t ON l.PlcTagId = t.Id
+    LEFT JOIN plc p ON p.id = t.plcId
     WHERE t.Address = @Address
+      AND (@SystemId IS NULL OR p.systemId = @SystemId)
       AND l.DateTime >= @StartTime
       AND l.DateTime <= @EndTime
 )
@@ -583,14 +611,15 @@ ORDER BY DateTime ASC, Id ASC";
         {
             Address = address,
             StartTime = startStr,
-            EndTime = endStr
+            EndTime = endStr,
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
     }
 
     public async Task<List<DateTime>> FindFallingEdgesAsync(
-        string address, DateTime startTime, DateTime endTime)
+        string address, DateTime startTime, DateTime endTime, Guid? systemId = null)
     {
         using var connection = CreateConnection();
         var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
@@ -616,7 +645,9 @@ WITH ordered_logs AS (
         ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
     FROM plcTagLog l
     INNER JOIN plcTag t ON l.PlcTagId = t.Id
+    LEFT JOIN plc p ON p.id = t.plcId
     WHERE t.Address = @Address
+      AND (@SystemId IS NULL OR p.systemId = @SystemId)
       AND l.DateTime >= @StartTime
       AND l.DateTime <= @EndTime
 )
@@ -632,14 +663,15 @@ ORDER BY DateTime ASC, Id ASC";
         {
             Address = address,
             StartTime = startStr,
-            EndTime = endStr
+            EndTime = endStr,
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
     }
 
     public async Task<List<PlcEdge>> FindRisingEdgesWithLogIdAsync(
-        string address, DateTime startTime, DateTime endTime)
+        string address, DateTime startTime, DateTime endTime, Guid? systemId = null)
     {
         using var connection = CreateConnection();
         var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
@@ -663,7 +695,9 @@ WITH ordered_logs AS (
         ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
     FROM plcTagLog l
     INNER JOIN plcTag t ON l.PlcTagId = t.Id
+    LEFT JOIN plc p ON p.id = t.plcId
     WHERE t.Address = @Address
+      AND (@SystemId IS NULL OR p.systemId = @SystemId)
       AND l.DateTime >= @StartTime
       AND l.DateTime <= @EndTime
 )
@@ -679,14 +713,15 @@ ORDER BY DateTime ASC, Id ASC";
         {
             Address = address,
             StartTime = startStr,
-            EndTime = endStr
+            EndTime = endStr,
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return rows.Select(row => new PlcEdge(row.Id, ParseSqliteDateTime(row.DateTime))).ToList();
     }
 
 
-    public async Task<List<DateTime>> FindRecentRisingEdgesAsync(string address, int count)
+    public async Task<List<DateTime>> FindRecentRisingEdgesAsync(string address, int count, Guid? systemId = null)
     {
         using var connection = CreateConnection();
 
@@ -706,10 +741,12 @@ WITH recent_logs AS (
                 WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
                 ELSE '0'
             END
-        ) OVER (ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
+        ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
     FROM plcTagLog l
     INNER JOIN plcTag t ON l.PlcTagId = t.Id
+    LEFT JOIN plc p ON p.id = t.plcId
     WHERE t.Address = @Address
+      AND (@SystemId IS NULL OR p.systemId = @SystemId)
 ),
 edges AS (
     SELECT DateTime
@@ -724,7 +761,8 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
         var rows = await connection.QueryAsync<PlcTagDateTimeRow>(sql, new
         {
             Address = address,
-            Count = count
+            Count = count,
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
@@ -744,6 +782,8 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
         public string? Value { get; set; }
         public string TagName { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
+        // SystemId 를 SELECT 하지 않는 쿼리에서는 "" — 귀속 미상으로 흡수된다.
+        public string SystemId { get; set; } = string.Empty;
     }
 
     private sealed class PlcTagLogValueRow
@@ -760,7 +800,7 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
     }
 
     /// <inheritdoc />
-    public async Task<List<PlcTagLogEntity>> GetTagLogsAsync(string tagAddress, int count)
+    public async Task<List<PlcTagLogEntity>> GetTagLogsAsync(string tagAddress, int count, Guid? systemId = null)
     {
         using var connection = CreateConnection();
 
@@ -774,14 +814,17 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
                 t.address as Address
             FROM plcTagLog l
             INNER JOIN plcTag t ON l.plcTagId = t.id
+            LEFT JOIN plc p ON p.id = t.plcId
             WHERE t.address = @Address
+              AND (@SystemId IS NULL OR p.systemId = @SystemId)
             ORDER BY l.id DESC
             LIMIT @Count";
 
         var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new
         {
             Address = tagAddress,
-            Count = count
+            Count = count,
+            SystemId = SystemKeyConvention.Scope(systemId)
         });
 
         return rows.Select(row => new PlcTagLogEntity
@@ -797,7 +840,7 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
 
     /// <inheritdoc />
     public async Task<List<PlcTagLogEntity>> GetTagLogsByTimeRangeAsync(
-        string tagAddress, DateTime startTime, DateTime endTime)
+        string tagAddress, DateTime startTime, DateTime endTime, Guid? systemId = null)
     {
         try
         {
@@ -822,7 +865,9 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
                     t.address as Address
                 FROM plcTagLog l
                 INNER JOIN plcTag t ON l.plcTagId = t.id
+                LEFT JOIN plc p ON p.id = t.plcId
                 WHERE t.address = @Address
+                  AND (@SystemId IS NULL OR p.systemId = @SystemId)
                   AND l.dateTime >= @StartTime
                   AND l.dateTime <= @EndTime
                 ORDER BY l.id ASC";
@@ -831,7 +876,8 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
             {
                 Address = tagAddress,
                 StartTime = startStr,
-                EndTime = endStr
+                EndTime = endStr,
+                SystemId = SystemKeyConvention.Scope(systemId)
             });
 
             return rows.Select(row => new PlcTagLogEntity
@@ -857,36 +903,17 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
     }
 
     /// <inheritdoc />
-    public async Task<(Dictionary<string, string> TagValues, long MaxLogId)> GetLatestValuePerTagAsync()
+    public async Task<long> GetMaxLogIdAsync()
     {
         using var connection = CreateConnection();
 
         if (!await RequiredTablesExistAsync(connection))
         {
-            _logger.LogDebug("Required tables (plcTag/plcTagLog) do not exist yet. Returning empty state.");
-            return (new Dictionary<string, string>(), 0L);
+            _logger.LogDebug("Required tables (plcTag/plcTagLog) do not exist yet. Returning 0 watermark.");
+            return 0L;
         }
 
-        // 모든 태그의 최신 로그 값을 단일 쿼리로 조회
-        const string sql = @"
-            SELECT t.address AS Address, l.value AS Value
-            FROM plcTag t
-            INNER JOIN plcTagLog l ON l.id = (
-                SELECT MAX(l2.id) FROM plcTagLog l2 WHERE l2.plcTagId = t.id
-            )
-            WHERE t.address IS NOT NULL AND t.address != ''";
-
-        var rows = await connection.QueryAsync<(string Address, string? Value)>(sql);
-        var dict = new Dictionary<string, string>();
-        foreach (var row in rows)
-        {
-            dict[row.Address] = row.Value ?? "0";
-        }
-
-        // 현재 최대 log ID 조회 (델타 폴링 시작점)
-        var maxId = await connection.ExecuteScalarAsync<long?>("SELECT MAX(id) FROM plcTagLog") ?? 0L;
-
-        return (dict, maxId);
+        return await connection.ExecuteScalarAsync<long?>("SELECT MAX(id) FROM plcTagLog") ?? 0L;
     }
 
     /// <inheritdoc />
@@ -909,9 +936,11 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
                 l.dateTime AS DateTime,
                 l.value AS Value,
                 t.name AS TagName,
-                t.address AS Address
+                t.address AS Address,
+                COALESCE(p.systemId, '') AS SystemId
             FROM plcTagLog l
             INNER JOIN plcTag t ON l.plcTagId = t.id
+            LEFT JOIN plc p ON p.id = t.plcId
             WHERE l.id > @AfterId
             ORDER BY l.id ASC
             LIMIT @Limit";
@@ -924,7 +953,10 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
             DateTime = ParseSqliteDateTime(row.DateTime),
             Value = row.Value,
             TagName = row.TagName,
-            Address = row.Address
+            Address = row.Address,
+            // 전역 폴러(UserTagAlertService 등)는 systemId 인자로 스코프할 수 없으므로 —
+            // 어느 PLC 의 행인지 결과에 실어 보내 수신측이 (System, 주소)로 매칭하게 한다.
+            SystemId = row.SystemId
         }).ToList();
     }
 }

@@ -193,12 +193,15 @@ public class CallTestController : ControllerBase
 
         Guid? headId = ParseGuid(req.HeadCallId);
         Guid? tailId = ParseGuid(req.TailCallId);
+        // 멀티 PLC: 이 Flow 의 PLC 로 엣지 조회를 한정 (다른 PLC 의 같은 주소가 섞이지 않게).
+        var systemId = _project.TryGetSystemIdByFlowName(req.FlowName);
 
         // Head 경계(시작) = Head OutTag↑ (진영 B: OutTag=PLC 출력=명령=동작 시작)
         List<DateTime> cycleBoundaries;
         if (headId.HasValue && !string.IsNullOrWhiteSpace(req.HeadStartTag))
         {
-            cycleBoundaries = await _plcRepository.FindRisingEdgesAsync(req.HeadStartTag!, start, end);
+            cycleBoundaries = await _plcRepository.FindRisingEdgesAsync(
+                req.HeadStartTag!, start, end, systemId);
         }
         else
         {
@@ -211,8 +214,10 @@ public class CallTestController : ControllerBase
             : default;
         List<DateTime> tailEdges = !string.IsNullOrWhiteSpace(tc.Tag)
             ? (tc.Falling
-                ? await _plcRepository.FindFallingEdgesAsync(tc.Tag!, start, end)
-                : await _plcRepository.FindRisingEdgesAsync(tc.Tag!, start, end))
+                ? await _plcRepository.FindFallingEdgesAsync(
+                    tc.Tag!, start, end, systemId)
+                : await _plcRepository.FindRisingEdgesAsync(
+                    tc.Tag!, start, end, systemId))
             : new List<DateTime>();
 
         cycleBoundaries = cycleBoundaries.OrderBy(t => t).ToList();
@@ -352,15 +357,17 @@ public class CallTestController : ControllerBase
         var tc = tailLane is not null
             ? CycleCompletionResolver.Resolve(tailLane.InTag, tailLane.OutTag)
             : default;
+        // 멀티 PLC: 이 Flow 의 PLC 로 엣지 조회를 한정 (다른 PLC 의 같은 주소가 섞이지 않게).
+        var systemId = _project.TryGetSystemIdByFlowName(flowName);
 
         Task<List<DateTime>> headTask = headId.HasValue && !string.IsNullOrWhiteSpace(headStartTag)
-            ? _plcRepository.FindRisingEdgesAsync(headStartTag!, start, end)
+            ? _plcRepository.FindRisingEdgesAsync(headStartTag!, start, end, systemId)
             : _cycleAnalysis.GetCycleBoundaryTimesAsync(flowName, start, end);
 
         Task<List<DateTime>> tailTask = !string.IsNullOrWhiteSpace(tc.Tag)
             ? (tc.Falling
-                ? _plcRepository.FindFallingEdgesAsync(tc.Tag!, start, end)
-                : _plcRepository.FindRisingEdgesAsync(tc.Tag!, start, end))
+                ? _plcRepository.FindFallingEdgesAsync(tc.Tag!, start, end, systemId)
+                : _plcRepository.FindRisingEdgesAsync(tc.Tag!, start, end, systemId))
             : Task.FromResult(new List<DateTime>());
 
         await Task.WhenAll(headTask, tailTask);

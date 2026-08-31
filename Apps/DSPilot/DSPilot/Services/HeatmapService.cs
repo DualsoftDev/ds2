@@ -19,6 +19,7 @@ public class HeatmapService
     private readonly IPlcRepository _plcRepository;
     private readonly PlcToCallMapperService _mapperService;
     private readonly AppSettingsService _settingsService;
+    private readonly DsProjectService _project;
     private readonly ILogger<HeatmapService> _logger;
 
     // ── 로버스트(중앙값 기반) 통계 캐시 ──
@@ -43,8 +44,10 @@ public class HeatmapService
         IPlcRepository plcRepository,
         PlcToCallMapperService mapperService,
         AppSettingsService settingsService,
+        DsProjectService project,
         ILogger<HeatmapService> logger)
     {
+        _project = project;
         _dspRepository = dspRepository;
         _plcRepository = plcRepository;
         _mapperService = mapperService;
@@ -159,7 +162,9 @@ public class HeatmapService
                 queryEnd ??= latest.Value;
             }
 
-            records = await ComputeExecutionRecordsAsync(inTag, outTag, queryStart.Value, queryEnd.Value, maxCycles);
+            records = await ComputeExecutionRecordsAsync(
+                    inTag, outTag, queryStart.Value, queryEnd.Value, maxCycles,
+                    _project.TryGetSystemIdByCallId(callId));
 
             _logger.LogInformation(
                 "Call {CallId}: Matched {Count} executions", callId, records.Count);
@@ -197,7 +202,9 @@ public class HeatmapService
             if (string.IsNullOrEmpty(p.InTag) || string.IsNullOrEmpty(p.OutTag))
                 continue;
 
-            var records = await ComputeExecutionRecordsAsync(p.InTag!, p.OutTag!, oldest.Value, latest.Value, null);
+            var records = await ComputeExecutionRecordsAsync(
+                p.InTag!, p.OutTag!, oldest.Value, latest.Value, null,
+                _project.TryGetSystemIdByCallId(p.CallId));
             if (records.Count == 0)
             {
                 // 유효 표본 0(전부 캡 밖이거나 매칭 엣지 없음) → 0 으로 리셋해 과거 오염 제거(GoingCount=0 은 히트맵서 제외됨).
@@ -297,7 +304,9 @@ public class HeatmapService
             if (string.IsNullOrEmpty(p.InTag) || string.IsNullOrEmpty(p.OutTag))
                 continue;
 
-            var records = await ComputeExecutionRecordsAsync(p.InTag!, p.OutTag!, oldest.Value, latest.Value, null);
+            var records = await ComputeExecutionRecordsAsync(
+                p.InTag!, p.OutTag!, oldest.Value, latest.Value, null,
+                _project.TryGetSystemIdByCallId(p.CallId));
             if (records.Count > 0)
                 fresh[p.CallId] = ComputeRobustStats(records);
         }
@@ -410,13 +419,18 @@ public class HeatmapService
     /// <summary>
     /// InTag/OutTag Rising Edge를 매칭하여 실행 기록 리스트를 생성
     /// </summary>
+    /// <param name="systemId">
+    /// 이 Call 을 소유한 System. 멀티 PLC 에서 같은 주소를 다른 PLC 도 쓰면 엣지가 섞여 GoingTime
+    /// 매칭이 통째로 틀어지므로 한정한다. null 이면 종전대로 전체 PLC(주소가 겹치지 않으면 동일).
+    /// </param>
     private async Task<List<CallExecutionRecord>> ComputeExecutionRecordsAsync(
-        string inTag, string outTag, DateTime startTime, DateTime endTime, int? maxCycles)
+        string inTag, string outTag, DateTime startTime, DateTime endTime, int? maxCycles,
+        Guid? systemId = null)
     {
         var records = new List<CallExecutionRecord>();
 
-        var inTagEdges = await _plcRepository.FindRisingEdgesAsync(inTag, startTime, endTime);
-        var outTagEdges = await _plcRepository.FindRisingEdgesAsync(outTag, startTime, endTime);
+        var inTagEdges = await _plcRepository.FindRisingEdgesAsync(inTag, startTime, endTime, systemId);
+        var outTagEdges = await _plcRepository.FindRisingEdgesAsync(outTag, startTime, endTime, systemId);
 
         // OutTag Rising(동작 시작) → InTag Rising(동작 종료) 순서로 매칭하여 GoingTime 계산
         int inIndex = 0;

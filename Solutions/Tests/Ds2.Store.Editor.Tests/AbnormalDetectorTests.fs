@@ -1082,9 +1082,9 @@ module DeviceControlCycleTests =
             { Envelope = RuntimeHubDefaults.selfEnvelope identity
               Items =
                 // WallClockMs=0 — 이 테스트는 OriginTsMs 기반 판정만 검증한다(기록 시각은 관심 밖).
-                [| { Address = "%QX0.1.13"; Value = "true"; Source = HubSource.Plc; OriginTsMs = 0L; WallClockMs = 0L }
-                   { Address = "%QX0.1.13"; Value = "false"; Source = HubSource.Plc; OriginTsMs = 0L; WallClockMs = 0L }
-                   { Address = "%IX0.0.13"; Value = "true"; Source = HubSource.Plc; OriginTsMs = 0L; WallClockMs = 0L } |] }
+                [| { Address = "%QX0.1.13"; Value = "true"; Source = HubSource.Plc; OriginTsMs = 0L; WallClockMs = 0L; SystemId = "" }
+                   { Address = "%QX0.1.13"; Value = "false"; Source = HubSource.Plc; OriginTsMs = 0L; WallClockMs = 0L; SystemId = "" }
+                   { Address = "%IX0.0.13"; Value = "true"; Source = HubSource.Plc; OriginTsMs = 0L; WallClockMs = 0L; SystemId = "" } |] }
 
         (session :> IRuntimeHubSession)
             .InjectIOValuesByAddressAsync(command)
@@ -1125,7 +1125,7 @@ module DeviceControlCycleTests =
         let inject addr v ts =
             let cmd : RuntimeIOAddressBatchCommand =
                 { Envelope = RuntimeHubDefaults.selfEnvelope identity
-                  Items = [| { Address = addr; Value = v; Source = HubSource.Plc; OriginTsMs = ts; WallClockMs = 0L } |] }
+                  Items = [| { Address = addr; Value = v; Source = HubSource.Plc; OriginTsMs = ts; WallClockMs = 0L; SystemId = "" } |] }
             (session :> IRuntimeHubSession).InjectIOValuesByAddressAsync(cmd).GetAwaiter().GetResult()
 
         // 출력 관측(원천 ts=0) → Going

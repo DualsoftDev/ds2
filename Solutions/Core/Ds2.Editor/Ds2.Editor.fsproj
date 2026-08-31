@@ -38,6 +38,7 @@
     <Compile Include="Store\Paste\Paste.DeviceOps.fs" />
     <Compile Include="Store\Paste\Paste.DirectOps.fs" />
     <Compile Include="Store\Paste\Paste.fs" />
+    <Compile Include="Store\Paste\SystemPackage.fs" />
     <Compile Include="Store\Nodes\MoveCall.fs" />
     <Compile Include="Store\Nodes\RenameDevice.fs" />
     <Compile Include="Store\Arrows.fs" />

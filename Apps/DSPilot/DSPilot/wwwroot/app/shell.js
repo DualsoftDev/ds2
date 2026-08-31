@@ -325,6 +325,11 @@ window.dspFmt = {
         // ── 3) 네비게이션 정의 (라우트/아이콘 — 라이브 대시보드는 '/'). ──
         var NAV_ITEMS = [
             { label: '대시보드',    href: '/',                    icon: 'space_dashboard', match: 'all',    legacy: '/app/dashboard.html' },
+            // 전 시스템 합산(라인 전체) 생산효율/생산·설비효율 — 스코프 쿼리(?flow/?system) 없이 진입(2026-08-25).
+            //   시스템 단위는 아래 '○○ 관리' 그룹 헤더(?system=), 설비 단위는 그룹 안 FLOW(?flow=)가 담당.
+            //   lineScope: 스코프 쿼리가 붙어 있으면 이 전체 링크는 활성 표시하지 않는다(시스템/설비 쪽이 활성).
+            { label: '생산효율 현황', href: '/uptime-teep', icon: 'trending_up', match: 'all', lineScope: true },
+            { label: '설비효율 현황', href: '/uptime-oee',  icon: 'speed',       match: 'all', lineScope: true, legacy: ['/uptime', '/oee'] },
             // 동작편차·가동시간·이상(설비효율/생산효율/이상·알람)은 최상위 링크에서 제거하고, 시스템 '○○ 관리'
             // 아코디언 안의 분석 그룹(추이 분석/사이클 분석 옆)으로 이동 — buildSystemSubmenu 참조.
             // OEE 메뉴 숨김 — 페이지(/oee)는 URL 로 접근 가능, 네비에서만 제외. 복구는 이 줄 주석 해제.
@@ -339,6 +344,11 @@ window.dspFmt = {
 
         var path = (location.pathname || '/').replace(/\/+$/, '') || '/';
         function isActive(item) {
+            // 전체(라인) 링크는 스코프 쿼리가 붙은 시스템/설비 화면에서 활성 표시하지 않는다.
+            if (item.lineScope) {
+                var q = new URLSearchParams(location.search);
+                if (q.get('flow') || q.get('system')) return false;
+            }
             var candidates = [item.href].concat(item.legacy || []).filter(Boolean).map(function (p) {
                 return p.replace(/\/+$/, '') || '/';
             });
@@ -431,6 +441,9 @@ window.dspFmt = {
         var oeeFlow     = onOeePage     ? (qs.get('flow') || '') : '';
         var teepFlow    = onTeepPage    ? (qs.get('flow') || '') : '';
         var alarmFlow   = onAlarmPage   ? (qs.get('flow') || '') : '';
+        // 설비효율/생산효율 시스템 스코프(?system=) — 시스템 '○○ 관리' 그룹 헤더 진입(설비 ?flow= 가 우선).
+        var oeeSystem   = onOeePage  && !oeeFlow  ? (qs.get('system') || '') : '';
+        var teepSystem  = onTeepPage && !teepFlow ? (qs.get('system') || '') : '';
 
         // ── 더티 가드 내부 구현 ──
         // 페이지별 dirty 체크 함수(window._dspDirtyChecker)가 true 를 반환하면,
@@ -631,8 +644,8 @@ window.dspFmt = {
                        (onFlowPage      && flows.indexOf(curFlowName) !== -1)
                     || (onFlowCycleBulk && flowCycleSystem === sys.name)
                     || (onHeatmapPage   && flows.indexOf(heatmapFlow) !== -1)
-                    || (onOeePage     && flows.indexOf(oeeFlow)     !== -1)
-                    || (onTeepPage    && flows.indexOf(teepFlow)    !== -1)
+                    || (onOeePage     && (flows.indexOf(oeeFlow)  !== -1 || oeeSystem  === sys.name))
+                    || (onTeepPage    && (flows.indexOf(teepFlow) !== -1 || teepSystem === sys.name))
                     || (onAlarmPage   && flows.indexOf(alarmFlow)   !== -1);
 
                 if (!_hdrSys) {
@@ -640,9 +653,13 @@ window.dspFmt = {
                     var _flowCtx = onFlowPage ? curFlowName : onHeatmapPage ? heatmapFlow : onOeePage ? oeeFlow : onTeepPage ? teepFlow : onAlarmPage ? alarmFlow : '';
                     var _flowInSys = _flowCtx && flows.indexOf(_flowCtx) !== -1;
                     var _bulkInSys = onFlowCycleBulk && flowCycleSystem === sys.name;
-                    // 시스템 1개 + 분석 페이지면 전체보기도 해당 시스템으로 간주
-                    var _allSingle = _isAnalysis && systems.length === 1;
-                    if (_flowInSys || _bulkInSys || _allSingle) {
+                    // 설비효율/생산효율 시스템 스코프(?system=) — 헤더/크럼도 그 시스템 컨텍스트로.
+                    var _scopeInSys = (onOeePage && oeeSystem === sys.name) || (onTeepPage && teepSystem === sys.name);
+                    // 시스템 1개 + 분석 페이지면 전체보기도 해당 시스템으로 간주 — 단, 전체(라인) 링크가 별도로 있는
+                    // 설비효율/생산효율은 스코프 없는 진입을 시스템으로 오표기하지 않는다(?system= 이 있을 때만).
+                    var _allSingle = _isAnalysis && systems.length === 1
+                        && !(onOeePage && !oeeFlow && !oeeSystem) && !(onTeepPage && !teepFlow && !teepSystem);
+                    if (_flowInSys || _bulkInSys || _scopeInSys || _allSingle) {
                         _hdrSys = sys;
                         _hdrFlow = _flowInSys ? _flowCtx : '';
                     }
@@ -673,8 +690,15 @@ window.dspFmt = {
                     '/flow-cycle?system=' + encodeURIComponent(sys.name));
                 var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, '/heatmap');
                 // 종합효율 현황 → 설비효율(OEE)/생산효율(TEEP) 물리 분리(2026-07-03) — 구 내부 탭(?section=) 폐지.
-                var gOee   = buildAnalysisGroup(flows, '설비효율 현황', 'speed',       '/uptime-oee',   'flow', onOeePage,     oeeFlow,     false, '/uptime-oee');
-                var gTeep  = buildAnalysisGroup(flows, '생산효율 현황', 'trending_up', '/uptime-teep',  'flow', onTeepPage,    teepFlow,    false, '/uptime-teep');
+                // 헤더 클릭 = 이 시스템 스코프(?system=) — 전 시스템 합산은 최상위 NAV_ITEMS 링크가 담당(2026-08-25).
+                //   활성/자동펼침도 이 시스템 스코프(설비가 이 시스템 소속이거나 ?system= 일치)일 때만 — 종전엔
+                //   /uptime-oee 진입 시 모든 시스템 그룹이 활성이었다(전체/시스템 구분이 없던 시절의 잔재).
+                var oeeActive  = onOeePage  && (oeeFlow  ? flows.indexOf(oeeFlow)  !== -1 : oeeSystem  === sys.name);
+                var teepActive = onTeepPage && (teepFlow ? flows.indexOf(teepFlow) !== -1 : teepSystem === sys.name);
+                var gOee   = buildAnalysisGroup(flows, '설비효율 현황', 'speed',       '/uptime-oee',   'flow', oeeActive,  oeeFlow,  false,
+                    '/uptime-oee?system=' + encodeURIComponent(sys.name));
+                var gTeep  = buildAnalysisGroup(flows, '생산효율 현황', 'trending_up', '/uptime-teep',  'flow', teepActive, teepFlow, false,
+                    '/uptime-teep?system=' + encodeURIComponent(sys.name));
                 var gAlarm = buildAnalysisGroup(flows, '이상·알람',   'warning_amber', '/uptime-alarm', 'flow', onAlarmPage,   alarmFlow,   true,  '/uptime-alarm');
                 sub.appendChild(gTeep.wrap);
                 sub.appendChild(gOee.wrap);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Ds2.Core;
@@ -74,7 +74,11 @@ public partial class MainViewModel
         Selection.OrderedNodeSelection.Count > 0 || SelectedNode is not null;
 
     private bool CanPasteCopied() =>
-        _clipboardSelection.Count > 0 && ResolvePasteTarget().HasValue;
+        (_clipboardSelection.Count > 0 && ResolvePasteTarget().HasValue)
+        // 클립보드 또는 파일 채널에 시스템 패키지가 있으면(다른 인스턴스 복사분) 어디서든 붙여넣기 허용.
+        // 둘 다 캐시된 저비용 체크 — 클립보드는 시퀀스 번호, 스풀은 2초 TTL.
+        || (HasProject && (Promaker.Services.SystemPackageClipboard.HasPackage()
+                           || Promaker.Services.SystemPackageSpool.HasFreshPackage()));
 
     private bool CanConnectSelectedNodes() =>
         HasProject && Selection.CanConnectSelectedNodesInOrder();

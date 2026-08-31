@@ -101,17 +101,79 @@ public sealed class SimulationEngineService : IDisposable
     private readonly ConcurrentDictionary<Guid, (long StartMs, bool Emitted)> _overClock = new();
 
     // OUT 주소별 직전 active — 상승엣지 판정용. 첫 관측은 baseline(상승 아님)으로 흘린다(중간 합류 배제).
-    private readonly ConcurrentDictionary<string, bool> _outLastActive = new(StringComparer.OrdinalIgnoreCase);
+    // ★키는 (SystemId, 주소) — 주소만으로 묶으면 두 PLC 의 OUT 값이 번갈아 덮여 진짜 상승엣지가
+    //   삼켜지거나 없는 엣지가 만들어져 ActionOver 오탐/미탐이 된다.
+    private readonly ConcurrentDictionary<string, bool> _outLastActive = new(StringComparer.Ordinal);
 
     // ActionOver 임계 산출의 입력이 되는 '모델 원본' Min/Max(ms) — 엔진 초기화 시점의 AASX 값 스냅샷.
     // index.WorkDurationRange 는 임계로 덮어쓰므로, 여유값 설정이 바뀌어 재산출할 때 원본이 필요하다
     // (덮어쓴 값에 또 더하면 이중 가산). ApplyActionOverThresholds 가 채우고 RefreshActionOverThresholds 가 쓴다.
     private volatile Dictionary<Guid, (int MinMs, int MaxMs)> _modelWorkRanges = new();
 
-    // 주소 → plcTag.id 캐시 (CycleTimeAnalysis 가 보는 plcTagLog INSERT 용).
+    // (SystemId, 주소) → plcTag.id 캐시 (CycleTimeAnalysis 가 보는 plcTagLog INSERT 용).
+    // ★주소 단독 키였을 때는 서로 다른 PLC 가 같은 주소를 쓰면 두 PLC 의 신호가 한 plcTagId 이력으로
+    //   섞였다(복구 불가). 키는 TagCacheKey 로 만들어 주소 대소문자 무시를 정규화로 처리한다.
     // AASX 재로딩 후 EnsureUserTagAddressesRegistered() 가 background thread 에서 갱신할 수 있으므로
     // ConcurrentDictionary — HandleHubTagChanged 의 lock-free read 와 안전하게 공존.
-    private readonly ConcurrentDictionary<string, int> _plcTagIdByAddress = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, int> _plcTagIdByKey = new(StringComparer.Ordinal);
+
+    // 주소(정규화) → 그 주소를 보유한 (SystemId 키, tagId) 목록.
+    // systemId 를 안 싣는 송신자(구버전 Agent·단건 OnTagChanged 경로)의 폴백 판정용 —
+    // 소유자가 유일하면 그것으로 확정하고, 둘 이상이면 임의로 고르지 않는다(오귀속 방지).
+    private readonly ConcurrentDictionary<string, List<(string SysKey, int TagId)>> _tagIdsByAddress =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// 주소 정규화 — 캐시 키 생성과 조회가 반드시 같은 규칙을 쓰도록 한 곳에만 둔다.
+    private static string NormalizeAddress(string address) =>
+        string.IsNullOrEmpty(address) ? "" : address.Trim().ToUpperInvariant();
+
+    private static string TagCacheKey(string sysKey, string address) =>
+        sysKey + "|" + NormalizeAddress(address);
+
+    /// 두 캐시(복합키 → id, 주소 → 소유자 목록)에 한 행을 등록. 두 구조가 어긋나지 않도록 한 곳에서만 쓴다.
+    private void IndexTagRow(string sysKey, string address, int tagId)
+    {
+        _plcTagIdByKey[TagCacheKey(sysKey, address)] = tagId;
+        // 주소 키는 DB 표기 그대로 넣는다(비교는 OrdinalIgnoreCase) — 커버리지 UI 가 이 키를 그대로 보여준다.
+        _tagIdsByAddress.AddOrUpdate(
+            address,
+            _ => new List<(string, int)> { (sysKey, tagId) },
+            (_, list) =>
+            {
+                lock (list)
+                {
+                    var i = list.FindIndex(e => string.Equals(e.SysKey, sysKey, StringComparison.Ordinal));
+                    if (i >= 0) list[i] = (sysKey, tagId);
+                    else list.Add((sysKey, tagId));
+                }
+                return list;
+            });
+    }
+
+    /// 수신 신호 → plcTag.id 해석. 순서가 규약이다:
+    ///   ① 송신자가 알려준 System 과 정확히 일치하는 행
+    ///   ② systemId 가 없거나 못 찾았으면 — 그 주소의 소유자가 **유일할 때만** 확정
+    ///      (구버전 Agent·단건 OnTagChanged 경로. 구버전 모델은 주소 중복이 불가능했으므로 이 경로가 정답)
+    ///   ③ 소유자가 둘 이상인데 System 을 모르면 **임의로 고르지 않는다** — 아무 태그에 써 넣으면
+    ///      두 PLC 의 이력이 섞여 복구가 불가능해진다. 기록을 건너뛰고 진단으로 드러낸다.
+    private bool TryResolveTagId(string address, string? systemId, out int tagId, out bool ambiguous)
+    {
+        ambiguous = false;
+        var sysKey = SystemKeyConvention.Key(systemId);
+        if (sysKey.Length > 0 && _plcTagIdByKey.TryGetValue(TagCacheKey(sysKey, address), out tagId))
+            return true;
+
+        if (_tagIdsByAddress.TryGetValue(address, out var owners))
+        {
+            lock (owners)
+            {
+                if (owners.Count == 1) { tagId = owners[0].TagId; return true; }
+                if (owners.Count > 1) ambiguous = true;
+            }
+        }
+        tagId = 0;
+        return false;
+    }
 
     // UserTag 주소 — HandleHubTagChanged 의 cache hit/miss 진단 한정 (전체 주소 로깅은 노이즈).
     // EnsureUserTagAddressesRegistered() 가 갱신.
@@ -142,6 +204,10 @@ public sealed class SimulationEngineService : IDisposable
     // 원천시각 기각 경고 throttle — 송신기 시계가 틀어지면 태그마다 터지므로 60초 1회로 묶어 카운트만 올린다.
     private long _rejectedTsCount;
     private long _rejectedTsWarnAtTicks;
+
+    // 주소 소유자 모호(여러 PLC 가 같은 주소 + 송신자가 systemId 미제공) 경고 throttle — 위와 같은 방식.
+    private long _ambiguousOwnerCount;
+    private long _ambiguousOwnerWarnAtTicks;
     private static readonly TimeSpan RejectedTsWarnInterval = TimeSpan.FromSeconds(60);
 
     // PassiveInference.Observe hot path 지연 집계. Stopwatch tick 만 원자 누산하고, 분포는 고정 bucket 을 써
@@ -306,7 +372,7 @@ public sealed class SimulationEngineService : IDisposable
 
                 _logger.LogInformation(
                     "[Engine] Started — mode=Monitoring status={Status} passiveInference={Passive} hubSource={Source} plcTags={TagCount}",
-                    engine.Status, passive is not null, runtimeSession.HubSource, _plcTagIdByAddress.Count);
+                    engine.Status, passive is not null, runtimeSession.HubSource, _tagIdsByAddress.Count);
                 return true;
             }
             catch (Exception ex)
@@ -327,7 +393,7 @@ public sealed class SimulationEngineService : IDisposable
     /// </summary>
     public (int Expected, int Seen, List<string> Missing) GetAddressCoverage(int missingLimit = 12)
     {
-        var expected = _plcTagIdByAddress.Keys.ToList();
+        var expected = _tagIdsByAddress.Keys.ToList();
         if (expected.Count == 0) return (0, 0, new List<string>());
         var missing = expected
             .Where(a => !_lastSeenByAddress.ContainsKey(a))
@@ -345,7 +411,7 @@ public sealed class SimulationEngineService : IDisposable
     public List<(string Address, bool Seen)> GetAddressSeenSnapshot()
     {
         var model = _modelAddresses;
-        return _plcTagIdByAddress.Keys
+        return _tagIdsByAddress.Keys
             .Where(a => model.Count == 0 || model.Contains(a))
             .Select(a => (a, _lastSeenByAddress.ContainsKey(a)))
             .ToList();
@@ -382,9 +448,35 @@ public sealed class SimulationEngineService : IDisposable
     }
 
     /// <summary>
+    /// 여러 PLC 가 같은 주소를 보유하는데 송신자가 System 을 안 알려준 경우의 경고 — 태그마다 터지므로
+    /// 원천시각 기각 경고와 같은 방식으로 60초 1회로 묶는다.
+    /// </summary>
+    private void WarnAmbiguousTagOwner(string address)
+    {
+        Interlocked.Increment(ref _ambiguousOwnerCount);
+
+        var nowTicks = DateTime.UtcNow.Ticks;
+        var lastTicks = Interlocked.Read(ref _ambiguousOwnerWarnAtTicks);
+        if (nowTicks - lastTicks < RejectedTsWarnInterval.Ticks) return;
+        if (Interlocked.CompareExchange(ref _ambiguousOwnerWarnAtTicks, nowTicks, lastTicks) != lastTicks) return;
+
+        var count = Interlocked.Exchange(ref _ambiguousOwnerCount, 0);
+        _logger.LogWarning(
+            "[Engine] 주소 '{Addr}' 를 여러 PLC 가 보유하는데 송신자가 systemId 를 실어 보내지 않아 " +
+            "어느 PLC 의 신호인지 특정할 수 없습니다 — plcTagLog 기록을 건너뜁니다(최근 {Count}건). " +
+            "Agent/수집기를 systemId 를 싣는 버전으로 올리세요.",
+            address, count);
+    }
+
+    /// <summary>
     /// HubSubscriberService 가 받은 OnTagChanged 신호의 진입점.
     /// </summary>
-    public void HandleHubTagChanged(string address, string value, string source, long wallClockMs = 0)
+    /// <param name="systemId">
+    /// 신호를 보유한 PLC 의 소유 System(Guid 문자열). "" 또는 null = 미제공(구버전 송신자·단건
+    /// OnTagChanged 경로) → 주소 소유자가 유일할 때만 확정하는 폴백을 탄다.
+    /// </param>
+    public void HandleHubTagChanged(
+        string address, string value, string source, long wallClockMs = 0, string? systemId = null)
     {
         if (!TryEnsureInitialized()) return;
         if (_runtimeSession is null) return;
@@ -396,7 +488,14 @@ public sealed class SimulationEngineService : IDisposable
         // 찍으면 핑 두절→버퍼 replay 신호가 전부 복구 순간에 뭉쳐 그래프/사이클이 왜곡된다(관찰된 증상).
         // 0(구버전 송신자/단건 OnTagChanged)이면 종전대로 도착시각 폴백.
         var isResync = string.Equals(source, HubSource.Resync, StringComparison.OrdinalIgnoreCase);
-        var inCache = _plcTagIdByAddress.TryGetValue(address, out var tagId);
+        var inCache = TryResolveTagId(address, systemId, out var tagId, out var ambiguousOwner);
+        if (ambiguousOwner)
+        {
+            // 여러 PLC 가 같은 주소를 보유하는데 송신자가 System 을 안 알려줬다. 아무 태그에 써 넣으면
+            // 두 PLC 의 이력이 섞여 복구가 불가능하므로 기록만 건너뛴다(엔진 주입은 아래에서 계속).
+            // 도달 조건: 신버전으로 만든 중복 주소 모델 + systemId 를 안 싣는 송신자.
+            WarnAmbiguousTagOwner(address);
+        }
         if (inCache)
         {
             // resync(재연결/주기 10s baseline 스냅샷)는 태그 전수를 실어 오므로 그대로 기록하면
@@ -469,7 +568,7 @@ public sealed class SimulationEngineService : IDisposable
         }
 
         // ActionOver 완료대기 시계 — 엔진 상태와 무관하게 OUT↑~IN 도달 경과를 잰다(TickAbnormalWatchdog 가 판정).
-        ObserveActionOverEdges(address, value);
+        ObserveActionOverEdges(address, value, systemId);
 
         RuntimeHubEffect[] effects;
         try
@@ -507,24 +606,55 @@ public sealed class SimulationEngineService : IDisposable
         {
             var dbPath = _pathResolver.GetSharedDbPath();
             var allAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // 주소 → 소유 System 집합. ★SignalMapping 이 SystemId 를 들고 있으므로(멀티 PLC 대응)
+            //   주소를 주는 바로 그 자료에서 귀속이 함께 나온다 — 별도 주소→System 맵이 필요 없다.
+            //   한 주소를 여러 System 이 쓰면 각각 자기 plcTag 행을 갖는다(그게 이 변경의 목적).
+            var ownersByAddress = new Dictionary<string, HashSet<Guid>>(StringComparer.OrdinalIgnoreCase);
+            void Claim(string address, Microsoft.FSharp.Core.FSharpOption<Guid> systemId)
+            {
+                if (string.IsNullOrEmpty(address)) return;
+                allAddresses.Add(address);
+                if (!Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(systemId)) return;
+                if (!ownersByAddress.TryGetValue(address, out var set))
+                    ownersByAddress[address] = set = new HashSet<Guid>();
+                set.Add(systemId.Value);
+            }
+
             foreach (var m in ioMap.Mappings)
             {
-                if (!string.IsNullOrEmpty(m.OutAddress)) allAddresses.Add(m.OutAddress);
-                if (!string.IsNullOrEmpty(m.InAddress)) allAddresses.Add(m.InAddress);
+                Claim(m.OutAddress, m.SystemId);
+                Claim(m.InAddress, m.SystemId);
             }
 
             // UserTag 주소 추가 — IOMap 과 중복되면 HashSet 이 자동 dedup.
+            // UserTag 는 SystemId 가 아니라 SystemName 만 들고 있어 이름→Guid 로 되짚는다.
             var userTagAddrs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 var store = _projectService.GetStore();
+                var systemIdByName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    foreach (var s in _projectService.GetActiveSystems())
+                        systemIdByName[s.Name] = s.Id;
+                }
+                catch (Exception exSys)
+                {
+                    _logger.LogWarning(exSys, "[Engine] active System 목록 조회 실패 — UserTag 귀속 생략");
+                }
+
                 foreach (var r in store.GetAllUserTagsForProject())
                 {
-                    if (!string.IsNullOrWhiteSpace(r.TagAddress))
+                    if (string.IsNullOrWhiteSpace(r.TagAddress)) continue;
+                    var t = r.TagAddress.Trim();
+                    allAddresses.Add(t);
+                    userTagAddrs.Add(t);
+                    if (!string.IsNullOrWhiteSpace(r.SystemName)
+                        && systemIdByName.TryGetValue(r.SystemName, out var sid))
                     {
-                        var t = r.TagAddress.Trim();
-                        allAddresses.Add(t);
-                        userTagAddrs.Add(t);
+                        if (!ownersByAddress.TryGetValue(t, out var set))
+                            ownersByAddress[t] = set = new HashSet<Guid>();
+                        set.Add(sid);
                     }
                 }
             }
@@ -541,26 +671,70 @@ public sealed class SimulationEngineService : IDisposable
 
             using var conn = new SqliteConnection($"Data Source={dbPath}");
             conn.Open();
+
+            // System 마다 plc 행 확보. 귀속 키는 systemId 컬럼(이름은 표시용 — 사용자가 바꿀 수 있다).
+            var plcIdBySystem = EnsurePlcRowsForSystems(conn, ownersByAddress);
+
             using (var tx = conn.BeginTransaction())
             {
                 const string upsert = @"
                     INSERT INTO plcTag (plcId, name, address, dataType)
-                    VALUES (1, @Name, @Addr, 'BOOL')
-                    ON CONFLICT(address) DO NOTHING";
+                    VALUES (@PlcId, @Name, @Addr, 'BOOL')
+                    ON CONFLICT(plcId, address) DO NOTHING";
                 foreach (var addr in allAddresses)
-                    conn.Execute(upsert, new { Name = addr, Addr = addr }, tx);
+                {
+                    // 소유 System 이 밝혀진 주소는 System 별로 한 행씩. 귀속 미상은 기본 행(plcId=1).
+                    if (ownersByAddress.TryGetValue(addr, out var owners) && owners.Count > 0)
+                    {
+                        foreach (var sid in owners)
+                            if (plcIdBySystem.TryGetValue(sid, out var plcId))
+                                conn.Execute(upsert, new { PlcId = plcId, Name = addr, Addr = addr }, tx);
+                    }
+                    else
+                    {
+                        conn.Execute(upsert, new { PlcId = 1, Name = addr, Addr = addr }, tx);
+                    }
+                }
+
+                // 이 배포 전에 만들어진 행은 전부 plcId=1 이다. 지금 DB 에는 주소 중복이 없으므로
+                // 모든 기존 행을 모호함 없이 정확한 System 으로 소급 귀속시킬 수 있다.
+                // ★id 는 건드리지 않으므로 plcTagLog(수백만 행)의 FK 가 유지되고 이력이 그대로 따라온다.
+                const string backfill = @"
+                    UPDATE plcTag SET plcId = @PlcId
+                    WHERE plcId = 1 AND address = @Addr
+                      AND NOT EXISTS (SELECT 1 FROM plcTag x WHERE x.plcId = @PlcId AND x.address = @Addr)";
+                var backfilled = 0;
+                foreach (var kv in ownersByAddress)
+                {
+                    // 소유자가 유일한 주소만 소급 — 여러 System 이 쓰는 주소는 어느 쪽 이력인지 알 수 없다.
+                    if (kv.Value.Count != 1) continue;
+                    if (!plcIdBySystem.TryGetValue(kv.Value.First(), out var plcId) || plcId == 1) continue;
+                    backfilled += conn.Execute(backfill, new { PlcId = plcId, Addr = kv.Key }, tx);
+                }
                 tx.Commit();
+                if (backfilled > 0)
+                    _logger.LogInformation(
+                        "[Engine] 기존 plcTag {Count}행을 소유 System 으로 소급 귀속(id 보존 — plcTagLog 이력 유지)",
+                        backfilled);
             }
 
-            // 캐시 채우기
-            _plcTagIdByAddress.Clear();
-            foreach (var row in conn.Query<(int Id, string Address)>("SELECT id, address FROM plcTag"))
-                _plcTagIdByAddress[row.Address] = row.Id;
+            // 캐시 채우기 — plcId → systemId 로 되짚어 복합키로 색인한다.
+            _plcTagIdByKey.Clear();
+            _tagIdsByAddress.Clear();
+            var systemKeyByPlcId = conn
+                .Query<(int Id, string? SystemId)>("SELECT id, systemId FROM plc")
+                .ToDictionary(r => r.Id, r => SystemKeyConvention.Key(r.SystemId));
+            foreach (var row in conn.Query<(int Id, int PlcId, string Address)>(
+                "SELECT id, plcId, address FROM plcTag"))
+            {
+                var sysKey = systemKeyByPlcId.TryGetValue(row.PlcId, out var k) ? k : "";
+                IndexTagRow(sysKey, row.Address, row.Id);
+            }
 
             // L3 — AASX 가 변경되어 plcTag 에 stale row 가 있을 수 있음.
             // FK 무결성 (plcTagLog.plcTagId 참조) 때문에 자동 삭제는 안 하고 경고만.
             // 사용자가 Settings → "DB 초기화" 로 정리 가능.
-            var stale = _plcTagIdByAddress.Keys.Except(allAddresses, StringComparer.OrdinalIgnoreCase).ToArray();
+            var stale = _tagIdsByAddress.Keys.Except(allAddresses, StringComparer.OrdinalIgnoreCase).ToArray();
             if (stale.Length > 0)
                 _logger.LogWarning(
                     "[Engine] {Count} stale plcTag row(s) — address not in current AASX (예: {Sample}). " +
@@ -571,6 +745,67 @@ public sealed class SimulationEngineService : IDisposable
         {
             _logger.LogError(ex, "[Engine] BootstrapPlcTags failed");
         }
+    }
+
+    /// <summary>
+    /// 모델에 등장한 System 마다 plc 행을 보장하고 SystemId → plc.id 맵을 돌려준다.
+    /// 조회·식별 키는 <c>systemId</c> 컬럼이다 — plc.name 에는 UNIQUE 가 걸려 있어 이름을 키로 쓰면
+    /// System 이름 변경이나 이름 중복에서 깨진다(이름은 표시용).
+    /// id=1('DSPilot', systemId NULL) 기본 행은 귀속 미상 태그의 버킷으로 그대로 남는다.
+    /// </summary>
+    private Dictionary<Guid, int> EnsurePlcRowsForSystems(
+        SqliteConnection conn, Dictionary<string, HashSet<Guid>> ownersByAddress)
+    {
+        var result = new Dictionary<Guid, int>();
+        var systemIds = ownersByAddress.Values.SelectMany(v => v).Distinct().ToList();
+        if (systemIds.Count == 0) return result;
+
+        var nameById = new Dictionary<Guid, string>();
+        try
+        {
+            foreach (var s in _projectService.GetActiveSystems()) nameById[s.Id] = s.Name;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Engine] System 이름 조회 실패 — plc 행 이름은 systemId 로 대체");
+        }
+
+        foreach (var sid in systemIds)
+        {
+            var key = SystemKeyConvention.Key(sid);
+            // 빈 키 = 귀속 미상(Guid.Empty). plc 행을 만들면 systemId='' 인 유령 소유자가 생기므로
+            // 건너뛴다 — 해당 주소들은 기본 행(plcId=1)으로 떨어진다(데이터 손실 없음).
+            if (key.Length == 0)
+            {
+                _logger.LogWarning("[Engine] System id 가 비어 있어 plc 행 귀속을 건너뜁니다 — 기본 행으로 떨어집니다.");
+                continue;
+            }
+
+            try
+            {
+                var existing = conn.QuerySingleOrDefault<int?>(
+                    "SELECT id FROM plc WHERE systemId = @Key", new { Key = key });
+                if (existing.HasValue) { result[sid] = existing.Value; continue; }
+
+                var name = nameById.TryGetValue(sid, out var n) && !string.IsNullOrWhiteSpace(n) ? n : key;
+                // name UNIQUE 회피 — 같은 이름이 이미 있으면(다른 System 이거나 기본 행) systemId 앞자리를 덧붙인다.
+                if (conn.ExecuteScalar<long>("SELECT COUNT(*) FROM plc WHERE name = @Name", new { Name = name }) > 0)
+                    name = $"{name}#{key[..8]}";
+
+                // ON CONFLICT 뒤 last_insert_rowid 는 신뢰할 수 없으므로 RETURNING 으로 받는다.
+                result[sid] = conn.QuerySingle<int>(
+                    "INSERT INTO plc (name, systemId) VALUES (@Name, @Key) RETURNING id",
+                    new { Name = name, Key = key });
+                _logger.LogInformation("[Engine] plc 행 생성 — system={System} name={Name} id={Id}",
+                    key, name, result[sid]);
+            }
+            catch (Exception ex)
+            {
+                // 이 System 만 귀속 실패 → 해당 주소들은 기본 행(plcId=1)으로 떨어진다(데이터 손실 없음).
+                _logger.LogWarning(ex, "[Engine] plc 행 확보 실패 — system={System}", key);
+            }
+        }
+        return result;
     }
 
     /// <summary>
@@ -595,7 +830,7 @@ public sealed class SimulationEngineService : IDisposable
                 if (string.IsNullOrWhiteSpace(r.TagAddress)) continue;
                 var addr = r.TagAddress.Trim();
                 allUserTagAddrs.Add(addr);
-                if (!_plcTagIdByAddress.ContainsKey(addr))
+                if (!_tagIdsByAddress.ContainsKey(addr))
                     newAddresses.Add(addr);
             }
 
@@ -609,21 +844,27 @@ public sealed class SimulationEngineService : IDisposable
             conn.Open();
             using (var tx = conn.BeginTransaction())
             {
+                // 여기(재로딩 후 증분)는 소유 System 을 따로 계산하지 않는다 — UserTag 귀속은
+                // BootstrapPlcTags 가 모델 전체를 보고 정하는 게 정본이고, 그 사이에 새로 생긴 주소는
+                // 기본 행(plcId=1)에 두어도 기록이 끊기지 않는다(다음 모델 재로딩에서 소급 귀속됨).
                 const string upsert = @"
                     INSERT INTO plcTag (plcId, name, address, dataType)
                     VALUES (1, @Name, @Addr, 'BOOL')
-                    ON CONFLICT(address) DO NOTHING";
+                    ON CONFLICT(plcId, address) DO NOTHING";
                 foreach (var addr in newAddresses)
                     conn.Execute(upsert, new { Name = addr, Addr = addr }, tx);
                 tx.Commit();
             }
 
             // 새로 INSERT 된 + 기존에 다른 시스템이 이미 넣어둔 행 모두 캐시에 반영.
-            foreach (var row in conn.Query<(int Id, string Address)>(
-                "SELECT id, address FROM plcTag WHERE address IN @Addrs",
+            var systemKeyByPlcId = conn
+                .Query<(int Id, string? SystemId)>("SELECT id, systemId FROM plc")
+                .ToDictionary(r => r.Id, r => SystemKeyConvention.Key(r.SystemId));
+            foreach (var row in conn.Query<(int Id, int PlcId, string Address)>(
+                "SELECT id, plcId, address FROM plcTag WHERE address IN @Addrs",
                 new { Addrs = newAddresses }))
             {
-                _plcTagIdByAddress[row.Address] = row.Id;
+                IndexTagRow(systemKeyByPlcId.TryGetValue(row.PlcId, out var k) ? k : "", row.Address, row.Id);
             }
 
             _logger.LogInformation(
@@ -1016,7 +1257,7 @@ public sealed class SimulationEngineService : IDisposable
     /// OUT/IN 엣지로 완료대기 시계를 갱신 — <see cref="HandleHubTagChanged"/> 의 관측 경로에서 호출.
     /// OUT 상승=시계 시작(재시작), IN 도달=해제. OUT 하강은 무시한다(<see cref="_overClock"/> 주석 참조).
     /// </summary>
-    private void ObserveActionOverEdges(string address, string value)
+    private void ObserveActionOverEdges(string address, string value, string? systemId)
     {
         var engine = _engine;
         if (engine is null || !_projectService.IsLoaded) return;
@@ -1030,8 +1271,9 @@ public sealed class SimulationEngineService : IDisposable
                 if (!FSharpOption<ApiCall>.get_IsSome(apiCallOpt)) continue;
                 var active = RuntimeSemantics.isActiveOutputValue(apiCallOpt.Value, value);
                 // 첫 관측은 baseline — 상승으로 보지 않는다(부팅/재연결 직후 진행 중 사이클 오판 방지).
-                var isRising = _outLastActive.TryGetValue(address, out var prev) && !prev && active;
-                _outLastActive[address] = active;
+                var edgeKey = TagCacheKey(SystemKeyConvention.Key(systemId), address);
+                var isRising = _outLastActive.TryGetValue(edgeKey, out var prev) && !prev && active;
+                _outLastActive[edgeKey] = active;
                 if (isRising)
                     _overClock[m.ApiCallGuid] = (DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond, false);
             }
@@ -1804,7 +2046,8 @@ public sealed class SimulationEngineService : IDisposable
             // ResumeInitializationAndStart() 가 재구축 종료 시 clear.
         }
         lock (_statsLock) { _callStats.Clear(); _timeoutAbandoned.Clear(); }
-        _plcTagIdByAddress.Clear();
+        _plcTagIdByKey.Clear();
+        _tagIdsByAddress.Clear();
 
         // 보류 중인 flow ready 디바운스 모두 취소
         lock (_flowReadyLock)

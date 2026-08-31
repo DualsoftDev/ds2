@@ -13,6 +13,12 @@ type PlcTagChange = {
     /// 원천 관측 시각(scan 기기 모노토닉 ms, Environment.TickCount64). 분산 store-and-forward 에서
     /// 이벤트가 밀려 도착해도 엔진이 정확한 elapsed 로 판정하도록 scan 시점에 찍는다(P1). 엔진 사용은 P2.
     OriginTsMs : int64
+    /// 이 태그를 읽은 PLC 연결의 소유 System. None = 귀속 미상(레거시 AASX·수동 설정).
+    /// 멀티 PLC 에서 서로 다른 PLC 가 같은 주소를 쓸 수 있어 주소 단독으로는 신호를 식별할 수 없다 —
+    /// 소비자(Hub·엔진·DSPilot)는 (SystemId, 주소) 복합키로 귀속시켜야 한다.
+    SystemId   : Guid option
+    /// 읽어온 PLC 연결 이름. 진단·로그용(귀속 판정은 SystemId 로 할 것).
+    ConnectionName : string
 }
 
 /// SignalHub 와 실 PLC 사이의 경계 인터페이스.
@@ -28,7 +34,12 @@ type IPlcGateway =
     /// 모든 PLC 에서 disconnect.
     abstract member DisconnectAllAsync : unit -> Task
     /// SignalHub 로부터의 쓰기 위임. 알 수 없는 주소는 false 반환.
+    /// **System 을 아는 호출자는 WriteToSystemAsync 를 쓸 것** — 이 오버로드는 주소 단독이라
+    /// 여러 PLC 가 같은 주소를 보유하면 대상을 특정할 수 없어 실패한다(예전엔 조용히 한쪽으로 갔다).
     abstract member WriteAsync : address: string * value: string -> Task<bool>
+    /// 소유 System 을 명시한 쓰기. 멀티 PLC 에서 주소가 겹칠 때 유일하게 정확한 경로.
+    /// systemId 가 null 이면 WriteAsync 와 동일한 폴백(주소 소유자가 유일할 때만 성공).
+    abstract member WriteToSystemAsync : address: string * value: string * systemId: Nullable<Guid> -> Task<bool>
     /// 1회 스캔 사이클. 변화분만 list 로 반환.
     abstract member ScanOnceAsync : CancellationToken -> Task<PlcTagChange list>
     /// 가장 짧은 ScanInterval 반환 (HostedService loop 이 사용).

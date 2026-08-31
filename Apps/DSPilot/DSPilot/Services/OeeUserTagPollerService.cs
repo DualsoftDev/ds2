@@ -149,11 +149,14 @@ public sealed class OeeUserTagPollerService : BackgroundService
         var systemName = systemByFlow.TryGetValue(flow.FlowName, out var sys) && !string.IsNullOrEmpty(sys)
             ? sys
             : flow.FlowName;
+        // 멀티 PLC: 고장비트 주소를 다른 PLC 도 쓸 수 있으므로 이 Flow 의 PLC 로 한정한다.
+        // 한정 안 하면 남의 PLC 엣지로 정지 이벤트가 생성/마감되어 OEE 가용성이 틀어진다.
+        var systemId = _project.TryGetSystemIdByFlowName(flow.FlowName);
 
         // 1) onset — 고장신호 rising(0→1) 마다 정지 INSERT(멱등). 새로 INSERT 된 건만 원인 분류.
         foreach (var addr in faultAddrs)
         {
-            var risings = await _plc.FindRisingEdgesWithLogIdAsync(addr, scanFromUtc, nowUtc);
+            var risings = await _plc.FindRisingEdgesWithLogIdAsync(addr, scanFromUtc, nowUtc, systemId);
             foreach (var edge in risings)
             {
                 var id = await repo.InsertDowntimeAsync(new OeeDowntimeEvent
@@ -192,7 +195,7 @@ public sealed class OeeUserTagPollerService : BackgroundService
 
         foreach (var evt in myOpen)
         {
-            var falls = await _plc.FindFallingEdgesAsync(evt.DeviceName!, evt.StartAt, nowUtc);
+            var falls = await _plc.FindFallingEdgesAsync(evt.DeviceName!, evt.StartAt, nowUtc, systemId);
             DateTime? clearAt = falls.Where(t => t > evt.StartAt).Select(t => (DateTime?)t).FirstOrDefault();
             if (clearAt is null) continue;
 
@@ -213,11 +216,14 @@ public sealed class OeeUserTagPollerService : BackgroundService
             .ToList();
         if (causes.Count == 0) return;
 
+        // 멀티 PLC: 원인비트도 이 Flow 의 PLC 로 한정 — 남의 PLC 값으로 원인이 오분류되면 안 된다.
+        var systemId = _project.TryGetSystemIdByFlowName(flow.FlowName);
         var active = new List<OeeCauseBit>();
         foreach (var c in causes)
         {
             // 단일 주소 → 해당 태그의 onset 이하 최신 로그 1건. 값이 truthy 면 그 원인이 활성.
-            var logs = await _plc.GetLatestLogsByAddressesBeforeAsync(new List<string> { c.Address.Trim() }, onsetAt);
+            var logs = await _plc.GetLatestLogsByAddressesBeforeAsync(
+                new List<string> { c.Address.Trim() }, onsetAt, systemId);
             if (IsTruthy(logs.FirstOrDefault()?.Value)) active.Add(c);
         }
         if (active.Count == 0) return;
@@ -254,8 +260,10 @@ public sealed class OeeUserTagPollerService : BackgroundService
         var dayStartUtc = DateTime.SpecifyKind(today, DateTimeKind.Local).ToUniversalTime();
 
         // total 은 생산 카운터가 있을 때만(없으면 null → 기존값 보존). reject 는 위 가드로 항상 산출.
-        int? total = hasProd ? await ComputeSignalCountAsync(prodCfg!, dayStartUtc, nowUtc) : null;
-        int reject = await ComputeSignalCountAsync(rejCfg!, dayStartUtc, nowUtc);
+        // 멀티 PLC: 생산/불량 카운터도 이 Flow 의 PLC 로 한정 — 남의 PLC 펄스가 섞이면 수량이 부풀려진다.
+        var systemId = _project.TryGetSystemIdByFlowName(flow.FlowName);
+        int? total = hasProd ? await ComputeSignalCountAsync(prodCfg!, dayStartUtc, nowUtc, systemId) : null;
+        int reject = await ComputeSignalCountAsync(rejCfg!, dayStartUtc, nowUtc, systemId);
 
         // shift 는 자동수집 비대상(계획시간/시프트는 수동) → 기본 버킷(""). plc 가 manual 을 덮되,
         // total=null 이면 기존 manual total 보존. 읽기측(QueryProductionAsync)이 plc 우선 단일소스로 이중계상 방지.
@@ -263,21 +271,23 @@ public sealed class OeeUserTagPollerService : BackgroundService
     }
 
     /// <summary>counter=누적값 delta(wrap/reset 보정), pulse=구간 rising edge 카운트.</summary>
-    private async Task<int> ComputeSignalCountAsync(OeeCounterSignal cfg, DateTime startUtc, DateTime endUtc)
+    private async Task<int> ComputeSignalCountAsync(
+        OeeCounterSignal cfg, DateTime startUtc, DateTime endUtc, Guid? systemId = null)
     {
         var addr = cfg.Address.Trim();
 
         if (string.Equals(cfg.Kind, "pulse", StringComparison.OrdinalIgnoreCase))
         {
-            var edges = await _plc.FindRisingEdgesAsync(addr, startUtc, endUtc);
+            var edges = await _plc.FindRisingEdgesAsync(addr, startUtc, endUtc, systemId);
             return edges.Count;
         }
 
         // counter (기본): baseline(start 이전 최신값) + 구간 표본 누적.
-        var baselineLogs = await _plc.GetLatestLogsByAddressesBeforeAsync(new List<string> { addr }, startUtc);
+        var baselineLogs = await _plc.GetLatestLogsByAddressesBeforeAsync(
+            new List<string> { addr }, startUtc, systemId);
         double? baseline = TryNumeric(baselineLogs.FirstOrDefault()?.Value);
 
-        var rangeLogs = await _plc.GetTagLogsByAddressInRangeAsync(addr, startUtc, endUtc);
+        var rangeLogs = await _plc.GetTagLogsByAddressInRangeAsync(addr, startUtc, endUtc, systemId);
         var samples = rangeLogs
             .Select(l => TryNumeric(l.Value))
             .Where(v => v.HasValue)

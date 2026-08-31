@@ -376,15 +376,29 @@ type EventDrivenEngineRuntimeHubSession
         | RuntimeHubEffectKind.WriteTag -> ()  // Monitoring read-only — PLC 재기록 안 함 (Control write 는 P4)
         | _ -> ()
 
+    /// 관측값의 소유 System 과 매핑의 소유 System 대조. 둘 중 하나라도 미상이면 통과시킨다
+    /// (systemId 를 안 싣는 구버전 송신자 / 그래프 귀속이 끊긴 매핑 하위호환).
+    let matchesSystem (itemSystemId: Guid option) (mapping: Ds2.Runtime.IO.SignalMapping) =
+        match itemSystemId, mapping.SystemId with
+        | Some observed, Some owner -> observed = owner
+        | _ -> true
+
+    /// 주소로 매핑을 찾되 남의 System 것은 제외한다.
+    /// 주소 단독으로 찾으면 서로 다른 PLC 가 같은 주소를 쓸 때 한 PLC 의 신호가 다른 System 의
+    /// Call 까지 상태 전이시킨다(유령 발화) — 실제로 안 움직인 설비가 움직인 것으로 판정된다.
+    let mappingsFor (map: Map<string, Ds2.Runtime.IO.SignalMapping list>) (item: TagWrite) =
+        match map |> Map.tryFind item.Address with
+        | Some mappings ->
+            let observed = TagWriteSystem.toGuid item.SystemId
+            mappings |> List.filter (matchesSystem observed)
+        | None -> []
+
     let preApplyMonitoringInput (item: TagWrite) =
         if runtimeMode = RuntimeMode.Monitoring
            && not (isNull (box item))
            && not (String.IsNullOrWhiteSpace item.Address) then
-            match engine.IOMap.InAddressToMappings |> Map.tryFind item.Address with
-            | Some mappings ->
-                for mapping in mappings do
-                    engine.InjectIOValue(mapping.ApiCallGuid, item.Value)
-            | None -> ()
+            for mapping in mappingsFor engine.IOMap.InAddressToMappings item do
+                engine.InjectIOValue(mapping.ApiCallGuid, item.Value)
 
     let applyHubTag address value source =
         for effect in modeSession.HandleHubTag(address, value, source) do
@@ -421,12 +435,14 @@ type EventDrivenEngineRuntimeHubSession
     /// REARMING 중 OUT rising(새 사이클 시작) 관측 → 해당 Call 재무장. resync 가 전 태그의
     /// 기준선을 세웠으므로 이후 도착하는 변화는 전부 진짜 edge — "OUT 주소가 active 값으로 도착"
     /// = rising 으로 간주해도 안전하다. PLC 스캔 변화는 배치로만 오므로 본 hook 은 배치 경로에만 건다.
-    let tryRearmFromTag (address: string) (value: string) =
+    let tryRearmFromTag (item: TagWrite) =
         if rearming then
-            match engine.IOMap.OutAddressToMappings |> Map.tryFind address with
-            | Some mappings when not mappings.IsEmpty ->
+            // 남의 System OUT 으로 재무장하면 안 된다 — 주소가 겹치면 엉뚱한 Call 이 무장 해제된다.
+            match mappingsFor engine.IOMap.OutAddressToMappings item with
+            | [] -> ()
+            | mappings ->
                 match Ds2.Core.Store.Queries.getApiCall mappings.Head.ApiCallGuid engine.Index.Store with
-                | Some apiCall when RuntimeSemantics.isActiveOutputValue apiCall value ->
+                | Some apiCall when RuntimeSemantics.isActiveOutputValue apiCall item.Value ->
                     lock blackoutLock (fun () ->
                         if rearming then
                             for m in mappings do rearmedCalls.Add m.CallGuid |> ignore
@@ -434,7 +450,6 @@ type EventDrivenEngineRuntimeHubSession
                                 rearming <- false
                                 passiveLog.Info("[CommBlackout] all mapped calls re-armed — abnormal evaluation fully resumed"))
                 | _ -> ()
-            | _ -> ()
 
     let applyHubTagBatch (items: TagWrite array) =
         if not (isNull items) && items.Length > 0 then
@@ -480,7 +495,7 @@ type EventDrivenEngineRuntimeHubSession
                 for item in ordered do
                     if not (isNull (box item))
                        && not (String.IsNullOrWhiteSpace item.Address) then
-                        tryRearmFromTag item.Address item.Value
+                        tryRearmFromTag item
                         let source =
                             if String.IsNullOrWhiteSpace item.Source then HubSource.Plc else item.Source
                         for effect in modeSession.HandleHubTag(item.Address, item.Value, source) do

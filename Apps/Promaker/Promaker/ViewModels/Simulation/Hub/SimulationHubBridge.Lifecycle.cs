@@ -688,7 +688,8 @@ public sealed partial class SimulationHubBridge
             .Where(addr => !string.IsNullOrWhiteSpace(addr))
             .Distinct()
             // WallClockMs=0 — 로컬 송신자라 도착시각 폴백이 곧 관측시각(HubContracts.TagWrite 규약).
-            .Select(addr => new TagWrite(addr, "false", source, System.Environment.TickCount64, 0L))
+            // SystemId="" — 종료 시 OUT 클리어는 IO map 주소 전체 대상이라 System 을 특정하지 않는다.
+            .Select(addr => new TagWrite(addr, "false", source, System.Environment.TickCount64, 0L, ""))
             .ToArray();
 
         if (batch.Length == 0) return;

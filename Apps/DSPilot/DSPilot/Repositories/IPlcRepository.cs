@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Models.Plc;
@@ -66,7 +66,7 @@ public interface IPlcRepository
     /// <param name="atOrBefore">기준 시각</param>
     /// <returns>태그별 최신 로그 목록</returns>
     Task<List<PlcTagLogEntity>> GetLatestLogsByAddressesBeforeAsync(
-        List<string> addresses, DateTime atOrBefore);
+        List<string> addresses, DateTime atOrBefore, Guid? systemId = null);
 
     /// <summary>
     /// 전체 로그 개수 조회
@@ -86,7 +86,7 @@ public interface IPlcRepository
     /// <param name="endTime">종료 시각</param>
     /// <returns>시간 범위 내 로그 목록</returns>
     Task<List<PlcTagLogEntity>> GetTagLogsByAddressInRangeAsync(
-        string address, DateTime startTime, DateTime endTime);
+        string address, DateTime startTime, DateTime endTime, Guid? systemId = null);
 
     /// <summary>
     /// 여러 태그의 시간 범위 로그 일괄 조회 (성능 최적화)
@@ -96,7 +96,7 @@ public interface IPlcRepository
     /// <param name="endTime">종료 시각</param>
     /// <returns>시간 범위 내 로그 목록</returns>
     Task<List<PlcTagLogEntity>> GetMultipleTagLogsInRangeAsync(
-        List<string> addresses, DateTime startTime, DateTime endTime);
+        List<string> addresses, DateTime startTime, DateTime endTime, Guid? systemId = null);
 
     /// <summary>
     /// 여러 태그의 Rising Edge(0→1) 로그만 시간 범위로 조회
@@ -106,7 +106,7 @@ public interface IPlcRepository
     /// <param name="endTime">종료 시각</param>
     /// <returns>시간 범위 내 Rising Edge 로그 목록</returns>
     Task<List<PlcTagLogEntity>> GetMultipleTagRisingEdgesInRangeAsync(
-        List<string> addresses, DateTime startTime, DateTime endTime);
+        List<string> addresses, DateTime startTime, DateTime endTime, Guid? systemId = null);
 
     /// <summary>
     /// 특정 태그의 Rising Edge (0→1) 시점 찾기
@@ -116,43 +116,47 @@ public interface IPlcRepository
     /// <param name="endTime">종료 시각</param>
     /// <returns>Rising Edge 발생 시각 목록</returns>
     Task<List<DateTime>> FindRisingEdgesAsync(
-        string address, DateTime startTime, DateTime endTime);
+        string address, DateTime startTime, DateTime endTime, Guid? systemId = null);
 
     /// <summary>
     /// 특정 태그의 Falling Edge (1→0) 시점 찾기. FindRisingEdgesAsync 의 조건을 뒤집은 것
     /// (직전 정규화값='1' AND 현재='0'). OEE 고장비트 clear 자동 마감에 사용.
     /// </summary>
     Task<List<DateTime>> FindFallingEdgesAsync(
-        string address, DateTime startTime, DateTime endTime);
+        string address, DateTime startTime, DateTime endTime, Guid? systemId = null);
 
     /// <summary>
     /// 특정 태그의 Rising Edge (0→1) 를 발생 로그의 plcTagLog.id 와 함께 조회.
     /// id 는 OEE 정지 onset 의 멱등 키(oeeDowntimeEvent.sourceLogId)로 사용한다.
     /// </summary>
     Task<List<PlcEdge>> FindRisingEdgesWithLogIdAsync(
-        string address, DateTime startTime, DateTime endTime);
+        string address, DateTime startTime, DateTime endTime, Guid? systemId = null);
 
     /// <summary>
     /// 특정 태그의 최근 N개 Rising Edge (0→1) 시점만 빠르게 조회 (최신순)
     /// </summary>
-    Task<List<DateTime>> FindRecentRisingEdgesAsync(string address, int count);
+    Task<List<DateTime>> FindRecentRisingEdgesAsync(string address, int count, Guid? systemId = null);
 
     /// <summary>
     /// 특정 태그의 최근 N개 로그 조회
     /// </summary>
-    Task<List<PlcTagLogEntity>> GetTagLogsAsync(string tagAddress, int count);
+    Task<List<PlcTagLogEntity>> GetTagLogsAsync(string tagAddress, int count, Guid? systemId = null);
 
     /// <summary>
     /// 특정 태그의 시간 범위 로그 조회
     /// </summary>
     Task<List<PlcTagLogEntity>> GetTagLogsByTimeRangeAsync(
-        string tagAddress, DateTime startTime, DateTime endTime);
+        string tagAddress, DateTime startTime, DateTime endTime, Guid? systemId = null);
 
     /// <summary>
-    /// 모든 태그의 최신 값을 배치로 조회 (N+1 쿼리 방지)
+    /// 현재 plcTagLog 최대 id — 델타 폴링 워터마크 초기화용.
     /// </summary>
-    /// <returns>(address, value, maxLogId) 튜플 목록</returns>
-    Task<(Dictionary<string, string> TagValues, long MaxLogId)> GetLatestValuePerTagAsync();
+    /// <remarks>
+    /// 태그별 최신값 딕셔너리는 제공하지 않는다. 주소 키 딕셔너리는 멀티 PLC 에서 같은 주소가
+    /// collapse 되어 오귀속 소스가 되므로, 시드가 필요한 경로는 plcTagId 를 담은 로그
+    /// (<see cref="GetLogsAfterIdAsync"/>)로 상태를 채워야 한다.
+    /// </remarks>
+    Task<long> GetMaxLogIdAsync();
 
     /// <summary>
     /// 지정 ID 이후의 새 로그를 일괄 조회 (델타 폴링용). id ASC 정렬로 최대 <paramref name="limit"/>건 —

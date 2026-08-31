@@ -56,7 +56,9 @@ internal sealed class HubTagBatchSender : IAsyncDisposable
         if (string.IsNullOrEmpty(address)) return false;
         // WallClockMs=0 — Promaker 는 원격 store-and-forward 수집기가 아닌 로컬 송신자라 도착시각 ≈ 관측시각.
         // 0 = "미제공 → 수신측 도착시각 폴백"(HubContracts.TagWrite)이므로 종전 기록 동작이 그대로 유지된다.
-        return _channel.Writer.TryWrite(new Item(new TagWrite(address, value, source, System.Environment.TickCount64, 0L), FlushTcs: null));
+        // SystemId="" — 로컬 시뮬/VP 송신자는 PLC 소유 System 개념이 없다. 게이트웨이가 주소 소유자
+        // 유일성으로 폴백하므로 단일 PLC 에선 종전과 동일하게 동작한다.
+        return _channel.Writer.TryWrite(new Item(new TagWrite(address, value, source, System.Environment.TickCount64, 0L, ""), FlushTcs: null));
     }
 
     /// <summary>현재 channel 에 쌓인 enqueue 분이 모두 송신될 때까지 대기.</summary>

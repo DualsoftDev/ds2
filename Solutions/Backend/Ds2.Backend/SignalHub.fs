@@ -257,11 +257,14 @@ type SignalHubBroadcaster(hubContext: IHubContext<SignalHub>, runtimeSession: IR
                           Value = change.Value
                           Source = change.Source
                           OriginTsMs = change.OriginTsMs
-                          WallClockMs = 0L })
+                          WallClockMs = 0L
+                          // 게이트웨이가 스캔 시 각인한 소유 System 을 그대로 실어 보낸다.
+                          // 이게 있어야 수신측(엔진·DSPilot)이 같은 주소를 쓰는 다른 PLC 의 신호와 구분한다.
+                          SystemId = TagWriteSystem.ofGuid change.SystemId })
                     |> List.toArray
 
                 for item in items do
-                    SignalHub.UpdateTagCache(item.Address, item.Value)
+                    SignalHub.UpdateTagCache(item.SystemId, item.Address, item.Value)
 
                 let cmd : RuntimeIOAddressBatchCommand =
                     { Envelope = RuntimeHubDefaults.selfEnvelope runtimeSession.CurrentIdentity
@@ -290,12 +293,39 @@ and SignalHub(
     inherit Hub()
 
     static let log = log4net.LogManager.GetLogger("SignalHub")
+    /// (SystemId, 주소) -> tagDef. 주소 단독 키였을 땐 두 PLC 가 같은 주소를 서로 다른 DataType 으로
+    /// 가질 때 first-wins 로 한쪽 PLC 의 값이 파싱 실패해 통째로 거부됐다.
     let allowedCollectorTags =
-        let result = System.Collections.Generic.Dictionary<string, PlcTagDef>(StringComparer.OrdinalIgnoreCase)
+        let result = System.Collections.Generic.Dictionary<TagKey, PlcTagDef>()
         for connection in gatewayConfig.Connections do
             for tag in connection.Tags do
-                if not (result.ContainsKey tag.HubAddress) then result.[tag.HubAddress] <- tag
+                let key = TagKey.create connection.SystemId tag.HubAddress
+                if not (result.ContainsKey key) then result.[key] <- tag
         result
+    /// 주소 -> 보유 연결 목록. systemId 를 안 싣는 구버전 수집기의 폴백 판정용.
+    let collectorAddressOwners = PlcGatewayConfig.addressOwners gatewayConfig
+    /// 수집기가 올린 항목의 tagDef 찾기. ★구버전 수집기(systemId 미제공)를 절대 거부하면 안 된다 —
+    /// 거부하면 그 스트림이 통째로 막혀 현장 수집이 조용히 죽는다. 그래서 주소가 모호해도
+    /// (아무 소유자의 tagDef 로) 값 형식 검증만 통과시키고, 귀속 판정은 하류에 맡긴다.
+    let tryFindCollectorTag (systemId: string) (address: string) =
+        let requested = TagWriteSystem.toGuid systemId
+        let exact =
+            if requested.IsNone then None
+            else
+                match allowedCollectorTags.TryGetValue(TagKey.create requested address) with
+                | true, tag -> Some tag
+                | _ -> None
+        match exact with
+        | Some tag -> Some tag
+        | None ->
+            match collectorAddressOwners.TryGetValue(TagKey.normalize address) with
+            | true, owners ->
+                owners
+                |> List.tryPick (fun owner ->
+                    match allowedCollectorTags.TryGetValue(TagKey.create owner.SystemId address) with
+                    | true, tag -> Some tag
+                    | _ -> None)
+            | _ -> None
     let allowedCollectorConnections =
         let result = System.Collections.Generic.Dictionary<string, PlcConnectionConfig>(StringComparer.OrdinalIgnoreCase)
         for connection in gatewayConfig.Connections do
@@ -307,12 +337,14 @@ and SignalHub(
            || (not (item.Source.Equals(HubSource.Plc, StringComparison.OrdinalIgnoreCase))
                && not (item.Source.Equals(HubSource.Resync, StringComparison.OrdinalIgnoreCase))) then false
         else
-            match allowedCollectorTags.TryGetValue item.Address with
-            | true, tag -> PlcValueIo.canParseTagValue tag item.Value
-            | _ -> false
+            match tryFindCollectorTag item.SystemId item.Address with
+            | Some tag -> PlcValueIo.canParseTagValue tag item.Value
+            | None -> false
     /// Tag 값 캐시: 마지막 WriteTag 값을 기억해서 Control 재접속/재시작 시 QueryTag로 복원.
     /// PLC scan service 의 broadcast 도 이 캐시를 갱신해 둠.
-    static let tagCache = System.Collections.Concurrent.ConcurrentDictionary<string, string>()
+    /// ★ (SystemId, 주소) 복합키 — 이 캐시는 Control 부팅 홈포지션 추론의 원천이라, 주소 단독으로 두면
+    /// 멀티 PLC 에서 PLC-B 값이 PLC-A 값을 덮어써 "모든 Work 가 Ready" 같은 잘못된 부팅 계획이 나온다.
+    static let tagCache = System.Collections.Concurrent.ConcurrentDictionary<TagKey, string>()
 
     /// 어댑터별 PLC 연결 상태 스냅샷 — broadcaster 가 갱신, 신규 client 가 OnConnectedAsync 에서 캐스트로 수신.
     /// PlcGateway 자체도 동일 상태를 갖지만 broadcaster 캐시를 두면 Hub bootstrap 직후 첫 connect 시도 전
@@ -324,6 +356,27 @@ and SignalHub(
     /// Agent 활성 broadcast 를 놓쳐도 현재 config 를 확보한다(PlcConnectionStatus 캐시와 동형).
     /// null 이면 아직 config 가 조립/push 되지 않음(전송 생략).
     static let mutable collectorConfigCache : CollectorConfigPayload = Unchecked.defaultof<CollectorConfigPayload>
+
+    /// QueryTag 주소 모호(소유자 2개 이상) 경고 스로틀. Control 부팅 홈포지션 추론이 다수 주소를 연달아
+    /// 조회하므로 매 호출 경고하면 로그가 폭주한다. DSPilot 쪽 WarnAmbiguousTagOwner 와 같은 규약:
+    /// 60초에 1회만 남기고 그 사이 발생 건수를 동봉한다(경고 자체를 줄이지 않고 묶는다).
+    static let ambiguousQueryWarnInterval = TimeSpan.FromSeconds 60.0
+    static let ambiguousQueryWarnGate = obj ()
+    static let mutable ambiguousQueryWarnAt = DateTime.MinValue
+    static let mutable ambiguousQueryCount = 0
+
+    /// 모호 조회 1건 계상 — 스로틀 창이 열려 있으면 그때까지 누적 건수를 반환(없으면 None).
+    static let countAmbiguousQuery () =
+        lock ambiguousQueryWarnGate (fun () ->
+            ambiguousQueryCount <- ambiguousQueryCount + 1
+            let now = DateTime.UtcNow
+            if now - ambiguousQueryWarnAt >= ambiguousQueryWarnInterval then
+                ambiguousQueryWarnAt <- now
+                let pending = ambiguousQueryCount
+                ambiguousQueryCount <- 0
+                Some pending
+            else
+                None)
 
     /// Monitoring 모드 read-only flag. true 면 클라이언트 WriteTag/WriteTags 가 no-op.
     /// PlcScanService 의 PLC→Hub broadcast 는 영향 없음 (broadcaster 가 직접 SendAsync).
@@ -353,8 +406,13 @@ and SignalHub(
         collectorConfigCache <- payload
 
     /// PlcScanService broadcaster 가 캐시를 직접 갱신하기 위한 internal 진입점.
+    /// System 을 모르는 경로(단일 태그 broadcast 등)용 — 귀속 미상 키로 저장한다.
     static member internal UpdateTagCache(address: string, value: string) =
-        tagCache.[address] <- value
+        tagCache.[TagKey.legacy address] <- value
+
+    /// System 귀속을 아는 경로(스캔 batch·수집기 push)용. systemId 가 ""/null 이면 귀속 미상 키.
+    static member internal UpdateTagCache(systemId: string, address: string, value: string) =
+        tagCache.[TagKey.create (TagWriteSystem.toGuid systemId) address] <- value
 
     /// SignalHubBroadcaster.BroadcastPlcConnectionStatus 가 캐시를 갱신하기 위한 internal 진입점.
     static member internal UpdatePlcStatusCache(status: PlcConnectionStatus) =
@@ -502,12 +560,16 @@ and SignalHub(
     /// PLC 게이트웨이로 위임 — fire-and-forget.
     /// - source=plc/resync: PLC 관측값이므로 self-echo 차단.
     /// - delegatedScanMode: Pi5가 현장 PLC owner이므로 source와 무관하게 Agent 재쓰기 차단.
-    member private _.ForwardToPlc(address: string, value: string, source: string) =
+    member private _.ForwardToPlc(address: string, value: string, source: string, systemId: string) =
         if SignalHubWritePolicy.shouldForwardToPlc delegatedScanMode gateway.IsEnabled address source then
-            log.Debug($"ForwardToPlc: {address}={value} source={source}")
+            log.Debug($"ForwardToPlc: {address}={value} source={source} system={systemId}")
             task {
                 try
-                    let! ok = gateway.WriteAsync(address, value)
+                    // systemId 가 있으면 그 PLC 로 정확히, 없으면 게이트웨이가 주소 소유자 유일성으로 폴백한다
+                    // (소유자가 둘 이상이면 조용히 한쪽으로 보내지 않고 실패 — 예전 last-wins 의 근본 원인).
+                    let! ok =
+                        gateway.WriteToSystemAsync(
+                            address, value, TagWriteSystem.toGuid systemId |> Option.toNullable)
                     if not ok then
                         // PlcGateway 가 이미 사유를 Warn 으로 로그함 — 여기선 추가 noise 없이 종료.
                         ()
@@ -700,8 +762,11 @@ and SignalHub(
             Task.CompletedTask
         else
             log.Debug($"WriteTag: {address}={value} source={source}")
-            tagCache.[address] <- value
-            this.ForwardToPlc(address, value, source)
+            // 단일 태그 positional 메서드는 systemId 를 실을 자리가 없다(인자 추가 불가).
+            // 귀속 미상으로 캐시하고 쓰기는 게이트웨이 폴백에 맡긴다 — 멀티 PLC 에서 주소가 겹치면
+            // batch 경로(WriteTags)를 쓸 것.
+            tagCache.[TagKey.legacy address] <- value
+            this.ForwardToPlc(address, value, source, "")
             // Agent 단일 호스팅: client write(예: VirtualPlant 의 IN echo)도 server engine 으로 forward.
             // PLC scan(broadcaster)이 PLC IN 을 engine 에 넣듯, 실PLC 없는 VP 경로의 IN 도 engine 에 들어가야 상태가 돈다.
             // self-session envelope → stale guard 통과. Null 세션(engine 없음)이면 no-op. InjectIOValueByAddress 가
@@ -741,8 +806,8 @@ and SignalHub(
             if rejected > 0 then
                 log.Warn($"WriteTags rejected invalid/unconfigured items: count={rejected} remote={remote}")
             for it in accepted do
-                tagCache.[it.Address] <- it.Value
-                this.ForwardToPlc(it.Address, it.Value, it.Source)
+                tagCache.[TagKey.create (TagWriteSystem.toGuid it.SystemId) it.Address] <- it.Value
+                this.ForwardToPlc(it.Address, it.Value, it.Source, it.SystemId)
             if accepted.Length = 0 then Task.CompletedTask
             else
                 log.Debug($"WriteTags: accepted={accepted.Length} received={items.Length}")
@@ -756,11 +821,29 @@ and SignalHub(
                     do! this.Clients.All.SendAsync(HubMethod.OnTagsChanged, accepted)
                 }
 
-    /// 현재 Tag 값 조회 — 캐시에 없으면 빈 문자열
+    /// 현재 Tag 값 조회 — 캐시에 없으면 빈 문자열.
+    /// positional 메서드라 systemId 를 받을 자리가 없어, 주소 소유자가 유일할 때만 확정 조회한다.
+    /// ★소유자가 둘 이상(멀티 PLC 주소 중복)이면 아무 값이나 돌려주지 않고 "" 를 반환한다 —
+    /// 이 캐시는 Control 부팅 홈포지션 추론의 원천이라, 틀린 값이 조용히 나가면 부팅 계획 전체가 오염된다.
     member _.QueryTag(address: string) : Task<string> =
-        match tagCache.TryGetValue(address) with
-        | true, v -> Task.FromResult(v)
-        | _ -> Task.FromResult("")
+        let fromKey key =
+            match tagCache.TryGetValue(key: TagKey) with
+            | true, v -> Some v
+            | _ -> None
+        let resolved =
+            match PlcGatewayConfig.resolveSoleOwner collectorAddressOwners address with
+            | Ok (Some ownerSystemId) -> fromKey (TagKey.create ownerSystemId address)
+            | Ok None -> None
+            | Error owners ->
+                match countAmbiguousQuery () with
+                | Some pending ->
+                    log.Warn($"QueryTag: address '{address}' 를 여러 PLC 가 보유해 값을 특정할 수 없습니다 (소유 연결 {owners.Length}개) — 빈 값 반환 (최근 {pending}건).")
+                | None -> ()
+                Some ""
+        match resolved with
+        | Some v -> Task.FromResult(v)
+        // 귀속 미상 키(레거시 설정·단일 태그 WriteTag 경로) 폴백.
+        | None -> Task.FromResult(fromKey (TagKey.legacy address) |> Option.defaultValue "")
 
     member this.SubscribeTag(address: string) : Task =
         this.Groups.AddToGroupAsync(this.Context.ConnectionId, address)

@@ -31,18 +31,54 @@ type PlcGateway(config: PlcGatewayConfig) =
         |> List.map (fun c -> c, Adapter.create c)
         |> List.toArray
 
-    /// HubAddress -> (adapter, tagDef). 같은 주소를 두 PLC 가 서로 다르게 보유하면 마지막 등록만 살아남는다.
-    let routing : ConcurrentDictionary<string, IPlcConnectorAdapter * PlcTagDef> =
-        let d = ConcurrentDictionary<_, _>(StringComparer.OrdinalIgnoreCase)
+    /// (SystemId, 주소) -> (adapter, tagDef).
+    /// 예전엔 주소 단독 키라 두 PLC 가 같은 주소를 보유하면 "마지막 등록만 살아남아" 한쪽 PLC 로의
+    /// 읽기/쓰기가 조용히 사라졌다. 복합키로 바꿔 서로 다른 System 의 같은 주소가 공존한다.
+    let routing : ConcurrentDictionary<TagKey, IPlcConnectorAdapter * PlcTagDef> =
+        let d = ConcurrentDictionary<TagKey, IPlcConnectorAdapter * PlcTagDef>()
         for (cfg, adapter) in adapters do
             for tag in cfg.Tags do
-                if not (d.TryAdd(tag.HubAddress, (adapter, tag))) then
-                    log.Warn($"Duplicate HubAddress {tag.HubAddress} — last wins")
-                    d.[tag.HubAddress] <- (adapter, tag)
+                let key = TagKey.create cfg.SystemId tag.HubAddress
+                if not (d.TryAdd(key, (adapter, tag))) then
+                    // 복합키가 같은데 또 들어왔다 = 같은 System(또는 둘 다 귀속 미상) 안에서 주소 충돌.
+                    // 복합키로도 못 가르는 케이스라 여전히 마지막이 이긴다 — 모델을 고쳐야 한다.
+                    // (AID preflight 가 WithinSameSystem 경고로 같은 상황을 미리 알린다.)
+                    log.Warn($"Duplicate tag key {TagKey.describe key} (connection={cfg.Name}) — 같은 System 안 주소 충돌이라 마지막 등록이 이깁니다. 모델의 주소 배정을 확인하세요.")
+                    d.[key] <- (adapter, tag)
         d
 
-    /// 변화분 감지용 last-value 캐시.
-    let lastValues = ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    /// 정규화 주소 -> 보유 연결 목록. systemId 를 모르는 호출자(구버전 송신자·레거시 설정)의
+    /// 폴백 판정에 쓴다: 소유자가 유일하면 그 System 으로 확정, 둘 이상이면 모호로 실패.
+    let addressOwners = PlcGatewayConfig.addressOwners config
+
+    /// 변화분 감지용 last-value 캐시. 라우팅과 같은 복합키를 써야 한다 —
+    /// 주소 단독으로 두면 PLC-A 의 값이 PLC-B 의 직전값을 덮어써 변화 감지가 어긋난다.
+    let lastValues = ConcurrentDictionary<TagKey, string>()
+
+    /// 쓰기 대상 해석. 순서가 중요하다:
+    ///   ① systemId 가 있으면 복합키 정확 일치 우선.
+    ///   ② 실패하면 주소 소유자 유일성으로 폴백 — 레거시 설정(SystemId=None)에 신버전 송신자가
+    ///      systemId 를 실어 보내는 조합, 그리고 그 반대 조합을 모두 살린다.
+    ///   ③ 소유자가 둘 이상이면 **조용히 아무 데나 보내지 않고 실패**시킨다(예전 last-wins 의 근본 원인).
+    let tryResolveWriteTarget (address: string) (systemId: Guid option) =
+        let exact =
+            match systemId with
+            | Some _ ->
+                match routing.TryGetValue(TagKey.create systemId address) with
+                | true, route -> Some (TagKey.create systemId address, route)
+                | _ -> None
+            | None -> None
+        match exact with
+        | Some hit -> Ok hit
+        | None ->
+            match PlcGatewayConfig.resolveSoleOwner addressOwners address with
+            | Ok (Some ownerSystemId) ->
+                let key = TagKey.create ownerSystemId address
+                match routing.TryGetValue key with
+                | true, route -> Ok (key, route)
+                | _ -> Error None
+            | Ok None -> Error None
+            | Error owners -> Error (Some owners)
 
     /// adapter 별 "PLC 에 존재하지 않는 주소" skip-list.
     /// 운영 PLC 와 테스트 PLC 의 디바이스 영역 크기가 달라 일부 user tag 주소가 테스트 PLC 에는
@@ -210,15 +246,32 @@ type PlcGateway(config: PlcGatewayConfig) =
                     do! adapter.DisconnectAsync()
             } :> Task
 
-        member _.WriteAsync (address: string, value: string) =
+        member this.WriteAsync (address: string, value: string) =
+            (this :> IPlcGateway).WriteToSystemAsync(address, value, Nullable())
+
+        member _.WriteToSystemAsync (address: string, value: string, systemId: Nullable<Guid>) =
             task {
-                match routing.TryGetValue address with
-                | false, _ ->
+                let requestedSystem = if systemId.HasValue then Some systemId.Value else None
+                match tryResolveWriteTarget address requestedSystem with
+                | Error (Some owners) ->
+                    // 주소를 여러 PLC 가 보유하는데 호출자가 System 을 안 알려줬다.
+                    // 예전엔 여기서 아무 말 없이 마지막 등록 PLC 로 나갔다 — 그게 "쓰기가 엉뚱한 PLC 로
+                    // 가는" 증상의 원인이었다. 이제는 보내지 않고 명시적으로 실패시킨다.
+                    let candidates =
+                        owners
+                        |> List.map (fun o ->
+                            match o.SystemId with
+                            | Some sid -> sprintf "%s(system %O)" o.ConnectionName sid
+                            | None     -> sprintf "%s(system 미상)" o.ConnectionName)
+                        |> String.concat ", "
+                    log.Error($"WriteToSystemAsync: address '{address}' 를 여러 PLC 가 보유하는데 systemId 가 없어 대상을 특정할 수 없습니다 (후보: {candidates}) — value={value} 쓰기를 중단합니다.")
+                    return false
+                | Error None ->
                     // 진단용: 라우팅 테이블에 없는 주소 — IO map auto-import 가 빠뜨렸거나
                     // 엔진이 IO map 에 없는 주소로 OUT 을 쏘고 있는 케이스.
-                    log.Warn($"WriteAsync: address '{address}' not in routing table (size={routing.Count}) — drop value={value}")
+                    log.Warn($"WriteAsync: address '{address}' not in routing table (size={routing.Count}, system={requestedSystem}) — drop value={value}")
                     return false
-                | true, (adapter, tag) ->
+                | Ok (key, (adapter, tag)) ->
                     match PlcValueIo.parseFromHubString tag.DataType value with
                     | None ->
                         log.Warn($"WriteAsync: cannot parse '{value}' as {tag.DataType} for {address}")
@@ -228,7 +281,7 @@ type PlcGateway(config: PlcGatewayConfig) =
                         | Ok () ->
                             log.Info($"WriteAsync OK: {adapter.Name} {address}={value}")
                             // 우리가 방금 쓴 값을 캐시에 반영해 self-echo 변화 감지를 막는다.
-                            lastValues.[address] <- value
+                            lastValues.[key] <- value
                             return true
                         | Error msg ->
                             log.Warn($"WriteAsync FAIL: {adapter.Name} {address}={value} — {msg}")
@@ -288,21 +341,27 @@ type PlcGateway(config: PlcGatewayConfig) =
 
                         let recordRead (tag: PlcTagDef) (value: CoreDataTypesModule.PlcValue) =
                             let s = PlcValueIo.toHubString value
+                            // 이 스캔이 읽은 태그는 이 연결(=이 PLC)의 것이다. 여기서 소유 System 을
+                            // 각인해 두어야 하류 전체(Hub·엔진·DSPilot)가 같은 주소를 쓰는 다른 PLC 의
+                            // 신호와 구분할 수 있다. cfg 가 이미 스코프에 있어 비용은 0 이다.
+                            let key = TagKey.create cfg.SystemId tag.HubAddress
                             if resyncRequested then
                                 // 재연결 baseline: 변화 여부와 무관하게 전체를 Resync 로 broadcast.
                                 // 단절 중 누락된 전이를 edge 로 재생하면 순서가 깨져 가짜 abnormal —
                                 // 컨슈머(HubSession/DSPilot)는 Resync source 를 기준선으로만 처리한다.
-                                lastValues.[tag.HubAddress] <- s
+                                lastValues.[key] <- s
                                 changesDetected <- changesDetected + 1
                                 changes.Add({
                                     HubAddress = tag.HubAddress
                                     Value = s
                                     Source = Ds2.Backend.Common.HubSource.Resync
                                     OriginTsMs = System.Environment.TickCount64
+                                    SystemId = cfg.SystemId
+                                    ConnectionName = cfg.Name
                                 })
                             else
                             let changed =
-                                match lastValues.TryGetValue tag.HubAddress with
+                                match lastValues.TryGetValue key with
                                 | true, prev -> prev <> s
                                 | false, _ -> true
                             if changed then
@@ -310,7 +369,7 @@ type PlcGateway(config: PlcGatewayConfig) =
                                 // 스캔의 diff 는 직전 주기의 진짜 전이다. 주기 resync 가 전이를 baseline
                                 // 으로 삼키면(edge 미발행) 컨슈머 전이가 증발해 Going 누락→In 도착이
                                 // SensorShort 로 오판된다 (실기: true→true 연속 edge 지문으로 확정).
-                                lastValues.[tag.HubAddress] <- s
+                                lastValues.[key] <- s
                                 changesDetected <- changesDetected + 1
                                 rawLog.Info($"scan-change plc={cfg.Name} hub={tag.HubAddress} plc={tag.PlcAddress} value={s}")
                                 changes.Add({
@@ -318,6 +377,8 @@ type PlcGateway(config: PlcGatewayConfig) =
                                     Value = s
                                     Source = Ds2.Backend.Common.HubSource.Plc
                                     OriginTsMs = System.Environment.TickCount64
+                                    SystemId = cfg.SystemId
+                                    ConnectionName = cfg.Name
                                 })
                             elif isResync then
                                 // 주기 resync — 무변화 레벨만 baseline 으로 재방송(마이크로 스파이크로
@@ -328,6 +389,8 @@ type PlcGateway(config: PlcGatewayConfig) =
                                     Value = s
                                     Source = Ds2.Backend.Common.HubSource.Resync
                                     OriginTsMs = System.Environment.TickCount64
+                                    SystemId = cfg.SystemId
+                                    ConnectionName = cfg.Name
                                 })
 
                         let readTagNoSkip (tag: PlcTagDef) =
