@@ -27,7 +27,21 @@
             <RadioButton x:Name="SkipActionRadio" GroupName="CondType"
                          Content="SkipAction"
                          Foreground="{DynamicResource PrimaryTextBrush}"
-                         Margin="0,0,0,12"/>
+                         Checked="ConditionType_Changed"
+                         Unchecked="ConditionType_Changed"
+                         Margin="0,0,0,6"/>
+
+            <!-- SkipAction 전용 — 참조 신호를 어느 상태에서 통과시킬지. 선택 시에만 활성화. -->
+            <StackPanel x:Name="ContactKindPanel" Margin="20,0,0,12" IsEnabled="False">
+                <TextBlock Text="조건 종류"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           FontSize="11"
+                           Margin="0,0,0,2"/>
+                <ComboBox x:Name="ContactKindCombo" SelectedIndex="0" Padding="6,3">
+                    <ComboBoxItem Content="부정조건 (─┤/├─) — 참조 신호가 ON 일 때 실행"/>
+                    <ComboBoxItem Content="참조건 (─┤├─) — 참조 신호가 OFF 일 때 실행"/>
+                </ComboBox>
+            </StackPanel>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Content="확인" Style="{StaticResource DarkButton}"

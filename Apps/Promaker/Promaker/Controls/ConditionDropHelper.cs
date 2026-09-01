@@ -114,15 +114,17 @@ internal static class ConditionDropHelper
         Guid targetCallId,
         ConditionType condType,
         Guid droppedCallId,
-        Window? ownerWindow = null)
+        Window? ownerWindow = null,
+        ContactKind? presetContactKind = null)
     {
         var selectedIds = ResolveApiCallIds(store, host, droppedCallId, ownerWindow);
         if (selectedIds is null)
             return false;
 
-        // SkipAction 이면 A접/B접 선택. 취소 시 전체 drop 중단.
-        ContactKind? kindOverride = null;
-        if (condType == ConditionType.SkipAction)
+        // SkipAction 이면 A접/B접 선택. 호출자가 이미 받아왔으면(조건 유형 다이얼로그의 콤보)
+        // 다이얼로그를 다시 띄우지 않는다. 취소 시 전체 drop 중단.
+        ContactKind? kindOverride = presetContactKind;
+        if (condType == ConditionType.SkipAction && kindOverride is null)
         {
             kindOverride = PromptContactKindIfSkipAction(condType, ownerWindow);
             if (kindOverride is null) return false;

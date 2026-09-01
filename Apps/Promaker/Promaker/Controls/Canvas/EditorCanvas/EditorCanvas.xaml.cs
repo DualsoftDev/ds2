@@ -380,7 +380,8 @@ public partial class EditorCanvas : UserControl
 
         var host = VM.PropertyPanel.Host;
         ConditionDropHelper.ExecuteConditionDrop(
-            host.Store, host, targetNode.Id, picker.SelectedConditionType, droppedCallNode.Id);
+            host.Store, host, targetNode.Id, picker.SelectedConditionType, droppedCallNode.Id,
+            presetContactKind: picker.SelectedContactKind);
 
         e.Handled = true;
     }
