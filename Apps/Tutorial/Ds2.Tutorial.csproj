@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>Ds2.Tutorial</AssemblyName>
+    <!-- 하위 독립 프로젝트와 잔여 bin/obj를 부모 프로젝트의 기본 항목에서 제외 -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);OpcUaExternalClient\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
