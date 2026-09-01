@@ -389,6 +389,11 @@
             }
         }
 
+        // 미계측(데이터 없음) 오버레이 — PLC/수집 경로/DSPilot 오프라인으로 신호를 관측하지 못한 구간(2026-09-01).
+        // 리본·lane 을 그린 뒤 반투명 회색으로 덮어 '이 구간을 관통하는 막대는 추정'임을 드러낸다.
+        // 범위선택 보라 밴드·GAP 하이라이트는 이 위에 그려져 항상 보인다.
+        sb += appendUnmeasuredOverlay(s, xScale, cs, ce, TOP_MARGIN, laneAreaBottom);
+
         if (s.selectedRange) {
             var a = Math.max(cs, s.selectedRange.startMs), b = Math.min(ce, s.selectedRange.endMs);
             if (b > a) {
@@ -440,6 +445,46 @@
         }
         pts += ' ' + f(plotRightX) + ',' + f(yLow);
         sb += '<polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="1.4"/>';
+        return sb;
+    }
+
+    // ── 미계측(데이터 없음) 오버레이 ─────────────────────────────────────────
+    // s.unmeasuredRegions = [{startMs, endMs, cause}] — 서버 /api/call-test/load 의 unmeasuredRegions
+    // (심박 oeeCommHealthLog 기반, OEE '미계측'과 동일 판정)를 로드 시점에 ms 로 변환해 둔 것.
+    // cause 토큰은 서버 OeeCommHealthService.Cause* 와 짝.
+    var UNMEAS_CAUSE_LABEL = {
+        plc: 'PLC 통신 단절',
+        agent: '수집 서비스(Agent) 단절',
+        service: 'DSPilot 미가동',
+        unknown: '원인 미상'
+    };
+    function appendUnmeasuredOverlay(s, xScale, cs, ce, topY, bottomY) {
+        var regs = s.unmeasuredRegions;
+        if (!regs || !regs.length) return '';
+        var sb = '';
+        var h = bottomY - topY;
+        for (var i = 0; i < regs.length; i++) {
+            var r = regs[i];
+            var a = Math.max(cs, r.startMs), b = Math.min(ce, r.endMs);
+            if (b <= a) continue;
+            var x = LEFT_PAD + (a - cs) * xScale;
+            var w = Math.max(2, (b - a) * xScale);
+            var causeLabel = UNMEAS_CAUSE_LABEL[r.cause] || UNMEAS_CAUSE_LABEL.unknown;
+            var tip = '데이터 없음(미계측) · ' + causeLabel + '  ' + hms2(new Date(a)) + ' ~ ' + hms2(new Date(b)) + '  (' + formatMs(b - a) + ')';
+            sb += '<g><title>' + esc(tip) + '</title>';
+            sb += '<rect x="' + f(x) + '" y="' + f(topY) + '" width="' + f(w) + '" height="' + f(h) + '" fill="#aeb9c6" opacity="0.35"/>';
+            sb += '<line x1="' + f(x) + '" y1="' + f(topY) + '" x2="' + f(x) + '" y2="' + f(bottomY) + '" stroke="#78909c" stroke-width="1" stroke-dasharray="4 3"/>';
+            sb += '<line x1="' + f(x + w) + '" y1="' + f(topY) + '" x2="' + f(x + w) + '" y2="' + f(bottomY) + '" stroke="#78909c" stroke-width="1" stroke-dasharray="4 3"/>';
+            if (w > 120) {
+                var label = '데이터 없음 · ' + causeLabel;
+                var fs = 11, tw = label.length * fs * 0.92, padX = 7, padY = 3;
+                var bgW = Math.min(tw + padX * 2, w - 8), bgH = fs + padY * 2;
+                var cx = x + w / 2, cy = topY + 16;
+                sb += '<rect x="' + f(cx - bgW / 2) + '" y="' + f(cy - bgH / 2) + '" width="' + f(bgW) + '" height="' + f(bgH) + '" rx="3" fill="#ffffff" stroke="#90a4ae" stroke-width="1" opacity="0.92"/>';
+                sb += '<text x="' + f(cx) + '" y="' + f(cy) + '" text-anchor="middle" dominant-baseline="central" font-size="' + fs + '" font-weight="700" fill="#546e7a">' + esc(label) + '</text>';
+            }
+            sb += '</g>';
+        }
         return sb;
     }
 

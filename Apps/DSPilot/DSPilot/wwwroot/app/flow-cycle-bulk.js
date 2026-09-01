@@ -139,6 +139,7 @@ function bulkCycleApp() {
                 id: idx, flowName,
                 loading: true, error: null, overlayBusy: false,
                 callLanesRaw: [], callLanes: [],
+                unmeasuredRegions: [],   // [{startMs,endMs,cause}] — 미계측(수신 공백) 회색 오버레이
                 cycleBoundaries: [], tailEdges: [], tailCompletionSource: null,
                 cycleBoundariesIso: [], tailEdgesIso: [],   // Excel 내보내기용 원본 ISO
                 chartStart: null, chartEnd: null, chartStartIso: '', chartEndIso: '',
@@ -236,6 +237,9 @@ function bulkCycleApp() {
             slice.cycleBoundaries = slice.cycleBoundariesIso.map(s => new Date(s));
             slice.tailEdges = slice.tailEdgesIso.map(s => new Date(s));
             slice.tailCompletionSource = d.tailCompletionSource ?? null;
+            slice.unmeasuredRegions = (d.unmeasuredRegions || []).map(r => ({
+                startMs: new Date(r.start).getTime(), endMs: new Date(r.end).getTime(), cause: r.cause || 'unknown'
+            }));
             slice.avgCycleMs = d.avgCycleMs ?? null;
             slice.avgActiveMs = d.avgActiveMs ?? null;
             slice.isOverride = !!d.isOverride;

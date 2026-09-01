@@ -97,6 +97,7 @@
                 dataLatestAt: null,   // 프리셋 앵커 = DB 최신 로그 시각(벽시계 now 아님) — effectiveLatest() 가 채움
                 dataAnchorHint: '',   // 그 앵커의 지연 안내 문구(1분 미만이면 빈 문자열 = 표시 안 함)
                 callLanesRaw: [],
+                unmeasuredRegions: [],   // [{startMs,endMs,cause}] — 서버 미계측(수신 공백) 구간, 간트 회색 오버레이
                 expandedCalls: {},   // callId → bool : Call lane 행 확장(소속 ApiCall + 실측 duration 표시) 상태
                 applyDurBusy: false, applyDurMsg: '',   // 실측 → AASX duration 적용 진행/피드백
                 // ── 디바이스 Duration/Min/Max 직접 편집 다이얼로그 (초 단위 입력, 빈칸=null) ──
@@ -1015,6 +1016,7 @@
                         topGaps: [], showMaxGap: false, selectedGapIndex: -1,
                         selectedRange: null,
                         branchPreview: { spans },
+                        unmeasuredRegions: this.unmeasuredRegions || [],
                     };
                 },
                 get brCards() {
@@ -1344,6 +1346,9 @@
                     this.tailEdges = (d.tailEdges || []).map(s => new Date(s));
                     this.cycleBoundariesIso = d.cycleBoundaries || []; this.tailEdgesIso = d.tailEdges || [];
                     this.tailCompletionSource = d.tailCompletionSource ?? null;
+                    this.unmeasuredRegions = (d.unmeasuredRegions || []).map(r => ({
+                        startMs: new Date(r.start).getTime(), endMs: new Date(r.end).getTime(), cause: r.cause || 'unknown'
+                    }));
                     this.avgCycleMs = d.avgCycleMs ?? null;
                     this.avgActiveMs = d.avgActiveMs ?? null;
                     this.isOverride = !!d.isOverride;

@@ -27,6 +27,7 @@ public class CallTestController : ControllerBase
     private readonly AppSettingsService _settings;
     private readonly DsProjectService _project;
     private readonly CallLaneBuilderService _laneBuilder;
+    private readonly OeeCommHealthService _commHealth;
     private readonly ILogger<CallTestController> _logger;
 
     public CallTestController(
@@ -37,6 +38,7 @@ public class CallTestController : ControllerBase
         AppSettingsService settings,
         DsProjectService project,
         CallLaneBuilderService laneBuilder,
+        OeeCommHealthService commHealth,
         ILogger<CallTestController> logger)
     {
         _callMapper = callMapper;
@@ -46,6 +48,7 @@ public class CallTestController : ControllerBase
         _settings = settings;
         _project = project;
         _laneBuilder = laneBuilder;
+        _commHealth = commHealth;
         _logger = logger;
     }
 
@@ -135,6 +138,23 @@ public class CallTestController : ControllerBase
         // 이 Flow 에 저장된 사용자 지정(override) 이 존재하는지 — UI 의 'CT 기준: 사용자 지정/AASX 기본' 표시용.
         var isOverride = _settings.GetFlowCycleOverride(req.FlowName) is not null;
 
+        // 미계측(수신 공백) 구간 — 간트 '데이터 없음' 회색 오버레이용(2026-09-01). 사이클 통계에는 관여하지
+        // 않는 순수 표시 데이터. 조회 실패(비신뢰)면 빈 목록 = 오버레이 생략(보수) — 간트 로드는 막지 않는다.
+        var unmeasuredRegions = new List<CtUnmeasuredDto>();
+        try
+        {
+            var (wins, trusted) = await _commHealth.TryGetUnmeasuredWindowsAsync(
+                start.ToUniversalTime(), chartEnd.ToUniversalTime());
+            if (trusted)
+                unmeasuredRegions = wins
+                    .Select(w => new CtUnmeasuredDto(IsoLocal(FromEpochMsLocal(w.S)), IsoLocal(FromEpochMsLocal(w.E)), w.Cause))
+                    .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[call-test] unmeasured overlay query failed — 오버레이 생략");
+        }
+
         return new CtLoadDto(
             req.FlowName,
             IsoLocal(chartStart),
@@ -149,7 +169,8 @@ public class CallTestController : ControllerBase
             stats.AvgCycleMs,
             stats.AvgActiveMs,
             isOverride,
-            tailCompletionSource);
+            tailCompletionSource,
+            unmeasuredRegions);
     }
 
     /// <summary>
@@ -406,6 +427,10 @@ public class CallTestController : ControllerBase
 
     /// <summary>로컬 tz ISO("o"). 클라이언트는 new Date() 로 파싱 후 표시.</summary>
     private static string IsoLocal(DateTime dt) => dt.ToString("o");
+
+    /// <summary>UTC epoch ms(OeeCommHealthService 좌표계) → 로컬 DateTime.</summary>
+    private static DateTime FromEpochMsLocal(double ms)
+        => new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(ms).ToLocalTime();
 }
 
 // ── DTOs (positional records → camelCase 자동) ─────────────────────────────────
@@ -493,7 +518,15 @@ public record CtLoadDto(
     // 이 Flow 에 저장된 사용자 지정(FlowCycleOverride) 존재 여부.
     bool IsOverride,
     // 완료 마커 소스: "InTag" | "OutTag"(명령 ON 추정) | null. UI 배지용.
-    string? TailCompletionSource = null);
+    string? TailCompletionSource = null,
+    // 미계측(수신 공백) 구간 — 간트 '데이터 없음' 회색 오버레이(2026-09-01). 없으면 빈 목록.
+    List<CtUnmeasuredDto>? UnmeasuredRegions = null);
+
+/// <summary>
+/// 미계측(수신 공백) 구간 1개 — 로컬 ISO. Cause: "plc"(PLC 통신 단절) | "agent"(수집 서비스/Hub 단절)
+/// | "service"(DSPilot 미가동) | "unknown"(cause 도입 전 데이터 — 원인 미상).
+/// </summary>
+public record CtUnmeasuredDto(string Start, string End, string Cause);
 
 public record CtOverlayDto(
     List<string> CycleBoundaries,

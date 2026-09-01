@@ -125,4 +125,98 @@ public class OeeCommHealthTests
         Assert.Equal(10 * Min + Cover, g.S);
         Assert.Equal(40 * Min, g.E);
     }
+
+    // ── 원인 라벨링(LabelUnmeasured, 2026-09-01) ─────────────────────────
+    //   plcOk=0 행의 귀속 창과 겹치는 조각 = 그 행의 cause / 행 부재 잔여 = service(DSPilot 미가동).
+
+    private static List<(double SampleMs, bool PlcOk, string? Cause)> Causes(
+        double startMs, int count, string? cause, double intervalMs = Min)
+    {
+        var res = new List<(double, bool, string?)>();
+        for (int i = 0; i < count; i++) res.Add((startMs + i * intervalMs, cause is null, cause));
+        return res;
+    }
+
+    [Fact]
+    public void Label_no_rows_at_all_is_service_down()
+    {
+        // 심박 행 전무 = DSPilot 미가동 — 전 구간 service.
+        var gaps = new List<(double, double)> { (0, 60 * Min) };
+        var wins = OeeCommHealthService.LabelUnmeasured(
+            gaps, new List<(double, bool, string?)>(), Cover);
+
+        var w = Assert.Single(wins);
+        Assert.Equal((0d, 60 * Min, OeeCommHealthService.CauseService), (w.S, w.E, w.Cause));
+    }
+
+    [Fact]
+    public void Label_plc_down_beats_are_attributed_and_merged()
+    {
+        // 정상 0~10분 → plc 단절 심박 11~29분 → 정상 30분~. 미계측 = [10분+cover, 30분).
+        // plc 심박 창이 구간 전체를 덮으므로 단일 plc 윈도우(60초 간격 조각 병합).
+        var samples = Beats(0, 11).Select(s => (s.SampleMs, s.PlcOk, (string?)null))
+            .Concat(Causes(11 * Min, 19, OeeCommHealthService.CausePlc))
+            .Concat(Beats(30 * Min, 31).Select(s => (s.SampleMs, s.PlcOk, (string?)null)))
+            .ToList();
+        var gaps = OeeCommHealthService.ComputeUnmeasured(0, 60 * Min,
+            samples.Select(s => (s.Item1, s.Item2)).ToList(), Cover, Report);
+        var wins = OeeCommHealthService.LabelUnmeasured(gaps, samples, Cover);
+
+        var w = Assert.Single(wins);
+        Assert.Equal(OeeCommHealthService.CausePlc, w.Cause);
+        Assert.Equal(10 * Min + Cover, w.S);
+        Assert.Equal(30 * Min, w.E);
+    }
+
+    [Fact]
+    public void Label_plc_down_then_service_down_splits_window()
+    {
+        // plc 단절 심박 11~15분 후 행 자체가 끊김(서비스 다운) → 40분 재개.
+        // 미계측 [10분+cover, 40분) 이 plc(마지막 plc 심박+cover 까지) / service(잔여) 로 갈라진다.
+        var samples = Beats(0, 11).Select(s => (s.SampleMs, s.PlcOk, (string?)null))
+            .Concat(Causes(11 * Min, 5, OeeCommHealthService.CausePlc))
+            .Concat(Beats(40 * Min, 21).Select(s => (s.SampleMs, s.PlcOk, (string?)null)))
+            .ToList();
+        var gaps = OeeCommHealthService.ComputeUnmeasured(0, 60 * Min,
+            samples.Select(s => (s.Item1, s.Item2)).ToList(), Cover, Report);
+        var wins = OeeCommHealthService.LabelUnmeasured(gaps, samples, Cover);
+
+        Assert.Equal(2, wins.Count);
+        Assert.Equal(OeeCommHealthService.CausePlc, wins[0].Cause);
+        Assert.Equal(10 * Min + Cover, wins[0].S);
+        Assert.Equal(15 * Min + Cover, wins[0].E);   // 마지막 plc 심박(15분) 귀속 창 끝
+        Assert.Equal(OeeCommHealthService.CauseService, wins[1].Cause);
+        Assert.Equal(15 * Min + Cover, wins[1].S);
+        Assert.Equal(40 * Min, wins[1].E);
+    }
+
+    [Fact]
+    public void Label_legacy_null_cause_is_unknown()
+    {
+        // cause 컬럼 도입 전 데이터(plcOk=0, cause=NULL) — unknown 으로 라벨.
+        var samples = new List<(double, bool, string?)>();
+        for (int i = 0; i <= 30; i++) samples.Add((i * Min, false, null));
+        var gaps = new List<(double, double)> { (0, 30 * Min) };
+        var wins = OeeCommHealthService.LabelUnmeasured(gaps, samples, Cover);
+
+        var w = Assert.Single(wins);
+        Assert.Equal(OeeCommHealthService.CauseUnknown, w.Cause);
+    }
+
+    [Fact]
+    public void Label_union_equals_input_gaps()
+    {
+        // 라벨링은 분할만 한다 — 합집합 길이는 입력 gap 과 동일해야 한다.
+        var samples = Beats(0, 11).Select(s => (s.SampleMs, s.PlcOk, (string?)null))
+            .Concat(Causes(20 * Min, 3, OeeCommHealthService.CauseAgent))
+            .ToList();
+        var gaps = OeeCommHealthService.ComputeUnmeasured(0, 60 * Min,
+            samples.Select(s => (s.Item1, s.Item2)).ToList(), Cover, Report);
+        var wins = OeeCommHealthService.LabelUnmeasured(gaps, samples, Cover);
+
+        Assert.Equal(gaps.Sum(g => g.E - g.S), wins.Sum(w => w.E - w.S), 3);
+        // 인접 윈도우는 빈틈/겹침 없이 이어진다.
+        for (int i = 1; i < wins.Count; i++)
+            Assert.True(wins[i].S >= wins[i - 1].E - 0.001);
+    }
 }

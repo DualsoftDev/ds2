@@ -163,7 +163,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
                 CREATE TABLE IF NOT EXISTS oeeCommHealthLog (
                   id        INTEGER PRIMARY KEY AUTOINCREMENT,
                   sampledAt TEXT NOT NULL,
-                  plcOk     INTEGER NOT NULL
+                  plcOk     INTEGER NOT NULL,
+                  cause     TEXT
                 )";
             const string idxCommHealthTime =
                 "CREATE INDEX IF NOT EXISTS idx_oeeCommHealth_time ON oeeCommHealthLog(sampledAt)";
@@ -184,6 +185,10 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             // classifySource — 기존 oee.db 마이그레이션(이 어댑터는 CREATE TABLE IF NOT EXISTS 만 쓰고 ALTER 인프라가
             // 없음). detectSource(감지 출처)와 의미 구분: 분류가 어떻게 정해졌는지(manual/auto-bit/auto-heuristic/NULL).
             await EnsureColumnAsync(conn, "oeeDowntimeEvent", "classifySource", "TEXT");
+
+            // cause(2026-09-01) — 심박 plcOk=0 의 원인 토큰(plc/agent, NULL=정상 행 또는 도입 전 데이터).
+            // 간트 '데이터 없음' 오버레이의 원인 구분용. OeeCommHealthService.EnsureTableAsync 와 이중 보장.
+            await EnsureColumnAsync(conn, "oeeCommHealthLog", "cause", "TEXT");
 
             // midCycle — 정지 감지 시점 자세(1=사이클 도중 멈춤=유발자 / 0=사이클 사이 / NULL=미상).
             // Going 박제 유발자의 증거를 감지 순간에 영속화(2026-08-30) — OeeDowntimeEvent.MidCycle 주석 참조.
