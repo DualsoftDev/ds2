@@ -277,6 +277,11 @@ module internal ImportPlanDeviceOps =
     /// 이유: 상호 리셋 파트너가 없는 1-API device 는 1회 동작 후 Finish 로 고착되어 재기동이 불가하다.
     /// 배선: (API -Start-> DONE) + (API <-ResetReset-> DONE). DONE 은 Call 이 없어 시작 즉시 Finish 하고
     /// (Execution.fs: callGuids.IsEmpty -> Finish), 그 결과 API Work 를 리셋해 다음 사이클을 준비한다.
+    ///
+    /// 화살표 2개를 StartReset 하나로 합치지 말 것 — 합치면 재기동에 별도 API 가 필요해져
+    /// "API 1개로 Work 동작을 반복" 하는 이 패턴의 목적이 깨진다. Start(완료→DONE 기동)와
+    /// ResetReset(상호 리셋으로 재무장)은 역할이 다르며, 둘이 함께 있어야 단일 API 가 반복 동작한다.
+    /// 시뮬레이션에서 API Work 가 여러 번 순환하는 것은 이 재무장 동작이며 정상이다(수렴함).
     /// ApiDef 는 Tx = API Work, Rx = DONE 으로 잡아 '동작 송신 ~ 완료 수신' 을 분리한다.
     let private buildSingleApiDoneWorks
         (store: DsStore)

@@ -294,16 +294,17 @@ public partial class EditorCanvas : UserControl
 
     private void UpdateDropTarget(Point canvasPos)
     {
+        // Call = AutoAux/ComAux/SkipAction, Work = SkipAction 전용. 둘 다 조건 드롭 대상.
         var hit = FindNodeAt(canvasPos);
-        var callHit = hit is { EntityType: EntityKind.Call } ? hit : null;
+        var targetHit = hit is { EntityType: EntityKind.Call or EntityKind.Work } ? hit : null;
 
-        if (callHit == _currentDropTarget) return;
+        if (targetHit == _currentDropTarget) return;
 
         ClearDropTarget();
-        if (callHit is not null)
+        if (targetHit is not null)
         {
-            callHit.IsDropTarget = true;
-            _currentDropTarget = callHit;
+            targetHit.IsDropTarget = true;
+            _currentDropTarget = targetHit;
         }
     }
 
@@ -366,22 +367,35 @@ public partial class EditorCanvas : UserControl
 
         var dropPos = e.GetPosition(MainCanvas);
         var targetNode = FindNodeAt(dropPos);
-        if (targetNode is null || targetNode.EntityType != EntityKind.Call)
+        if (targetNode is null)
+            return;
+
+        // Flow 뷰의 Work 노드 / Work 뷰의 Call 노드 둘 다 조건 대상.
+        var isWorkTarget = targetNode.EntityType == EntityKind.Work;
+        if (!isWorkTarget && targetNode.EntityType != EntityKind.Call)
             return;
 
         // 자기 자신에게 드롭 방지
         if (targetNode.Id == droppedCallNode.Id)
             return;
 
-        var picker = new ConditionTypePickerDialog();
+        // Work 조건은 SkipAction 만 유효 — 다이얼로그에서 나머지 유형을 잠근다.
+        var picker = isWorkTarget
+            ? new ConditionTypePickerDialog(ConditionType.SkipAction, "Work 조건은 SkipAction 만 지원합니다.")
+            : new ConditionTypePickerDialog();
         if (Application.Current.MainWindow is { } owner) picker.Owner = owner;
         if (picker.ShowDialog() != true)
             return;
 
         var host = VM.PropertyPanel.Host;
-        ConditionDropHelper.ExecuteConditionDrop(
-            host.Store, host, targetNode.Id, picker.SelectedConditionType, droppedCallNode.Id,
-            presetContactKind: picker.SelectedContactKind);
+        if (isWorkTarget)
+            ConditionDropHelper.ExecuteWorkConditionDrop(
+                host.Store, host, targetNode.Id, picker.SelectedConditionType, droppedCallNode.Id,
+                presetContactKind: picker.SelectedContactKind);
+        else
+            ConditionDropHelper.ExecuteConditionDrop(
+                host.Store, host, targetNode.Id, picker.SelectedConditionType, droppedCallNode.Id,
+                presetContactKind: picker.SelectedContactKind);
 
         e.Handled = true;
     }
