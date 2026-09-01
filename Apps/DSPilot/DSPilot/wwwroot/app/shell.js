@@ -650,6 +650,15 @@ window.dspFmt = {
             // ── 헤더 컨텍스트 캡처용 — 루프 후 headTitle/crumb 업데이트에 사용 ──
             var _hdrSys = null, _hdrFlow = '';
 
+            // ── 시스템 접기 상태(localStorage) — 시스템이 많은 현장에서 사이드바가 세로로 끝없이 길어지는
+            //    문제 완화. 이름 키 접힘 맵(값 1=접힘). 현재 페이지가 속한 시스템은 저장값과 무관하게 펼친다.
+            var SYS_COLLAPSE_KEY = 'dspilot-nav-sys-collapsed';
+            var sysCollapsed = {};
+            try { sysCollapsed = JSON.parse(localStorage.getItem(SYS_COLLAPSE_KEY) || '{}') || {}; } catch (e) { sysCollapsed = {}; }
+            function saveSysCollapsed() {
+                try { localStorage.setItem(SYS_COLLAPSE_KEY, JSON.stringify(sysCollapsed)); } catch (e) { /* ignore */ }
+            }
+
             systems.forEach(function (sys) {
                 var flows = sys.flows || [];
                 // 사이클 분기 — flow → 분기 이름 목록(분기 활성 flow 만). 설비효율/가동시간 분석 그룹에서
@@ -691,18 +700,39 @@ window.dspFmt = {
                     }
                 }
 
-                // 시스템 행 = 접기 없는 정적 섹션 헤더(chevron·토글 없음).
-                var row = el('div', 'w-full flex items-center gap-3 px-4 py-3');
+                // 시스템 행 = 접기 토글 헤더(2026-09-01) — 클릭하면 아래 분석 그룹 전체를 접고 편다.
+                //   접힘 상태는 localStorage 보존, 단 현재 페이지가 속한 시스템은 항상 펼침.
+                var row = el('button', 'w-full flex items-center gap-3 px-4 py-3 rounded hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
+                row.type = 'button';
+                row.style.cssText = 'text-align:left;' + BTN_RESET;
                 var sysIcon = icon('equalizer');
                 sysIcon.style.cssText = 'flex:0 0 auto;font-size:20px;' + (sysHasCurrent ? 'color:#2170e4;' : 'opacity:0.75;');
                 row.appendChild(sysIcon);
                 var sysLabel = el('span', 'font-label-sm text-label-sm', (sys.name || '(이름 없음)') + ' 관리');
                 sysLabel.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                 row.appendChild(sysLabel);
+                var sysChev = icon('expand_more');
+                sysChev.style.cssText = 'flex:0 0 auto;font-size:18px;opacity:0.7;transition:transform 0.12s;';
+                row.appendChild(sysChev);
 
-                // ── 그룹 컨테이너 — 시스템 행 바로 아래에 항상 표시(접기 없음). ──
+                // ── 그룹 컨테이너 — 시스템 행 아래, 시스템 접기 토글의 대상. ──
                 var sub = el('div', 'flex flex-col gap-0.5');
                 sub.style.cssText = 'padding-left:18px;';
+
+                var sysKey = sys.name || '';
+                var sysOpen = sysHasCurrent || !sysCollapsed[sysKey];
+                function applySysOpen() {
+                    sub.style.display = sysOpen ? '' : 'none';
+                    sysChev.style.transform = sysOpen ? '' : 'rotate(-90deg)';
+                    row.setAttribute('aria-expanded', sysOpen ? 'true' : 'false');
+                }
+                row.addEventListener('click', function () {
+                    sysOpen = !sysOpen;
+                    if (sysOpen) delete sysCollapsed[sysKey]; else sysCollapsed[sysKey] = 1;
+                    saveSysCollapsed();
+                    applySysOpen();
+                });
+                applySysOpen();
 
                 // 6개 분석/페이지 그룹 — 각각 이 시스템의 FLOW 리스트. Flow 클릭 → 해당 페이지?쿼리= 이동.
                 //   추이/사이클 = ?name= (/flow-trend·/flow-cycle), 동작편차/설비효율/생산효율/이상·알람 = ?flow= (해당 페이지가 설비 필터).
@@ -933,7 +963,7 @@ window.dspFmt = {
             }
             _agAdapters.forEach(function (a) {
                 var line = el('div');
-                line.style.cssText = 'display:flex;align-items:center;gap:6px;';
+                line.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;';
                 var d = el('span');
                 d.style.cssText = 'flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:'
                     + (a.connected ? AG_DOT.green : AG_DOT.red) + ';';
@@ -942,6 +972,21 @@ window.dspFmt = {
                 nm.style.cssText = 'font-variant-numeric:tabular-nums;';
                 line.appendChild(d);
                 line.appendChild(nm);
+                // 매칭 시스템 — 서버가 모델 AID(ip:port)와 대조한 결과.
+                //   system=이름: 그 시스템 소속 / system="": 모델에 없음(구 모델 잔존/설정 불일치 후보)
+                //   / system=null(구 서버·모델 미로드): 표기 생략.
+                if (a.system != null) {
+                    var sysChip = el('span', null, a.system === '' ? '모델 미매칭' : a.system);
+                    sysChip.style.cssText = 'flex:0 0 auto;font-size:10px;line-height:1;padding:2px 6px;'
+                        + 'border-radius:999px;font-weight:700;'
+                        + (a.system === ''
+                            ? 'background:rgba(251,146,60,0.16);color:#c2610c;'
+                            : 'background:rgba(33,112,228,0.12);color:#2170e4;');
+                    sysChip.title = a.system === ''
+                        ? '현재 모델(AASX)의 PLC 접속정보에 이 IP:Port 가 없습니다 — 이전 모델의 잔존 상태이거나 접속정보 불일치일 수 있습니다.'
+                        : '현재 모델에서 이 PLC 와 매칭된 시스템: ' + a.system;
+                    line.appendChild(sysChip);
+                }
                 if (a.error) { line.title = a.error; }
                 agPlcDetail.appendChild(line);
             });

@@ -300,6 +300,10 @@ public sealed class HubSubscriberService : BackgroundService
         _connection.Reconnected += connectionId =>
         {
             _logger.LogInformation("[Hub] Reconnected");
+            // 재연결 = 새 연결이므로 SignalHub.OnConnectedAsync 가 현재 스냅샷을 다시 push 한다.
+            // 끊긴 동안(모델 교체/Agent 재기동 등) 사라진 어댑터가 UPSERT-only 캐시에 잔존하지 않도록
+            // 먼저 비운다 — Closed 경로의 ClearAll 과 짝(무한 재시도 정책이라 Closed 는 거의 안 탄다).
+            _plcStatusTracker.ClearAll();
             RaiseStatusChanged();
             _ = SyncScanIntervalAsync();
             return Task.CompletedTask;

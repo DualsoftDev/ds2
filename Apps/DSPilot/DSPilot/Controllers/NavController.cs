@@ -74,10 +74,13 @@ public class NavController : ControllerBase
             .ToList();
 
         // FlowProcessOrder: 대시보드에서 사용자가 지정한 공정 순서.
+        // 같은 flow 이름이 여러 시스템에 중복 존재하는 모델(현장 #131~134 사례)이면 레이아웃에도 이름이
+        // 중복 적재된다 — ToDictionary 는 여기서 throw 해 /api/nav 전체(=사이드바 트리)가 500 으로 죽는다.
+        // 첫 등장 순위만 취한다(TryAdd).
         var processOrder = _blueprint.Layout.FlowProcessOrder;
-        var rankByName = processOrder
-            .Select((o, i) => (o.FlowName, i))
-            .ToDictionary(x => x.FlowName, x => x.i, StringComparer.OrdinalIgnoreCase);
+        var rankByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < processOrder.Count; i++)
+            rankByName.TryAdd(processOrder[i].FlowName, i);
 
         // 사이클 분기 — flow 별 분기 이름 목록(분기 활성 flow 만 항목 존재). 셸이 설비효율/가동시간 분석
         // 그룹에서 부모 행을 "부모_분기" 행들로 치환하는 데 쓴다(생산효율/추이는 부모 그대로 = 설계 규약).
@@ -141,6 +144,20 @@ public class NavController : ControllerBase
         int plcTotal, plcConnected, plcDisconnected;
         List<NavPlcAdapterDto> adapters;
 
+        // 어댑터 → 매칭 시스템 표기 — 현재 모델 AID(시스템별 엔드포인트 정본)와 ip:port 로 대조한다.
+        //   반환: 시스템 이름 | ""(모델에 엔드포인트가 있는데 이 ip:port 는 없음 = 미매칭/stale 후보)
+        //        | null(모델 미로드/AID 없음 — 대조 근거 자체가 없어 UI 는 표기 생략).
+        List<PlcEndpointInfo> modelEndpoints;
+        try { modelEndpoints = _project.GetPlcEndpoints(); }
+        catch { modelEndpoints = new List<PlcEndpointInfo>(); }
+        string? MatchSystem(string? ip, int port)
+        {
+            if (modelEndpoints.Count == 0) return null;
+            var hit = modelEndpoints.FirstOrDefault(e =>
+                string.Equals(e.Ip, ip?.Trim(), StringComparison.OrdinalIgnoreCase) && e.Port == port);
+            return hit?.SystemName ?? "";
+        }
+
         if (plc.Count > 0)
         {
             plcSource = "agent";
@@ -151,7 +168,8 @@ public class NavController : ControllerBase
                 .OrderBy(s => s.IsConnected) // 끊긴 어댑터를 위로
                 .ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(s => new NavPlcAdapterDto(
-                    s.Name, s.Vendor, s.IpAddress, s.Port, s.IsConnected, s.LastError))
+                    s.Name, s.Vendor, s.IpAddress, s.Port, s.IsConnected, s.LastError,
+                    MatchSystem(s.IpAddress, s.Port)))
                 .ToList();
         }
         else
@@ -166,7 +184,8 @@ public class NavController : ControllerBase
                 adapters = pings
                     .OrderBy(p => p.Connected) // 끊긴 어댑터를 위로
                     .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
-                    .Select(p => new NavPlcAdapterDto(p.Name, p.Vendor, p.Ip, p.Port, p.Connected, p.Error))
+                    .Select(p => new NavPlcAdapterDto(p.Name, p.Vendor, p.Ip, p.Port, p.Connected, p.Error,
+                        MatchSystem(p.Ip, p.Port)))
                     .ToList();
             }
             else
@@ -401,4 +420,7 @@ public record NavAgentDto(
 public record NavAddrSystemDto(string System, int Expected, int Seen, List<string> Missing);
 
 public record NavPlcAdapterDto(
-    string Name, string Vendor, string Ip, int Port, bool Connected, string? Error);
+    string Name, string Vendor, string Ip, int Port, bool Connected, string? Error,
+    // 이 어댑터(ip:port)가 현재 모델 AID 에서 어느 시스템의 엔드포인트인지.
+    //   시스템 이름 | ""(모델에 있는데 미매칭 — 구 모델 잔존/설정 불일치 후보) | null(모델 미로드/AID 없음 = 표기 생략).
+    string? System = null);

@@ -733,8 +733,10 @@
                         requestAnimationFrame(() => this.syncPan());
                     });
                 },
-                applyZoom(targetZoom, anchorX) {
-                    const el = this.chartAreaEl();
+                // el(선택) = 앵커/스크롤 보정 대상 컨테이너 — 분기별 간트 카드처럼 상단(chartArea)이 아닌
+                // .ct-gantt-hscroll 에서 Ctrl+휠 줌할 때 그 컨테이너를 넘긴다(줌 자체는 전 간트 공유).
+                applyZoom(targetZoom, anchorX, el) {
+                    el = el || this.chartAreaEl();
                     if (!el) return;
                     const newZoom = Math.min(MAX_ZOOM, Math.max(1, targetZoom));
                     if (Math.abs(newZoom - this.zoom) < 1e-6) return;
@@ -747,6 +749,19 @@
                         el.scrollLeft = frac * this.plotWidth + LEFT_PAD - anchorX;
                         requestAnimationFrame(() => this.syncPan());
                     });
+                },
+                // Ctrl+휠 = 간트 확대/축소(커서 아래 시각 고정) — 브라우저 페이지 확대를 preventDefault 로
+                // 차단해 간트 위에서는 차트 줌으로 고정한다. 일반 휠(Ctrl 없이)은 페이지 스크롤 유지.
+                // 분기별 간트 카드에서도 동일 핸들러 — 줌(plotWidth)은 상단과 공유되므로 함께 확대된다.
+                onGanttWheel(e) {
+                    if (!e.ctrlKey || !this.callLanes.length) return;
+                    e.preventDefault();
+                    const el = e.currentTarget;
+                    // deltaMode 1 = 줄 단위(Firefox 휠) → px 근사 환산.
+                    const dy = e.deltaMode === 1 ? e.deltaY * 24 : e.deltaY;
+                    const factor = Math.exp(-dy * 0.0022);   // 휠 1노치(±100px) ≈ ±25%
+                    const anchorX = e.clientX - el.getBoundingClientRect().left;
+                    this.applyZoom(this.zoom * factor, anchorX, el);
                 },
 
                 // 시각 helper

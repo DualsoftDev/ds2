@@ -185,14 +185,18 @@
         /* 간트 툴바 (보기 전환 + 줌) */
         .ct-gantt-toolbar { display: flex; align-items: center; gap: 12px; padding: 6px 10px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); flex-wrap: wrap; }
         .ct-gantt-toolbar .spacer { flex: 1; }
+        /* 단일 flow 페이지: 툴바를 카드 밖(.fw-grid 직속)에 두고 셸 헤더(64px) 바로 아래에 고정 —
+           분기별 간트 카드까지 스크롤해도 보기/이동/확대에 바로 손이 닿는다(2026-09-01).
+           z-index 는 셸 헤더(40)보다 낮고 카드 내용물보다 높게. */
+        .fw-toolbar-sticky { position: sticky; top: 64px; z-index: 30; box-shadow: 0 3px 12px rgba(15, 30, 50, 0.08); }
         .ct-tb-hint { font-size: 0.66rem; color: var(--color-text-secondary); }
         /* ── 세그먼트 컨트롤(.segmented / .ct-seg): swiss.css 공용 규칙이 단일 소스.
            (ds.css 가 swiss.css 를 @import → 프리셋·막대/InOut 토글 모두 통일된 룩 상속)
            기존의 로컬 .ct-seg 오버라이드는 swiss 표준과 통일하기 위해 제거함. */
-        /* ── 간트 조작 = 슬라이더 2개가 유일한 수단 ──
-           휠 확대/축소와 간트 가로 드래그(구간 선택)는 제거됐다. 왼쪽 .ct-pan = 가로 이동,
-           오른쪽 .ct-zoom 안의 .ct-range = 확대/축소. 전체(bulk) 페이지는 이 한 벌이 모든 카드에
-           일괄 적용되고, 개별 페이지는 그 페이지의 간트 하나만 조절한다. */
+        /* ── 간트 조작 = 슬라이더 2개 + Ctrl+휠(커서 앵커 줌, 2026-09-01 재도입) ──
+           일반 휠은 페이지 스크롤 그대로, Ctrl+휠만 간트 확대(브라우저 페이지 확대는 preventDefault 로 차단).
+           왼쪽 .ct-pan = 가로 이동, 오른쪽 .ct-zoom 안의 .ct-range = 확대/축소. 전체(bulk) 페이지는
+           이 한 벌이 모든 카드에 일괄 적용되고, 개별 페이지는 상단·분기 간트가 줌을 공유한다. */
         .ct-pan { display: flex; align-items: center; gap: 8px; flex: 1 1 220px; min-width: 120px; }
         .ct-slider-lbl { font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); white-space: nowrap; }
         .ct-range { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; margin: 0; padding: 0; background: transparent; cursor: pointer; }

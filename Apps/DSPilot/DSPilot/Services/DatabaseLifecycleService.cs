@@ -26,6 +26,7 @@ public sealed class DatabaseLifecycleService
     private readonly IHubContext<MonitoringHub> _hubContext;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly HistoryMirrorService _mirror;
+    private readonly PlcConnectionStatusTracker _plcStatus;
     private readonly ILogger<DatabaseLifecycleService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -42,9 +43,11 @@ public sealed class DatabaseLifecycleService
         IHubContext<MonitoringHub> hubContext,
         IServiceScopeFactory scopeFactory,
         HistoryMirrorService mirror,
+        PlcConnectionStatusTracker plcStatus,
         ILogger<DatabaseLifecycleService> logger)
     {
         _mirror = mirror;
+        _plcStatus = plcStatus;
         _engineService = engineService;
         _dspDbService = dspDbService;
         _bootstrap = bootstrap;
@@ -277,6 +280,11 @@ public sealed class DatabaseLifecycleService
                 return new RebuildResult(false, "AASX 파싱 실패 — 구 포맷일 수 있습니다. ds2 에디터에서 다시 Export 하세요.");
             }
 
+            // 헤더 PLC 어댑터 캐시 폐기 — Tracker 는 UPSERT-only 라 구 모델의 PLC(이름 키)가 영구 잔존한다
+            // (AASX 교체 후 서비스 재시작 전까지 옛 5대가 계속 보이던 증상). 비우면 다음 /api/nav/summary 가
+            // 새 모델 AID 로 직접 핑 폴백하고, Agent 가 재보고하면 새 이름으로 다시 채워진다.
+            _plcStatus.ClearAll();
+
             _logger.LogInformation("[DBLifecycle] ReloadAasx complete (sha256={Sha})", _projectService.LastLoadedSha256 ?? "<n/a>");
             return new RebuildResult(true, "AASX 모델을 다시 불러왔습니다. (DB 미반영 — 모델 정의가 바뀌었다면 \"DB 재구축\" 실행)");
         }
@@ -394,6 +402,10 @@ public sealed class DatabaseLifecycleService
 
             // 7) UI 스냅샷 클리어 → OnDataChanged + OnStructuralChange 발화로 모든 페이지 자동 새로고침
             _dspDbService.Reset();
+
+            // 7-b) 헤더 PLC 어댑터 캐시 폐기 — Tracker 는 UPSERT-only 라 구 모델 PLC 가 잔존한다
+            //      (ReloadAasxAsync 의 동일 조치 참조). 새 모델 AID 핑 폴백/Agent 재보고로 재구성된다.
+            _plcStatus.ClearAll();
 
             // 8) audit log — "이 시점에 모델이 어떻게 바뀌었는지" 영구 박제
             try

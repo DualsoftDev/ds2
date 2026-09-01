@@ -240,6 +240,33 @@
             <template x-if="flow">
                 <div class="fw-grid">
 
+                    <!-- ════ 간트 툴바 (보기 전환 + 이동/확대 슬라이더) — 카드 밖 sticky (2026-09-01) ════
+                         분기별 간트 카드까지 스크롤해도 상단(헤더 아래)에 고정되어 어느 간트에서든 바로 손이 닿는다.
+                         이동/확대는 상단 간트·분기 간트가 공유(줌 축 일치). Ctrl+휠 = 커서 앵커 줌(onGanttWheel). -->
+                    <div class="ct-gantt-toolbar fw-toolbar-sticky" x-show="tab === 'cycle' && callLanes.length > 0" x-cloak>
+                        <div class="ct-seg">
+                            <button :class="viewMode === 'bar' ? 'active' : ''" @click="setView('bar')"
+                                    title="실행(InTag ∪ OutTag 합집합) 막대그래프">막대</button>
+                            <button :class="viewMode === 'line' ? 'active' : ''" @click="setView('line')"
+                                    title="OutTag(명령=시작)·InTag(응답=완료) 신호 라인 그래프">InOut 라인</button>
+                        </div>
+                        <span class="ct-tb-hint">간트 드래그 = 구간 선택 · Ctrl+휠 = 확대</span>
+                        <div class="ct-pan">
+                            <span class="ct-slider-lbl">이동</span>
+                            <input type="range" class="ct-range" min="0" max="1000" step="1"
+                                   :value="panPct" :disabled="!canPan" @input="onPanSlider($event.target.value)"
+                                   title="간트를 좌우로 이동 (확대했을 때 활성)">
+                        </div>
+                        <div class="ct-zoom">
+                            <span class="ct-slider-lbl">확대</span>
+                            <input type="range" class="ct-range" min="0" max="1000" step="1"
+                                   :value="zoomPct" @input="onZoomSlider($event.target.value)"
+                                   title="간트 확대/축소 (100% ~ 2400%) — 간트 위 Ctrl+휠로도 확대">
+                            <span class="ct-zoom-val" x-text="Math.round(zoom * 100) + '%'"></span>
+                            <button class="ct-zoom-reset" @click="resetZoom()" :disabled="zoom <= 1" title="전체 보기로 리셋">전체</button>
+                        </div>
+                    </div>
+
                     <!-- ════ 사이클 분석 (구 cycle-time-analysis 전체 기능, 이 Flow 스코프) — 상단 필터/액션 툴바는 .ds-topbar 로 통합 ════ -->
                     <section class="card fw-section" x-show="tab === 'cycle'">
                         <div class="ds-card-h" style="margin-bottom:12px;">
@@ -289,31 +316,8 @@
                                 <div style="display:flex; flex-direction:column; gap:12px;">
                                     <!-- '가동시간 기준' 액션 바 제거됨 — 적용(저장)·Excel 은 상단 '이상치 제외' 툴바 우측으로 이동 -->
 
-                                    <!-- 간트 툴바: 보기 전환 + 이동 슬라이더 + 확대 슬라이더.
-                                         이동/확대는 슬라이더 전담(간트 휠 줌은 제거) — 간트 드래그는 구간 선택 전용으로 남는다. -->
-                                    <div class="ct-gantt-toolbar">
-                                        <div class="ct-seg">
-                                            <button :class="viewMode === 'bar' ? 'active' : ''" @click="setView('bar')"
-                                                    title="실행(InTag ∪ OutTag 합집합) 막대그래프">막대</button>
-                                            <button :class="viewMode === 'line' ? 'active' : ''" @click="setView('line')"
-                                                    title="OutTag(명령=시작)·InTag(응답=완료) 신호 라인 그래프">InOut 라인</button>
-                                        </div>
-                                        <span class="ct-tb-hint">간트 드래그 = 구간 선택</span>
-                                        <div class="ct-pan">
-                                            <span class="ct-slider-lbl">이동</span>
-                                            <input type="range" class="ct-range" min="0" max="1000" step="1"
-                                                   :value="panPct" :disabled="!canPan" @input="onPanSlider($event.target.value)"
-                                                   title="간트를 좌우로 이동 (확대했을 때 활성)">
-                                        </div>
-                                        <div class="ct-zoom">
-                                            <span class="ct-slider-lbl">확대</span>
-                                            <input type="range" class="ct-range" min="0" max="1000" step="1"
-                                                   :value="zoomPct" @input="onZoomSlider($event.target.value)"
-                                                   title="간트 확대/축소 (100% ~ 2400%)">
-                                            <span class="ct-zoom-val" x-text="Math.round(zoom * 100) + '%'"></span>
-                                            <button class="ct-zoom-reset" @click="resetZoom()" :disabled="zoom <= 1" title="전체 보기로 리셋">전체</button>
-                                        </div>
-                                    </div>
+                                    <!-- 간트 툴바(보기/이동/확대)는 카드 밖 sticky 바(.fw-toolbar-sticky, 위)로 이동(2026-09-01)
+                                         — 분기별 간트 카드에서도 상단 고정으로 접근. -->
 
                                     <!-- 간트 layout -->
                                     <div class="ct-gantt-layout">
@@ -409,9 +413,10 @@
                                                 </div>
                                             </template>
                                         </div>
-                                        <!-- 간트 본체. 이동/확대는 툴바 슬라이더 전담(휠 줌 없음) — 간트 드래그는 구간 선택 전용. -->
+                                        <!-- 간트 본체. 이동/확대는 툴바 슬라이더 + Ctrl+휠(커서 앵커 줌, 브라우저 확대 차단) — 간트 드래그는 구간 선택 전용. -->
                                         <div class="ct-gantt-chart-area">
                                           <div class="ct-gantt-hscroll" x-ref="chartArea" @scroll="syncPan($el)"
+                                               @wheel="onGanttWheel($event)"
                                                x-init="$nextTick(() => observePan($el)); $el.addEventListener('touchstart', (e) => onDragStartTouch(e), { passive: false })"
                                                @mousedown="onDragStart($event)">
                                             <div class="ct-gantt-wrapper" x-html="svgMarkup"></div>
@@ -550,7 +555,8 @@
                                             </template>
                                         </div>
                                         <div class="ct-gantt-chart-area">
-                                            <div class="ct-gantt-hscroll">
+                                            <!-- 분기 간트도 Ctrl+휠 줌 — 줌은 상단과 공유(전 간트 일괄), 앵커는 이 카드 커서 위치. -->
+                                            <div class="ct-gantt-hscroll" @wheel="onGanttWheel($event)">
                                                 <div class="ct-gantt-wrapper" x-html="brCards[bi] ? brCards[bi].svg : ''"></div>
                                             </div>
                                         </div>
@@ -991,10 +997,11 @@
                                             </div>
                                         </template>
                                     </div>
-                                    <!-- 간트 본체. 이동/확대는 상단 공유 슬라이더 전담(휠 줌 없음) — 간트 드래그는 구간 선택 전용. -->
+                                    <!-- 간트 본체. 이동/확대는 상단 공유 슬라이더 + Ctrl+휠(커서 앵커 줌, 전 카드 일괄) — 간트 드래그는 구간 선택 전용. -->
                                     <div class="ct-gantt-chart-area">
                                       <div class="ct-gantt-hscroll" :id="'cta-' + slice.id" @scroll="onAreaScroll(slice)"
                                            x-init="$nextTick(() => observePan($el))"
+                                           @wheel="onGanttWheel(slice, $event)"
                                            @pointerdown="onDragStart($event, slice)">
                                         <div class="ct-gantt-wrapper" x-html="slice.svgMarkup"></div>
                                         <!-- 드래그 선택 구간 플로팅 툴팁 (개별 페이지와 동일) -->

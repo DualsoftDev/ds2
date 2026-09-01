@@ -337,6 +337,17 @@ function bulkCycleApp() {
             }
             requestAnimationFrame(() => { this._panSync = false; });
         },
+        // Ctrl+휠 = 간트 확대/축소(커서 아래 시각 고정, 브라우저 페이지 확대 차단) — 줌은 전 카드 일괄,
+        // 앵커는 휠이 발생한 카드의 커서 위치. 일반 휠(Ctrl 없이)은 페이지 스크롤 유지.
+        onGanttWheel(slice, e) {
+            if (!e.ctrlKey || !slice.callLanes.length) return;
+            e.preventDefault();
+            const el = this.areaEl(slice); if (!el) return;
+            const dy = e.deltaMode === 1 ? e.deltaY * 24 : e.deltaY;   // 줄 단위(Firefox) → px 근사
+            const factor = Math.exp(-dy * 0.0022);                     // 휠 1노치(±100px) ≈ ±25%
+            const anchorX = e.clientX - el.getBoundingClientRect().left;
+            this.applyZoom(slice, this.zoom * factor, anchorX, el);
+        },
         // 카드의 네이티브 가로 스크롤바로 움직였을 때도 슬라이더·다른 카드를 따라오게 한다.
         onAreaScroll(slice) {
             if (this._panSync) return;
