@@ -97,10 +97,14 @@ internal static class ConditionDropHelper
     private static ContactKind? PromptContactKindIfSkipAction(ConditionType condType, Window? ownerWindow)
     {
         if (condType != ConditionType.SkipAction) return null;
-        var picker = new ContactKindPickerDialog();
+        // 속성창 섹션 드롭은 유형이 이미 정해져 있으므로, 캔버스와 같은 통합 다이얼로그를
+        // '유형 잠금' 모드로 열어 접점만 고르게 한다(별도 ContactKind 창을 쓰지 않는다).
+        var picker = new ConditionTypePickerDialog(
+            condType,
+            "드롭한 섹션의 조건 유형이 SkipAction 으로 정해져 있습니다.");
         if (ownerWindow is not null) picker.Owner = ownerWindow;
         else if (Application.Current.MainWindow is { } main) picker.Owner = main;
-        return picker.ShowDialog() == true ? picker.SelectedContactKind : (ContactKind?)null;
+        return picker.ShowDialog() == true ? picker.SelectedContactKind : null;
     }
 
     /// <summary>
@@ -205,20 +209,22 @@ internal static class ConditionDropHelper
 
     // ── Work owner 용 동일 패턴 ───────────────────────────────────────────
 
+    /// <param name="presetContactKind">조건 유형 다이얼로그에서 이미 고른 접점. 있으면 별도 다이얼로그를 띄우지 않는다.</param>
     internal static bool ExecuteWorkConditionDrop(
         DsStore store,
         MainViewModel.HostBase host,
         Guid targetWorkId,
         ConditionType condType,
         Guid droppedCallId,
-        Window? ownerWindow = null)
+        Window? ownerWindow = null,
+        ContactKind? presetContactKind = null)
     {
         var selectedIds = ResolveApiCallIds(store, host, droppedCallId, ownerWindow);
         if (selectedIds is null)
             return false;
 
-        ContactKind? kindOverride = null;
-        if (condType == ConditionType.SkipAction)
+        ContactKind? kindOverride = presetContactKind;
+        if (condType == ConditionType.SkipAction && kindOverride is null)
         {
             kindOverride = PromptContactKindIfSkipAction(condType, ownerWindow);
             if (kindOverride is null) return false;
