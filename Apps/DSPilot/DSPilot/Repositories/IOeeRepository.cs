@@ -26,6 +26,12 @@ public interface IOeeRepository
     Task<int> CloseDowntimeAsync(long id, DateTime endAtUtc, CancellationToken ct = default);
 
     /// <summary>
+    /// 자세(midCycle) 승격 — NULL/0 → 1 방향만 갱신(유발자 증거는 강등되지 않는다).
+    /// <see cref="Models.Oee.OeeDowntimeEvent.MidCycle"/> 참조. 영향 행 수 반환(0=이미 같거나 높음).
+    /// </summary>
+    Task<int> SetDowntimeMidCycleAsync(long id, int midCycle, CancellationToken ct = default);
+
+    /// <summary>
     /// 분류 PATCH — reasonCode/category, isFailure(category=unplanned 일 때 1), classifySource(출처).
     /// 수동 분류는 'manual'(기본), CauseBit 자동분류는 'auto-bit'. 무조건 UPDATE(수동·비트는 권위적).
     /// </summary>

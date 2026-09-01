@@ -33,6 +33,23 @@ public static class OeeMath
     public const double FaultMtMultiplierDefault = 2.5;
 
     /// <summary>
+    /// MT 과주행(고장 유발자) 경계의 절대 하한(ms) (2026-08-30). 초저 MT flow 에선 중앙값×배수가 지터
+    /// 수준으로 내려가 잡음이 "고장 유발자"로 등록된다 — 실측 2026-08-28: Prog2 중앙값 mt=22ms → 경계
+    /// 55ms, mt=238ms 지터가 유발자가 되어 <b>다른 PLC</b> 정지의 형제 강등 근거로 오염됐다.
+    /// 1초 미만 모션 초과는 물리 고장의 증거가 될 수 없다는 가정 — 진짜 유발자는 실측에서 항상 수십 초
+    /// 이상이었다(225~715s). 경계 산출은 <see cref="ResolveMtFaultBoundaryMs"/> 한 곳으로 통일.
+    /// </summary>
+    public const double FaultMtBoundaryFloorMs = 1_000;
+
+    /// <summary>
+    /// MT 과주행 경계 = max(14일 중앙값 MT × 고장배수, 절대 하한). 유발자 판별의 모든 경로(집계 사전
+    /// 수집·dtCond @MtThr·행 단위 mtOverrun 판정)가 이 함수를 쓴다 — 경계가 갈라지면 "로그 라벨과
+    /// failureCount 가 어긋난다"(<see cref="ClassifyByDuration"/> 주석과 같은 이유).
+    /// </summary>
+    public static double ResolveMtFaultBoundaryMs(double medianMtMs, double faultMultiplier)
+        => Math.Max(medianMtMs * faultMultiplier, FaultMtBoundaryFloorMs);
+
+    /// <summary>
     /// 비가동(정지) 판정 배수 기본값 — 사이클 MT(또는 미완료 CT)가 14일 평균 CT 의 이 배수를 <b>초과</b>하면
     /// 비가동으로 본다(doc/22 §3 ①②, 2026-07-13 도입 — 종전 1×). 평균의 1~2.5배 구간 "느린 사이클"은 정상(속도
     /// 손실 → 성능 P 로 재배분)으로 두고, 그 이상 늘어진 것만 정지로 계상한다. 성능 P 의 표준치는 여전히 1×평균

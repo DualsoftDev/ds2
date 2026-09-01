@@ -146,6 +146,97 @@ public class FlowController : ControllerBase
     [HttpGet("recompute-status")]
     public ActionResult<RecomputeJobStatus> RecomputeStatus() => _recompute.Status;
 
+    // ── 사이클 분기(branch) ────────────────────────────────────────────────────
+
+    /// <summary>이 flow 의 분기 정의 목록 (없으면 빈 배열 = 분기 미사용).</summary>
+    [HttpGet("{name}/branches")]
+    public ActionResult<FlowBranchesDto> GetBranches(string name)
+    {
+        var set = _settings.GetFlowBranchSet(name);
+        return new FlowBranchesDto(
+            name,
+            (set?.Branches ?? [])
+                .Select(b => new FlowBranchDefDto(b.Name, b.StartCallName, b.EndCallName, b.ExcludedCallNames.ToArray()))
+                .ToArray());
+    }
+
+    /// <summary>
+    /// 분기 정의 저장(빈 배열 = 분기 해제). 저장 성공 시 전체 이력 재도출을 트리거해 과거 사이클까지
+    /// 새 분기 정의로 재분류한다(해제 시 branchName 라벨 제거 = 완전 복귀). AASX 에는 기록하지 않는다.
+    /// </summary>
+    [HttpPost("{name}/branches")]
+    public ActionResult<FlowBranchesDto> SaveBranches(string name, [FromBody] SaveFlowBranchesRequestDto req)
+    {
+        if (!_project.IsLoaded)
+            return StatusCode(503, new { message = "프로젝트(AASX)가 로드되지 않았습니다." });
+
+        var flow = _project.GetFlowByName(name);
+        if (flow is null)
+            return NotFound(new { message = $"Flow '{name}' 을(를) 찾을 수 없습니다." });
+
+        var options = BuildCallOptions(flow);
+        var optionSet = new HashSet<string>(options, StringComparer.OrdinalIgnoreCase);
+        var branches = new List<Models.FlowBranchDef>();
+        foreach (var b in req?.Branches ?? [])
+        {
+            // call 이름 실존 검증 — 오타/모델 변경 잔재가 조용히 전 사이클을 미분류로 만드는 것을 저장 시점에 차단.
+            foreach (var call in new[] { b.StartCallName, b.EndCallName })
+                if (string.IsNullOrWhiteSpace(call) || !optionSet.Contains(call.Trim()))
+                    return BadRequest(new { message = $"분기 '{b.Name}' 의 시작/끝 call '{call}' 이 이 flow 에 없습니다." });
+            var unknown = (b.ExcludedCallNames ?? []).FirstOrDefault(c => !string.IsNullOrWhiteSpace(c) && !optionSet.Contains(c.Trim()));
+            if (unknown is not null)
+                return BadRequest(new { message = $"분기 '{b.Name}' 의 제외 call '{unknown}' 이 이 flow 에 없습니다." });
+
+            branches.Add(new Models.FlowBranchDef
+            {
+                Name = (b.Name ?? "").Trim(),
+                StartCallName = b.StartCallName!.Trim(),
+                EndCallName = b.EndCallName!.Trim(),
+                ExcludedCallNames = (b.ExcludedCallNames ?? []).ToList(),
+            });
+        }
+
+        // OEE 노출명("부모_분기") 이 실존 flow 이름과 충돌하면 설비효율 열거가 두 개체를 한 이름으로 합쳐버린다.
+        if (branches.Count > 0)
+        {
+            var flowNames = new HashSet<string>(
+                _project.GetAllFlows().Select(f => f.Name), StringComparer.OrdinalIgnoreCase);
+            var clash = branches.Select(b => $"{flow.Name}_{b.Name}").FirstOrDefault(n => flowNames.Contains(n));
+            if (clash is not null)
+                return BadRequest(new { message = $"분기 표시명 '{clash}' 이 기존 flow 이름과 충돌합니다. 분기 이름을 바꿔 주세요." });
+        }
+
+        try
+        {
+            _settings.SaveFlowBranchSet(flow.Name, branches);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Flow] 분기 저장 실패: {Flow}", flow.Name);
+            return StatusCode(500, new { message = $"저장 실패: {ex.Message}" });
+        }
+
+        // 과거 이력 전체를 새 분기 정의로 재분류(백그라운드) — 저장/해제 공통. head/tail 인자는
+        // 분기 경로에서 무시되고, 해제면 flow 유효 경계로 단일 도출된다.
+        try
+        {
+            var (curStart, curEnd) = _flowMetrics.GetCycleBoundaryCallNames(flow.Name);
+            var started = _recompute.TryStartFullHistoryRecompute(flow.Name, curStart, curEnd);
+            if (!started)
+                _logger.LogWarning("[Flow] 분기 저장 후 재계산 시작 실패(다른 잡 진행 중): {Flow}", flow.Name);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Flow] 분기 저장 후 재계산 트리거 실패(저장은 유효): {Flow}", flow.Name);
+        }
+
+        return GetBranches(flow.Name);
+    }
+
     // ── helpers ──
 
     private ActionResult<FlowDetailDto> BuildDetail(string name)
@@ -292,3 +383,16 @@ public record FlowKpiDto(
 public record CycleOverrideRequestDto(
     string? StartCallName,
     string? EndCallName);
+
+public record FlowBranchesDto(
+    string FlowName,
+    FlowBranchDefDto[] Branches);
+
+public record FlowBranchDefDto(
+    string Name,
+    string? StartCallName,
+    string? EndCallName,
+    string[]? ExcludedCallNames);
+
+public record SaveFlowBranchesRequestDto(
+    FlowBranchDefDto[]? Branches);

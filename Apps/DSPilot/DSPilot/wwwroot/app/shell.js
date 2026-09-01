@@ -12,7 +12,11 @@ window.dspDirtyRegister = function (fn) { window._dspDirtyChecker = fn; };
 // 비-defer 스크립트(uptime-workspace.js 등)의 로드 시점엔 아직 없다(호출 시점엔 항상 있음).
 window.dspFmt = {
     // 짧은 지속시간 — 구 durShort/cctvFmtDuration 대체. 값 없음/0 이하는 empty(기본 '—').
-    dur(ms, empty) {
+    //   opts.maxUnit: 'h' 를 주면 일(日) 단위로 올리지 않고 '68시간 12분' 으로 표기한다.
+    //   설비 합산(Σ_flow) 값 전용 — 24h 를 넘는 합산을 '2일 20시간' 으로 쓰면 달력 날짜로 오독된다
+    //   (설비 7대 라인은 하루에 최대 168시간이 정상). opts 를 2번째 인자로 바로 줘도 된다.
+    dur(ms, empty, opts) {
+        if (empty !== null && typeof empty === 'object') { opts = empty; empty = undefined; }
         const e = (empty === undefined) ? '—' : empty;
         if (ms == null) return e;
         const n = Number(ms);
@@ -20,7 +24,8 @@ window.dspFmt = {
         if (n < 1000) return Math.round(n) + 'ms';
         if (n < 60000) return (n / 1000).toFixed(1) + '초';
         if (n < 3600000) return Math.floor(n / 60000) + '분 ' + Math.floor(n % 60000 / 1000) + '초';
-        if (n < 86400000) return Math.floor(n / 3600000) + '시간 ' + Math.floor(n % 3600000 / 60000) + '분';
+        const capHours = !!(opts && (opts.maxUnit === 'h' || opts.maxUnit === '시간'));
+        if (n < 86400000 || capHours) return Math.floor(n / 3600000) + '시간 ' + Math.floor(n % 3600000 / 60000) + '분';
         return Math.floor(n / 86400000) + '일 ' + Math.floor(n % 86400000 / 3600000) + '시간';
     },
     // 시(hour) 실수값 → '2시간 15분' / '15분'. 차트 툴팁처럼 이미 시간 단위인 축에서 사용.
@@ -589,8 +594,12 @@ window.dspFmt = {
 
                 var groupHasCurrent = false;
 
-                (sysFlows || []).forEach(function (flowName) {
-                    var isCur = isActivePage && flowName === activeFlowName;
+                // 항목 = 문자열(flow 이름) 또는 객체 {label, href, active} — 사이클 분기 행처럼 표시명과
+                // 이동 주소가 표준 규칙(base?queryParam=이름)과 다른 항목을 지원한다(2026-08-27).
+                (sysFlows || []).forEach(function (entry) {
+                    var isObj = entry !== null && typeof entry === 'object';
+                    var flowName = isObj ? entry.label : entry;
+                    var isCur = isActivePage && (isObj ? !!entry.active : flowName === activeFlowName);
                     if (isCur) groupHasCurrent = true;
                     var fb = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant'
                         + (isCur ? '' : ' hover:bg-surface-container-high dark:hover:bg-inverse-surface'));
@@ -604,7 +613,10 @@ window.dspFmt = {
                     fb.appendChild(fl);
                     fb.addEventListener('click', function (ev) {
                         ev.stopPropagation();
-                        navigateTo(withPeriodCarry(base + '?' + queryParam + '=' + encodeURIComponent(flowName)));
+                        var href = isObj && entry.href
+                            ? entry.href
+                            : base + '?' + queryParam + '=' + encodeURIComponent(flowName);
+                        navigateTo(withPeriodCarry(href));
                     });
                     list.appendChild(fb);
                 });
@@ -640,11 +652,25 @@ window.dspFmt = {
 
             systems.forEach(function (sys) {
                 var flows = sys.flows || [];
+                // 사이클 분기 — flow → 분기 이름 목록(분기 활성 flow 만). 설비효율/가동시간 분석 그룹에서
+                // 부모 행을 "부모_분기" 행들로 치환한다(생산효율/추이/동작편차는 부모 그대로 = 설계 규약).
+                var fbr = sys.flowBranches || {};
+                function inSysFlows(name) {
+                    if (!name) return false;
+                    if (flows.indexOf(name) !== -1) return true;
+                    for (var i = 0; i < flows.length; i++) {
+                        var brs = fbr[flows[i]];
+                        if (!brs) continue;
+                        for (var j = 0; j < brs.length; j++)
+                            if (flows[i] + '_' + brs[j] === name) return true;
+                    }
+                    return false;
+                }
                 var sysHasCurrent =
                        (onFlowPage      && flows.indexOf(curFlowName) !== -1)
                     || (onFlowCycleBulk && flowCycleSystem === sys.name)
                     || (onHeatmapPage   && flows.indexOf(heatmapFlow) !== -1)
-                    || (onOeePage     && (flows.indexOf(oeeFlow)  !== -1 || oeeSystem  === sys.name))
+                    || (onOeePage     && (inSysFlows(oeeFlow) || oeeSystem  === sys.name))
                     || (onTeepPage    && (flows.indexOf(teepFlow) !== -1 || teepSystem === sys.name))
                     || (onAlarmPage   && flows.indexOf(alarmFlow)   !== -1);
 
@@ -683,19 +709,36 @@ window.dspFmt = {
                 // 공통 구조(2026-07-02): 모든 그룹에서 별도 '전체' 항목 제거(withAll=false). header 클릭이 곧 '전체' 페이지
                 //   이동(headerHref)이며, 이동한 페이지에서 isActivePage=true 로 자동 펼쳐져 FLOW 를 바로 선택한다.
                 var gTrend = buildAnalysisGroup(flows, '추이 분석',  'timeline',      '/flow-trend',   'name', onFlowPage && curFlowView === 'trend', curFlowName, false, '/flow-trend');
-                // 가동시간 분석: base(/flow-cycle?name=) 는 단일 Flow. '전체'(header 클릭) 는 /flow-cycle?system=
-                //   (그 시스템 모든 Flow 간트 일괄 편집)로 보낸다. 그룹은 단일(?name=)이든 전체(bulk)이든 이 시스템이면 활성/자동펼침.
+                // 가동시간 분석: base(/flow-cycle?name=) 는 단일 Flow. '전체'(일괄 편집, /flow-cycle?system=) 는
+                //   임시 비활성(2026-08-27, 분기 기능 포함 개편까지 보류) — headerHref 미지정 → 헤더 클릭 = 토글만.
+                //   해제 = headerHref 에 '/flow-cycle?system=' + encodeURIComponent(sys.name) 복원.
+                //   분기 행 치환은 설비효율(OEE)만 — 가동시간 분석은 flow 단일 페이지 유지(2026-08-28 사용자 결정,
+                //   분기 편집은 그 페이지 안의 분기별 간트 카드에서).
                 var cycleActive = (onFlowPage && curFlowView === 'cycle') || (onFlowCycleBulk && flowCycleSystem === sys.name);
                 var gCycle = buildAnalysisGroup(flows, '가동시간 분석', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false,
-                    '/flow-cycle?system=' + encodeURIComponent(sys.name));
+                    '');
                 var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, '/heatmap');
                 // 종합효율 현황 → 설비효율(OEE)/생산효율(TEEP) 물리 분리(2026-07-03) — 구 내부 탭(?section=) 폐지.
                 // 헤더 클릭 = 이 시스템 스코프(?system=) — 전 시스템 합산은 최상위 NAV_ITEMS 링크가 담당(2026-08-25).
                 //   활성/자동펼침도 이 시스템 스코프(설비가 이 시스템 소속이거나 ?system= 일치)일 때만 — 종전엔
                 //   /uptime-oee 진입 시 모든 시스템 그룹이 활성이었다(전체/시스템 구분이 없던 시절의 잔재).
-                var oeeActive  = onOeePage  && (oeeFlow  ? flows.indexOf(oeeFlow)  !== -1 : oeeSystem  === sys.name);
+                var oeeActive  = onOeePage  && (oeeFlow  ? inSysFlows(oeeFlow) : oeeSystem  === sys.name);
                 var teepActive = onTeepPage && (teepFlow ? flows.indexOf(teepFlow) !== -1 : teepSystem === sys.name);
-                var gOee   = buildAnalysisGroup(flows, '설비효율 현황', 'speed',       '/uptime-oee',   'flow', oeeActive,  oeeFlow,  false,
+                // 설비효율: 분기 활성 flow 는 "부모_분기" 행으로 치환(부모 행 소멸) — ?flow=부모_분기 로 스코프.
+                var oeeItems = [];
+                flows.forEach(function (f) {
+                    var brs = fbr[f];
+                    if (brs && brs.length) brs.forEach(function (b) {
+                        var v = f + '_' + b;
+                        oeeItems.push({
+                            label: v,
+                            href: '/uptime-oee?flow=' + encodeURIComponent(v),
+                            active: oeeFlow === v,
+                        });
+                    });
+                    else oeeItems.push(f);
+                });
+                var gOee   = buildAnalysisGroup(oeeItems, '설비효율 현황', 'speed',       '/uptime-oee',   'flow', oeeActive,  oeeFlow,  false,
                     '/uptime-oee?system=' + encodeURIComponent(sys.name));
                 var gTeep  = buildAnalysisGroup(flows, '생산효율 현황', 'trending_up', '/uptime-teep',  'flow', teepActive, teepFlow, false,
                     '/uptime-teep?system=' + encodeURIComponent(sys.name));
@@ -805,9 +848,15 @@ window.dspFmt = {
         }
         var agHub = agentRow();
         var agPlc = agentRow();
+        var agScan = agentRow();
         var agData = agentRow();
         agHub.text.textContent = 'PROMAKER HUB: —';
         agPlc.text.textContent = 'PLC 어댑터: —';
+        // 수집 방식 — Promaker 업로드 시 선택(런타임 세팅 "PLC 읽기 방식"). 상태가 아닌 구성 정보라
+        // 점 색은 중립 파랑 고정, session.json 이 없으면(업로드 이력 없음) 행 자체를 숨긴다.
+        agScan.text.textContent = 'PLC 수집: —';
+        agScan.row.style.display = 'none';
+        agScan.row.title = 'Promaker 업로드 시 선택한 PLC 읽기 방식';
         agData.text.textContent = 'PLC 데이터 수신중';
         agData.row.style.display = 'none';  // 실제 수신 확인 전까지 숨김 — 수신되면 applySummary 가 켠다.
 
@@ -832,6 +881,7 @@ window.dspFmt = {
         agPopCard.appendChild(agHub.row);
         agPopCard.appendChild(agPlc.row);
         agPopCard.appendChild(agPlcDetail);
+        agPopCard.appendChild(agScan.row);
         agPopCard.appendChild(agData.row);
         agPopover.appendChild(agPopCard);
         document.body.appendChild(agPopover);
@@ -1175,6 +1225,18 @@ window.dspFmt = {
             }
             agPlc.text.textContent = plcLabel;
             agPlc.dot.style.background = plcColor;
+
+            // 수집 방식(Promaker 업로드 시 선택) — direct=Agent 직접 / delegated=Edge 단말 위임.
+            // null(구 서버·업로드 이력 없음)이면 행을 숨겨 노이즈를 만들지 않는다.
+            var scanMode = agent.plcScanMode || null;
+            if (scanMode) {
+                agScan.text.textContent = 'PLC 수집: ' + (scanMode === 'delegated'
+                    ? 'Edge 단말 위임' : 'Agent 직접');
+                agScan.dot.style.background = '#60a5fa';
+                agScan.row.style.display = '';
+            } else {
+                agScan.row.style.display = 'none';
+            }
 
             // 상세(IP) 패널 데이터 갱신 — 열려 있으면 즉시 다시 렌더.
             _agAdapters = agent.adapters || [];

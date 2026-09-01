@@ -111,10 +111,16 @@
         .ct-tailsug .material-icons { font-size: 13px; }
         .ct-mono { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
 
-        /* 간트 layout (헤어라인 박스, 그림자 없음) */
-        .ct-gantt-layout { display: flex; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); overflow: hidden; max-height: calc(100vh - 300px); }
-        .ct-lane-sidebar { flex: 0 0 330px; width: 330px; background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow-y: auto; overflow-x: hidden; z-index: 1; }
-        .ct-sidebar-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; padding: 0 12px 6px; font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.12em; border-bottom: 1.5px solid var(--color-text-primary); background: var(--color-surface-variant); position: sticky; top: 0; z-index: 2; }
+        /* 간트 layout (헤어라인 박스, 그림자 없음)
+           ── 일체형 세로 스크롤 ──
+           사이드바(CALL 목록)와 본체가 각자 세로로 스크롤하면 어긋난다(본체 가로 스크롤바가 세로 범위를 갉아먹음).
+           세로는 layout 하나만 스크롤하고, 사이드바·본체는 각자 content 높이만큼 자라게 한다(align-items:flex-start).
+           본체의 가로 스크롤은 안쪽 래퍼(.ct-gantt-hscroll)가 전담 — 본체 자체를 overflow-y 스크롤 컨테이너로 두면
+           세로로 content 보다 짧게 잘려(하단 lane 소실) 이 방식으로 분리한다. 대개 call 수가 적어 세로 스크롤은 드묾. */
+        .ct-gantt-layout { display: flex; align-items: flex-start; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); overflow-y: auto; overflow-x: hidden; max-height: calc(100vh - 300px); }
+        .ct-lane-sidebar { flex: 0 0 330px; width: 330px; background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow: visible; z-index: 1; }
+        /* 일체형 세로 스크롤로 전환 후 sticky 제거 — layout 스크롤 시 헤더만 고정되면 본체 축(SVG 내부, 고정 불가)과 어긋나 lane 정렬이 깨진다. 헤더/축이 함께 스크롤되게 통일. */
+        .ct-sidebar-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; padding: 0 12px 6px; font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.12em; border-bottom: 1.5px solid var(--color-text-primary); background: var(--color-surface-variant); }
         .ct-sh-title { flex: 0 0 auto; }
         .ct-sh-stats { display: flex; gap: 14px; text-transform: none; letter-spacing: normal; }
         .ct-sh-stat { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
@@ -170,7 +176,10 @@
         .ct-api-nodata { font-style: italic; opacity: 0.75; }
         .ct-api-cur b { color: var(--color-text-primary); font-weight: 700; }
         .dark-theme .ct-api-meas b { color: #64b5f6; }
-        .ct-gantt-chart-area { flex: 1; overflow: auto; background: var(--color-surface); overscroll-behavior-x: contain; position: relative; }
+        /* 본체는 스크롤 컨테이너가 아니다 — content(SVG) 높이만큼 자라 세로로 잘리지 않는다. 세로=layout, 가로=안쪽 .ct-gantt-hscroll. */
+        .ct-gantt-chart-area { flex: 1; min-width: 0; background: var(--color-surface); }
+        /* 가로 스크롤 전담 래퍼. 자기 content(SVG) 높이로 자라므로 overflow-y:hidden 이 실제로 자를 것이 없다(가로 스크롤바 자리만 확보). */
+        .ct-gantt-hscroll { overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; position: relative; }
         .ct-gantt-wrapper { display: inline-block; }
 
         /* 간트 툴바 (보기 전환 + 줌) */
@@ -363,8 +372,9 @@
 
             /* 간트 layout: 세로 스택(사이드바 위, 차트 아래) */
             .ct-gantt-layout { flex-direction: column; max-height: none; }
-            .ct-lane-sidebar { flex: 0 0 auto; width: 100%; max-height: 200px; overflow-y: auto; border-right: none; border-bottom: 1px solid var(--color-lines); }
-            .ct-gantt-chart-area { min-height: 250px; overflow: auto; }
+            .ct-lane-sidebar { flex: 0 0 auto; width: 100%; max-height: 200px; overflow-y: auto; overflow-x: hidden; border-right: none; border-bottom: 1px solid var(--color-lines); }
+            /* 모바일 스택: 세로는 본체가 자체 스크롤(가로는 안쪽 .ct-gantt-hscroll). */
+            .ct-gantt-chart-area { min-height: 250px; max-height: 60vh; overflow-y: auto; overflow-x: hidden; }
 
             /* 작은 터치 타깃 ≥32px */
             .ct-tag-btn { min-width: 32px; height: 32px; font-size: 0.8rem; }
@@ -390,3 +400,70 @@
            드래그가 실제 시작되면 _beginDrag 가 touchmove 를 preventDefault 해 스크롤을 멈춘다. */
         .ct-gantt-chart-area { touch-action: pan-x pan-y; }
         .ct-gantt-wrapper { touch-action: none; }
+
+/* ════ Work 그룹 헤더 행 (간트 사이드바, 2026-08-27) — laneLayout 이 Work 경계마다 삽입(높이 WORK_ROW_H=22 고정) ════ */
+.ct-work-row { display: flex; align-items: center; background: color-mix(in srgb, var(--color-text-secondary) 8%, var(--color-surface)); border-bottom: 1px solid var(--color-lines); overflow: hidden; }
+.ct-work-label { display: flex; align-items: center; gap: 5px; padding: 0 10px; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.02em; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ct-work-label .material-icons { font-size: 14px; opacity: 0.7; }
+
+/* ════ 사이클 분기(branch) 편집기 (2026-08-27) ════ */
+.fb-chip { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 0.7rem; font-weight: 800; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-primary) 35%, transparent); white-space: nowrap; }
+.fb-branch { border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--color-surface); }
+.fb-branch.is-url { border-color: color-mix(in srgb, var(--color-primary) 55%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent); }
+.fb-brow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fb-dot { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 50%; }
+.fb-name { width: 140px; font-weight: 700; }
+.fb-sel { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary); }
+.fb-sel select { min-width: 130px; }
+.fb-mini { width: 28px; height: 28px; }
+.fb-mini .material-icons { font-size: 16px; }
+.fb-del:hover { color: var(--color-danger, #e5494f); }
+.fb-excl { display: flex; flex-direction: column; gap: 6px; }
+.fb-excl-title { font-size: 0.7rem; color: var(--color-text-secondary); }
+.fb-work { display: flex; flex-direction: column; gap: 4px; }
+.fb-work-h { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; color: var(--color-text-secondary); cursor: pointer; user-select: none; }
+.fb-work-h.is-some input { opacity: 0.55; } /* 부분 선택 — indeterminate 대용(체크박스 반투명) */
+.fb-calls { display: flex; flex-wrap: wrap; gap: 5px; padding-left: 18px; }
+.fb-call { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--color-lines); font-size: 0.72rem; cursor: pointer; user-select: none; transition: background 0.1s, border-color 0.1s; }
+.fb-call input { margin: 0; }
+.fb-call.is-on { background: color-mix(in srgb, #e5494f 12%, transparent); border-color: color-mix(in srgb, #e5494f 45%, transparent); font-weight: 700; }
+.fb-call.is-bound { opacity: 0.5; cursor: not-allowed; }
+.fb-preview { display: flex; flex-direction: column; gap: 6px; }
+.fb-strip { position: relative; height: 26px; border: 1px solid var(--color-lines); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-text-secondary) 4%, var(--color-surface)); overflow: hidden; }
+.fb-seg { position: absolute; top: 0; bottom: 0; opacity: 0.85; }
+.fb-seg + .fb-seg { border-left: 1px solid rgba(255,255,255,0.55); }
+.fb-strip-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; color: var(--color-text-secondary); }
+.fb-stats { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; font-size: 0.72rem; }
+.fb-stat { display: inline-flex; align-items: center; gap: 5px; }
+.fb-stat i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.fb-stat b { font-family: var(--font-mono, monospace); }
+.fb-stat.is-warn b { color: #e5494f; }
+.fb-hint { font-size: 0.68rem; color: var(--color-text-secondary); }
+.fb-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ── 분기 편집 · 간트 통합(2026-08-27): 카드=선택 하이라이트, lane '제외' 토글, 미니맵 스트립 제거 ── */
+.fb-branch.is-active { border-color: color-mix(in srgb, var(--color-primary) 45%, transparent); background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
+.fb-pick { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.fb-pick input { margin: 0; }
+.ct-tag-btn.fb-excl-btn { --fb-c: #e5494f; border-color: color-mix(in srgb, var(--fb-c) 45%, transparent); color: var(--fb-c); }
+.ct-tag-btn.fb-excl-btn.active { background: var(--fb-c); border-color: var(--fb-c); color: #fff; }
+.ct-tag-btn.fb-excl-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── 분기별 간트 카드(2026-08-28) — 분기마다 상단과 동일한 간트를 컴팩트하게 하나씩 ── */
+.fb-gantt { max-height: 46vh; }
+.fb-gantt .ct-lane-sidebar { min-width: 220px; }
+.fb-bstat { font-size: 0.72rem; color: var(--color-text-secondary); white-space: nowrap; }
+.fb-bstat b { font-family: var(--font-mono, monospace); color: var(--color-text-primary); }
+.ct-badge.fb-ex { background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+.dark-theme .ct-badge.fb-ex { background: rgba(198,40,40,0.25); color: #ef9a9a; border-color: rgba(239,154,154,0.5); }
+.fb-work-toggle { cursor: pointer; user-select: none; width: 100%; }
+.fb-work-toggle:hover { color: var(--color-primary); }
+.fb-work-hint { margin-left: auto; font-size: 0.58rem; font-weight: 600; opacity: 0.6; white-space: nowrap; }
+
+/* ── 접힌 lane(2026-08-28) — 분기 간트의 제외 call: 신호 숨김·얇은 띠, 복원 버튼만 노출 ── */
+.ct-lane-row.is-collapsed { opacity: 0.7; overflow: hidden; }
+.ct-lane-row.is-collapsed .ct-lane-name { font-size: 0.66rem; }
+.ct-lane-row.is-collapsed .ct-lane-work,
+.ct-lane-row.is-collapsed .ct-lane-row-leg { display: none; }
+.ct-lane-row.is-collapsed .ct-tag-btn { min-width: 20px; height: 20px; font-size: 0.6rem; padding: 0 5px; }
+.ct-lane-row.is-collapsed .ct-badge { transform: scale(0.9); }

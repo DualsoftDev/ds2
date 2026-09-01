@@ -29,6 +29,7 @@ public sealed class OeeCtStatsService
     private readonly IDatabasePathResolver _pathResolver;
     private readonly HistoryMirrorService _mirror;
     private readonly DsProjectService _project;
+    private readonly AppSettingsService _settings;
     private readonly ILogger<OeeCtStatsService> _logger;
 
     // ── TTL 캐시 + single-flight ────────────────────────────────────────────
@@ -41,11 +42,12 @@ public sealed class OeeCtStatsService
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<object>>> _inflight = new();
 
     public OeeCtStatsService(IDatabasePathResolver pathResolver, HistoryMirrorService mirror,
-        DsProjectService project, ILogger<OeeCtStatsService> logger)
+        DsProjectService project, AppSettingsService settings, ILogger<OeeCtStatsService> logger)
     {
         _pathResolver = pathResolver;
         _mirror = mirror;
         _project = project;
+        _settings = settings;
         _logger = logger;
     }
 
@@ -80,6 +82,7 @@ public sealed class OeeCtStatsService
     private sealed class CtRowRaw
     {
         public string? FlowName { get; set; }
+        public string? BranchName { get; set; } // 사이클 분기 라벨 — branchView 임계에서만 소비
         public long Ct { get; set; }
         public double AgeDays { get; set; } // julianday('now') - julianday(recordedAt), 가중 감쇠 산출용
     }
@@ -448,14 +451,20 @@ public sealed class OeeCtStatsService
         return result;
     }
 
+    /// <param name="branchView">
+    /// true = 분기 뷰(설비효율/OEE 열거용): 분기 활성 flow 는 부모 항목 대신 "부모_분기" 가상 항목으로
+    /// 분해(통계도 그 분기 라벨 행만으로 산출, 미분류(NULL)는 제외). false = 부모 뷰(TEEP/기존): 종전과
+    /// 완전 동일 — 분기 라벨과 무관하게 flowName 단위로 집계(ct 축이 부모 의미라 수치도 불변).
+    /// </param>
     public Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ComputeCtThresholdAsync(
-        int windowDays = 14, int minCleanCycles = 1, DateTime? excludeUntilUtc = null, double? decayHalfLifeDays = null)
+        int windowDays = 14, int minCleanCycles = 1, DateTime? excludeUntilUtc = null, double? decayHalfLifeDays = null,
+        bool branchView = false)
         => GetOrComputeCachedAsync(
-            $"thr|{windowDays}|{minCleanCycles}|{excludeUntilUtc?.ToUniversalTime().Ticks}|{decayHalfLifeDays}",
-            () => ComputeCtThresholdCoreAsync(windowDays, minCleanCycles, excludeUntilUtc, decayHalfLifeDays));
+            $"thr|{windowDays}|{minCleanCycles}|{excludeUntilUtc?.ToUniversalTime().Ticks}|{decayHalfLifeDays}|{(branchView ? "b" : "p")}",
+            () => ComputeCtThresholdCoreAsync(windowDays, minCleanCycles, excludeUntilUtc, decayHalfLifeDays, branchView));
 
     private async Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ComputeCtThresholdCoreAsync(
-        int windowDays, int minCleanCycles, DateTime? excludeUntilUtc, double? decayHalfLifeDays)
+        int windowDays, int minCleanCycles, DateTime? excludeUntilUtc, double? decayHalfLifeDays, bool branchView)
     {
         const double p10Percentile = 10.0; // best-demonstrated 분위수 (ComputeAsync 기본값과 동일)
         var result = new Dictionary<string, (double AvgMs, double P10Ms, int Sample)>(StringComparer.OrdinalIgnoreCase);
@@ -485,29 +494,48 @@ public sealed class OeeCtStatsService
                 : null;
 
             // AgeDays: julianday 차이로 연령(일수) 계산 — 가중 감쇠 시 사용, 미사용 시에도 비용 미미.
+            // branchName 은 옛 DB/미러에 컬럼이 없을 수 있어 폴백 쿼리를 준비한다(EnsureColumn 이전 파일).
             const string sql = @"
-                SELECT flowName AS FlowName, ct AS Ct,
+                SELECT flowName AS FlowName, branchName AS BranchName, ct AS Ct,
                        (julianday('now') - julianday(recordedAt)) AS AgeDays
                 FROM dspFlowHistory
                 WHERE COALESCE(IsIdle,0) = 0 AND ct IS NOT NULL AND ct > 0
                   AND recordedAt >= @Since
                   AND (@Until IS NULL OR recordedAt < @Until)";
-            var raw = await conn.QueryAsync<CtRowRaw>(sql, new { Since = since, Until = until });
+            const string sqlNoBranch = @"
+                SELECT flowName AS FlowName, NULL AS BranchName, ct AS Ct,
+                       (julianday('now') - julianday(recordedAt)) AS AgeDays
+                FROM dspFlowHistory
+                WHERE COALESCE(IsIdle,0) = 0 AND ct IS NOT NULL AND ct > 0
+                  AND recordedAt >= @Since
+                  AND (@Until IS NULL OR recordedAt < @Until)";
+            IEnumerable<CtRowRaw> raw;
+            try { raw = await conn.QueryAsync<CtRowRaw>(sql, new { Since = since, Until = until }); }
+            catch (SqliteException) { raw = await conn.QueryAsync<CtRowRaw>(sqlNoBranch, new { Since = since, Until = until }); }
 
             var ln2 = Math.Log(2);
             // 현재 AASX 에 없는 flow 제외 — 이 맵이 OEE/TEEP 의 설비 모집단(targetFlows) SSOT 라서,
             // 여기서 걸러야 매트릭스 축·요약·랭킹에서 유령 설비가 한 번에 사라진다. null=필터 비활성.
             var modelFlows = _project.GetModelFlowNames();
+            // 분기 뷰 — 분기 활성 부모는 "부모_분기" 가상 키로 분해. 미분류(라벨 NULL) 행은 통계서 제외
+            // (분기 어디에도 속하지 않는 사이클이 임계를 오염시키지 않게 — 무결성 카드가 따로 계수).
+            var branchedParents = branchView ? _settings.GetBranchedParentFlows() : null;
             var grouped = new Dictionary<string, List<(int Ct, double Weight)>>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in raw)
             {
                 if (string.IsNullOrEmpty(r.FlowName)) continue;
                 if (modelFlows is not null && !modelFlows.Contains(r.FlowName)) continue;
+                var key = r.FlowName;
+                if (branchedParents is not null && branchedParents.Contains(r.FlowName))
+                {
+                    if (string.IsNullOrEmpty(r.BranchName)) continue; // 미분류 — 분기 임계에 미기여
+                    key = AppSettingsService.ComposeBranchFlowName(r.FlowName, r.BranchName);
+                }
                 // 감쇠 가중치: 오래될수록(AgeDays 클수록) weight 증가 → 최근 사이클의 기준 기여 감소.
                 double weight = decayHalfLifeDays is double half && half > 0
                     ? Math.Exp(Math.Max(0, r.AgeDays) * ln2 / half)
                     : 1.0;
-                if (!grouped.TryGetValue(r.FlowName, out var list)) { list = new(); grouped[r.FlowName] = list; }
+                if (!grouped.TryGetValue(key, out var list)) { list = new(); grouped[key] = list; }
                 list.Add(((int)r.Ct, weight));
             }
 

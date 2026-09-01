@@ -79,6 +79,12 @@ public class NavController : ControllerBase
             .Select((o, i) => (o.FlowName, i))
             .ToDictionary(x => x.FlowName, x => x.i, StringComparer.OrdinalIgnoreCase);
 
+        // 사이클 분기 — flow 별 분기 이름 목록(분기 활성 flow 만 항목 존재). 셸이 설비효율/가동시간 분석
+        // 그룹에서 부모 행을 "부모_분기" 행들로 치환하는 데 쓴다(생산효율/추이는 부모 그대로 = 설계 규약).
+        var branchSets = _settings.GetAllFlowBranchSets()
+            .ToDictionary(s => s.FlowName, s => s.Branches.Select(b => b.Name).ToList(),
+                StringComparer.OrdinalIgnoreCase);
+
         var systems = new List<NavSystemDto>();
         if (_project.IsLoaded)
         {
@@ -93,7 +99,11 @@ public class NavController : ControllerBase
                         .ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
                         .Select(f => f.Name)
                         .ToList();
-                    systems.Add(new NavSystemDto(system.Name, sorted));
+                    var flowBranches = sorted
+                        .Where(branchSets.ContainsKey)
+                        .ToDictionary(f => f, f => branchSets[f], StringComparer.OrdinalIgnoreCase);
+                    systems.Add(new NavSystemDto(system.Name, sorted,
+                        flowBranches.Count > 0 ? flowBranches : null));
                 }
             }
         }
@@ -176,7 +186,7 @@ public class NavController : ControllerBase
         var addrSystems = BuildAddressCoverageBySystem();
 
         var agent = new NavAgentDto(hubState, plcTotal, plcConnected, plcDisconnected, plcSource, adapters,
-            addrExpected, addrSeen, addrMissing, addrSystems);
+            addrExpected, addrSeen, addrMissing, addrSystems, ReadPlcScanMode());
 
         // ── anomalyActiveCount (이상발생 활성) ── 최근 10분 Error. ack 가 창 안이면 시작점을 ack 로 당김.
         var nowUtc = DateTime.UtcNow;
@@ -290,6 +300,41 @@ public class NavController : ControllerBase
         return ordered;
     }
 
+    // ── PLC 수집 방식 (Promaker 업로드 시 선택) ──
+    // Promaker 가 업로드/PLAY 시 공유 폴더 agent/session.json 에 isRealPlcConnected 를 기록한다
+    // (런타임 세팅 다이얼로그의 "PLC 읽기 방식" 라디오 — true=Agent 직접 스캔, false=Edge 단말(Pi5) 위임).
+    // 네트워크/클라우드 업로드도 AgentUploadReceiver 가 같은 파일을 이 머신 공유 폴더에 배치하므로
+    // DSPilot 은 읽기 전용으로 이 파일만 보면 된다. 필드 부재(구 session.json)는 기본 true(직접)와 동일.
+    private static readonly object PlcScanModeLock = new();
+    private static DateTime _plcScanModeStampUtc = DateTime.MinValue;
+    private static string? _plcScanModeCached;
+
+    /// <summary>"direct" | "delegated" | null(session.json 없음/손상 — 업로드 이력 없음).
+    /// 4초 폴링 대상이라 파일 mtime 이 같으면 재파싱하지 않는다.</summary>
+    private static string? ReadPlcScanMode()
+    {
+        var path = Path.Combine(Infrastructure.SharedPaths.AgentDirectory, "session.json");
+        try
+        {
+            if (!System.IO.File.Exists(path)) return null;
+            var stamp = System.IO.File.GetLastWriteTimeUtc(path);
+            lock (PlcScanModeLock)
+            {
+                if (stamp == _plcScanModeStampUtc) return _plcScanModeCached;
+                using var doc = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllText(path));
+                var direct = !doc.RootElement.TryGetProperty("isRealPlcConnected", out var v)
+                             || v.ValueKind != System.Text.Json.JsonValueKind.False;
+                _plcScanModeCached = direct ? "direct" : "delegated";
+                _plcScanModeStampUtc = stamp;
+                return _plcScanModeCached;
+            }
+        }
+        catch
+        {
+            return null; // 부분-쓰기/손상 순간은 미상 처리 — 다음 폴링에서 재시도.
+        }
+    }
+
     // HubConnectionState → 셸/Blazor 가 동일하게 해석하는 소문자 토큰.
     private static string HubStateString(HubConnectionState state) => state switch
     {
@@ -307,7 +352,9 @@ public record NavDto(bool ShowPlcDebug, List<NavSystemDto> Systems, List<NavShor
 // 사이드바 외부 도구 바로가기 1행(절대 URL). 데모 전환 활성 + 개별 노출 체크 시에만 내려온다.
 public record NavShortcutDto(string Label, string Href, string Icon);
 
-public record NavSystemDto(string Name, List<string> Flows);
+// FlowBranches: 분기 활성 flow → 분기 이름 목록(정의 순서). null/미포함 = 그 flow 분기 미사용.
+public record NavSystemDto(string Name, List<string> Flows,
+    Dictionary<string, List<string>>? FlowBranches = null);
 
 public record NavSummaryDto(
     NavLinesDto Lines,
@@ -345,7 +392,10 @@ public record NavAgentDto(
     int AddrSeen = 0,
     List<string>? AddrMissing = null,
     // 멀티 PLC: 위 커버리지의 시스템(PLC)별 분해 — 시스템 2개 이상일 때 UI 가 시스템별 행으로 그린다.
-    List<NavAddrSystemDto>? AddrSystems = null);
+    List<NavAddrSystemDto>? AddrSystems = null,
+    // Promaker 업로드 시 선택한 PLC 수집 방식(session.json isRealPlcConnected) —
+    // "direct"(Agent 직접 스캔) | "delegated"(Edge 단말 위임) | null(업로드 이력 없음/미상).
+    string? PlcScanMode = null);
 
 // 시스템(PLC) 1개의 주소 수신 커버리지. Missing 은 표본(시스템당 최대 8개).
 public record NavAddrSystemDto(string System, int Expected, int Seen, List<string> Missing);

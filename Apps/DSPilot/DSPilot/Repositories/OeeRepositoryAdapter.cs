@@ -185,6 +185,10 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             // 없음). detectSource(감지 출처)와 의미 구분: 분류가 어떻게 정해졌는지(manual/auto-bit/auto-heuristic/NULL).
             await EnsureColumnAsync(conn, "oeeDowntimeEvent", "classifySource", "TEXT");
 
+            // midCycle — 정지 감지 시점 자세(1=사이클 도중 멈춤=유발자 / 0=사이클 사이 / NULL=미상).
+            // Going 박제 유발자의 증거를 감지 순간에 영속화(2026-08-30) — OeeDowntimeEvent.MidCycle 주석 참조.
+            await EnsureColumnAsync(conn, "oeeDowntimeEvent", "midCycle", "INTEGER");
+
             // 자가치유(doc/25 §4.1, 2026-07-16) — 감지 로그의 판정 뒤집힘 대응.
             //   lastConfirmedAt: 마지막으로 집계 패스가 재확인(UPSERT)한 시각 — 생존 마커.
             //   invalidatedAt : 재판정으로 무효화된 시각(NULL=유효). 삭제 대신 마킹 — 감사 행 보존, 표시에서 제외.
@@ -256,10 +260,10 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         const string sql = @"
             INSERT INTO oeeDowntimeEvent
                 (systemName, flowName, deviceName, startAt, endAt, durationMs,
-                 reasonCode, category, isFailure, detectSource, sourceLogId, note)
+                 reasonCode, category, isFailure, detectSource, sourceLogId, midCycle, note)
             VALUES
                 (@SystemName, @FlowName, @DeviceName, @StartAt, @EndAt, @DurationMs,
-                 @ReasonCode, @Category, @IsFailure, @DetectSource, @SourceLogId, @Note)
+                 @ReasonCode, @Category, @IsFailure, @DetectSource, @SourceLogId, @MidCycle, @Note)
             ON CONFLICT(detectSource, sourceLogId) WHERE sourceLogId IS NOT NULL DO NOTHING
             RETURNING id;";
 
@@ -276,6 +280,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             e.IsFailure,
             e.DetectSource,
             e.SourceLogId,
+            e.MidCycle,
             e.Note,
         }) ?? 0L;
 
@@ -312,6 +317,20 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             WHERE id = @Id AND endAt IS NULL";
         var n = await conn.ExecuteAsync(sql, new { Id = id, EndAt = Iso(endAtUtc) });
         await MirrorDowntimeAsync(id);
+        return n;
+    }
+
+    public async Task<int> SetDowntimeMidCycleAsync(long id, int midCycle, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync();
+        // 자세는 승격만(NULL/0 → 1) — "일감을 쥔 채 멈췄다"는 증거는 이후 abandon 으로도 소멸하지 않는다.
+        // 1 → 0 강등 금지: 유발자 증거를 지우는 방향의 갱신은 존재하지 않는다.
+        const string sql = @"
+            UPDATE oeeDowntimeEvent
+            SET midCycle = @MidCycle
+            WHERE id = @Id AND COALESCE(midCycle, 0) < @MidCycle";
+        var n = await conn.ExecuteAsync(sql, new { Id = id, MidCycle = midCycle });
+        if (n > 0) await MirrorDowntimeAsync(id);
         return n;
     }
 
@@ -480,10 +499,16 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     private (string Where, DynamicParameters Params) BuildDowntimeFilter(
         DateTime fromUtc, DateTime toUtc, string? status, string? reasonCode, string? flowName)
     {
-        var sb = new StringBuilder(" WHERE startAt >= @From AND startAt <= @To ");
+        // 구간 겹침(2026-08-27) — 종전 onset 앵커(startAt >= @From)는 <b>기간 시작 전에 시작된 정지를 전건 누락</b>했다
+        //   (어제 23:50 시작 → 오늘 03:00 복구 정지가 '오늘' 목록·건수에서 사라짐). 겹치면 포함하고
+        //   지속시간은 표시단에서 기간 내로 클립한다(OeeDowntimeDto.InRangeMs).
+        //   open(endAt NULL) 은 지금까지 진행중이므로 @Cap(=min(now,to)) 로 대체해 판정한다.
+        var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
+        var sb = new StringBuilder(" WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From ");
         var p = new DynamicParameters();
         p.Add("From", Iso(fromUtc));
         p.Add("To", Iso(toUtc));
+        p.Add("Cap", Iso(capUtc));
         sb.Append(ModelFlowClause(p));
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -529,7 +554,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         await using var conn = await OpenAsync();
         var sql = @"
             SELECT id, systemName, flowName, deviceName, startAt, endAt, durationMs,
-                   reasonCode, category, isFailure, detectSource, classifySource, sourceLogId, note
+                   reasonCode, category, isFailure, detectSource, classifySource, sourceLogId, midCycle, note
             FROM oeeDowntimeEvent
             WHERE endAt IS NULL";
         if (!string.IsNullOrWhiteSpace(flowName))
@@ -562,7 +587,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
               CAST((julianday(startAt)                      - julianday(@From)) * 86400000 AS INTEGER) AS S,
               CAST((julianday(COALESCE(endAt, @Cap))        - julianday(@From)) * 86400000 AS INTEGER) AS E
             FROM oeeDowntimeEvent
-            WHERE startAt >= @From AND startAt <= @To
+            WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From
               AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' {flowClause} {ModelFlowClause(p)}";
         var rows = await conn.QueryAsync<SegRow>(sql, p);
         var list = rows.ToList();
@@ -588,7 +613,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
               CAST((julianday(startAt)                      - julianday(@From)) * 86400000 AS INTEGER) AS S,
               CAST((julianday(COALESCE(endAt, @Cap))        - julianday(@From)) * 86400000 AS INTEGER) AS E
             FROM oeeDowntimeEvent
-            WHERE startAt >= @From AND startAt <= @To
+            WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From
               AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}'
               AND (flowName IS NULL OR flowName IN @Flows) {ModelFlowClause(p)}";
         var rows = await conn.QueryAsync<SegRow>(sql, p);
@@ -612,6 +637,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             p.Add("Flow", flowName.Trim());
         }
         // 마감된(durationMs IS NOT NULL) 고장만 MTTR 분자에 — open 은 durationMs 무한증가 위험 제외.
+        // 여기만 onset 앵커(startAt in [From,To]) 유지 — MTTR/평균 복구 시간은 '사건 1건의 전체 복구 길이'를
+        // 평균하는 값이라 기간으로 잘린 조각을 섞으면 평균이 왜곡된다(목록·정지시간 합산은 겹침+클립 규칙).
         var sql = $@"
             SELECT COALESCE(SUM(durationMs), 0) AS DowntimeMs, COUNT(*) AS Cnt
             FROM oeeDowntimeEvent
@@ -636,7 +663,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
               CAST((julianday(startAt)                - julianday(@From)) * 86400000 AS INTEGER) AS S,
               CAST((julianday(COALESCE(endAt, @Cap))  - julianday(@From)) * 86400000 AS INTEGER) AS E
             FROM oeeDowntimeEvent
-            WHERE startAt >= @From AND startAt <= @To AND flowName IS NOT NULL
+            WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From AND flowName IS NOT NULL
               AND COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' {ModelFlowClause(p)}";
         var rows = await conn.QueryAsync<FlowSegRow>(sql, p);
         var periodMs = (long)(toUtc - fromUtc).TotalMilliseconds;
@@ -1062,6 +1089,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         DetectSource = r.DetectSource ?? "nocycle",
         ClassifySource = r.ClassifySource,
         SourceLogId = r.SourceLogId,
+        MidCycle = r.MidCycle,
         Note = r.Note,
     };
 
@@ -1080,6 +1108,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         public string? DetectSource { get; set; }
         public string? ClassifySource { get; set; }
         public long? SourceLogId { get; set; }
+        public int? MidCycle { get; set; }
         public string? Note { get; set; }
     }
 

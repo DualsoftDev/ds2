@@ -63,6 +63,17 @@ public sealed class OeeDowntimeEvent
     /// <summary>plcTagLog.id (usertag onset dedupe 키). nocycle 은 NULL.</summary>
     public long? SourceLogId { get; set; }
 
+    /// <summary>
+    /// 정지 감지 시점의 flow 자세(posture) (2026-08-30, nocycle 전용):
+    /// 1 = 사이클 도중 멈춤(head 이후 tail 미도달 — 일감을 쥔 채 정지) → 이 flow 가 정지의 <b>유발자</b>.
+    /// 0 = 사이클 사이 멈춤(마지막 사이클 정상 완료 후 무입력 — 굶주림/대기 후보).
+    /// NULL = 판정 불가(엔진 미추적·재시작 등) → 기존 신호 기반 분류로 폴백.
+    /// Going 박제 유발자는 사이클이 완료되지 않아 dspFlowHistory 에 MT 과주행 증거를 남기지 못한다
+    /// (2026-08-28 실증: 검사 박제 → usertag-only 분기 → 전원 고장). 자세는 그 사각을 감지 순간의
+    /// 영속 사실로 메운다 — 집계 재계산이 언제 돌아도 같은 값을 본다(재현성).
+    /// </summary>
+    public int? MidCycle { get; set; }
+
     public string? Note { get; set; }
 
     public DateTime CreatedAt { get; set; }
@@ -393,8 +404,11 @@ public sealed record OeeDowntimeDto(
     string? ClassifySource = null,    // 분류 출처: manual / auto-bit / auto-heuristic / auto-longstop / null(미분류)
     OeeDowntimeClue? Clue = null,     // abnormal/usertag 시간겹침 단서(표시 전용 — 건수·MTBF 미반영, doc/21 §4)
     bool IsNonProd = false,           // 구분=비생산(A 분모 밖). 수동(reasonCode='non_production') 또는 당일 자동(10×CT) 판정
-    bool IsWait = false);             // 대기(고장 여파, doc/25 §1) — 같은 창에 유발 flow 고장 존재. IsNonProd=true 면
+    bool IsWait = false,              // 대기(고장 여파, doc/25 §1) — 같은 창에 유발 flow 고장 존재. IsNonProd=true 면
                                       // 대기 비생산(분모 밖), false 면 대기 공백(A 손실·건수 미반영). 라벨 표시용
+    long? InRangeMs = null);          // 조회 기간([from,to], open 은 now 로 캡)과 겹친 몫만 클립한 지속시간(2026-08-27).
+                                      // 기간 경계를 걸친 정지는 DurationMs(사건 전체) > InRangeMs(기간 내). 목록 표시는
+                                      // InRangeMs 를 쓰고 전체 길이는 병기 — KPI(정지시간 합산)와 눈으로 맞도록.
 
 /// <summary>
 /// 정지 구간에 시간이 겹친 abnormal/usertag 점 이벤트 단서 (읽기전용 표시 — 정지 소스 아님).
@@ -476,7 +490,14 @@ public sealed record OeeMeasureQualityRowDto(
     string? HeadCall,
     string? TailCall,
     int HeadGoingCount,
-    int TailGoingCount);
+    int TailGoingCount,
+    // ── 사이클 분기(2026-08-27) — 분기 활성 flow 전용 ─────────────────────
+    //   미분류 = 어느 분기의 제외 필터도 통과하지 못한 사이클(branchName NULL). 통계(임계·분기 A/P)에선
+    //   빠지지만 여기서 계수한다 — 급등 = 분기 정의 오류 또는 센서 오감지(제외 call 오발화) 조기 경보.
+    bool Branched = false,          // 이 flow 에 분기 정의가 활성인가
+    int UnclassifiedCycles = 0,     // 미분류 사이클 수(분기 활성 flow 만 의미)
+    double? UnclassifiedRate = null // UnclassifiedCycles / TotalCycles. Total=0 이면 null
+);
 
 /// <summary>
 /// 계측 품질 응답 — 라인 합계 + 설비별 행.

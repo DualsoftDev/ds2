@@ -273,6 +273,100 @@ public class AppSettingsService
         SaveSettings(settings);
     }
 
+    // ── flow 사이클 분기(BranchSets) ─────────────────────────────────────────
+
+    /// <summary>분기 개수 상한 — OEE 행·precompute 작업량이 분기 수 배수라 폭주 방지용 가드.</summary>
+    public const int MaxBranchesPerFlow = 8;
+
+    /// <summary>OEE 노출용 가상 flow 이름 규약 — "부모_분기". 파싱은 금지(이름에 '_' 가능), 역해석은 맵으로.</summary>
+    public static string ComposeBranchFlowName(string parentFlow, string branchName) => parentFlow + "_" + branchName;
+
+    /// <summary>
+    /// 가상 flow 이름("부모_분기") → (부모 flow, 분기 이름) 역해석 맵. OEE 열거/집계가 분기 스코프 SQL
+    /// (flowName=부모 AND branchName=분기)로 바꿔 태우는 단일 소스. 분기 미사용이면 빈 맵.
+    /// </summary>
+    public Dictionary<string, (string Parent, string Branch)> GetBranchVirtualMap()
+    {
+        var map = new Dictionary<string, (string Parent, string Branch)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var set in GetAllFlowBranchSets())
+            foreach (var b in set.Branches)
+                if (!string.IsNullOrWhiteSpace(b.Name))
+                    map[ComposeBranchFlowName(set.FlowName, b.Name)] = (set.FlowName, b.Name);
+        return map;
+    }
+
+    /// <summary>분기가 활성인 부모 flow 이름 집합 — OEE 열거에서 부모를 빼고 가상 이름으로 치환할 때 사용.</summary>
+    public HashSet<string> GetBranchedParentFlows()
+        => new(GetAllFlowBranchSets().Select(s => s.FlowName), StringComparer.OrdinalIgnoreCase);
+
+    public FlowBranchSet? GetFlowBranchSet(string flowName)
+    {
+        if (string.IsNullOrWhiteSpace(flowName)) return null;
+        return LoadSettings().FlowCycle.BranchSets
+            .FirstOrDefault(s => string.Equals(s.FlowName, flowName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public List<FlowBranchSet> GetAllFlowBranchSets()
+        => LoadSettings().FlowCycle.BranchSets
+            .Where(s => !string.IsNullOrWhiteSpace(s.FlowName) && s.Branches.Count > 0)
+            .ToList();
+
+    /// <summary>
+    /// 분기 정의 저장. <paramref name="branches"/> 가 null/빈 목록이면 해제(항목 제거) — 해제 후에는
+    /// 호출측이 전체 이력 재도출을 돌려 branchName 라벨을 걷어내야 완전 복귀된다.
+    /// 검증 실패는 ArgumentException(사용자에게 그대로 보여줄 한글 메시지).
+    /// </summary>
+    public void SaveFlowBranchSet(string flowName, IReadOnlyList<FlowBranchDef>? branches)
+    {
+        if (string.IsNullOrWhiteSpace(flowName))
+            throw new ArgumentException("Flow name is required.", nameof(flowName));
+
+        var settings = LoadSettings();
+        var sets = settings.FlowCycle.BranchSets;
+        var existing = sets.FirstOrDefault(s => string.Equals(s.FlowName, flowName, StringComparison.OrdinalIgnoreCase));
+
+        if (branches is null || branches.Count == 0)
+        {
+            if (existing is not null) { sets.Remove(existing); SaveSettings(settings); }
+            return;
+        }
+
+        if (branches.Count > MaxBranchesPerFlow)
+            throw new ArgumentException($"분기는 flow 당 최대 {MaxBranchesPerFlow}개까지 지정할 수 있습니다.");
+
+        var cleaned = new List<FlowBranchDef>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var b in branches)
+        {
+            var name = (b.Name ?? "").Trim();
+            if (name.Length == 0)
+                throw new ArgumentException("이름이 비어 있는 분기가 있습니다.");
+            if (!seen.Add(name))
+                throw new ArgumentException($"분기 이름이 중복됩니다: {name}");
+            if (string.IsNullOrWhiteSpace(b.StartCallName) || string.IsNullOrWhiteSpace(b.EndCallName))
+                throw new ArgumentException($"분기 '{name}' 의 시작/끝(Head/Tail) call 이 지정되지 않았습니다.");
+            cleaned.Add(new FlowBranchDef
+            {
+                Name = name,
+                StartCallName = b.StartCallName!.Trim(),
+                EndCallName = b.EndCallName!.Trim(),
+                ExcludedCallNames = (b.ExcludedCallNames ?? [])
+                    .Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            });
+        }
+
+        if (existing is null)
+            sets.Add(new FlowBranchSet { FlowName = flowName, Branches = cleaned });
+        else
+            existing.Branches = cleaned;
+
+        settings.FlowCycle.BranchSets = sets
+            .OrderBy(s => s.FlowName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        SaveSettings(settings);
+    }
+
     /// <summary>
     /// <paramref name="retainFlowNames"/> 에 없는 flow 의 FlowCycle override 를 제거한다(= 현재 AASX 에
     /// 없는 유령 설비 정리). override 는 설정 파일(appsettings.Production.json)에 있어 DB 초기화로도

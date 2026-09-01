@@ -49,6 +49,11 @@
         }
 
         // ── 생산효율 매트릭스(P6 L0) SVG 헬퍼 — Alpine 반응형 밖(임퍼러티브 렌더, Proxy 크래시 방지) ──
+        // 설비 합산(Σ_flow) 값의 단위 전환 경계 — 조회 범위가 이 길이 이하면 '시간' 으로 고정한다.
+        //   짧은 범위(오늘/24h)에서 '2일 20시간' 은 달력 초과로 오독되고, 긴 범위(30·60일)에서 시간 고정은
+        //   '10080시간' 이 되어 못 읽는다. 값 크기가 아니라 <b>범위 길이</b> 기준이라 한 화면이 같은 단위로 묶인다.
+        const SUM_HOUR_UNIT_MAX_MS = 48 * 3600 * 1000;
+
         const TM_NS = 'http://www.w3.org/2000/svg';
         function _tmEl(tag, attrs, parent) {
             const e = document.createElementNS(TM_NS, tag);
@@ -1238,6 +1243,19 @@
                 // 경계 문제가 있는 설비 목록 — 카드 상단 배너용.
                 get mqIssueRows() { return ((this.mq && this.mq.flows) || []).filter(f => !!f.boundaryIssue); },
 
+                // ── 사이클 분기 미분류 (2026-08-27) ──────────────────────────────
+                //   미분류 = 어느 분기의 제외 필터도 통과 못한 사이클(통계 제외·여기서만 계수).
+                //   급등 = 분기 정의 오류(제외 call 이 실제 IO 패턴과 불일치) 또는 센서 오감지 조기 경보.
+                get mqHasBranched() { return ((this.mq && this.mq.flows) || []).some(f => f.branched); },
+                get mqUnclassifiedRows() {
+                    return ((this.mq && this.mq.flows) || [])
+                        .filter(f => f.branched && f.unclassifiedRate != null && f.unclassifiedRate >= 0.05);
+                },
+                mqUnclassifiedText(f) {
+                    if (!f) return '';
+                    return `가동 ${f.totalCycles.toLocaleString()}회 중 ${f.unclassifiedCycles.toLocaleString()}회(${this.mqPct(f.unclassifiedRate)})가 어느 분기에도 속하지 않습니다 — 분기 정의(제외 call)가 실제 IO 패턴과 맞는지, 제외 call 의 센서 오감지가 없는지 확인하세요.`;
+                },
+
                 // 수집률 = 정상 CT / 전체 CT — 이 카드의 주 수치(2026-08-21).
                 //   제외율(나쁜 비율)이 아니라 "얼마나 제대로 수집했나"를 앞세운다. OEE 가 CT축으로 바뀌어
                 //   수집된 정상 CT 가 곧 지표의 근거이므로, 그 근거의 양을 보여주는 게 이 카드의 역할이다.
@@ -1778,14 +1796,51 @@
                 pct(v) { return (v == null) ? '—' : (v * 100).toFixed(1) + '%'; },
                 // 표기 SSOT = shell.js window.dspFmt.dur (한국식 일/시간/분/초).
                 durShort(ms) { return window.dspFmt.dur(ms); },
+
+                // ── 설비 합산(Σ_flow) 표기 (2026-08-27) ──────────────────────────────
+                // 라인(전체) 스코프의 시간값은 설비별 실측을 합산한 값이라 기간 길이를 넘는다
+                // (설비 7대면 하루 최대 24h×7=168h). 이때 일(日) 단위로 올리면 '2일 20시간'이
+                // "오늘 범위인데 이틀?" 로 오독되므로 시간 단위로 고정하고, 설비수·설비당 평균을
+                // 함께 노출한다. 계산은 이미 [from,to] 로 클립돼 있다(OeeControllerBase npClipped).
+                sumFlowCount() {
+                    if (this.curFlow) return 1;
+                    const o = this.oee || {}, t = this.teep || {};
+                    return Math.max(0, o.cycleFlowCount || t.flowCount || 0);
+                },
+                // 조회 범위 스팬(ms) — 단위 전환 기준. rangeForPeriod() 는 로컬 ISO 문자열 쌍.
+                _rangeSpanMs() {
+                    const r = this.rangeForPeriod();
+                    const s = new Date(r.from).getTime(), e = new Date(r.to).getTime();
+                    return (isFinite(s) && isFinite(e) && e > s) ? (e - s) : 0;
+                },
+                durSum(ms) {
+                    const span = this._rangeSpanMs();
+                    const capHours = this.sumFlowCount() > 1 && span > 0 && span <= SUM_HOUR_UNIT_MAX_MS;
+                    return window.dspFmt.dur(ms, undefined, capHours ? { maxUnit: 'h' } : undefined);
+                },
+                // 합산값 → 설비당 평균. 설비 1대/미상이면 null(표시 생략).
+                durPerFlow(ms) {
+                    const n = this.sumFlowCount();
+                    return (n > 1 && ms > 0) ? window.dspFmt.dur(ms / n) : null;
+                },
+                // 합산값 툴팁 문구 — '설비 합산 ×7 · 설비당 평균 9시간 42분'
+                sumFlowNote(ms) {
+                    const per = this.durPerFlow(ms);
+                    return per ? ('설비 합산 ×' + this.sumFlowCount() + ' · 설비당 평균 ' + per) : '';
+                },
                 dur(ms, d) {
-                    // open(진행중)인데 durationMs 없으면 시작→현재 경과 근사 표기
-                    if (ms != null && ms > 0) return this.durShort(ms);
+                    // open(진행중)인데 durationMs 없으면 시작→현재 경과 근사 표기.
+                    //   기간 클립(inRangeMs)이 들어오면 마감 여부와 무관하게 값이 있으므로 open 표시('~')는 상태로 판정한다.
+                    if (ms != null && ms > 0) return this.durShort(ms) + (d && d.status === 'open' ? '~' : '');
                     if (d && d.status === 'open' && d.startAt) {
                         const el = Date.now() - new Date(d.startAt).getTime();
                         return el > 0 ? this.durShort(el) + '~' : '진행중';
                     }
                     return '—';
+                },
+                // 기간 경계를 걸친 정지인가 — 사건 전체(durationMs)와 기간 내 몫(inRangeMs)이 1분 이상 다르면 병기.
+                dtClipped(d) {
+                    return !!d && d.durationMs > 0 && d.inRangeMs != null && (d.durationMs - d.inRangeMs) > 60000;
                 },
                 dtTime(iso) {
                     if (!iso) return '—';

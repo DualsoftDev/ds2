@@ -64,6 +64,7 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
         OeeCtStatsService ctStats,
         IConfiguration configuration,
         HistoryMirrorService mirror,
+        IFlowMetricsService flowMetrics,
         ILogger<OeeDowntimeStateMachine> logger)
     {
         _scopeFactory = scopeFactory;
@@ -72,8 +73,11 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
         _ctStats = ctStats;
         _configuration = configuration;
         _mirror = mirror;
+        _flowMetrics = flowMetrics;
         _logger = logger;
     }
+
+    private readonly IFlowMetricsService _flowMetrics;
 
     private readonly HistoryMirrorService _mirror;
 
@@ -204,13 +208,23 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
                     var (ownOverrun, lineOverrun) = durMs >= OeeMath.AutoClassifyFailureMs
                         ? await ReadMtOverrunEvidenceAsync(flowName, openStartUtc, lastCycleUtc)
                         : (false, false);
-                    var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(durMs, ownOverrun, lineOverrun);
+                    // 자세 증거 합류(2026-08-30) — MT 과주행과 같은 강도의 유발자 증거.
+                    //   own: 이 정지의 자세가 "사이클 도중"이었다 = 유발자 본인.
+                    //   line: 같은 시스템의 다른 open 정지가 사이클 도중 자세 = 유발자 특정됨 → 이 정지는 여파.
+                    var ownPosture = open.MidCycle == 1;
+                    var linePosture = openEvents.Any(o =>
+                        o.MidCycle == 1 && o.Id != open.Id
+                        && string.Equals(o.SystemName, open.SystemName, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(o.FlowName, flowName, StringComparison.OrdinalIgnoreCase)
+                        && ToUtc(o.StartAt) < lastCycleUtc);
+                    var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(
+                        durMs, ownOverrun || ownPosture, lineOverrun || linePosture);
                     if (should)
                     {
                         await repo.AutoClassifyHeuristicAsync(open.Id, rc, cat, isFail, ct);
                         _logger.LogInformation(
-                            "[OEE] nocycle 자동분류: flow='{Flow}' event#{Id} → {Reason} (자기 MT과주행={Own}, 라인 MT과주행={Line})",
-                            flowName, open.Id, rc, ownOverrun, lineOverrun);
+                            "[OEE] nocycle 자동분류: flow='{Flow}' event#{Id} → {Reason} (자기 MT과주행={Own}, 라인 MT과주행={Line}, 자기 자세={OwnP}, 라인 자세={LineP})",
+                            flowName, open.Id, rc, ownOverrun, lineOverrun, ownPosture, linePosture);
                     }
                     else if (durMs >= OeeMath.AutoClassifyFailureMs)
                         _logger.LogInformation(
@@ -226,6 +240,10 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
                 var systemName = systemByFlow.TryGetValue(flowName, out var sys) && !string.IsNullOrEmpty(sys)
                     ? sys
                     : flowName;
+                // 자세(posture) 스탬프 — 감지 순간 "일감을 쥔 채 멈췄는가"를 영속화한다(2026-08-30).
+                // Going 박제 유발자는 사이클을 완료하지 못해 MT 과주행 증거를 영영 못 남긴다(2026-08-28 실증:
+                // 검사 박제 → usertag-only 분기 → 전원 고장). 완료를 기다리지 않는 유일한 유발자 증거.
+                var midCycle = await ResolveMidCyclePostureAsync(flowName, lastCycleUtc);
                 await repo.InsertDowntimeAsync(new OeeDowntimeEvent
                 {
                     SystemName = systemName,
@@ -238,11 +256,22 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
                     IsFailure = 1, // 기본 고장 — 사용자가 해제하면 유지보수(planned_maint)로 변경
                     DetectSource = DetectSource,
                     SourceLogId = null,
+                    MidCycle = midCycle,
                     Note = null,
                 }, ct);
                 _logger.LogInformation(
-                    "[OEE] nocycle onset: flow='{Flow}' idle={IdleSec:F0}s thr={ThrSec:F0}s (last cycle {Last:u})",
-                    flowName, idleMs / 1000.0, thresholdMs / 1000.0, lastCycleUtc);
+                    "[OEE] nocycle onset: flow='{Flow}' idle={IdleSec:F0}s thr={ThrSec:F0}s posture={Posture} (last cycle {Last:u})",
+                    flowName, idleMs / 1000.0, thresholdMs / 1000.0,
+                    midCycle switch { 1 => "사이클도중(유발자)", 0 => "사이클사이", _ => "미상" }, lastCycleUtc);
+            }
+            // open 유지 중 자세 승격 — onset 땐 사이클 사이였다가 이후 head 가 올라가 박제된 경우
+            // (정지가 안 닫혔으므로 완료는 없었다 = 그 시도도 도중에 멈춘 것). 1 → 0 강등은 없다.
+            else if (hasOpen && !shouldClose && open!.MidCycle != 1)
+            {
+                var posture = await ResolveMidCyclePostureAsync(flowName, lastCycleUtc);
+                if (posture == 1 && await repo.SetDowntimeMidCycleAsync(open.Id, 1, ct) > 0)
+                    _logger.LogInformation(
+                        "[OEE] nocycle 자세 승격: flow='{Flow}' event#{Id} → 사이클도중(유발자)", flowName, open.Id);
             }
         }
     }
@@ -440,6 +469,66 @@ public sealed class OeeDowntimeStateMachine : BackgroundService
         public long? Mt { get; set; }
         public long? Ct { get; set; }
         public string RecordedAt { get; set; } = "";
+    }
+
+    /// <summary>
+    /// 정지 자세(posture) 판정 — "이 flow 는 마지막 완료 사이클 이후 <b>일감을 쥔 채</b>(head 이후 tail
+    /// 미도달) 멈췄는가". 1=사이클 도중(유발자) / 0=사이클 사이(굶주림) / null=판정 불가.
+    /// <para>원리(doc/25 개정 방향, 2026-08-30): 유발자는 정지 순간 IO 에 이미 드러난다 — 완료 사이클
+    /// 통계(MT 과주행)를 기다릴 필요가 없고, Going 박제(미완료)에서도 증거가 성립한다.</para>
+    /// <list type="bullet">
+    /// <item>래치 적격 flow: 엔진 래치가 열려 있으면(head-start 후 tail 미완) 사이클 도중. 워치독이
+    ///   onset 전에 abandon 했어도 "마지막 완료 사이클 이후 시작된 사이클이 폐기됐다"는 메모
+    ///   (<see cref="IFlowMetricsService.GetLastAbandonedCycle"/>)가 있으면 동일하게 사이클 도중.</item>
+    /// <item>래치 부적격 flow: going-any 폴백 — dspFlow.State='Going'(어느 call 이든 Going 유지 중)
+    ///   이면 사이클 도중. 조회 실패/미존재는 null(없는 근거로 판정하지 않는다).</item>
+    /// </list>
+    /// </summary>
+    private async Task<int?> ResolveMidCyclePostureAsync(string flowName, DateTime lastCycleUtc)
+    {
+        try
+        {
+            if (_flowMetrics.IsLatchEligible(flowName))
+            {
+                if (_flowMetrics.IsLatchCycleActive(flowName)) return 1;
+                // abandon 이 onset 보다 먼저 온 경우 — 폐기된 사이클이 마지막 완료 사이클 이후 시작이면
+                // "이 무사이클 갭 안에서 일감을 쥔 채 죽었다"는 뜻. (래치 시각은 로컬 → UTC 정규화 비교.)
+                var ab = _flowMetrics.GetLastAbandonedCycle(flowName);
+                if (ab.HasValue && ToUtc(ab.Value.CycleStart) > lastCycleUtc) return 1;
+                return 0;
+            }
+            // going-any 폴백 — 엔진이 dspFlow.State 에 유지하는 값(미적격 flow 는 going-any 로 동기화됨).
+            var badge = await ReadFlowBadgeStateAsync(flowName);
+            return badge is null ? null : (string.Equals(badge, "Going", StringComparison.OrdinalIgnoreCase) ? 1 : 0);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[OEE] nocycle: 자세 판정 실패 flow='{Flow}' — 미상(null)으로 폴백", flowName);
+            return null;
+        }
+    }
+
+    /// <summary>plc.db dspFlow.State 1행 조회(going-any 폴백용). 실패/미존재 = null.</summary>
+    private async Task<string?> ReadFlowBadgeStateAsync(string flowName)
+    {
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!File.Exists(dbPath)) return null;
+        try
+        {
+            await using var conn = new SqliteConnection(
+                $"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+            await conn.OpenAsync();
+            var exists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlow'");
+            if (exists == 0) return null;
+            return await conn.ExecuteScalarAsync<string?>(
+                "SELECT State FROM dspFlow WHERE FlowName = @Flow", new { Flow = flowName });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[OEE] nocycle: dspFlow.State 조회 실패 flow='{Flow}'", flowName);
+            return null;
+        }
     }
 
     /// <summary>

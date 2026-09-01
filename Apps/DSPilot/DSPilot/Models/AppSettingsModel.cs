@@ -628,6 +628,48 @@ public class FlowCycleSettings
 {
     public List<FlowCycleOverride> Overrides { get; set; } = [];
 
+    /// <summary>
+    /// flow 사이클 분기(branch) 정의 — flow 당 최대 1개 항목(FlowName 유니크).
+    /// AASX 에는 기록하지 않는다(SequenceLabel 은 Head/Tail 1쌍만 표현 가능 — 분기는 DSPilot 설정 전용).
+    /// </summary>
+    public List<FlowBranchSet> BranchSets { get; set; } = [];
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+/// <summary>
+/// 한 flow 의 사이클 분기 정의 묶음. 분기 = 사이클마다 다른 call 부분집합이 도는 패턴
+/// (예: 짝수 사이클은 A 그룹, 홀수 사이클은 B 그룹). 활성이면 설비효율(OEE)·가동시간 분석은
+/// "flow_분기명" 단위로 표시·집계되고 부모 flow 는 열거에서 빠진다. 생산효율(TEEP)·이력 저장은
+/// 부모 flow 그대로(dspFlowHistory.flowName 불변, branchName 라벨만 추가) — ct 축 불변이 규약.
+/// </summary>
+public class FlowBranchSet
+{
+    public string FlowName { get; set; } = "";
+
+    /// <summary>정의 순서 = 분류 우선순위(한 사이클이 여러 분기의 제외 필터를 모두 통과하면 첫 매칭 승).</summary>
+    public List<FlowBranchDef> Branches { get; set; } = [];
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+/// <summary>
+/// 분기 1개 — 자기 Head/Tail 로 사이클을 도출하고, 스팬 안에서 제외 call 이 발화하면 그 분기가 아니다.
+/// (제외 call = "이 분기의 사이클에서는 절대 돌지 않는 call" 선언 — 발화가 곧 반증.)
+/// </summary>
+public class FlowBranchDef
+{
+    /// <summary>표시명 — OEE 노출명은 "부모flow_이 이름". 공백·중복·실존 flow 명과의 충돌은 저장 시 검증.</summary>
+    public string Name { get; set; } = "";
+
+    public string StartCallName { get; set; } = "";
+    public string EndCallName { get; set; } = "";
+
+    /// <summary>이 분기 사이클에서 돌지 않는 call 이름 목록(부모 flow 소속 call).</summary>
+    public List<string> ExcludedCallNames { get; set; } = [];
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }

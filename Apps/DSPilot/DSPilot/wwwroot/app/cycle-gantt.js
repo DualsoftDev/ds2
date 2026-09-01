@@ -23,6 +23,8 @@
     // ── 레이아웃 상수 (flow.html:1056-1057 동일) ──
     // 모바일(≤480px): MIN_PLOT_WIDTH 640px 는 360px 폰에서 과도한 가로 스크롤을 강제한다.
     //   좁은 화면에서는 플롯 최소 폭을 컨테이너에 맞춰 줄인다(데스크톱은 640 유지).
+    var WORK_ROW_H = 22;       // Work 그룹 헤더 행 높이(사이드바·SVG 공통, 2026-08-27)
+    var COLLAPSED_LANE_H = 26; // 접힌 lane 높이(분기 간트의 제외 call — 신호 숨김, 복원 버튼만, 2026-08-28)
     var TOP_MARGIN = 50, LANE_HEIGHT = 44, BAR_HEIGHT = 18, RIBBON_H = 48,
         LEFT_PAD = 12, RIGHT_PAD = 40, BOTTOM_PAD = 20, MAX_ZOOM = 24;
     var MIN_PLOT_WIDTH = (typeof window !== 'undefined' && window.matchMedia &&
@@ -77,10 +79,31 @@
     function laneLayout(s) {
         var rows = [];
         var y = 0;
+        // Work 그룹 헤더(2026-08-27) — 서로 다른 Work 가 2개 이상일 때만 lane 사이에 얇은 헤더 행을 끼워
+        // Work 경계를 시각화한다(단일 Work flow 는 종전과 동일). lane 순서는 서버가 Work→Call 정렬로
+        // 내려주므로 연속 구간 = 같은 Work. 사이드바(flow-workspace laneLayout)와 반드시 같은 규칙 유지.
+        var workSet = {};
+        var workCount = 0;
+        for (var wi = 0; wi < s.callLanes.length; wi++) {
+            var wn0 = s.callLanes[wi].workName || '';
+            if (!workSet[wn0]) { workSet[wn0] = true; workCount++; }
+        }
+        var useWorkRows = workCount >= 2;
+        // 접힌 lane(2026-08-28) — s.collapsedCallNames[callName]=true 인 call 은 얇은 띠로 축소(신호 미표시).
+        //   분기 간트의 '제외' call 시각화 전용 — 상단/벌크 간트는 이 필드가 없어 종전과 동일.
+        var collapsed = s.collapsedCallNames || null;
+        var prevWork = null;
         for (var li = 0; li < s.callLanes.length; li++) {
             var lane = s.callLanes[li];
-            rows.push({ kind: 'call', key: 'c:' + lane.callId, lane: lane, y: y, h: LANE_HEIGHT });
-            y += LANE_HEIGHT;
+            var wn = lane.workName || '';
+            if (useWorkRows && wn !== prevWork) {
+                rows.push({ kind: 'work', key: 'w:' + wn + ':' + li, workName: wn || '(Work 없음)', y: y, h: WORK_ROW_H });
+                y += WORK_ROW_H;
+                prevWork = wn;
+            }
+            var isCol = !!(collapsed && collapsed[lane.callName]);
+            rows.push({ kind: 'call', key: 'c:' + lane.callId, lane: lane, y: y, h: isCol ? COLLAPSED_LANE_H : LANE_HEIGHT, collapsed: isCol });
+            y += isCol ? COLLAPSED_LANE_H : LANE_HEIGHT;
             if (s.expandedCalls && s.expandedCalls[lane.callId] && hasApiCalls(lane)) {
                 var m = apiMeasured(lane);
                 lane.apiCalls.forEach(function (ac, idx) {
@@ -97,7 +120,11 @@
         if (s.tailCallId === lane.callId) return 'ct-lane-row is-tail';
         return 'ct-lane-row';
     }
-    function rowClass(s, row) { return row.kind === 'call' ? laneRowClass(s, row.lane) : 'ct-api-row'; }
+    function rowClass(s, row) {
+        if (row.kind === 'work') return 'ct-work-row';
+        if (row.kind !== 'call') return 'ct-api-row';
+        return laneRowClass(s, row.lane) + (row.collapsed ? ' is-collapsed' : '');
+    }
 
     // ════════════════════════════════════════════════════════════════════════
     //  실측 duration 페어링 + AASX 변경 빌드 — flow.html:2021-2062
@@ -271,7 +298,10 @@
         sb += '<svg class="ct-gantt" width="' + chartW + '" height="' + chartH + '" xmlns="http://www.w3.org/2000/svg">';
         sb += '<rect width="100%" height="100%" fill="#ffffff"/>';
 
-        if (ribbonH > 0) sb += appendCycleRibbon(s, xScale, TOP_MARGIN, ribbonH, cs, ce);
+        if (ribbonH > 0) {
+            sb += appendCycleRibbon(s, xScale, TOP_MARGIN, ribbonH, cs, ce);
+            sb += appendBranchOverlay(s, xScale, TOP_MARGIN, cs, ce);   // 분기 색 바(리본 상단 여백)
+        }
         sb += appendCycleBands(s, xScale, laneAreaTop, laneAreaBottom, cs, ce);
         sb += appendTimeAxis(s, totalMs, xScale, cs, laneAreaTop, laneAreaBottom);
 
@@ -281,12 +311,26 @@
             var lane = row.lane;
             var rowY = laneAreaTop + row.y;
 
+            if (row.kind === 'work') {
+                // Work 그룹 헤더 밴드 — 사이드바 헤더 행과 같은 높이의 옅은 띠(경계 시각화 전용, 신호 없음).
+                sb += '<rect x="0" y="' + f(rowY) + '" width="' + chartW + '" height="' + WORK_ROW_H + '" fill="#eceff1" opacity="0.6"/>';
+                sb += '<line x1="0" y1="' + f(rowY + WORK_ROW_H) + '" x2="' + chartW + '" y2="' + f(rowY + WORK_ROW_H) + '" stroke="#cfd8dc" stroke-width="1"/>';
+                continue;
+            }
+
             if (row.kind === 'api') {
                 sb += '<rect x="0" y="' + f(rowY) + '" width="' + chartW + '" height="' + API_ROW_HEIGHT + '" fill="#f5f7fa" opacity="0.7"/>';
                 sb += '<line x1="0" y1="' + f(rowY + API_ROW_HEIGHT) + '" x2="' + chartW + '" y2="' + f(rowY + API_ROW_HEIGHT) + '" stroke="#e3e6ea" stroke-width="1"/>';
                 sb += '<rect x="0" y="' + f(rowY) + '" width="3" height="' + API_ROW_HEIGHT + '" fill="#90a4ae" opacity="0.5"/>';
                 sb += appendSignalTrace(row.ac.outIntervals || lane.outIntervals, '#fb8c00', rowY + 22, rowY + 9, cs, xScale, plotRightX, row.ac.name, row.ac.outTag, 'OUT 명령');
                 sb += appendSignalTrace(row.ac.inIntervals || lane.inIntervals, '#1e88e5', rowY + API_ROW_HEIGHT - 8, rowY + 26, cs, xScale, plotRightX, row.ac.name, row.ac.inTag, 'IN 응답');
+                continue;
+            }
+
+            if (row.collapsed) {
+                // 접힌 lane — 신호를 그리지 않고 옅은 띠만(사이드바의 '제외' 배지·복원 버튼과 짝).
+                sb += '<rect x="0" y="' + f(rowY) + '" width="' + chartW + '" height="' + COLLAPSED_LANE_H + '" fill="#eceff1" opacity="0.45"/>';
+                sb += '<line x1="0" y1="' + f(rowY + COLLAPSED_LANE_H) + '" x2="' + chartW + '" y2="' + f(rowY + COLLAPSED_LANE_H) + '" stroke="#e3e6ea" stroke-width="1"/>';
                 continue;
             }
 
@@ -396,6 +440,29 @@
         }
         pts += ' ' + f(plotRightX) + ',' + f(yLow);
         sb += '<polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="1.4"/>';
+        return sb;
+    }
+
+    // 사이클 분기(branch) 오버레이 — 리본 상단 6px 분기 색 바(미분류=회색). 같은 xScale 로 그려
+    //   확대/이동이 본 간트와 완전히 동기화된다(별도 미니맵 금지 — 2026-08-27 사용자 결정).
+    //   spans 는 flowApp.branchPreview(분기 head 병합 스트림 근사)가 만들고, 분기 head 가 flow head 와
+    //   달라도 자체 ms 좌표로 정확히 그려진다. 편집기 없는 화면(bulk 등)은 s.branchPreview 부재 → no-op.
+    function appendBranchOverlay(s, xScale, ribbonTop, cs, ce) {
+        var bp = s.branchPreview;
+        if (!bp || !bp.spans || !bp.spans.length) return '';
+        var sb = '';
+        var y = ribbonTop + 4, h = 7;
+        for (var i = 0; i < bp.spans.length; i++) {
+            var sp = bp.spans[i];
+            var sx = LEFT_PAD + Math.max(0, sp.sMs - cs) * xScale;
+            var ex = LEFT_PAD + Math.min(ce - cs, sp.eMs - cs) * xScale;
+            var w = ex - sx;
+            if (w <= 0) continue;
+            // 텍스트 라벨은 그리지 않는다 — 리본 바(16px~)와 겹쳐 지저분해진다. 이름은 툴팁 + 편집기 범례로.
+            sb += '<g><title>' + esc(sp.title || sp.label || '') + '</title>'
+                + '<rect x="' + f(sx) + '" y="' + y + '" width="' + f(Math.max(1.5, w)) + '" height="' + h
+                + '" rx="1.5" fill="' + sp.color + '" opacity="0.9"/></g>';
+        }
         return sb;
     }
 

@@ -1,6 +1,9 @@
         function flowApp() {
             // ── BuildSvg 레이아웃 상수 (cycle-time-analysis 와 동일) ──
             const TOP_MARGIN = 50, LANE_HEIGHT = 44, BAR_HEIGHT = 18, RIBBON_H = 48, LEFT_PAD = 12, RIGHT_PAD = 40, BOTTOM_PAD = 20, MIN_PLOT_WIDTH = 640, MAX_ZOOM = 24;
+            const WORK_ROW_H = 22;   // Work 그룹 헤더 행 높이 — cycle-gantt.js WORK_ROW_H 와 동일 유지
+            // 사이클 분기 팔레트 — 미리보기 스트립/통계 칩 공용(미분류 = 회색 #9e9e9e 고정).
+            const BR_COLORS = ['#2e7d32', '#7b1fa2', '#0277bd', '#ef6c00', '#c2185b', '#5d4037', '#00695c', '#455a64'];
             // 모바일(≤480px) 에서는 최소 플롯 폭을 줄여 좁은 화면에 맞춤(불필요한 가로 overflow 방지).
             const minPlotW = () => (typeof window !== 'undefined' && window.innerWidth < 480) ? 280 : MIN_PLOT_WIDTH;
             const API_ROW_HEIGHT = 64;   // Call lane 확장 시 끼어드는 ApiCall 서브행 높이(사이드바·SVG 공통) — 실측/AASX 메트릭 wrap 여유
@@ -32,6 +35,15 @@
                 flow: null,
                 loading: true, error: null, dark: false,
                 rt: { connected: false },
+
+                // ── 사이클 분기(branch) 편집기 (2026-08-27) ──
+                branches: [],            // [{name, startCallName, endCallName, excludedCallNames[]}] — 편집 중 상태
+                branchesSaved: '[]',     // 저장 스냅샷(JSON) — dirty 판정
+                branchSavedCount: 0,     // 저장된 분기 수(0 = 분기 미사용)
+                branchEditorOpen: false,
+                branchBusy: false,
+                branchMsg: '',
+                branchError: '',
                 tab: 'trend',   // 'trend' | 'cycle' | 'history' — 콘텐츠 탭 전환
                 // 페이지 뷰 모드 — 'trend'(추이 분석 전용) | 'cycle'(사이클 분석 전용) | 'both'(구 flow.html: 탭으로 둘 다).
                 // flow-trend.html / flow-cycle.html 이 window.DSP_FLOW_VIEW 로 지정. init() 에서 확정 + 불필요한 로드를 건너뛴다.
@@ -129,7 +141,7 @@
                     this.allMode = (this.view === 'trend' && !this.flowName);
                     // 더티 가드 등록 — 가동시간 분석(cycle)에서 Head/Tail 미저장 이탈 방지
                     if (this.view === 'cycle') {
-                        window.dspDirtyRegister(() => this.userOverrodeHeadTail);
+                        window.dspDirtyRegister(() => this.userOverrodeHeadTail || this.branchesDirty);
                         // 앵커 지연 문구는 시간이 지나면 커진다 — 30초마다 재계산(숨긴 탭에서는 정지).
                         setInterval(() => { if (!document.hidden) this.refreshAnchorHint(); }, 30000);
                     }
@@ -165,6 +177,7 @@
                             this.selectedFlow = this.flow.flowName;
                             await this.reloadTrend();
                             await this.loadExclusions();
+                            if (this.view === 'cycle') await this.loadBranches();
                             this.syncHistory();
                             // 사이클 분석 최초 범위 — URL 기간 파라미터(?period/from/to, 같은 페이지 나브 이동 시
                             // shell 이 실어 보냄) 복원, 없으면 기본 최근 5분. 추이 전용 페이지에서는 불필요하므로 건너뜀.
@@ -693,7 +706,7 @@
                     if (el.firstElementChild) ro.observe(el.firstElementChild);   // .ct-gantt-wrapper (SVG 폭)
                 },
                 // 간트 스크롤 컨테이너. $refs 는 중첩 x-if 안에서 첫 mount 때 비어 있을 수 있어 DOM 조회로 폴백.
-                chartAreaEl() { return this.$refs.chartArea || document.querySelector('.ct-gantt-chart-area'); },
+                chartAreaEl() { return this.$refs.chartArea || document.querySelector('.ct-gantt-hscroll'); },
                 // 현재 스크롤 위치 → 이동 슬라이더 값(+ 활성 여부). 스크롤 이벤트/줌/로드 후 호출.
                 syncPan(el) {
                     el = el || this.chartAreaEl();
@@ -939,6 +952,260 @@
                         this.recomputeMsg = '';
                     } finally { this.overlayBusy = false; }
                 },
+                // ═══ 사이클 분기(branch) — 분기별 Head/Tail + 제외 call. 저장 = 서버 전체 이력 재분류,
+                //     설비효율(OEE)은 "부모_분기" 단위로 표시. 미리보기 = 현재 조회 창 신호로 분류한 근사이며
+                //     별도 화면이 아니라 <b>본 간트</b>(리본 상단 분기 색 바 + lane 제외 토글)에 그려진다. ═══
+                get branchesDirty() { return JSON.stringify(this.branches) !== this.branchesSaved; },
+                brColor(i) { return BR_COLORS[i % BR_COLORS.length]; },
+                // 편집 변경 → 상단(전체) 간트 오버레이 즉시 반영(수동 SVG 재빌드 — svgMarkup 은 반응형이 아님).
+                //   분기별 간트 카드(brCards)는 반응형 게터라 자동 갱신.
+                _brRefresh() {
+                    if (this.callLanes.length) this.svgMarkup = this.buildSvg();
+                },
+                // ── 분기별 간트 카드 (2026-08-28) — 분기마다 상단과 동일한 간트를 하나씩 그려, 그 간트의
+                //    lane 에서 시작/끝/제외를 클릭해 정의한다(상단 간트 = flow 전체 보기, 편집 없음).
+                //    CycleGantt.buildSvg 는 상태 객체만 받으므로(벌크 페이지와 같은 패턴) 분기별 의사 슬라이스를
+                //    만들어 위임한다 — 시간창/줌(plotWidth)을 상단과 공유해 축이 항상 일치한다.
+                brSetHead(b, callName) {
+                    b.startCallName = callName;
+                    b.excludedCallNames = b.excludedCallNames.filter(c => c !== callName);
+                    this._brRefresh();
+                },
+                brSetTail(b, callName) {
+                    b.endCallName = callName;
+                    b.excludedCallNames = b.excludedCallNames.filter(c => c !== callName);
+                    this._brRefresh();
+                },
+                brToggleExclByName(b, callName) {
+                    if (callName === b.startCallName || callName === b.endCallName) return;
+                    this.brToggleExcl(b, callName);
+                },
+                _brSlice(b, bi, pv) {
+                    const laneBy = {};
+                    this.callLanes.forEach(l => { laneBy[l.callName] = l; });
+                    const head = laneBy[b.startCallName] || null;
+                    const tail = laneBy[b.endCallName] || null;
+                    // 이 분기의 사이클 경계 = 자기 head OutTag↑. 완료 마커 = tail InTag↑, 없으면 OutTag↓
+                    // (서버 CycleCompletionResolver 와 동일 규칙의 클라이언트 근사).
+                    const bnd = head ? (head.outIntervals || []).map(iv => new Date(iv.start)) : [];
+                    let tailEdges = [];
+                    if (tail) {
+                        const ins = (tail.inIntervals || []).map(iv => new Date(iv.start));
+                        tailEdges = ins.length ? ins : (tail.outIntervals || []).map(iv => new Date(iv.end));
+                    }
+                    // 오버레이 — 병합 분류에서 이 분기 것만 분기색, 나머지(형제/미분류)는 옅은 회색.
+                    const spans = (pv.spans || []).map(sp => ({
+                        sMs: sp.sMs, eMs: sp.eMs, title: sp.title,
+                        color: sp.win === bi ? this.brColor(bi) : '#d7dde3',
+                    }));
+                    // 제외 call lane 은 이 분기 간트에서 접힌 띠로 축소(신호 숨김 — 복원은 사이드바 '제외' 재클릭).
+                    const collapsedCallNames = {};
+                    (b.excludedCallNames || []).forEach(n => { collapsedCallNames[n] = true; });
+                    return {
+                        callLanes: this.callLanes,
+                        chartStart: this.chartStart, chartEnd: this.chartEnd,
+                        plotWidth: this.plotWidth,
+                        viewMode: 'bar',
+                        headCallId: head ? head.callId : null,
+                        tailCallId: tail ? tail.callId : null,
+                        cycleBoundaries: bnd,
+                        tailEdges,
+                        expandedCalls: {},
+                        collapsedCallNames,
+                        topGaps: [], showMaxGap: false, selectedGapIndex: -1,
+                        selectedRange: null,
+                        branchPreview: { spans },
+                    };
+                },
+                get brCards() {
+                    if (!this.branchEditorOpen || !this.branches.length || !this.callLanes.length
+                        || !this.chartStart || !window.CycleGantt) return [];
+                    const pv = this.branchPreview;
+                    return this.branches.map((b, bi) => {
+                        const slice = this._brSlice(b, bi, pv);
+                        const st = pv.stats && pv.stats[bi] ? pv.stats[bi] : { count: 0, pct: 0 };
+                        return {
+                            rows: window.CycleGantt.laneRows(slice),
+                            svg: window.CycleGantt.buildSvg(slice),
+                            hasRibbon: slice.cycleBoundaries.length > 0,
+                            count: st.count, pct: st.pct,
+                        };
+                    });
+                },
+                async loadBranches() {
+                    if (!this.flowName) return;
+                    try {
+                        const r = await this.apiGet('/api/flow/' + encodeURIComponent(this.flowName) + '/branches');
+                        this.branches = (r.branches || []).map(b => ({
+                            name: b.name || '', startCallName: b.startCallName || '', endCallName: b.endCallName || '',
+                            excludedCallNames: (b.excludedCallNames || []).slice(),
+                        }));
+                        this.branchesSaved = JSON.stringify(this.branches);
+                        this.branchSavedCount = this.branches.length;
+                        // 분기 사용 중이면 편집기(분기별 간트 카드)를 자동으로 펼친다 — 이 페이지가 분기 관리 단일 진입점.
+                        if (this.branchSavedCount > 0) this.branchEditorOpen = true;
+                        this._brRefresh();
+                    } catch (_) { /* 분기 API 실패 — 편집기만 비활성(가동 분석 자체는 무관) */ }
+                },
+                brAdd() {
+                    if (this.branches.length >= 8) return;
+                    // 새 분기의 시작/끝 기본값 = flow 유효 경계 — 분기 간트에서 클릭으로 바꾼다.
+                    this.branches.push({
+                        name: '분기' + (this.branches.length + 1),
+                        startCallName: this.callNameOf(this.headCallId) || '',
+                        endCallName: this.callNameOf(this.tailCallId) || '',
+                        excludedCallNames: [],
+                    });
+                    this.branchEditorOpen = true;
+                    this._brRefresh();
+                },
+                brRemove(i) {
+                    this.branches.splice(i, 1);
+                    this._brRefresh();
+                },
+                brMove(i, d) {
+                    const j = i + d;
+                    if (j < 0 || j >= this.branches.length) return;
+                    const t = this.branches.splice(i, 1)[0];
+                    this.branches.splice(j, 0, t);
+                    this._brRefresh();
+                },
+                brToggleExcl(b, name) {
+                    const i = b.excludedCallNames.indexOf(name);
+                    if (i === -1) b.excludedCallNames.push(name); else b.excludedCallNames.splice(i, 1);
+                    this._brRefresh();
+                },
+                // "이 Work 통째 제외" — 분기 간트의 Work 헤더 행에서 클릭(분기가 Work 단위로 갈리는 현장 구조).
+                //   자기 시작/끝 call 은 자동 제외 대상에서 뺀다(자기 사이클 반증 방지 — 서버 방어와 동일).
+                brToggleWorkByName(b, workName) {
+                    const calls = this.callLanes
+                        .filter(l => (l.workName || '(Work 없음)') === workName)
+                        .map(l => l.callName);
+                    if (!calls.length) return;
+                    const allOn = calls.every(c =>
+                        c === b.startCallName || c === b.endCallName || b.excludedCallNames.indexOf(c) !== -1);
+                    if (allOn) {
+                        b.excludedCallNames = b.excludedCallNames.filter(c => calls.indexOf(c) === -1);
+                    } else {
+                        calls.forEach(c => {
+                            if (c === b.startCallName || c === b.endCallName) return;
+                            if (b.excludedCallNames.indexOf(c) === -1) b.excludedCallNames.push(c);
+                        });
+                    }
+                    this._brRefresh();
+                },
+                // 라이브 미리보기 — 서버 재도출과 같은 규칙의 근사: 분기 head OutTag↑ 병합 스트림으로 스팬을
+                // 만들고, 스팬 안 제외 call 발화 = 그 분기 기각, 복수 통과 = 정의 순서 첫 매칭, 전멸 = 미분류.
+                get branchPreview() {
+                    const empty = { spans: [], stats: [], un: 0, unPct: 0, total: 0 };
+                    if (!this.branches.length || !this.callLanes.length || !this.chartStart) return empty;
+                    const cs = this.chartStart.getTime();
+                    const ce = this.chartEnd ? this.chartEnd.getTime() : cs;
+                    if (ce <= cs) return empty;
+                    const laneByName = {};
+                    this.callLanes.forEach(l => { laneByName[l.callName] = l; });
+                    const risesOf = (name) => {
+                        const l = laneByName[name];
+                        return l ? (l.outIntervals || []).map(iv => new Date(iv.start).getTime()).sort((a, b) => a - b) : [];
+                    };
+                    const startMap = new Map();   // startMs → [분기 index...] (정의 순서)
+                    this.branches.forEach((b, bi) => {
+                        risesOf(b.startCallName).forEach(t => {
+                            if (!startMap.has(t)) startMap.set(t, []);
+                            const arr = startMap.get(t);
+                            if (arr.indexOf(bi) === -1) arr.push(bi);
+                        });
+                    });
+                    const starts = Array.from(startMap.keys()).sort((a, b) => a - b);
+                    if (!starts.length) return empty;
+                    const exclEdges = this.branches.map(b => {
+                        let es = [];
+                        (b.excludedCallNames || []).forEach(n => {
+                            if (n === b.startCallName || n === b.endCallName) return;
+                            es = es.concat(risesOf(n));
+                        });
+                        return es.sort((x, y) => x - y);
+                    });
+                    const hasIn = (arr, s, e) => {
+                        let lo = 0, hi = arr.length;
+                        while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < s) lo = m + 1; else hi = m; }
+                        return lo < arr.length && arr[lo] < e;
+                    };
+                    const spans = [];
+                    const counts = this.branches.map(() => 0);
+                    let un = 0;
+                    for (let i = 0; i < starts.length; i++) {
+                        const s = starts[i], e = i + 1 < starts.length ? starts[i + 1] : ce;
+                        if (e <= s) continue;
+                        const cands = startMap.get(s).slice().sort((a, b) => a - b);
+                        let win = -1;
+                        for (const bi of cands) { if (!hasIn(exclEdges[bi], s, e)) { win = bi; break; } }
+                        if (win === -1) un++; else counts[win]++;
+                        spans.push({
+                            // ms 좌표 — 간트 SVG 오버레이(appendBranchOverlay)가 같은 xScale 로 그린다.
+                            sMs: s, eMs: e,
+                            win,   // 매칭 분기 index (-1 = 미분류) — 분기별 간트 카드가 자기 것만 강조할 때 사용
+                            color: win === -1 ? '#9e9e9e' : this.brColor(win),
+                            label: win === -1 ? '미분류' : (this.branches[win].name || ('분기' + (win + 1))),
+                            title: (win === -1 ? '미분류' : (this.branches[win].name || ('분기' + (win + 1))))
+                                + ' · ' + this.formatMs(e - s),
+                        });
+                    }
+                    const total = starts.length;
+                    return {
+                        spans,
+                        stats: this.branches.map((b, bi) => ({
+                            name: b.name || ('분기' + (bi + 1)), color: this.brColor(bi),
+                            count: counts[bi], pct: Math.round(counts[bi] / total * 100),
+                        })),
+                        un, unPct: Math.round(un / total * 100), total,
+                    };
+                },
+                async saveBranches(disable) {
+                    if (!this.flowName || this.branchBusy) return;
+                    if (disable) {
+                        if (!window.confirm('분기를 해제하고 단일 Head/Tail 분석으로 되돌립니다.\n과거 이력의 분기 라벨이 제거되도록 전체 재계산이 실행됩니다. 계속할까요?')) return;
+                    } else {
+                        if (!this.branches.length) return;
+                        if (!window.confirm('분기 정의를 저장합니다.\n이 Flow 의 과거 이력 전체가 새 분기 기준으로 재분류됩니다(백그라운드).\n설비효율 현황에는 "' + this.flowName + '_분기이름" 단위로 표시됩니다. 계속할까요?')) return;
+                    }
+                    const list = disable ? [] : this.branches.map(b => ({
+                        name: (b.name || '').trim(),
+                        startCallName: b.startCallName,
+                        endCallName: b.endCallName,
+                        excludedCallNames: b.excludedCallNames,
+                    }));
+                    this.branchBusy = true; this.branchError = '';
+                    this.branchMsg = disable ? '분기 해제 중…' : '분기 저장 중…';
+                    try {
+                        const res = await fetch('/api/flow/' + encodeURIComponent(this.flowName) + '/branches', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify({ branches: list }),
+                        });
+                        if (!res.ok) {
+                            let msg = 'HTTP ' + res.status;
+                            try { const j = await res.json(); if (j && j.message) msg = j.message; } catch (_) { }
+                            throw new Error(msg);
+                        }
+                        const r = await res.json();
+                        this.branches = (r.branches || []).map(b => ({
+                            name: b.name || '', startCallName: b.startCallName || '', endCallName: b.endCallName || '',
+                            excludedCallNames: (b.excludedCallNames || []).slice(),
+                        }));
+                        this.branchesSaved = JSON.stringify(this.branches);
+                        this.branchSavedCount = this.branches.length;
+                        this._brRefresh();
+                        this.branchMsg = (disable ? '분기 해제됨' : '분기 저장됨') + ' — 이력 재계산 중…';
+                        await this.pollRecomputeStatus();
+                        this.branchMsg = disable ? '분기 해제 완료' : '분기 저장 완료 — 사이드바는 새로고침 후 분기 단위로 표시됩니다';
+                        setTimeout(() => { this.branchMsg = ''; }, 8000);
+                    } catch (e) {
+                        this.branchError = (disable ? '해제' : '저장') + ' 실패: ' + e.message;
+                        this.branchMsg = '';
+                    } finally { this.branchBusy = false; }
+                },
+
                 async pollRecomputeStatus() {
                     this.recomputeBusy = true; this.recomputeError = false;
                     const flow = this.selectedFlow;
@@ -1422,9 +1689,20 @@
                 // 사이드바·SVG 가 공유하는 행 레이아웃: Call 행 + (확장 시) 그 아래 ApiCall 서브행들.
                 // y 는 laneArea 상단 기준 누적 오프셋, h 는 행 높이. totalH = laneArea 총 높이.
                 laneLayout() {
+                    // ★cycle-gantt.js laneLayout 과 행 구성이 반드시 일치해야 한다(사이드바 ↔ SVG 정렬).
+                    //   Work 그룹 헤더(2026-08-27): 서로 다른 Work 2개 이상일 때만 경계 헤더 행 삽입.
                     const rows = [];
                     let y = 0;
+                    const workNames = new Set(this.callLanes.map(l => l.workName || ''));
+                    const useWorkRows = workNames.size >= 2;
+                    let prevWork = null;
                     for (const lane of this.callLanes) {
+                        const wn = lane.workName || '';
+                        if (useWorkRows && wn !== prevWork) {
+                            rows.push({ kind: 'work', key: 'w:' + wn + ':' + y, workName: wn || '(Work 없음)', y, h: WORK_ROW_H });
+                            y += WORK_ROW_H;
+                            prevWork = wn;
+                        }
                         rows.push({ kind: 'call', key: 'c:' + lane.callId, lane, y, h: LANE_HEIGHT });
                         y += LANE_HEIGHT;
                         if (this.expandedCalls[lane.callId] && this.hasApiCalls(lane)) {
@@ -1438,7 +1716,10 @@
                     return { rows, totalH: y };
                 },
                 get laneRows() { return this.laneLayout().rows; },
-                rowClass(row) { return row.kind === 'call' ? this.laneRowClass(row.lane) : 'ct-api-row'; },
+                rowClass(row) {
+                    if (row.kind === 'work') return 'ct-work-row';
+                    return row.kind === 'call' ? this.laneRowClass(row.lane) : 'ct-api-row';
+                },
 
                 // OutTag↑(명령) → 다음 InTag↑(응답) 까지를 한 동작 duration 으로 페어링한 ms 배열.
                 // 진영 B(PLC 기준): OutTag=출력(명령)=동작 시작, InTag=입력(응답)=동작 완료.
@@ -1619,6 +1900,13 @@
                     for (const row of layout.rows) {
                         const lane = row.lane;
                         const rowY = laneAreaTop + row.y;
+
+                        if (row.kind === 'work') {
+                            // Work 그룹 헤더 밴드 — cycle-gantt.js 와 동일(폴백 렌더러 정합 유지).
+                            sb += `<rect x="0" y="${this.f(rowY)}" width="${chartW}" height="${WORK_ROW_H}" fill="#eceff1" opacity="0.6"/>`;
+                            sb += `<line x1="0" y1="${this.f(rowY + WORK_ROW_H)}" x2="${chartW}" y2="${this.f(rowY + WORK_ROW_H)}" stroke="#cfd8dc" stroke-width="1"/>`;
+                            continue;
+                        }
 
                         if (row.kind === 'api') {
                             // ── ApiCall 서브행: 들여쓴 옅은 배경 + 자신의 OUT/IN 트레이스(1:1 이면 Call 과 동일) ──
