@@ -9,6 +9,10 @@ open System
 type SignalId =
     val private raw: string
 
+    /// System.Text.Json 은 struct 에 대해 암시적 무인자 생성자를 우선 사용하고
+    /// get-only 프로퍼티(Value)를 채울 수 없어 역직렬화 시 raw 가 null 로 남는다.
+    /// JsonConstructor 를 명시해 { "value": "..." } 를 이 생성자로 복원한다.
+    [<System.Text.Json.Serialization.JsonConstructor>]
     new(value: string) = { raw = value }
 
     /// The underlying string (never null; empty means "unset").

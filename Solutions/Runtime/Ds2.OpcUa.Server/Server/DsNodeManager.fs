@@ -26,6 +26,18 @@ type internal AssetContext = {
     RaiseEventMethod : MethodState
 }
 
+/// 외부 UA client 의 signal Variable write 허용 여부 (opt-in).
+///
+/// 기본값은 false — 중앙 UA 는 aggregator 이고 값 주입은 내부 bridge(WriteSignal) 가 담당한다.
+/// 장비가 스스로 OPC UA client 로 값을 밀어 넣는 구성(현장 PC → 센터)을 시험할 때만
+/// 환경변수 DS2_UASERVER_ALLOW_SIGNAL_WRITE=1 로 켠다.
+/// 운영에서 켜려면 write 주체를 인증서/사용자 단위로 구분하는 정책이 선행되어야 한다.
+module private ExternalWrite =
+    let allowed =
+        match Environment.GetEnvironmentVariable "DS2_UASERVER_ALLOW_SIGNAL_WRITE" with
+        | null -> false
+        | v -> v.Trim().ToLowerInvariant() = "1" || v.Trim().ToLowerInvariant() = "true"
+
 module private DataTypes =
     let ofBuiltIn (t: BuiltInType) : NodeId =
         match t with
@@ -501,8 +513,13 @@ type DsNodeManager(server: IServerInternal,
         v.TypeDefinitionId <- VariableTypeIds.BaseDataVariableType
         v.DataType <- DataTypes.ofBuiltIn builtin
         v.ValueRank <- ValueRanks.Scalar
-        // Central UA는 aggregator다. 외부 UA client write는 허용하지 않고 내부 bridge만 WriteSignal을 사용한다.
-        v.AccessLevel <- byte (AccessLevels.CurrentRead ||| AccessLevels.HistoryRead)
+        // Central UA는 aggregator다. 기본적으로 외부 UA client write는 허용하지 않고 내부 bridge만 WriteSignal을 사용한다.
+        // DS2_UASERVER_ALLOW_SIGNAL_WRITE=1 인 경우에만 외부 write 를 추가로 허용한다 (ExternalWrite 주석 참조).
+        v.AccessLevel <-
+            if ExternalWrite.allowed then
+                byte (AccessLevels.CurrentRead ||| AccessLevels.CurrentWrite ||| AccessLevels.HistoryRead)
+            else
+                byte (AccessLevels.CurrentRead ||| AccessLevels.HistoryRead)
         v.UserAccessLevel <- v.AccessLevel
         v.MinimumSamplingInterval <-
             policy
