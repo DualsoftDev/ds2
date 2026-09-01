@@ -31,6 +31,9 @@ module internal ImportPlanDeviceOps =
         PlannedArrowPairs = Set.empty
     }
 
+    /// 단일 API device 에 자동 생성되는 완료 더미 Work 이름.
+    let [<Literal>] internal doneWorkName = "DONE"
+
     let hasCreatableApiName (callName: string) =
         // M2: splitApiCallName(canonical, isNull/no-dot→None) 위임 — null/no-dot → false 정책 보존.
         Queries.splitApiCallName callName |> Option.exists (snd >> String.IsNullOrEmpty >> not)
@@ -207,6 +210,44 @@ module internal ImportPlanDeviceOps =
                     yield ws.[i], ws.[j] ]
         buildWorkArrowsBy allPairs store operations state
 
+    /// 단일 API device 보정 — API Work 가 1개뿐인 신규 passive device flow 에 'DONE' 더미 Work 를 추가한다.
+    /// 이유: 상호 리셋 파트너가 없는 1-API device 는 1회 동작 후 Finish 로 고착되어 재기동이 불가하다.
+    /// 배선: (API -Start-> DONE) + (API <-ResetReset-> DONE). DONE 은 Call 이 없어 시작 즉시 Finish 하고
+    /// (Execution.fs: callGuids.IsEmpty -> Finish), 그 결과 API Work 를 리셋해 다음 사이클을 준비한다.
+    /// ApiDef 는 Tx = API Work, Rx = DONE 으로 잡아 '동작 송신 ~ 완료 수신' 을 분리한다.
+    let private buildSingleApiDoneWorks
+        (store: DsStore)
+        (operations: ResizeArray<ImportPlanOperation>)
+        (state: DeviceBatchState) =
+        state.PendingWorkOrderRev
+        |> Map.iter (fun deviceKey workOrderRev ->
+            match workOrderRev with
+            | [ apiWork ] when apiWork.LocalName <> doneWorkName ->
+                match Map.tryFind deviceKey state.PendingFlows with
+                | None -> ()
+                | Some flow ->
+                    let alreadyHasDone =
+                        Queries.worksOf flow.Id store
+                        |> List.exists (fun existing -> existing.LocalName = doneWorkName)
+                    if not alreadyHasDone then
+                        let systemId = flow.ParentId
+                        // Duration 미지정 = 즉시 완료되는 더미(순수 상태 전이용).
+                        let doneWork = Work(flow.Name, doneWorkName, flow.Id)
+                        queueOperation (AddWork doneWork) operations
+                        queueOperation
+                            (AddArrowWork (ArrowBetweenWorks(systemId, apiWork.Id, doneWork.Id, ArrowType.Start)))
+                            operations
+                        queueOperation
+                            (AddArrowWork (ArrowBetweenWorks(systemId, apiWork.Id, doneWork.Id, ArrowType.ResetReset)))
+                            operations
+                        // 이 device 의 신규 ApiDef(Tx = API Work) 만 Rx 를 DONE 으로 재지정.
+                        // 기존 store ApiDef 는 Tx 가 다른 Work 를 가리키므로 영향 없음(store 비변경 계약 유지).
+                        state.PendingApiDefs
+                        |> Map.iter (fun (_, apiDefSystemId) apiDef ->
+                            if apiDefSystemId = systemId && apiDef.TxGuid = Some apiWork.Id then
+                                apiDef.RxGuid <- Some doneWork.Id)
+            | _ -> ())
+
     let private linkCallsToDevicesWithState
         (store: DsStore)
         (projectId: Guid)
@@ -273,8 +314,12 @@ module internal ImportPlanDeviceOps =
             ) ([], stateWithWorks)
         let apiDefIdsOrdered = List.rev apiDefIds
         match wiringMode with
-        | Chain -> buildWorkArrows store operations stateWithApiDefs
-        | AllPairs -> buildWorkArrowsAllPairs store operations stateWithApiDefs
+        | Chain ->
+            buildWorkArrows store operations stateWithApiDefs
+            buildSingleApiDoneWorks store operations stateWithApiDefs
+        | AllPairs ->
+            buildWorkArrowsAllPairs store operations stateWithApiDefs
+            buildSingleApiDoneWorks store operations stateWithApiDefs
         | NoneMode -> ()
         system.Id, apiDefIdsOrdered
 
@@ -288,6 +333,7 @@ module internal ImportPlanDeviceOps =
             let withHint = calls |> List.map (fun (c, n) -> c, n, None)
             let finalState = linkCallsToDevicesWithState store projectId flowName withHint operations initialState
             buildWorkArrows store operations finalState
+            buildSingleApiDoneWorks store operations finalState
 
     /// 여러 Flow의 Call을 state 공유하며 처리. systemNameHint가 있으면 System 이름으로 사용.
     let linkCallsToDevicesMultiFlow
@@ -301,3 +347,4 @@ module internal ImportPlanDeviceOps =
                 linkCallsToDevicesWithState store projectId flowName calls operations st
             ) initialState
         buildWorkArrows store operations finalState
+        buildSingleApiDoneWorks store operations finalState

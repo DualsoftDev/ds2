@@ -198,6 +198,44 @@ module MapperTests =
         Assert.Equal(4, defs.Length)
 
     [<Fact>]
+    let ``단일 API 디바이스는 DONE 더미 Work 로 재기동 가능해진다`` () =
+        // 센서.감지 = API 1개 device, 실린더.전진/후진 = API 2개 device
+        let store = loadOk (csv [ "투입,작업,실린더.전진>센서.감지>실린더.후진" ]) "P" "S"
+        let project = store.Projects.Values |> Seq.head
+        let passiveIds = project.PassiveSystemIds |> Set.ofSeq
+
+        let sensorSystem =
+            store.Systems.Values |> Seq.find (fun s -> passiveIds.Contains s.Id && s.Name = "센서")
+        let sensorFlow = store.Flows.Values |> Seq.find (fun f -> f.ParentId = sensorSystem.Id)
+        let sensorWorks = store.Works.Values |> Seq.filter (fun w -> w.ParentId = sensorFlow.Id) |> Seq.toList
+        let apiWork = sensorWorks |> List.find (fun w -> w.LocalName = "감지")
+        let doneWork = sensorWorks |> List.find (fun w -> w.LocalName = "DONE")
+        Assert.Equal(2, sensorWorks.Length)
+
+        // API -Start-> DONE + API <-ResetReset-> DONE
+        let arrowsOf t =
+            store.ArrowWorks.Values
+            |> Seq.filter (fun a ->
+                a.ParentId = sensorSystem.Id && a.ArrowType = t
+                && a.SourceId = apiWork.Id && a.TargetId = doneWork.Id)
+            |> Seq.length
+        Assert.Equal(1, arrowsOf ArrowType.Start)
+        Assert.Equal(1, arrowsOf ArrowType.ResetReset)
+
+        // ApiDef: Tx = API Work, Rx = DONE
+        let apiDef = store.ApiDefs.Values |> Seq.find (fun d -> d.ParentId = sensorSystem.Id)
+        Assert.Equal(Some apiWork.Id, apiDef.TxGuid)
+        Assert.Equal(Some doneWork.Id, apiDef.RxGuid)
+
+        // API 2개 device 는 DONE 없이 기존 pairwise ResetReset 유지
+        let cylSystem =
+            store.Systems.Values |> Seq.find (fun s -> passiveIds.Contains s.Id && s.Name = "실린더")
+        let cylFlow = store.Flows.Values |> Seq.find (fun f -> f.ParentId = cylSystem.Id)
+        let cylWorks = store.Works.Values |> Seq.filter (fun w -> w.ParentId = cylFlow.Id) |> Seq.toList
+        Assert.Equal(2, cylWorks.Length)
+        Assert.DoesNotContain("DONE", cylWorks |> List.map (fun w -> w.LocalName))
+
+    [<Fact>]
     let ``합류 노드는 선행 2개의 Start 엣지를 받는다`` () =
         let store = loadOk (csv [ "투입,분기작업,컨베이어.시작>센서A.감지>컨베이어.정지;컨베이어.시작>센서B.감지>컨베이어.정지" ]) "P" "S"
         let stopCall =

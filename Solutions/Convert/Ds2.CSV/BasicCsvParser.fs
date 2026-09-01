@@ -226,8 +226,9 @@ module BasicCsvParser =
                     let joined = String.concat ", " singles
                     warnings.Add(
                         $"DEV001: API가 1개뿐인 디바이스 {List.length singles}개 — {joined}. "
-                        + "실린더·모터류 구동 디바이스는 전진-후진, ON-OFF 같은 상보 동작 쌍이 필요합니다. "
-                        + "공법에 반대 동작이 있는지 확인하세요(센서류 단일 API는 무시해도 됩니다).")
+                        + "각 디바이스 Flow 에 DONE 더미 Work 가 자동 추가되어 1회 동작 후 자동 복귀합니다(재기동 가능). "
+                        + "실린더·모터류 구동 디바이스라면 반대 동작(후진·하강·OFF)이 누락되지 않았는지 확인하세요"
+                        + "(센서·출력 전용 디바이스는 정상입니다).")
 
             if errors.Count = 0 && works.Count = 0 then
                 err 0 "CSV003: 데이터 행이 없습니다."
