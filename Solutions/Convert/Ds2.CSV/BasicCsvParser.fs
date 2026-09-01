@@ -150,12 +150,13 @@ module BasicCsvParser =
             let warnings = ResizeArray<string>()
             let err line (msg: string) = errors.Add { LineNumber = line; Message = msg }
 
-            // 헤더 검증 (CSV001)
+            // 헤더 검증 (CSV001) — 쉼표/탭(Excel 붙여넣기) 구분자 자동 감지
             let headerLine, headerText = lines.[0]
+            let separator = CsvParser.detectSeparator headerText
             let headerFields =
-                headerText.Split(',') |> Array.map (fun f -> f.Trim().ToLowerInvariant()) |> List.ofArray
+                headerText.Split(separator) |> Array.map CsvParser.normalizeHeaderField |> List.ofArray
             if headerFields <> expectedHeaderFields then
-                err headerLine "CSV001: 헤더가 'FLOW,WORK,CALL' 이 아닙니다."
+                err headerLine "CSV001: 헤더가 'FLOW,WORK,CALL' 이 아닙니다(쉼표 또는 탭 구분)."
 
             let works = ResizeArray<BasicCsvWork>()
             let seenWorkKeys = HashSet<string>()
@@ -165,7 +166,7 @@ module BasicCsvParser =
 
             if errors.Count = 0 then
                 for lineNumber, line in Array.skip 1 lines do
-                    match CsvParser.splitCsvLine lineNumber line with
+                    match CsvParser.splitLine separator lineNumber line with
                     | Error parseError -> errors.Add parseError
                     | Ok fields ->
                         if List.length fields <> 3 then

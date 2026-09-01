@@ -245,3 +245,249 @@ module MapperTests =
             |> Seq.filter (fun a -> a.TargetId = stopCall.Id && a.ArrowType = ArrowType.Start)
             |> Seq.length
         Assert.Equal(2, incoming)
+
+// Excel/스프레드시트에서 복사하면 탭 구분(TSV)으로 붙여넣어진다 — 두 모드 모두 자동 인식해야 한다.
+module TsvPasteTests =
+
+    let private tsv (rows: string list) = String.concat "\n" rows
+
+    [<Fact>]
+    let ``표준 9열 탭 구분 붙여넣기 파싱`` () =
+        let content =
+            tsv [
+                "Flow\tWork\tDevice\tSystem\tApi\tInName\tInAddress\tOutName\tOutAddress"
+                "LH\tLOW\tLH_LOW_SOL_INDEX\tLH_LOW_SOL_INDEX\t락\tLH_LOW_RS_INDEX_락\t%IX2.30.0.00\tLH_LOW_SOL_INDEX_락\t%QX2.31.0.00"
+                "LH\tLOW\tLH_LOW_SOL_INDEX\tLH_LOW_SOL_INDEX\t언락\tLH_LOW_RS_INDEX_언락\t%IX2.30.0.01\tLH_LOW_SOL_INDEX_언락\t%QX2.31.0.01"
+            ]
+        match CsvImporter.parseContent content with
+        | Error errors -> failwith (String.concat "\n" errors)
+        | Ok doc ->
+            Assert.Equal(2, doc.Entries.Length)
+            let first = doc.Entries.Head
+            Assert.Equal("LH", first.FlowName)
+            Assert.Equal("LOW", first.WorkName)
+            Assert.Equal("LH_LOW_SOL_INDEX", first.DeviceAlias)
+            Assert.Equal("락", first.ApiName)
+            Assert.Equal<string option>(Some "%IX2.30.0.00", first.InAddress)
+            Assert.Equal<string option>(Some "%QX2.31.0.00", first.OutAddress)
+
+    [<Fact>]
+    let ``기본 3열 탭 구분 붙여넣기 파싱`` () =
+        let doc = parseOk (tsv [ "FLOW\tWORK\tCALL"; "투입\t리프트작업\t리프트.상승>리프트.하강" ])
+        Assert.Single(doc.Works) |> ignore
+        Assert.Equal(2, doc.Works.Head.Nodes.Length)
+        Assert.Equal(1, doc.Works.Head.Edges.Length)
+
+    [<Fact>]
+    let ``탭 구분에서 쉼표는 이름의 일부로 보존된다`` () =
+        let doc = parseOk (tsv [ "FLOW\tWORK\tCALL"; "투입\t작업A,B\t실린더.전진>실린더.후진" ])
+        Assert.Equal("작업A,B", doc.Works.Head.WorkName)
+
+    [<Fact>]
+    let ``쉼표 구분은 기존대로 동작한다`` () =
+        let doc = parseOk (csv [ "투입,리프트작업,리프트.상승>리프트.하강" ])
+        Assert.Single(doc.Works) |> ignore
+
+// 실설비 패턴 — 솔레노이드 1개가 여러 실린더를 구동하고 실린더마다 개별 센서가 달린 경우.
+// CSV 의 System 열이 행마다 다르면 Call 1개에 ApiCall N개(각자 자기 Passive System)가 붙어야 한다.
+// (AddCall 다이얼로그의 'ApiCall 복제' / 고급 탭 ApiDef 다중선택과 동일한 구조)
+module MultiSystemCallTests =
+
+    let private latchCsv =
+        String.concat "\n" [
+            "Flow,Work,Device,System,Api,InName,InAddress,OutName,OutAddress"
+            "RH,정렬,LATCH,LATCH1,ADV,RS_ADV1,%IX3.60.0.00,SOL_ADV,%QX3.63.0.00"
+            "RH,정렬,LATCH,LATCH1,RET,RS_RET1,%IX3.60.0.01,SOL_RET,%QX3.63.0.01"
+            "RH,정렬,LATCH,LATCH2,RET,RS_RET2,%IX3.60.0.02,SOL_RET,%QX3.63.0.01"
+            "RH,정렬,LATCH,LATCH3,RET,RS_RET3,%IX3.60.0.03,SOL_RET,%QX3.63.0.01"
+            "RH,정렬,LATCH,LATCH4,RET,RS_RET4,%IX3.60.0.04,SOL_RET,%QX3.63.0.01"
+            "RH,정렬,LATCH,LATCH5,RET,RS_RET5,%IX3.60.0.05,SOL_RET,%QX3.63.0.01"
+        ]
+
+    let private expectedSystems = [ "LATCH1"; "LATCH2"; "LATCH3"; "LATCH4"; "LATCH5" ]
+
+    let private loadLatch () =
+        match CsvImporter.parseContent latchCsv with
+        | Error errors -> failwith (String.concat "\n" errors)
+        | Ok doc ->
+            match CsvImporter.loadProject doc "P" "RH_ALIGN" with
+            | Error errors -> failwith (String.concat "\n" errors)
+            | Ok store -> store
+
+    let private worksOfSystem (store: DsStore) (systemName: string) =
+        let system = store.Systems.Values |> Seq.find (fun s -> s.Name = systemName)
+        let flow = store.Flows.Values |> Seq.find (fun f -> f.ParentId = system.Id)
+        store.Works.Values
+        |> Seq.filter (fun w -> w.ParentId = flow.Id)
+        |> Seq.map (fun w -> w.LocalName)
+        |> Seq.sort
+        |> List.ofSeq
+
+    [<Fact>]
+    let ``System 열이 다르면 Passive System 이 행 수만큼 생성된다`` () =
+        let store = loadLatch ()
+        let project = store.Projects.Values |> Seq.head
+        let names =
+            project.PassiveSystemIds
+            |> Seq.map (fun id -> store.Systems.[id].Name)
+            |> Seq.sort
+            |> List.ofSeq
+        Assert.Equal<string list>(expectedSystems, names)
+
+    [<Fact>]
+    let ``RET Call 의 ApiCall 은 각자 다른 System 의 ApiDef 를 가리킨다`` () =
+        let store = loadLatch ()
+        let retCall = store.Calls.Values |> Seq.find (fun c -> c.Name = "LATCH.RET")
+        Assert.Equal(5, retCall.ApiCalls.Count)
+
+        let systems =
+            retCall.ApiCalls
+            |> Seq.map (fun ac ->
+                let defId = ac.ApiDefId |> Option.get
+                store.Systems.[store.ApiDefs.[defId].ParentId].Name)
+            |> List.ofSeq
+        Assert.Equal<string list>(expectedSystems, systems)
+
+        // 실린더별 개별 센서 주소가 행 순서대로 보존된다
+        let inAddresses =
+            retCall.ApiCalls
+            |> Seq.map (fun ac -> ac.InTag |> Option.map (fun t -> t.Address) |> Option.defaultValue "")
+            |> List.ofSeq
+        Assert.Equal<string list>(
+            [ "%IX3.60.0.01"; "%IX3.60.0.02"; "%IX3.60.0.03"; "%IX3.60.0.04"; "%IX3.60.0.05" ],
+            inAddresses)
+
+    [<Fact>]
+    let ``RET 행만 있는 LATCH2 도 device 의 전체 API 집합을 갖는다`` () =
+        // ADV 행이 없는 것은 '전진 동작이 없다'가 아니라 '전진 센서를 생략했다'는 뜻이다.
+        // 따라서 DONE 더미가 아니라 ADV Work 가 채워져 ADV↔RET 상호 리셋이 성립해야 한다.
+        let store = loadLatch ()
+        Assert.Equal<string list>([ "ADV"; "RET" ], worksOfSystem store "LATCH2")
+        Assert.Equal<string list>([ "ADV"; "RET" ], worksOfSystem store "LATCH1")
+        Assert.DoesNotContain("DONE", store.Works.Values |> Seq.map (fun w -> w.LocalName))
+
+    [<Fact>]
+    let ``ADV Call 은 센서를 생략한 System 까지 ApiCall 을 갖는다`` () =
+        // ApiCall 이 없으면 Active 가 그 Passive Work 를 구동할 수 없어 RET 상태로 고착된다(데드락).
+        let store = loadLatch ()
+        let advCall = store.Calls.Values |> Seq.find (fun c -> c.Name = "LATCH.ADV")
+        Assert.Equal(5, advCall.ApiCalls.Count)
+        let systems =
+            advCall.ApiCalls
+            |> Seq.map (fun ac -> store.Systems.[store.ApiDefs.[ac.ApiDefId |> Option.get].ParentId].Name)
+            |> Seq.sort
+            |> List.ofSeq
+        Assert.Equal<string list>(expectedSystems, systems)
+
+    [<Fact>]
+    let ``센서 생략 ApiDef 는 SensingType Virtual 이고 출력은 형제에서 상속한다`` () =
+        let store = loadLatch ()
+        let advCall = store.Calls.Values |> Seq.find (fun c -> c.Name = "LATCH.ADV")
+        let findBySystem name =
+            let apiCall =
+                advCall.ApiCalls
+                |> Seq.find (fun ac ->
+                    store.Systems.[store.ApiDefs.[ac.ApiDefId |> Option.get].ParentId].Name = name)
+            apiCall, store.ApiDefs.[apiCall.ApiDefId |> Option.get]
+
+        // 센서가 있는 LATCH1 — SensingType 기본(Normal) + 실제 입력 주소 유지
+        let latch1Call, latch1Def = findBySystem "LATCH1"
+        Assert.True(match latch1Def.SensingType with SensingType.Normal _ -> true | _ -> false)
+        Assert.Equal<string option>(Some "%IX3.60.0.00", latch1Call.InTag |> Option.map (fun t -> t.Address))
+
+        // 센서를 생략한 LATCH2 — SensingType Virtual, InTag 없음, OutTag 는 공용 솔레노이드 상속
+        let latch2Call, latch2Def = findBySystem "LATCH2"
+        Assert.True(match latch2Def.SensingType with SensingType.Virtual _ -> true | _ -> false)
+        Assert.True(latch2Call.InTag.IsNone)
+        Assert.Equal<string option>(Some "%QX3.63.0.00", latch2Call.OutTag |> Option.map (fun t -> t.Address))
+        Assert.True(latch2Def.TxGuid.IsSome && latch2Def.RxGuid.IsSome)
+
+    [<Fact>]
+    let ``센서 생략 모델도 V1 V2 검증을 통과한다`` () =
+        // V1: ActionType≠Virtual ⇒ OutTag 필수(상속으로 충족)
+        // V2: SensingType≠Virtual ⇒ InTag 필수(Virtual 이라 면제)
+        let store = loadLatch ()
+        let issues =
+            [ for call in store.Calls.Values do
+                for apiCall in call.ApiCalls do
+                    match apiCall.ApiDefId |> Option.bind (fun id -> Queries.getApiDef id store) with
+                    | Some apiDef ->
+                        yield! (V10Validation.validateApiCallV1 apiDef apiCall |> Option.toList)
+                        yield! (V10Validation.validateApiCallV2 apiDef apiCall |> Option.toList)
+                    | None -> () ]
+        Assert.Empty(issues)
+
+    [<Fact>]
+    let ``저장 후 다시 열어도 센서 생략 정보가 보존된다`` () =
+        let store = loadLatch ()
+        let path =
+            System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ds2_sensorless_{System.Guid.NewGuid():N}.json")
+        let virtualCount (target: DsStore) =
+            target.ApiDefs.Values
+            |> Seq.filter (fun d -> match d.SensingType with SensingType.Virtual _ -> true | _ -> false)
+            |> Seq.length
+        try
+            store.SaveToFile path
+            let reopened = DsStore()
+            reopened.LoadFromFile path
+            Assert.Equal(store.ApiCalls.Count, reopened.ApiCalls.Count)
+            Assert.Equal(virtualCount store, virtualCount reopened)
+            Assert.True(virtualCount reopened > 0)
+            let advCall = reopened.Calls.Values |> Seq.find (fun c -> c.Name = "LATCH.ADV")
+            Assert.Equal(5, advCall.ApiCalls.Count)
+            let sensorless =
+                advCall.ApiCalls
+                |> Seq.filter (fun ac ->
+                    match reopened.ApiDefs.[ac.ApiDefId |> Option.get].SensingType with
+                    | SensingType.Virtual _ -> true
+                    | _ -> false)
+                |> Seq.toList
+            Assert.Equal(4, sensorless.Length)
+            Assert.All(sensorless, fun ac -> Assert.True(ac.InTag.IsNone && ac.OutTag.IsSome))
+        finally
+            if System.IO.File.Exists path then System.IO.File.Delete path
+
+    [<Fact>]
+    let ``export 라운드트립에서 System 열이 행마다 보존된다`` () =
+        let store = loadLatch ()
+        let project = store.Projects.Values |> Seq.head
+        let exported = CsvExporter.projectToCsv store project.Id
+        for name in expectedSystems do
+            Assert.Contains($",{name},", exported)
+
+// Excel 에서 편집한 표는 열 이름이 'IN Name', 'IN_ADDR', 'Out Addr' 처럼 흔히 달라진다.
+// 헤더 이름은 대소문자·공백·언더스코어·addr↔address 축약을 흡수해 인식해야 한다.
+module HeaderVariantTests =
+
+    let private row =
+        "LH\tUPPER\tSOL_1차클램프\tSOL_1차클램프1\tADV\tRS_ADV1\t%IX5.27.0.12\tSOL_ADV\t%QX5.29.0.06"
+
+    let private parseWithHeader (header: string) =
+        match CsvImporter.parseContent (header + "\n" + row) with
+        | Error errors -> failwith (String.concat "\n" errors)
+        | Ok doc -> doc
+
+    [<Fact>]
+    let ``공백 포함 축약 헤더를 인식한다`` () =
+        let doc = parseWithHeader "Flow\tWork\tDevice\tSystem\tApi\tIN Name\tIN Addr\tOUT Name\tOUT Addr"
+        Assert.Single(doc.Entries) |> ignore
+        let entry = doc.Entries.Head
+        Assert.Equal<string option>(Some "RS_ADV1", entry.InName)
+        Assert.Equal<string option>(Some "%IX5.27.0.12", entry.InAddress)
+        Assert.Equal<string option>(Some "%QX5.29.0.06", entry.OutAddress)
+
+    [<Fact>]
+    let ``언더스코어 대문자 헤더를 인식한다`` () =
+        let doc = parseWithHeader "FLOW\tWORK\tDEVICE\tSYSTEM\tAPI\tIN_NAME\tIN_ADDRESS\tOUT_NAME\tOUT_ADDR"
+        Assert.Single(doc.Entries) |> ignore
+
+    [<Fact>]
+    let ``기본 3열도 공백 헤더를 인식한다`` () =
+        let doc = parseOk "FLOW , WORK , CALL\n투입,작업,실린더.전진>실린더.후진"
+        Assert.Single(doc.Works) |> ignore
+
+    [<Fact>]
+    let ``알 수 없는 헤더는 여전히 거부한다`` () =
+        match CsvImporter.parseContent ("Flow\tWork\tSequence\n" + row) with
+        | Ok _ -> failwith "잘못된 헤더가 통과했습니다."
+        | Error errors -> Assert.Contains(errors, fun e -> e.Contains "invalid header")

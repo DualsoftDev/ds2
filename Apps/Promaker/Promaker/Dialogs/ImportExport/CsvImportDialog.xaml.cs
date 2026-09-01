@@ -114,6 +114,7 @@ FLOW,WORK,CALL
 
     private CsvDocument? _document;
     private BasicCsvDocument? _basicDocument;
+    private string _lastErrorText = "";
     private string _autoProjectName = DefaultImportedName;
     private string _autoSystemName = DefaultImportedName;
     private string _sourceDisplayName = "붙여넣기";
@@ -229,6 +230,7 @@ FLOW,WORK,CALL
     {
         _document = document;
         _basicDocument = null;
+        _lastErrorText = errorText ?? "";
         PreviewGrid.ItemsSource = rows?.ToList();
         BasicPreviewGrid.ItemsSource = null;
         PreviewText.Text = previewText;
@@ -267,6 +269,7 @@ FLOW,WORK,CALL
     {
         _basicDocument = document;
         _document = null;
+        _lastErrorText = errorText ?? "";
         BasicPreviewGrid.ItemsSource = rows?.ToList();
         PreviewGrid.ItemsSource = null;
         PreviewText.Text = previewText;
@@ -526,7 +529,8 @@ FLOW,WORK,CALL
 
         if (!TryLoadDocument())
         {
-            ShowInfo("유효한 CSV 내용을 먼저 입력하세요.");
+            var detail = string.IsNullOrWhiteSpace(_lastErrorText) ? "" : $"\n\n{_lastErrorText}";
+            ShowInfo($"유효한 CSV 내용을 먼저 입력하세요.{detail}");
             ContentBox.Focus();
             return;
         }

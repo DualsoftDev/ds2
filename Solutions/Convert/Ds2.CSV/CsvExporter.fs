@@ -23,26 +23,29 @@ module CsvExporter =
     let private tagName (tag: IOTag option) =
         tag |> Option.map (fun current -> current.Name) |> Option.defaultValue ""
 
-    let private resolveSystemName (store: DsStore) (call: Call) =
-        call.ApiCalls
-        |> Seq.tryHead
+    /// ApiCall 이 가리키는 ApiDef 의 소유 System 이름. Call 1개가 여러 System 을 구동할 수 있으므로
+    /// (솔레노이드 1개 ↔ 실린더 N개) Call 단위가 아니라 **ApiCall(=출력 행) 단위**로 해석한다.
+    let private resolveSystemName (store: DsStore) (call: Call) (apiCall: ApiCall option) =
+        apiCall
         |> Option.bind (fun ac -> ac.ApiDefId)
         |> Option.bind (fun defId -> match store.ApiDefs.TryGetValue(defId) with true, d -> Some d | _ -> None)
         |> Option.bind (fun def -> match store.Systems.TryGetValue(def.ParentId) with true, s -> Some s.Name | _ -> None)
         |> Option.defaultValue call.DevicesAlias
 
     let private appendCallRows (store: DsStore) (builder: StringBuilder) (flowName: string) (workName: string) (call: Call) =
-        let systemName = resolveSystemName store call
-        let appendRow (inName: string) (inAddress: string) (outName: string) (outAddress: string) =
+        let appendRow (systemName: string) (inName: string) (inAddress: string) (outName: string) (outAddress: string) =
             builder.AppendLine(
                 $"{escape flowName},{escape workName},{escape call.DevicesAlias},{escape systemName},{escape call.ApiName},{escape inName},{escape inAddress},{escape outName},{escape outAddress}")
             |> ignore
 
         if call.ApiCalls.Count = 0 then
-            appendRow "" "" "" ""
+            appendRow (resolveSystemName store call None) "" "" "" ""
         else
             for apiCall in call.ApiCalls do
-                appendRow (tagName apiCall.InTag) (tagAddress apiCall.InTag) (tagName apiCall.OutTag) (tagAddress apiCall.OutTag)
+                appendRow
+                    (resolveSystemName store call (Some apiCall))
+                    (tagName apiCall.InTag) (tagAddress apiCall.InTag)
+                    (tagName apiCall.OutTag) (tagAddress apiCall.OutTag)
 
     let private csvHeader = "Flow,Work,Device,System,Api,InName,InAddress,OutName,OutAddress"
 

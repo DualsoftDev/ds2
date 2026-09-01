@@ -28,6 +28,15 @@ module internal DirectPanelOps =
 
     let toCallApiCallPanelItem (store: DsStore) (apiCall: ApiCall) : CallApiCallPanelItem =
         let apiDefId, apiDefDisplayName = resolveApiDefDisplay store apiCall.ApiDefId
+        // 센서 없는 device(SensingType=Virtual)는 입력 태그/주소가 의미 없다 → UI 에서 비활성 안내.
+        let isSensorless =
+            apiCall.ApiDefId
+            |> Option.bind (fun defId -> Queries.getApiDef defId store)
+            |> Option.map (fun apiDef ->
+                match apiDef.SensingType with
+                | SensingType.Virtual _ -> true
+                | _ -> false)
+            |> Option.defaultValue false
         CallApiCallPanelItem(
             apiCall.Id, apiCall.Name, apiDefId, apiDefDisplayName,
             tagName apiCall.OutTag, tagAddress apiCall.OutTag,
@@ -35,7 +44,8 @@ module internal DirectPanelOps =
             PropertyPanelValueSpec.format apiCall.OutputSpec,
             PropertyPanelValueSpec.format apiCall.InputSpec,
             PropertyPanelValueSpec.dataTypeIndex apiCall.OutputSpec,
-            PropertyPanelValueSpec.dataTypeIndex apiCall.InputSpec)
+            PropertyPanelValueSpec.dataTypeIndex apiCall.InputSpec,
+            isSensorless)
 
     let toConditionApiCallItem (store: DsStore) (apiCall: ApiCall) : ConditionApiCallItem =
         let _, displayName = resolveApiDefDisplay store apiCall.ApiDefId

@@ -118,7 +118,7 @@
                              FontSize="12"
                              TextChanged="ContentBox_TextChanged"/>
 
-                    <TextBlock Text="파일을 불러오면 여기에 채워지고, 직접 수정하거나 그대로 붙여넣어도 됩니다."
+                    <TextBlock Text="파일을 불러오면 여기에 채워지고, 직접 수정하거나 그대로 붙여넣어도 됩니다. Excel·스프레드시트에서 복사한 탭 구분 데이터도 그대로 붙여넣을 수 있습니다."
                                FontSize="12"
                                Foreground="{DynamicResource SecondaryTextBrush}"
                                Margin="0,8,0,12"

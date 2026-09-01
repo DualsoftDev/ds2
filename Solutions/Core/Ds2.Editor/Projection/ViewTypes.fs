@@ -193,7 +193,8 @@ type CallApiCallPanelItem
         valueSpecText: string,
         inputValueSpecText: string,
         outputSpecTypeIndex: int,
-        inputSpecTypeIndex: int
+        inputSpecTypeIndex: int,
+        isSensorless: bool
     ) =
     member _.ApiCallId = apiCallId
     member _.Name = name
@@ -208,6 +209,8 @@ type CallApiCallPanelItem
     member _.InputValueSpecText = inputValueSpecText
     member _.OutputSpecTypeIndex = outputSpecTypeIndex
     member _.InputSpecTypeIndex  = inputSpecTypeIndex
+    /// ApiDef.SensingType = Virtual — 설비에 센서가 없어 입력 태그/주소를 쓰지 않는 ApiCall.
+    member _.IsSensorless = isSensorless
 
 [<Sealed>]
 type ConditionApiCallItem
