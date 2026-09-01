@@ -132,6 +132,8 @@ Apps/DSPilot/plc.db
 Apps/DSPilot/plc.db.bak_20260527_095035
 Apps/DSPilot/tools/backfill_demo_data.py
 Apps/DSPilot/DSPilot/wwwroot/uploads/layout-data.json
+# layout-data 자동 백업(재init resync 시 타임스탬프 파일 생성) — 런타임 산출물, 소스 아님
+Apps/DSPilot/DSPilot/wwwroot/uploads/layout-data_*.json
 *.pdb
 Apps/DSPilot/DSPilot/wwwroot/uploads/cctv-overlays.json
 # DSPilot 런타임 AASX 역기록/추출 산출물 — dev 실행 시 CWD(Apps/DSPilot)에 생성되는 OPC 패키지 조각.
