@@ -404,7 +404,9 @@ public partial class SimulationPanelState : ObservableObject
     [ObservableProperty] private string _monitoringHubAddress = "localhost:5051";
 
 
-    /// <summary>Control 모드에서 실 PLC 와 연결할지 여부. 체크 해제면 BackendHost 가 PLC 게이트웨이 idle 로 동작.</summary>
+    /// <summary>실 PLC 모드(Agent 경유) 여부 — 런타임 모드의 파생값: Control/Monitoring = true, Sim/VP = false.
+    /// (구) 런타임 세팅의 'PLC 읽기 방식' 라디오가 결정하던 값이었으나, 직접/위임 수집 구분은
+    /// '업로드' 버튼(직접/위임 택1)이 session.json 에 박제하는 것으로 이사 — VM 상태에서 분리됨.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsHomingButtonVisible))]
     [NotifyPropertyChangedFor(nameof(IsHomingButtonHotEnabled))]
@@ -421,6 +423,11 @@ public partial class SimulationPanelState : ObservableObject
     /// active.flag 유지 → Agent 는 sticky monitoring (Promaker 종료/재부팅과 무관하게 계속 동작).</summary>
     public bool IsAgentDelegationMode =>
         SelectedRuntimeMode == RuntimeMode.Monitoring && IsRealPlcConnected;
+
+    /// <summary>'Edge 단말로 업로드(위임 수집)' 버튼 활성 여부 — Control 은 OUT 을 실 PLC 에 직접 써야 하므로
+    /// 위임 수집 불가(직접만). 그 외 모드는 Monitoring 세션으로 업로드되므로 허용.</summary>
+    public bool IsDelegatedUploadAvailable =>
+        SelectedRuntimeMode != RuntimeMode.Control;
 
     /// <summary>Agent 가 engine 을 단일 호스팅하고 WPF 는 proxy(RemoteSimulationEngine)로만 붙는 모드 —
     /// Monitoring+실PLC(read-only) 또는 Control+실PLC(read-write). engine 호스팅/proxy 전환 판정 전용.
@@ -505,6 +512,9 @@ public partial class SimulationPanelState : ObservableObject
         }
 
         _previousRuntimeMode = value;
+        // IsRealPlcConnected = 모드 파생값 동기화 — Control/Monitoring 은 항상 실 PLC(Agent 경유).
+        IsRealPlcConnected = value is RuntimeMode.Control or RuntimeMode.Monitoring;
+        OnPropertyChanged(nameof(IsDelegatedUploadAvailable));
         OnPropertyChanged(nameof(NeedsHubConnection));
         OnPropertyChanged(nameof(ShowCommBlockTestToggle));
         Hub.RaiseHostingDependentsChanged();

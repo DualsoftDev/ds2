@@ -196,13 +196,25 @@
                                                  IsChecked="{Binding AgentTransferIsCloud, Mode=TwoWay}"
                                                  ToolTip="PV 서버 로그인 후 사이트/단말 선택 — 그 단말 인스턴스의 Agent 로 업로드 (미로그인이면 로그인창)"/>
                                     <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="4,2,4,4"/>
-                                    <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding SaveToSharedLocationCommand}" Click="CloseUploadPopup"
-                                            ToolTip="현재 파일을 저장한 뒤, 모델(AASX)을 공유폴더에 내보내고 PLC 설정과 함께 Promaker.Agent 모니터링 세션을 업로드합니다. Agent/DSPilot 이 새 모델·설정으로 동기화됩니다.">
+                                    <!-- 수집 방식은 업로드 시 택1 — session.json isRealPlcConnected 로 박제되어
+                                         Agent 의 직접(PlcScanService)/위임(Edge 수집기 push) 스캔을 가른다. -->
+                                    <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding UploadDirectCommand}" Click="CloseUploadPopup"
+                                            ToolTip="현재 파일을 저장한 뒤, 모델(AASX)/PLC 설정/세션을 업로드합니다. Agent 가 현장 PLC 에 직접 접속해 읽습니다 (올인원/현장 로컬).">
                                         <StackPanel Orientation="Horizontal">
                                             <iconPacks:PackIconMaterial Kind="Upload" Width="14" Height="14"
                                                                         Foreground="{DynamicResource AccentBrush}"
                                                                         Margin="0,0,8,0" VerticalAlignment="Center"/>
-                                            <TextBlock Text="Agent에 업로드" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                            <TextBlock Text="Agent에 업로드 (직접 수집)" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding UploadDelegatedCommand}" Click="CloseUploadPopup"
+                                            IsEnabled="{Binding Simulation.IsDelegatedUploadAvailable}"
+                                            ToolTip="현재 파일을 저장한 뒤, 모델(AASX)/PLC 설정/세션을 업로드합니다. Agent 는 PLC 에 접속하지 않고 Edge 단말(수집기)이 읽어 전송합니다 (분리 수집 — 클라우드/원격). Control 모드는 OUT 직접 쓰기가 필요해 사용할 수 없습니다.">
+                                        <StackPanel Orientation="Horizontal">
+                                            <iconPacks:PackIconMaterial Kind="RouterWireless" Width="14" Height="14"
+                                                                        Foreground="{DynamicResource AccentBrush}"
+                                                                        Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                            <TextBlock Text="Edge 단말로 업로드 (위임 수집)" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Button>
                                 </StackPanel>

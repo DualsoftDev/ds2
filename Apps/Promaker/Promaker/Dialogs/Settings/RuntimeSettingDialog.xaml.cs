@@ -40,10 +40,6 @@ public partial class RuntimeSettingDialog : Window
 
         LoadTargetSystems();
 
-        // 현재 VM 의 PLC 읽기 방식 반영(직접=IsRealPlcConnected, 위임=그 반대) 후 모드에 맞춰 상태 갱신.
-        if (vm.Simulation.IsRealPlcConnected) DirectRadio.IsChecked = true;
-        else DelegatedRadio.IsChecked = true;
-
         // 자동 duration 정합 초기값 — (구) PLC 설정 다이얼로그에서 이사. 확인 시 커밋.
         AutoCalibrateBox.IsChecked = vm.Simulation.AutoDurationCalibrate;
 
@@ -119,19 +115,11 @@ public partial class RuntimeSettingDialog : Window
             && (selected.Mode == RuntimeMode.Control || selected.Mode == RuntimeMode.Monitoring);
 
         HubAddressBox.IsEnabled = !isSim;
-        // 직접/위임 라디오는 Control/Monitoring 에서만 의미. Control 은 OUT 을 실 PLC 로 써야 하므로
-        // 위임(Edge 수집, read-only) 불가 → Control 이면 위임 비활성 + 직접 강제.
-        var isControl = selected is not null && selected.Mode == RuntimeMode.Control;
-        DirectRadio.IsEnabled = requiresPlc;
-        DelegatedRadio.IsEnabled = requiresPlc && !isControl;
-        if (isControl) DirectRadio.IsChecked = true;
         // 자동 정합은 실 PLC 판정(Control/Monitoring)에서만 의미 — Sim/VP 에선 비활성.
         AutoCalibrateBox.IsEnabled = requiresPlc;
 
         UpdatePlcFooter();
     }
-
-    private void PlcReadMode_Changed(object sender, RoutedEventArgs e) => UpdatePlcFooter();
 
     /// <summary>하단 푸터의 PLC 연결 상태(점 색 + 텍스트) 갱신. 접속 편집은 System 속성 패널로 이사 —
     /// 여기서는 상태 요약만. 다중 System 이면 endpoint 지정 현황을, 단일이면 접속값을 보여준다.</summary>
@@ -143,21 +131,20 @@ public partial class RuntimeSettingDialog : Window
 
         if (requiresPlc)
         {
-            var mode = DelegatedRadio.IsChecked == true ? "Edge 단말 위임" : "Agent 직접";
             PlcStatusDot.Fill = PlcOnBrush;
             var entries = _vm.Simulation.ListPlcSystemEndpoints();
             if (entries.Count > 1)
             {
                 var assigned = entries.Count(entry => entry.HasEndpoint);
                 PlcStatusText.Text =
-                    $"PLC 읽기: {mode}  ·  System {entries.Count}개 중 접속 지정 {assigned}개  ·  접속 편집: 트리에서 System 선택 → 속성 패널";
+                    $"System {entries.Count}개 중 접속 지정 {assigned}개  ·  접속 편집: 트리에서 System 선택 → 속성 패널  ·  수집 방식(직접/위임)은 '업로드' 버튼에서 선택";
             }
             else
             {
                 var s = _vm.Simulation.PlcSettings;
                 var tagCount = _vm.Simulation.CountAutoImportablePlcAddresses();
                 PlcStatusText.Text =
-                    $"PLC 읽기: {mode}  ·  {s.Vendor}  {s.IpAddress}:{s.Port}  ·  IO 자동 import {tagCount}개  ·  접속 편집: System 속성 패널";
+                    $"{s.Vendor}  {s.IpAddress}:{s.Port}  ·  IO 자동 import {tagCount}개  ·  접속 편집: System 속성 패널  ·  수집 방식(직접/위임)은 '업로드' 버튼에서 선택";
             }
         }
         else
@@ -325,11 +312,10 @@ public partial class RuntimeSettingDialog : Window
         if (selected != null)
             _vm.Simulation.SelectedRuntimeMode = selected.Mode;
         // HubAddress 는 TextBox 가 TwoWay 바인딩이라 자동 반영됨.
-        // PLC 읽기 방식은 Control/Monitoring 에서만 의미. IsRealPlcConnected = "Agent 직접" 선택 여부.
-        // (위임 = Edge 단말 수집 = false. Control 은 항상 직접.)
-        var requiresPlc = selected is not null
+        // IsRealPlcConnected 는 모드 파생값 — Control/Monitoring = 실 PLC(Agent 경유), Sim/VP = false.
+        // 직접/위임 수집 방식은 더 이상 여기서 결정하지 않음 — '업로드' 버튼(직접/위임)이 session.json 에 박제.
+        _vm.Simulation.IsRealPlcConnected = selected is not null
             && (selected.Mode == RuntimeMode.Control || selected.Mode == RuntimeMode.Monitoring);
-        _vm.Simulation.IsRealPlcConnected = requiresPlc && DirectRadio.IsChecked == true;
 
         // 자동 duration 정합 커밋 — set 시 OnChanged 가 PlcSettings 동기 + hub 전파(전 인스턴스 + 엔진).
         // 파일 영속화는 여기서 명시 호출 — (구) PLC 설정 다이얼로그 Apply 의 _vm.Save() 역할을 승계.

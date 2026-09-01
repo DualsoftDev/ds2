@@ -188,7 +188,8 @@ public sealed partial class SimulationHubBridge : ObservableObject
     /// <summary>Control 은 항상 Promaker 자체가 Hub 호스트.
     /// Monitoring + 실 PLC 는 host 모드(5051) 지만 실제 호스팅은 Promaker.Agent (Windows Service) 가 전담 —
     /// Promaker 본체는 active.flag 만 쓰고 5051 의 클라이언트로 붙는다.
-    /// Monitoring PLC 미연결이면 외부 Control hub (5050) 에 client 로 붙는다.
+    /// IsRealPlcConnected 는 모드 파생값(Control/Monitoring=true)이라 Monitoring 은 항상 이 경로 —
+    /// (구) 'PLC 읽기 방식' 위임 선택 시 타던 순수 hub client 관전 경로는 폐기됨.
     /// VirtualPlant 는 항상 외부 Hub client.</summary>
     public bool IsHubHost =>
         _runtimeMode() == RuntimeMode.Control

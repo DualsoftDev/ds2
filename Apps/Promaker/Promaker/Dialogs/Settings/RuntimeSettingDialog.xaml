@@ -81,8 +81,9 @@
                 </Grid>
             </Border>
 
-            <!-- 상단 설정 패널 — 런타임 모드(드롭다운) / Hub 주소 / PLC 읽기 방식·자동정합.
-                 PLC 접속 편집은 System 속성 패널(트리에서 System 선택)로 이사 — 버튼 제거. -->
+            <!-- 상단 설정 패널 — 런타임 모드(드롭다운) / Hub 주소 / 자동정합.
+                 PLC 접속 편집은 System 속성 패널(트리에서 System 선택)로 이사 — 버튼 제거.
+                 PLC 수집 방식(직접/위임)은 여기서 빠져 '업로드' 버튼(직접/위임 택1)으로 이사. -->
             <Border Grid.Row="1"
                     Background="{DynamicResource SecondaryBackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}"
@@ -96,7 +97,7 @@
                         <ColumnDefinition Width="34"/>
                         <ColumnDefinition Width="Auto"/>   <!-- Hub 주소 -->
                         <ColumnDefinition Width="34"/>
-                        <ColumnDefinition Width="Auto"/>   <!-- PLC 읽기 방식·자동정합 -->
+                        <ColumnDefinition Width="Auto"/>   <!-- 자동정합 -->
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
@@ -133,30 +134,13 @@
                                  ToolTip="host:port — Agent 단일 호스팅이라 Control/Monitoring/VP 모두 localhost:5051"/>
                     </StackPanel>
 
-                    <!-- PLC 읽기 방식 — Agent 직접 vs Edge 단말(Pi5) 위임 택1 -->
+                    <!-- 자동 duration 정합 — (구) PLC 설정 다이얼로그에서 이사. 확인 시 커밋 → hub 전파 +
+                         PlcConnection.json 영속(Agent 가 재시작 후 같은 값으로 복원). -->
                     <StackPanel Grid.Column="4" Orientation="Vertical">
-                        <TextBlock Text="PLC 읽기 방식" Style="{StaticResource FieldLabelStyle}"/>
-                        <StackPanel Orientation="Horizontal" Height="34" VerticalAlignment="Center">
-                            <RadioButton x:Name="DirectRadio"
-                                         GroupName="PlcReadMode"
-                                         Content="Agent 직접"
-                                         Foreground="{DynamicResource PrimaryTextBrush}"
-                                         VerticalContentAlignment="Center"
-                                         Margin="0,0,16,0"
-                                         Checked="PlcReadMode_Changed"
-                                         ToolTip="Agent 가 PLC 에 직접 접속해 읽는다 (올인원)."/>
-                            <RadioButton x:Name="DelegatedRadio"
-                                         GroupName="PlcReadMode"
-                                         Content="Edge 단말 위임"
-                                         Foreground="{DynamicResource PrimaryTextBrush}"
-                                         VerticalContentAlignment="Center"
-                                         Checked="PlcReadMode_Changed"
-                                         ToolTip="Edge 단말(Pi5 수집기)이 PLC 를 읽어 Agent 로 전송한다 (분리 수집)."/>
-                        </StackPanel>
-                        <!-- 자동 duration 정합 — (구) PLC 설정 다이얼로그에서 이사. 확인 시 커밋 → hub 전파 +
-                             PlcConnection.json 영속(Agent 가 재시작 후 같은 값으로 복원). -->
+                        <TextBlock Text="실측 학습" Style="{StaticResource FieldLabelStyle}"/>
                         <CheckBox x:Name="AutoCalibrateBox"
-                                  Margin="0,12,0,0"
+                                  Height="34"
+                                  VerticalContentAlignment="Center"
                                   Content="자동 duration 정합 (실측 학습)"
                                   Foreground="{DynamicResource PrimaryTextBrush}"
                                   ToolTip="ON: device OUT→IN 동작시간을 실측 학습해 이상(ActionUnder/Over) 판정 기준으로 씁니다. 스캔주기 양자화 마진이 자동 포함됩니다. 모니터링 정지 시 '모델(AASX)에 반영?'을 묻고, 반영하면 OFF 로 전환되어 그 확정값으로 판정합니다."/>

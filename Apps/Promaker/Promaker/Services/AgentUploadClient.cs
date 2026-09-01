@@ -11,7 +11,7 @@ using SP = Promaker.Shared.SharedPaths;
 namespace Promaker.Services;
 
 /// <summary>
-/// 'Agent에 업로드 ▸ 네트워크' 전송 클라이언트. SaveToSharedLocation 이 로컬 공유 폴더에 만들어둔
+/// '업로드 ▸ 네트워크' 전송 클라이언트. 업로드 코어(UploadCoreAsync)가 로컬 공유 폴더에 만들어둔
 /// 모델/설정/세션(project.aasx · PlcConnection.json · session.json)을 zip 으로 묶어 원격 Agent
 /// (http://ip:5050/upload)로 POST 한다. 원격 Agent(AgentUploadReceiver)가 풀어서 자기 공유 폴더에
 /// 배치하고 active.flag 를 세워 모니터링을 시작한다 — 받는 쪽이 session 경로를 자기 로컬로 교정하므로

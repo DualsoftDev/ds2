@@ -120,7 +120,7 @@ public partial class MainViewModel
             }
             if (!File.Exists(localPath))
             {
-                _dialogService.ShowWarning($"Agent 공유 모델이 없습니다:\n{localPath}\n\n'저장 ▸ Agent에 업로드' 로 먼저 업로드하세요.");
+                _dialogService.ShowWarning($"Agent 공유 모델이 없습니다:\n{localPath}\n\n'업로드 ▸ Agent에 업로드' 로 먼저 업로드하세요.");
                 return;
             }
             path = localPath;

@@ -14,9 +14,8 @@ public sealed partial class SimulationHubBridge
 {
     // ── URL / port 헬퍼 ──────────────────────────────────────────
 
-    /// <summary>현재 모드/PLC 옵션에 해당하는 host:port. Monitoring + 실 PLC self-host 만 MonitoringHubAddress(5051),
-    /// Monitoring 이라도 PLC 미연결이면 외부 Control hub 에 붙으므로 HubAddress(5050).</summary>
-    // Agent 가 5051 단일 호스팅 — Control/Monitoring/VP 모두 같은 Hub(5051)에 붙는다. 포트/주소 통일.
+    /// <summary>현재 모드에 해당하는 host:port.
+    /// Agent 가 5051 단일 호스팅 — Control/Monitoring/VP 모두 같은 Hub(5051)에 붙는다. 포트/주소 통일.</summary>
     private string ActiveAddress => _monitoringHubAddress();
 
     private int ParsePort()
@@ -136,7 +135,7 @@ public sealed partial class SimulationHubBridge
             {
                 _addSimLog(
                     "Agent 에 업로드된 모니터링 세션이 없습니다. " +
-                    "'저장 ▸ Agent에 업로드' 로 모델과 PLC 설정을 먼저 업로드하세요.",
+                    "'업로드' 버튼(직접/위임 수집 택1)으로 모델과 PLC 설정을 먼저 업로드하세요.",
                     LogSeverity.Error);
                 _setStatusText("Agent 업로드 필요 — 시작 불가");
                 return false;
@@ -192,7 +191,7 @@ public sealed partial class SimulationHubBridge
             IsHosting = false;
             _addSimLog(
                 $"Promaker.Agent({modeName}) Hub 에 접속합니다 (5051). " +
-                "모델/설정 갱신은 '저장 ▸ Agent에 업로드' 사용. 상태는 트레이의 'Promaker Agent' 아이콘 참조.",
+                "모델/설정 갱신은 '업로드' 버튼 사용. 상태는 트레이의 'Promaker Agent' 아이콘 참조.",
                 LogSeverity.System);
 
             // Monitoring 위임 안내 다이얼로그 (Control 은 라인 제어라 별도 안내 없이 진행).

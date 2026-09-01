@@ -40,16 +40,26 @@ public partial class MainViewModel
         TrySaveFileAs();
     }
 
+    /// <summary>'Agent에 업로드 (직접 수집)' — Agent 가 PlcScanService 로 현장 PLC 에 직접 접속해 읽는다.</summary>
+    [RelayCommand(CanExecute = nameof(HasProject))]
+    private System.Threading.Tasks.Task UploadDirect() => UploadCoreAsync(delegatedScan: false);
+
+    /// <summary>'Edge 단말로 업로드 (위임 수집)' — Agent 는 PLC 에 안 붙고 Edge 단말(Pi5 수집기)이
+    /// 스캔해 WriteTags 로 push 한다. Control 은 OUT 직접 쓰기가 필요해 불가(버튼 비활성 + 이중 가드).</summary>
+    [RelayCommand(CanExecute = nameof(HasProject))]
+    private System.Threading.Tasks.Task UploadDelegated() => UploadCoreAsync(delegatedScan: true);
+
     /// <summary>
-    /// 'Agent에 업로드' — 모델(AASX)을 Promaker · DSPilot 공유 경로
+    /// 업로드 공통 코어 — 모델(AASX)을 Promaker · DSPilot 공유 경로
     /// (%ProgramData%\DualSoft\Shared\project.aasx) 로 저장하고, PLC 설정과 함께 Promaker.Agent
     /// 모니터링 세션(session.json + active.flag)을 기록한다. Agent 는 파일 변경을 감지해
     /// 새 모델/설정으로 (재)시작하고, DSPilot 도 같은 경로를 읽어 동기화된다.
     /// 모니터링 PLAY 는 업로드 없이 Agent Hub 접속만 한다 — 업로드는 이 명령이 유일한 경로.
     /// 폴더가 없으면 자동 생성 (인스톨러가 보장하지만 클린 환경 대비).
+    /// <paramref name="delegatedScan"/> = 수집 방식: false=Agent 직접 스캔 / true=Edge 단말 위임 —
+    /// session.json 의 isRealPlcConnected(=!delegatedScan) 로 박제되어 Agent 의 스캔 분기를 가른다.
     /// </summary>
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private async System.Threading.Tasks.Task SaveToSharedLocation()
+    private async System.Threading.Tasks.Task UploadCoreAsync(bool delegatedScan)
     {
         // 업로드 전 현재 파일 저장 선행 — 새 프로젝트(경로 없음)면 다른 이름으로 저장 다이얼로그가 뜨고,
         // 취소하면 업로드도 중단. 업로드본과 사용자 파일이 어긋난 채 배포되는 것을 방지.
@@ -64,6 +74,35 @@ public partial class MainViewModel
         {
             _dialogService.ShowWarning(targetError);
             return;
+        }
+
+        // 수집 방식 가드는 export 전에 — 취소 시 공유 AASX 가 이미 덮어써진 반쪽 상태를 남기지 않는다.
+        // session.RuntimeMode 로 Agent 가 engine 모드를 결정 — Control 이면 read-write, 그 외 read-only.
+        var modeName = Simulation.SelectedRuntimeMode == Ds2.Core.RuntimeMode.Control ? "Control" : "Monitoring";
+        // Control 은 OUT 을 실 PLC 에 직접 써야 하므로 위임 수집 불가 — 버튼 비활성의 이중 가드.
+        if (delegatedScan && modeName == "Control")
+        {
+            _dialogService.ShowWarning("Control 모드는 OUT 을 실 PLC 에 직접 써야 하므로 Edge 위임 수집으로 업로드할 수 없습니다.\n'Agent에 업로드 (직접 수집)' 을 사용하세요.");
+            return;
+        }
+
+        // 수집 방식이 마지막 업로드(session.json)와 달라지면 1회 확인 — 위임 현장에서 습관적으로
+        // 직접 버튼을 눌러 Agent 가 PLC 직접 접속을 시도(접속실패/CommBlackout)하는 실수 방지.
+        var prevSession = Promaker.Shared.AgentSession.TryLoad();
+        if (prevSession is not null && prevSession.IsRealPlcConnected == delegatedScan)
+        {
+            var from = prevSession.IsRealPlcConnected ? "Agent 직접" : "Edge 단말 위임";
+            var to = delegatedScan ? "Edge 단말 위임" : "Agent 직접";
+            var answer = Promaker.Dialogs.DialogHelpers.ShowThemedMessageBox(
+                $"PLC 수집 방식이 바뀝니다: {from} → {to}\n\n" +
+                "업로드하면 Agent 가 새 방식으로 재시작됩니다. 계속할까요?",
+                "수집 방식 변경 확인", System.Windows.MessageBoxButton.YesNo,
+                Promaker.Dialogs.DialogHelpers.IconWarn);
+            if (answer != System.Windows.MessageBoxResult.Yes)
+            {
+                StatusText = "업로드 취소 — 수집 방식 변경 미확인";
+                return;
+            }
         }
 
         try
@@ -115,12 +154,10 @@ public partial class MainViewModel
             return;
         }
 
-        // session.RuntimeMode 로 Agent 가 engine 모드를 결정 — Control 이면 read-write, 그 외 read-only.
-        var modeName = Simulation.SelectedRuntimeMode == Ds2.Core.RuntimeMode.Control ? "Control" : "Monitoring";
-        // 기존 "실제 PLC 연결" 체크값을 그대로 전달 — Agent 의 직접(true)/위임(false, Pi5 수집) 스캔을 가른다.
+        // 수집 방식은 업로드 버튼 선택으로 결정 — Agent 의 직접(true)/위임(false, Edge 수집) 스캔을 가른다.
         var session = Promaker.Shared.AgentSession.ForCurrentDefaults(
             requestedBy: "promaker", runtimeMode: modeName,
-            isRealPlcConnected: Simulation.IsRealPlcConnected);
+            isRealPlcConnected: !delegatedScan);
         if (!session.TryWrite())
         {
             _dialogService.ShowWarning("Agent 세션 기록 실패 — 공유 폴더 권한을 확인하세요.");
