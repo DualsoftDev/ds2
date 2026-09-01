@@ -429,8 +429,6 @@ window.dspFmt = {
         // Flow 분석 페이지(/flow-trend·/flow-cycle, 구 통합 /flow)에 있을 때: 해당 시스템/분석/Flow 행을 강조.
         var onFlowPage = path === '/flow' || path === '/flow-trend' || path === '/flow-cycle';
         var curFlowName = onFlowPage ? (qs.get('name') || '') : '';
-        // 사이클 분기 — /flow-cycle?name=부모&branch=분기 로 진입하면 그 분기 행을 강조.
-        var curFlowBranch = onFlowPage ? (qs.get('branch') || '') : '';
         // 현재 페이지의 분석 유형: 'trend'(추이 분석) | 'cycle'(사이클 분석) | ''(구 /flow — 특정 분석 아님).
         var curFlowView = path === '/flow-trend' ? 'trend' : (path === '/flow-cycle' ? 'cycle' : '');
         // 사이클 분석 '전체'(= /flow-cycle 에 ?name= 없이 진입) — 모든 Flow 사이클 간트 일괄 편집(bulkCycleApp).
@@ -714,21 +712,10 @@ window.dspFmt = {
                 // 가동시간 분석: base(/flow-cycle?name=) 는 단일 Flow. '전체'(일괄 편집, /flow-cycle?system=) 는
                 //   임시 비활성(2026-08-27, 분기 기능 포함 개편까지 보류) — headerHref 미지정 → 헤더 클릭 = 토글만.
                 //   해제 = headerHref 에 '/flow-cycle?system=' + encodeURIComponent(sys.name) 복원.
-                //   분기 활성 flow 는 "부모_분기" 행으로 치환 — 클릭 = 부모 페이지 + ?branch=(그 분기 강조).
+                //   분기 행 치환은 설비효율(OEE)만 — 가동시간 분석은 flow 단일 페이지 유지(2026-08-28 사용자 결정,
+                //   분기 편집은 그 페이지 안의 분기별 간트 카드에서).
                 var cycleActive = (onFlowPage && curFlowView === 'cycle') || (onFlowCycleBulk && flowCycleSystem === sys.name);
-                var cycleItems = [];
-                flows.forEach(function (f) {
-                    var brs = fbr[f];
-                    if (brs && brs.length) brs.forEach(function (b) {
-                        cycleItems.push({
-                            label: f + '_' + b,
-                            href: '/flow-cycle?name=' + encodeURIComponent(f) + '&branch=' + encodeURIComponent(b),
-                            active: curFlowName === f && curFlowBranch === b,
-                        });
-                    });
-                    else cycleItems.push(f);
-                });
-                var gCycle = buildAnalysisGroup(cycleItems, '가동시간 분석', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false,
+                var gCycle = buildAnalysisGroup(flows, '가동시간 분석', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false,
                     '');
                 var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, '/heatmap');
                 // 종합효율 현황 → 설비효율(OEE)/생산효율(TEEP) 물리 분리(2026-07-03) — 구 내부 탭(?section=) 폐지.
@@ -861,9 +848,15 @@ window.dspFmt = {
         }
         var agHub = agentRow();
         var agPlc = agentRow();
+        var agScan = agentRow();
         var agData = agentRow();
         agHub.text.textContent = 'PROMAKER HUB: —';
         agPlc.text.textContent = 'PLC 어댑터: —';
+        // 수집 방식 — Promaker 업로드 시 선택(런타임 세팅 "PLC 읽기 방식"). 상태가 아닌 구성 정보라
+        // 점 색은 중립 파랑 고정, session.json 이 없으면(업로드 이력 없음) 행 자체를 숨긴다.
+        agScan.text.textContent = 'PLC 수집: —';
+        agScan.row.style.display = 'none';
+        agScan.row.title = 'Promaker 업로드 시 선택한 PLC 읽기 방식';
         agData.text.textContent = 'PLC 데이터 수신중';
         agData.row.style.display = 'none';  // 실제 수신 확인 전까지 숨김 — 수신되면 applySummary 가 켠다.
 
@@ -888,6 +881,7 @@ window.dspFmt = {
         agPopCard.appendChild(agHub.row);
         agPopCard.appendChild(agPlc.row);
         agPopCard.appendChild(agPlcDetail);
+        agPopCard.appendChild(agScan.row);
         agPopCard.appendChild(agData.row);
         agPopover.appendChild(agPopCard);
         document.body.appendChild(agPopover);
@@ -1231,6 +1225,18 @@ window.dspFmt = {
             }
             agPlc.text.textContent = plcLabel;
             agPlc.dot.style.background = plcColor;
+
+            // 수집 방식(Promaker 업로드 시 선택) — direct=Agent 직접 / delegated=Edge 단말 위임.
+            // null(구 서버·업로드 이력 없음)이면 행을 숨겨 노이즈를 만들지 않는다.
+            var scanMode = agent.plcScanMode || null;
+            if (scanMode) {
+                agScan.text.textContent = 'PLC 수집: ' + (scanMode === 'delegated'
+                    ? 'Edge 단말 위임' : 'Agent 직접');
+                agScan.dot.style.background = '#60a5fa';
+                agScan.row.style.display = '';
+            } else {
+                agScan.row.style.display = 'none';
+            }
 
             // 상세(IP) 패널 데이터 갱신 — 열려 있으면 즉시 다시 렌더.
             _agAdapters = agent.adapters || [];
