@@ -20,6 +20,7 @@
     <Compile Include="DsStore\DsStore.RenameDeviceTests.fs" />
     <Compile Include="DsStore\DsStore.WorkNamingTests.fs" />
     <Compile Include="ImportPlanTests.fs" />
+    <Compile Include="BasicCsvTests.fs" />
     <Compile Include="EditorProjectionTests.fs" />
     <Compile Include="SimulationTests.fs" />
     <Compile Include="AbnormalDetectorTests.fs" />

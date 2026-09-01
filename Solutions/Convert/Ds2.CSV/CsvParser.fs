@@ -36,7 +36,25 @@ module CsvParser =
                 |> sanitizePart
             if String.IsNullOrWhiteSpace(seed) then "Signal" else $"Signal_{seed}"
 
-    let private splitCsvLine (lineNumber: int) (line: string) : Result<string list, ParseError> =
+    /// 헤더 열 이름 정규화 — 대소문자, 공백/언더스코어/하이픈, addr↔address 축약을 흡수한다.
+    /// Excel 에서 편집한 표는 'IN Name', 'IN_ADDR', 'Out Addr' 처럼 열 이름이 흔히 달라진다.
+    let internal normalizeHeaderField (value: string) =
+        let compact =
+            (trim value).ToLowerInvariant().Replace(" ", "").Replace("_", "").Replace("-", "")
+        match compact with
+        | "inaddr" -> "inaddress"
+        | "outaddr" -> "outaddress"
+        | other -> other
+
+    /// 붙여넣기 호환 — Excel/스프레드시트 복사본은 탭 구분(TSV), 일반 CSV 는 쉼표 구분이다.
+    /// 헤더 행의 탭이 쉼표보다 많으면 탭을 구분자로 판정한다.
+    let internal detectSeparator (headerLine: string) : char =
+        if String.IsNullOrEmpty headerLine then ','
+        else
+            let count (target: char) = headerLine |> Seq.filter ((=) target) |> Seq.length
+            if count '\t' > count ',' then '\t' else ','
+
+    let internal splitLine (separator: char) (lineNumber: int) (line: string) : Result<string list, ParseError> =
         let values = ResizeArray<string>()
         let current = StringBuilder()
         let mutable index = 0
@@ -54,17 +72,15 @@ module CsvParser =
                         inQuotes <- false
                 else
                     current.Append(ch) |> ignore
+            elif ch = separator then
+                values.Add(current.ToString())
+                current.Clear() |> ignore
+            elif ch = '"' && current.Length = 0 then
+                inQuotes <- true
+            elif ch = '"' then
+                invalidQuote <- true
             else
-                match ch with
-                | ',' ->
-                    values.Add(current.ToString())
-                    current.Clear() |> ignore
-                | '"' when current.Length = 0 ->
-                    inQuotes <- true
-                | '"' ->
-                    invalidQuote <- true
-                | _ ->
-                    current.Append(ch) |> ignore
+                current.Append(ch) |> ignore
             index <- index + 1
 
         if invalidQuote then
@@ -80,6 +96,9 @@ module CsvParser =
         else
             values.Add(current.ToString())
             Ok (values |> Seq.toList)
+
+    let internal splitCsvLine (lineNumber: int) (line: string) : Result<string list, ParseError> =
+        splitLine ',' lineNumber line
 
     let parse (content: string) : Result<CsvDocument, ParseError list> =
         let text =
@@ -100,12 +119,11 @@ module CsvParser =
             } ]
         else
             let headerLineNumber, headerText = nonEmptyLines.[0]
-            match splitCsvLine headerLineNumber headerText with
+            let separator = detectSeparator headerText
+            match splitLine separator headerLineNumber headerText with
             | Error error -> Error [ error ]
             | Ok headerFields ->
-                let normalizedHeader =
-                    headerFields
-                    |> List.map (fun value -> trim value |> fun item -> item.ToLowerInvariant())
+                let normalizedHeader = headerFields |> List.map normalizeHeaderField
 
                 let hasSystem =
                     if normalizedHeader = expectedHeader9 then Some true
@@ -117,7 +135,7 @@ module CsvParser =
                     let expectedText = String.concat "," expectedHeader9
                     Error [ {
                         LineNumber = headerLineNumber
-                        Message = $"invalid header. expected: {expectedText}"
+                        Message = $"invalid header. expected: {expectedText} (쉼표 또는 탭 구분)"
                     } ]
                 | Some hasSystemCol ->
                     let expectedCols = if hasSystemCol then 9 else 8
@@ -125,7 +143,7 @@ module CsvParser =
                     let rows = ResizeArray<CsvRow>()
 
                     for lineNumber, line in nonEmptyLines |> Array.skip 1 do
-                        match splitCsvLine lineNumber line with
+                        match splitLine separator lineNumber line with
                         | Error error ->
                             parseErrors.Add(error)
                         | Ok values when values.Length <> expectedCols ->

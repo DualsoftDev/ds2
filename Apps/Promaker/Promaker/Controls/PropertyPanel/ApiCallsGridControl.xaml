@@ -129,7 +129,11 @@
                     <DataGridTemplateColumn Header="{x:Static core:Labels.InTag}" Width="*">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
+                                <!-- 센서 없는 device(ApiDef.SensingType=Virtual)는 입력칸 비활성 + 안내 툴팁 -->
                                 <TextBox Text="{Binding InputTagName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         IsEnabled="{Binding IsInputEditable}"
+                                         ToolTip="{Binding InputDisabledTooltip}"
+                                         ToolTipService.ShowOnDisabled="True"
                                          Padding="4,2"
                                          Margin="0,1,0,1"/>
                             </DataTemplate>
@@ -140,6 +144,9 @@
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <TextBox Text="{Binding InputAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         IsEnabled="{Binding IsInputEditable}"
+                                         ToolTip="{Binding InputDisabledTooltip}"
+                                         ToolTipService.ShowOnDisabled="True"
                                          Padding="4,2"
                                          Margin="0,1,0,1"/>
                             </DataTemplate>

@@ -37,8 +37,11 @@ public partial class MainViewModel
             return false;
 
         sourceName = dialog.SourceDisplayName;
+        var loadResult = dialog.SelectedMode == CsvImportMode.Basic3
+            ? CsvImporter.loadBasicProject(dialog.BasicDocument, dialog.ProjectName, dialog.SystemName)
+            : CsvImporter.loadProject(dialog.Document, dialog.ProjectName, dialog.SystemName);
         return TryGetResult(
-            CsvImporter.loadProject(dialog.Document, dialog.ProjectName, dialog.SystemName),
+            loadResult,
             errors => $"CSV 불러오기 실패:\n{JoinLines(errors)}",
             out store);
     }
