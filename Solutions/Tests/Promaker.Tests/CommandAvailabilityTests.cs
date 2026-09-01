@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Windows.Controls;
@@ -265,6 +265,7 @@ public sealed class CommandAvailabilityTests
             vm.SelectedNode = new EntityNode(flowBId, EntityKind.Flow, "FlowB");
             Assert.True(vm.PasteCopiedCommand.CanExecute(null));
             vm.PasteCopiedCommand.Execute(null);
+            StaTestRunner.PumpPendingUi(); // RunBusyAsync 가 Dispatcher.Yield(Background) 뒤로 미룬 이동을 소진
 
             // 원본 Work 는 제거되고 FlowB 에 새 Work 1개가 생긴다.
             Assert.False(store.WorksReadOnly.ContainsKey(workId));
