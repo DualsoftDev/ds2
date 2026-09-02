@@ -105,8 +105,8 @@
             rows.push({ kind: 'call', key: 'c:' + lane.callId, lane: lane, y: y, h: isCol ? COLLAPSED_LANE_H : LANE_HEIGHT, collapsed: isCol });
             y += isCol ? COLLAPSED_LANE_H : LANE_HEIGHT;
             if (s.expandedCalls && s.expandedCalls[lane.callId] && hasApiCalls(lane)) {
-                var m = apiMeasured(lane);
                 lane.apiCalls.forEach(function (ac, idx) {
+                    var m = apiMeasuredOf(lane, ac);   // 쌍별 실측
                     rows.push({ kind: 'api', key: 'a:' + lane.callId + ':' + (ac.apiCallId || idx), lane: lane, ac: ac, y: y, h: API_ROW_HEIGHT, m: m });
                     y += API_ROW_HEIGHT;
                 });
@@ -129,9 +129,9 @@
     // ════════════════════════════════════════════════════════════════════════
     //  실측 duration 페어링 + AASX 변경 빌드 — flow.html:2021-2062
     // ════════════════════════════════════════════════════════════════════════
-    function apiSpans(lane) {
-        var outs = (lane.outIntervals || []).map(function (iv) { return new Date(iv.start).getTime(); }).sort(function (a, b) { return a - b; });
-        var ins = (lane.inIntervals || []).map(function (iv) { return new Date(iv.start).getTime(); }).sort(function (a, b) { return a - b; });
+    function apiSpansOf(outIntervals, inIntervals) {
+        var outs = (outIntervals || []).map(function (iv) { return new Date(iv.start).getTime(); }).sort(function (a, b) { return a - b; });
+        var ins = (inIntervals || []).map(function (iv) { return new Date(iv.start).getTime(); }).sort(function (a, b) { return a - b; });
         if (!outs.length || !ins.length) return [];
         var spans = [];
         var j = 0;
@@ -143,15 +143,21 @@
         }
         return spans;
     }
-    function apiMeasured(lane) {
-        var spans = apiSpans(lane);
+    function apiSpans(lane) { return apiSpansOf(lane.outIntervals, lane.inIntervals); }
+    // 쌍(ApiCall)별 실측(2026-09-02) — ac 자신의 인터벌 우선, 필드 부재(구버전 응답)만 lane 폴백.
+    // 빈 배열은 "이 쌍 실측 0건"이라는 정직한 값 — 폴백하지 않는다.
+    function apiMeasuredOf(lane, ac) {
+        var outs = (ac && ac.outIntervals) || lane.outIntervals;
+        var ins = (ac && ac.inIntervals) || lane.inIntervals;
+        var spans = apiSpansOf(outs, ins);
         if (!spans.length) return { count: 0, min: null, max: null, mean: null };
         var mn = Infinity, mx = -Infinity, sum = 0;
         for (var i = 0; i < spans.length; i++) { var x = spans[i]; if (x < mn) mn = x; if (x > mx) mx = x; sum += x; }
         return { count: spans.length, min: mn, max: mx, mean: sum / spans.length };
     }
+    function apiMeasured(lane) { return apiMeasuredOf(lane, null); }
     function buildDurationChange(lane, ac) {
-        var m = apiMeasured(lane);
+        var m = apiMeasuredOf(lane, ac);
         if (m.count === 0 || !ac || !ac.targetWorkId) return null;
         return { workId: ac.targetWorkId, durationMs: Math.round(m.mean), minMs: Math.round(m.min), maxMs: Math.round(m.max) };
     }
@@ -663,7 +669,7 @@
         // 레이아웃/파생
         hasApiCalls: hasApiCalls, laneLayout: laneLayout, laneRows: laneRows,
         laneRowClass: laneRowClass, rowClass: rowClass,
-        apiSpans: apiSpans, apiMeasured: apiMeasured, buildDurationChange: buildDurationChange,
+        apiSpans: apiSpans, apiMeasured: apiMeasured, apiMeasuredOf: apiMeasuredOf, buildDurationChange: buildDurationChange,
         canApplyApi: canApplyApi, collectAllDurationChanges: collectAllDurationChanges,
         computeAllGaps: computeAllGaps, topGapsOf: topGapsOf, activeGap: activeGap,
         sortLanes: sortLanes,

@@ -212,12 +212,19 @@ public sealed class AutoCalibrationService
 
         foreach (var lane in lanes)
         {
-            var spans = ApiSpanMath.Spans(lane.OutIntervals, lane.InIntervals);
-            if (spans.Count == 0) continue; // 측정 span 없는 lane(디바이스) 은 건드리지 않음.
             foreach (var apiCall in lane.ApiCalls)
             {
                 if (!Guid.TryParse(apiCall.TargetWorkId, out var wid)) continue; // RxGuid 없는 ApiCall 제외.
                 if (onlyWorkIds is not null && !onlyWorkIds.Contains(wid)) continue; // 구버전 선택 재측정: 지정 Work 만.
+
+                // 쌍별 실측(2026-09-02): 이 ApiCall 자신의 OUT/IN 구간으로 span 을 만든다 — 복수 쌍 Call 에서
+                // lane 합산(전 쌍 union) span 이 모든 대상 Work 에 중복 귀속되던 것을 쌍→Work 정확 귀속으로 교체.
+                // 쌍별 인터벌이 비어 있으면(단일 쌍 레거시 데이터 등) lane 수준으로 폴백 — 1:1 이면 동일 값.
+                var outIvs = apiCall.OutIntervals.Count > 0 ? apiCall.OutIntervals : lane.OutIntervals;
+                var inIvs = apiCall.InIntervals.Count > 0 ? apiCall.InIntervals : lane.InIntervals;
+                var spans = ApiSpanMath.Spans(outIvs, inIvs);
+                if (spans.Count == 0) continue; // 측정 span 없는 쌍은 건드리지 않음.
+
                 if (!spansByWork.TryGetValue(wid, out var list))
                 {
                     list = new List<double>();

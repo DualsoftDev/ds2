@@ -130,10 +130,14 @@ public class CallTestController : ControllerBase
         Guid? tailId = ResolveRequestedId(req.TailCallId, effTailId, req.TailSpecified);
         // head==tail 허용 — 단일 신호 Call 1개를 자기 OutTag↑→완료(InTag↑/OutTag↓)로 분해(MT). null 강제 안 함.
 
-        var (cycleBoundaries, tailEdges, tailCompletionSource) =
-            await ResolveBoundariesAsync(req.FlowName, start, end, headId, tailId, lanes);
+        var (cycleBoundaries, tailStreams, tailCompletionSource) =
+            await ResolveBoundariesAsync(req.FlowName, start, end, headId, tailId);
 
-        var stats = ComputeCycleStats(req.FlowName, cycleBoundaries, tailEdges, chartEnd);
+        // 표시용 tail 마커 = 전 쌍의 도달 신호 union. 통계(AND 완료)는 스트림별로 계산 — 복수 쌍이면
+        // "마지막 응답"이 완료라 표시 틱 일부는 완료보다 이른 개별 응답이다(정보성 표시).
+        var tailEdges = CycleBoundaryEdges.UnionSorted(tailStreams);
+
+        var stats = ComputeCycleStats(req.FlowName, cycleBoundaries, tailStreams, chartEnd);
 
         // 이 Flow 에 저장된 사용자 지정(override) 이 존재하는지 — UI 의 'CT 기준: 사용자 지정/AASX 기본' 표시용.
         var isOverride = _settings.GetFlowCycleOverride(req.FlowName) is not null;
@@ -217,42 +221,66 @@ public class CallTestController : ControllerBase
         // 멀티 PLC: 이 Flow 의 PLC 로 엣지 조회를 한정 (다른 PLC 의 같은 주소가 섞이지 않게).
         var systemId = _project.TryGetSystemIdByFlowName(req.FlowName);
 
-        // Head 경계(시작) = Head OutTag↑ (진영 B: OutTag=PLC 출력=명령=동작 시작)
+        // Head 경계(시작) — 복수 I/O 쌍이면 전 쌍 OUT 활성 진입 union(OR). 매퍼 미해석 Call 은
+        // 클라가 보낸 단일 태그(레거시) 폴백.
         List<DateTime> cycleBoundaries;
-        if (headId.HasValue && !string.IsNullOrWhiteSpace(req.HeadStartTag))
+        var headPairs = headId.HasValue
+            ? _callMapper.GetCallTagPairsByCallId(headId.Value)
+            : Array.Empty<CallTagPair>();
+        if (headPairs.Any(p => !string.IsNullOrWhiteSpace(p.OutTag)))
         {
-            cycleBoundaries = await _plcRepository.FindRisingEdgesAsync(
-                req.HeadStartTag!, start, end, systemId);
+            cycleBoundaries = await CycleBoundaryEdges.HeadStartsAsync(
+                _plcRepository, headPairs, start, end, systemId);
+        }
+        else if (headId.HasValue && !string.IsNullOrWhiteSpace(req.HeadStartTag))
+        {
+            cycleBoundaries = (await _plcRepository.FindRisingEdgesAsync(
+                req.HeadStartTag!, start, end, systemId)).OrderBy(t => t).ToList();
         }
         else
         {
-            cycleBoundaries = await _cycleAnalysis.GetCycleBoundaryTimesAsync(req.FlowName, start, end);
+            cycleBoundaries = (await _cycleAnalysis.GetCycleBoundaryTimesAsync(req.FlowName, start, end))
+                .OrderBy(t => t).ToList();
         }
 
-        // Tail 완료 마커 = InTag↑(있으면) else OutTag↓(OutOnly 추정). 단일 규칙 = CycleCompletionResolver.
-        var tc = tailId.HasValue
-            ? CycleCompletionResolver.Resolve(req.TailFinishTag, req.TailOutTag)
-            : default;
-        List<DateTime> tailEdges = !string.IsNullOrWhiteSpace(tc.Tag)
-            ? (tc.Falling
-                ? await _plcRepository.FindFallingEdgesAsync(
-                    tc.Tag!, start, end, systemId)
-                : await _plcRepository.FindRisingEdgesAsync(
-                    tc.Tag!, start, end, systemId))
-            : new List<DateTime>();
-
-        cycleBoundaries = cycleBoundaries.OrderBy(t => t).ToList();
-        tailEdges = tailEdges.OrderBy(t => t).ToList();
+        // Tail 완료 마커 — 쌍별 스트림(AND 는 CycleDerivation). 매퍼 미해석 Call 은 단일 태그 폴백
+        // (규칙은 CycleCompletionResolver — 쌍 단위 규칙과 동일).
+        List<List<DateTime>> tailStreams;
+        string? tailSourceLabel;
+        var tailPairs = tailId.HasValue
+            ? _callMapper.GetCallTagPairsByCallId(tailId.Value)
+            : Array.Empty<CallTagPair>();
+        if (tailPairs.Count > 0)
+        {
+            (tailStreams, tailSourceLabel) = await CycleBoundaryEdges.TailStreamsAsync(
+                _plcRepository, tailPairs, start, end, systemId);
+        }
+        else
+        {
+            var tc = tailId.HasValue
+                ? CycleCompletionResolver.Resolve(req.TailFinishTag, req.TailOutTag)
+                : default;
+            tailStreams = !string.IsNullOrWhiteSpace(tc.Tag)
+                ? new List<List<DateTime>>
+                {
+                    (tc.Falling
+                        ? await _plcRepository.FindFallingEdgesAsync(tc.Tag!, start, end, systemId)
+                        : await _plcRepository.FindRisingEdgesAsync(tc.Tag!, start, end, systemId))
+                        .OrderBy(t => t).ToList()
+                }
+                : new List<List<DateTime>>();
+            tailSourceLabel = CycleCompletionResolver.SourceLabel(tc.Source);
+        }
 
         var chartEnd = end;
-        var stats = ComputeCycleStats(req.FlowName, cycleBoundaries, tailEdges, chartEnd);
+        var stats = ComputeCycleStats(req.FlowName, cycleBoundaries, tailStreams, chartEnd);
 
         return new CtOverlayDto(
             cycleBoundaries.Select(IsoLocal).ToList(),
-            tailEdges.Select(IsoLocal).ToList(),
+            CycleBoundaryEdges.UnionSorted(tailStreams).Select(IsoLocal).ToList(),
             stats.AvgCycleMs,
             stats.AvgActiveMs,
-            CycleCompletionResolver.SourceLabel(tc.Source));
+            tailSourceLabel);
     }
 
     /// <summary>
@@ -368,47 +396,41 @@ public class CallTestController : ControllerBase
         return ParseGuid(requested);
     }
 
-    private async Task<(List<DateTime> cycleBoundaries, List<DateTime> tailEdges, string? tailCompletionSource)> ResolveBoundariesAsync(
-        string flowName, DateTime start, DateTime end, Guid? headId, Guid? tailId, List<CtLaneDto> lanes)
+    private async Task<(List<DateTime> cycleBoundaries, List<List<DateTime>> tailStreams, string? tailCompletionSource)> ResolveBoundariesAsync(
+        string flowName, DateTime start, DateTime end, Guid? headId, Guid? tailId)
     {
-        // 진영 B (PLC 기준): OutTag=출력(명령)=동작 시작, InTag=입력(응답)=동작 완료.
-        //   Head 사이클 경계(시작) = Head OutTag↑. Tail 완료 = InTag↑(있으면) else OutTag↓(OutOnly 추정).
-        var headStartTag = headId.HasValue ? lanes.FirstOrDefault(l => l.CallId == headId.Value.ToString())?.OutTag : null;
-        var tailLane = tailId.HasValue ? lanes.FirstOrDefault(l => l.CallId == tailId.Value.ToString()) : null;
-        var tc = tailLane is not null
-            ? CycleCompletionResolver.Resolve(tailLane.InTag, tailLane.OutTag)
-            : default;
+        // 진영 B (PLC 기준) + 복수 I/O 쌍(2026-09-02):
+        //   시작 = 전 쌍 OUT 활성 진입 union(OR — 엔진 Going 규칙), 완료 = 쌍별 마커 스트림(AND 합성은 CycleDerivation).
+        //   쌍별 마커 = InTag 활성 진입(있으면) else OutTag 활성 이탈(OutOnly 추정) — CycleCompletionResolver 규칙.
         // 멀티 PLC: 이 Flow 의 PLC 로 엣지 조회를 한정 (다른 PLC 의 같은 주소가 섞이지 않게).
         var systemId = _project.TryGetSystemIdByFlowName(flowName);
 
-        Task<List<DateTime>> headTask = headId.HasValue && !string.IsNullOrWhiteSpace(headStartTag)
-            ? _plcRepository.FindRisingEdgesAsync(headStartTag!, start, end, systemId)
-            : _cycleAnalysis.GetCycleBoundaryTimesAsync(flowName, start, end);
+        var headPairs = headId.HasValue
+            ? _callMapper.GetCallTagPairsByCallId(headId.Value)
+            : Array.Empty<CallTagPair>();
+        var starts = headPairs.Any(p => !string.IsNullOrWhiteSpace(p.OutTag))
+            ? await CycleBoundaryEdges.HeadStartsAsync(_plcRepository, headPairs, start, end, systemId)
+            : (await _cycleAnalysis.GetCycleBoundaryTimesAsync(flowName, start, end)).OrderBy(t => t).ToList();
 
-        Task<List<DateTime>> tailTask = !string.IsNullOrWhiteSpace(tc.Tag)
-            ? (tc.Falling
-                ? _plcRepository.FindFallingEdgesAsync(tc.Tag!, start, end, systemId)
-                : _plcRepository.FindRisingEdgesAsync(tc.Tag!, start, end, systemId))
-            : Task.FromResult(new List<DateTime>());
+        var tailPairs = tailId.HasValue
+            ? _callMapper.GetCallTagPairsByCallId(tailId.Value)
+            : Array.Empty<CallTagPair>();
+        var (tailStreams, tailSourceLabel) = await CycleBoundaryEdges.TailStreamsAsync(
+            _plcRepository, tailPairs, start, end, systemId);
 
-        await Task.WhenAll(headTask, tailTask);
-
-        return (
-            headTask.Result.OrderBy(t => t).ToList(),
-            tailTask.Result.OrderBy(t => t).ToList(),
-            CycleCompletionResolver.SourceLabel(tc.Source));
+        return (starts, tailStreams, tailSourceLabel);
     }
 
     /// <summary>
-    /// 사이클 경계 간 CT 평균 + (Head OutTag↑ 시작 → 사이클 내 첫 Tail InTag↑ 완료) 활성구간 평균.
+    /// 사이클 경계 간 CT 평균 + (시작 → 완료) 활성구간 평균. 완료 = 쌍별 마커 스트림 AND(마지막 응답).
     /// 도출 로직은 <see cref="CycleDerivation"/> 로 추출되어 과거 history 재계산(CycleRecomputeService)과
     /// 동일 코드를 공유하고, 대시보드와 동일한 유효 비가동 범위(글로벌+per-flow override)를 적용한다 → 화면 ↔ 대시보드 1:1.
     /// </summary>
     private (double? AvgCycleMs, double? AvgActiveMs) ComputeCycleStats(
-        string flowName, List<DateTime> cycleBoundaries, List<DateTime> tailEdges, DateTime chartEnd)
+        string flowName, List<DateTime> cycleBoundaries, List<List<DateTime>> tailStreams, DateTime chartEnd)
     {
         var (maxMs, minMs) = _settings.GetEffectiveCycleRangeMs(flowName);
-        var cycles = CycleDerivation.BuildCycles(cycleBoundaries, tailEdges, chartEnd);
+        var cycles = CycleDerivation.BuildCycles(cycleBoundaries, tailStreams, chartEnd);
         return CycleDerivation.Averages(cycles, maxMs, minMs);
     }
 
@@ -482,6 +504,7 @@ public record CtLaneDto(
 /// <summary>
 /// Call lane 확장 행 1개 = ApiCall 하나. inTag/outTag 는 이 ApiCall 자신의 태그(1:1 이면 lane 과 동일).
 /// current* = 보정 대상 Device Work(RxGuid)의 현재 AASX Duration/Min/MaxDuration(ms, 없으면 null) — 실측치와 대비용.
+/// Out/InIntervals = 이 쌍 자신의 태그 ON 구간(2026-09-02) — 복수 쌍 Call 의 서브행 파형·쌍별 실측 분리용.
 /// </summary>
 public record CtApiCallDto(
     string ApiCallId,
@@ -491,7 +514,9 @@ public record CtApiCallDto(
     string? TargetWorkId,
     int? CurrentDurationMs,
     int? CurrentMinMs,
-    int? CurrentMaxMs);
+    int? CurrentMaxMs,
+    List<CtIntervalDto> OutIntervals,
+    List<CtIntervalDto> InIntervals);
 
 // ── 실측 duration → AASX 적용 ───────────────────────────────────────────────
 public record CtApplyDurationsRequest(List<CtDurationChange> Changes);

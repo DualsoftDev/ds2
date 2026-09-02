@@ -40,12 +40,26 @@ public static class CycleDerivation
     /// </summary>
     public static List<CycleRecord> BuildCycles(
         IReadOnlyList<DateTime> starts, IReadOnlyList<DateTime> tailEdges, DateTime windowEnd)
+        => BuildCycles(starts, new[] { tailEdges }, windowEnd);
+
+    /// <summary>
+    /// 복수 I/O 쌍(ApiCall) 완료 = <b>AND</b> 오버로드 (2026-09-02, 엔진 canCompleteCall forall 과 정렬).
+    /// <paramref name="tailStreams"/> = 쌍별 완료 마커 엣지 스트림(각 오름차순). 사이클 완료 시각은
+    /// "스트림별 (start, end) 내 첫 엣지"의 <b>최댓값(마지막 응답)</b>이고, 한 스트림이라도 창 안에 엣지가
+    /// 없으면 그 사이클은 미완료(complete=null → CT 만 기록, MT/WT 없음 — 단일 쌍의 tail 미검출과 동일 취급).
+    /// 스트림 1개면 기존 단일 정의와 완전히 동일하다(포인터 소비 규약 포함).
+    /// 스트림 0개 = 완료 마커 관측 불가 — 전 사이클 미완료(기존 tailEdges 빈 목록과 동일).
+    /// </summary>
+    public static List<CycleRecord> BuildCycles(
+        IReadOnlyList<DateTime> starts, IReadOnlyList<IReadOnlyList<DateTime>> tailStreams, DateTime windowEnd)
     {
         var result = new List<CycleRecord>();
         int n = starts.Count;
         if (n == 0) return result;
 
-        int ti = 0;
+        // 스트림별 포인터 — 한 번 쓰인 엣지는 재사용 안 됨(단일 스트림 시절 ti 규약 그대로).
+        var ti = new int[tailStreams.Count];
+
         for (int i = 0; i < n; i++)
         {
             var cStart = starts[i];
@@ -55,12 +69,30 @@ public static class CycleDerivation
 
             DateTime? complete = null;
             double? activeMs = null;
-            while (ti < tailEdges.Count && tailEdges[ti] <= cStart) ti++;
-            if (ti < tailEdges.Count && tailEdges[ti] < cEnd)
+            if (tailStreams.Count > 0)
             {
-                complete = tailEdges[ti];
-                activeMs = (tailEdges[ti] - cStart).TotalMilliseconds;
-                ti++;
+                var worst = DateTime.MinValue;
+                bool all = true;
+                for (int k = 0; k < tailStreams.Count; k++)
+                {
+                    var edges = tailStreams[k];
+                    while (ti[k] < edges.Count && edges[ti[k]] <= cStart) ti[k]++;
+                    if (ti[k] < edges.Count && edges[ti[k]] < cEnd)
+                    {
+                        // 이 창에 속한 엣지 — AND 성립 여부와 무관하게 소비(다음 사이클 것이 아님).
+                        if (edges[ti[k]] > worst) worst = edges[ti[k]];
+                        ti[k]++;
+                    }
+                    else
+                    {
+                        all = false; // 이 쌍은 창 안에 응답 없음 → 사이클 미완료
+                    }
+                }
+                if (all)
+                {
+                    complete = worst;
+                    activeMs = (worst - cStart).TotalMilliseconds;
+                }
             }
 
             result.Add(new CycleRecord(cStart, complete, activeMs, periodMs));

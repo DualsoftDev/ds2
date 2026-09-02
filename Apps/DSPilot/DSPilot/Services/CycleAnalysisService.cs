@@ -151,14 +151,13 @@ public class CycleAnalysisService
         var headCall = GetHeadCall(flow);
         if (headCall == null) return new();
 
-        var tags = _mapperService.GetCallTagsByCallId(headCall.Id);
-        if (!tags.HasValue || string.IsNullOrEmpty(tags.Value.OutTag)) return new();
+        var pairs = _mapperService.GetCallTagPairsByCallId(headCall.Id);
+        if (!pairs.Any(p => !string.IsNullOrEmpty(p.OutTag))) return new();
 
-        // 진영 B: Head OutTag↑(PLC 명령) = 사이클 시작 경계.
+        // 진영 B: Head OutTag↑(PLC 명령) = 사이클 시작 경계. 복수 I/O 쌍이면 전 쌍 OUT union(OR — 엔진 Going 규칙).
         // 멀티 PLC: 이 Flow 의 PLC 로 한정 — 안 하면 같은 주소를 쓰는 다른 PLC 의 엣지가 경계로 섞인다.
-        var edges = await _plcRepository.FindRisingEdgesAsync(
-            tags.Value.OutTag, startTime, endTime, flow.ParentId);
-        return edges;
+        return await CycleBoundaryEdges.HeadStartsAsync(
+            _plcRepository, pairs, startTime, endTime, flow.ParentId);
     }
 
     /// <summary>
@@ -357,41 +356,46 @@ public class CycleAnalysisService
             var calls = _projectService.GetCalls(work.Id);
             foreach (var call in calls)
             {
-                var tags = _mapperService.GetCallTagsByCallId(call.Id);
-                if (!tags.HasValue)
+                // 복수 I/O 쌍(ApiCall) 전부 lane 에 편입(2026-09-02) — 종전엔 첫 쌍만이라 IN 2~4 신호가
+                // 간트에서 통째로 빠졌다. 같은 lane(Call 행) 안에서 (주소, 방향) 중복은 세그먼트 이중생성
+                // 방지를 위해 dedup(공유 OUT 케이스).
+                var pairs = _mapperService.GetCallTagPairsByCallId(call.Id);
+                if (pairs.Count == 0)
                     continue;
 
-                if (string.IsNullOrWhiteSpace(tags.Value.InTag) &&
-                    string.IsNullOrWhiteSpace(tags.Value.OutTag))
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                bool any = false;
+                foreach (var pair in pairs)
                 {
-                    continue;
+                    if (!string.IsNullOrWhiteSpace(pair.InTag) && seen.Add("I|" + pair.InTag))
+                    {
+                        laneDefinitions.Add(new SignalLaneDefinition(
+                            pair.InTag!,
+                            call.Id,
+                            call.Name,
+                            work.Name,
+                            IOEventType.InTag,
+                            call.Name,
+                            laneIndex));
+                        any = true;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(pair.OutTag) && seen.Add("O|" + pair.OutTag))
+                    {
+                        laneDefinitions.Add(new SignalLaneDefinition(
+                            pair.OutTag!,
+                            call.Id,
+                            call.Name,
+                            work.Name,
+                            IOEventType.OutTag,
+                            call.Name,
+                            laneIndex));
+                        any = true;
+                    }
                 }
 
-                if (!string.IsNullOrWhiteSpace(tags.Value.InTag))
-                {
-                    laneDefinitions.Add(new SignalLaneDefinition(
-                        tags.Value.InTag,
-                        call.Id,
-                        call.Name,
-                        work.Name,
-                        IOEventType.InTag,
-                        call.Name,
-                        laneIndex));
-                }
-
-                if (!string.IsNullOrWhiteSpace(tags.Value.OutTag))
-                {
-                    laneDefinitions.Add(new SignalLaneDefinition(
-                        tags.Value.OutTag,
-                        call.Id,
-                        call.Name,
-                        work.Name,
-                        IOEventType.OutTag,
-                        call.Name,
-                        laneIndex));
-                }
-
-                laneIndex++;
+                if (any)
+                    laneIndex++;
             }
         }
 

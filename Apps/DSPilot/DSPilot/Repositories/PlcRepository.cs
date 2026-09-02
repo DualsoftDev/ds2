@@ -670,6 +670,70 @@ ORDER BY DateTime ASC, Id ASC";
         return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
     }
 
+    public async Task<List<DateTime>> FindActiveEdgesAsync(
+        string address, string? activeValue, bool falling,
+        DateTime startTime, DateTime endTime, Guid? systemId = null)
+    {
+        // bool 관용(activeValue null) → 기존 rising/falling 쿼리 그대로.
+        // "false"(반전 bool: 활성=false) → 활성 진입 = bool 하강 ⇔ 기존 쿼리의 rising/falling 스왑.
+        if (activeValue is null)
+            return falling
+                ? await FindFallingEdgesAsync(address, startTime, endTime, systemId)
+                : await FindRisingEdgesAsync(address, startTime, endTime, systemId);
+        if (string.Equals(activeValue, "false", StringComparison.OrdinalIgnoreCase))
+            return falling
+                ? await FindRisingEdgesAsync(address, startTime, endTime, systemId)
+                : await FindFallingEdgesAsync(address, startTime, endTime, systemId);
+
+        // 값형(Int/Float/String) — 활성 = 값 일치(lower/trim 문자열 비교, 로그 원문 기준 근사).
+        using var connection = CreateConnection();
+        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
+        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
+
+        const string sql = @"
+WITH ordered_logs AS (
+    SELECT
+        l.Id AS Id,
+        l.DateTime AS DateTime,
+        CASE
+            WHEN lower(trim(coalesce(l.Value, ''))) = lower(trim(@ActiveValue)) THEN '1'
+            ELSE '0'
+        END AS NormalizedValue,
+        LAG(
+            CASE
+                WHEN lower(trim(coalesce(l.Value, ''))) = lower(trim(@ActiveValue)) THEN '1'
+                ELSE '0'
+            END
+        ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM plcTagLog l
+    INNER JOIN plcTag t ON l.PlcTagId = t.Id
+    LEFT JOIN plc p ON p.id = t.plcId
+    WHERE t.Address = @Address
+      AND (@SystemId IS NULL OR p.systemId = @SystemId)
+      AND l.DateTime >= @StartTime
+      AND l.DateTime <= @EndTime
+)
+SELECT
+    Id,
+    DateTime
+FROM ordered_logs
+WHERE (@Falling = 0 AND coalesce(PreviousNormalizedValue, '0') = '0' AND NormalizedValue = '1')
+   OR (@Falling = 1 AND PreviousNormalizedValue = '1' AND NormalizedValue = '0')
+ORDER BY DateTime ASC, Id ASC";
+
+        var rows = await connection.QueryAsync<PlcTagDateTimeRow>(sql, new
+        {
+            Address = address,
+            ActiveValue = activeValue,
+            Falling = falling ? 1 : 0,
+            StartTime = startStr,
+            EndTime = endStr,
+            SystemId = SystemKeyConvention.Scope(systemId)
+        });
+
+        return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
+    }
+
     public async Task<List<PlcEdge>> FindRisingEdgesWithLogIdAsync(
         string address, DateTime startTime, DateTime endTime, Guid? systemId = null)
     {

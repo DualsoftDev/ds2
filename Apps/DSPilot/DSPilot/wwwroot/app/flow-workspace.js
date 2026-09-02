@@ -1726,8 +1726,8 @@
                         rows.push({ kind: 'call', key: 'c:' + lane.callId, lane, y, h: LANE_HEIGHT });
                         y += LANE_HEIGHT;
                         if (this.expandedCalls[lane.callId] && this.hasApiCalls(lane)) {
-                            const m = this.apiMeasured(lane);   // 실측 min/max/mean (행마다 1회 계산)
                             lane.apiCalls.forEach((ac, idx) => {
+                                const m = this.apiMeasuredOf(lane, ac);   // 쌍별 실측 min/max/mean
                                 rows.push({ kind: 'api', key: 'a:' + lane.callId + ':' + (ac.apiCallId || idx), lane, ac, y, h: API_ROW_HEIGHT, m });
                                 y += API_ROW_HEIGHT;
                             });
@@ -1743,10 +1743,9 @@
 
                 // OutTag↑(명령) → 다음 InTag↑(응답) 까지를 한 동작 duration 으로 페어링한 ms 배열.
                 // 진영 B(PLC 기준): OutTag=출력(명령)=동작 시작, InTag=입력(응답)=동작 완료.
-                // 현재 PoC 는 Call:ApiCall 1:1 이라 lane 의 out/in 인터벌이 곧 이 ApiCall 의 것.
-                apiSpans(lane) {
-                    const outs = (lane.outIntervals || []).map(iv => new Date(iv.start).getTime()).sort((a, b) => a - b);
-                    const ins = (lane.inIntervals || []).map(iv => new Date(iv.start).getTime()).sort((a, b) => a - b);
+                apiSpansOf(outIntervals, inIntervals) {
+                    const outs = (outIntervals || []).map(iv => new Date(iv.start).getTime()).sort((a, b) => a - b);
+                    const ins = (inIntervals || []).map(iv => new Date(iv.start).getTime()).sort((a, b) => a - b);
                     if (!outs.length || !ins.length) return [];
                     const spans = [];
                     let j = 0;
@@ -1759,8 +1758,13 @@
                     }
                     return spans;
                 },
-                apiMeasured(lane) {
-                    const spans = this.apiSpans(lane);
+                apiSpans(lane) { return this.apiSpansOf(lane.outIntervals, lane.inIntervals); },
+                // 쌍(ApiCall)별 실측(2026-09-02) — 서버가 내려준 이 쌍 자신의 인터벌 우선, 필드 자체가 없을 때만
+                // lane 폴백(구버전 응답). 빈 배열은 "이 쌍 실측 0건"이라는 정직한 값이므로 폴백하지 않는다.
+                apiMeasuredOf(lane, ac) {
+                    const outs = (ac && ac.outIntervals) || lane.outIntervals;
+                    const ins = (ac && ac.inIntervals) || lane.inIntervals;
+                    const spans = this.apiSpansOf(outs, ins);
                     if (!spans.length) return { count: 0, min: null, max: null, mean: null };
                     let mn = Infinity, mx = -Infinity, sum = 0;
                     for (const s of spans) { if (s < mn) mn = s; if (s > mx) mx = s; sum += s; }
@@ -1771,8 +1775,9 @@
 
                 // ── 실측 → AASX 적용 (평균→Duration, min→MinDuration, max→MaxDuration) ──
                 // 대상 = ApiCall 의 device Work(targetWorkId). 실측 없음/대상 미해석이면 적용 불가.
+                // 실측은 쌍(ApiCall)별 — 복수 쌍 Call 에서 다른 쌍의 span 이 이 Work 에 섞이지 않는다.
                 buildDurationChange(lane, ac) {
-                    const m = this.apiMeasured(lane);
+                    const m = this.apiMeasuredOf(lane, ac);
                     if (m.count === 0 || !ac || !ac.targetWorkId) return null;
                     return { workId: ac.targetWorkId, durationMs: Math.round(m.mean), minMs: Math.round(m.min), maxMs: Math.round(m.max) };
                 },

@@ -48,24 +48,34 @@ public sealed class CallLaneBuilderService
                 var intervals = MergeIntervals(
                     g.Select(i => (i.GoingStartTime, i.FinishTime ?? i.GoingStartTime)).ToList());
                 // 태그별 ON 구간 분리 — OutTag(명령)/InTag(응답). command→response span 집계의 입력.
+                // 복수 I/O 쌍이면 lane 수준은 전 쌍 union(파형 겹침 병합), 쌍별 구분은 아래 주소별 dict 로.
                 var outIntervals = MergeIntervals(
                     g.Where(i => i.EventType == IOEventType.OutTag)
                      .Select(i => (i.GoingStartTime, i.FinishTime ?? i.GoingStartTime)).ToList());
                 var inIntervals = MergeIntervals(
                     g.Where(i => i.EventType == IOEventType.InTag)
                      .Select(i => (i.GoingStartTime, i.FinishTime ?? i.GoingStartTime)).ToList());
+                // 주소별 ON 구간 — ApiCall(쌍)별 서브행 파형/실측 분리(2026-09-02).
+                var byAddress = g
+                    .Where(i => !string.IsNullOrWhiteSpace(i.TagAddress))
+                    .GroupBy(i => i.TagAddress, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(
+                        ag => ag.Key,
+                        ag => ToDto(MergeIntervals(
+                            ag.Select(i => (i.GoingStartTime, i.FinishTime ?? i.GoingStartTime)).ToList())),
+                        StringComparer.OrdinalIgnoreCase);
                 var tags = _callMapper.GetCallTagsByCallId(first.CallId);
                 return new CtLaneDto(
                     first.CallId.ToString(),
                     first.CallName,
                     first.WorkName,
                     first.Lane,
-                    intervals.Select(iv => new CtIntervalDto(IsoLocal(iv.Start), IsoLocal(iv.End))).ToList(),
+                    ToDto(intervals),
                     tags?.InTag,
                     tags?.OutTag,
-                    outIntervals.Select(iv => new CtIntervalDto(IsoLocal(iv.Start), IsoLocal(iv.End))).ToList(),
-                    inIntervals.Select(iv => new CtIntervalDto(IsoLocal(iv.Start), IsoLocal(iv.End))).ToList(),
-                    ResolveApiCalls(first.CallId));
+                    ToDto(outIntervals),
+                    ToDto(inIntervals),
+                    ResolveApiCalls(first.CallId, byAddress));
             })
             .OrderBy(l => l.LaneIndex)
             .ToList();
@@ -73,6 +83,7 @@ public sealed class CallLaneBuilderService
         // 시간 범위에 데이터가 없는 Call 도 표시 — 빈 인터벌로 추가.
         var laneIds = lanes.Select(l => l.CallId).ToHashSet();
         int nextLane = lanes.Count > 0 ? lanes.Max(l => l.LaneIndex) + 1 : 0;
+        var emptyByAddress = new Dictionary<string, List<CtIntervalDto>>(StringComparer.OrdinalIgnoreCase);
         foreach (var c in _callMapper.GetAllCallTagPairs()
                      .Where(p => string.Equals(p.FlowName, flowName, StringComparison.OrdinalIgnoreCase))
                      .Where(c => !laneIds.Contains(c.CallId.ToString())))
@@ -80,17 +91,17 @@ public sealed class CallLaneBuilderService
             lanes.Add(new CtLaneDto(c.CallId.ToString(), c.CallName, c.WorkName, nextLane++,
                 new List<CtIntervalDto>(), c.InTag, c.OutTag,
                 new List<CtIntervalDto>(), new List<CtIntervalDto>(),
-                ResolveApiCalls(c.CallId)));
+                ResolveApiCalls(c.CallId, emptyByAddress)));
         }
 
         return lanes;
     }
 
     /// <summary>
-    /// Call lane 확장용 — 이 Call 에 소속된 ApiCall(들) + 보정 대상 Device Work 의 현재 AASX duration(ms).
-    /// 읽기 전용(store 불변). 현재 PoC 는 1:1 이라 보통 1개. 미로드/미해석 시 빈 리스트.
+    /// Call lane 확장용 — 이 Call 에 소속된 ApiCall(들) + 보정 대상 Device Work 의 현재 AASX duration(ms)
+    /// + 이 쌍 자신의 태그 ON 구간(주소별 dict 매칭, 없으면 빈 목록). 읽기 전용(store 불변). 미로드/미해석 시 빈 리스트.
     /// </summary>
-    private List<CtApiCallDto> ResolveApiCalls(Guid callId)
+    private List<CtApiCallDto> ResolveApiCalls(Guid callId, Dictionary<string, List<CtIntervalDto>> intervalsByAddress)
         => _project.GetCallApiCallDetails(callId)
             .Select(d => new CtApiCallDto(
                 d.ApiCallId.ToString(),
@@ -100,8 +111,15 @@ public sealed class CallLaneBuilderService
                 d.TargetWorkId?.ToString(),
                 d.CurrentDurationMs,
                 d.CurrentMinMs,
-                d.CurrentMaxMs))
+                d.CurrentMaxMs,
+                d.OutTag is not null && intervalsByAddress.TryGetValue(d.OutTag, out var outIvs)
+                    ? outIvs : new List<CtIntervalDto>(),
+                d.InTag is not null && intervalsByAddress.TryGetValue(d.InTag, out var inIvs)
+                    ? inIvs : new List<CtIntervalDto>()))
             .ToList();
+
+    private static List<CtIntervalDto> ToDto(List<(DateTime Start, DateTime End)> intervals)
+        => intervals.Select(iv => new CtIntervalDto(IsoLocal(iv.Start), IsoLocal(iv.End))).ToList();
 
     private static List<(DateTime Start, DateTime End)> MergeIntervals(List<(DateTime Start, DateTime End)> intervals)
     {

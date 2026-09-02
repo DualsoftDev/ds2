@@ -191,20 +191,17 @@ public class CycleAnalysisController : ControllerBase
             return new List<DateTime>();
 
         var (headCallName, _) = _flowMetrics.GetCycleBoundaryCallNames(flowName);
-        // 진영 B: Head OutTag↑(PLC 명령) = 사이클 시작 경계.
-        string? startTagAddress = null;
+        // 진영 B: Head OutTag↑(PLC 명령) = 사이클 시작 경계. 복수 I/O 쌍이면 전 쌍 OUT union(OR) —
+        // 사이클 경계 정의(CycleBoundaryEdges)와 동일해야 비가동 구간 판정이 화면 경계와 1:1 이 된다.
         if (!string.IsNullOrEmpty(headCallName))
         {
-            var allPairs = _callMapper.GetAllCallTagPairs();
-            var match = allPairs.FirstOrDefault(p => p.FlowName == flowName && p.CallName == headCallName);
-            if (match != default) startTagAddress = match.OutTag;
-        }
-
-        if (!string.IsNullOrEmpty(startTagAddress))
-        {
-            // 멀티 PLC: 이 Flow 의 PLC 로 한정 — 다른 PLC 의 엣지가 비가동 구간 판정에 섞이지 않게.
-            return await _plcRepository.FindRisingEdgesAsync(
-                startTagAddress, start, end, _project.TryGetSystemIdByFlowName(flowName));
+            var pairs = _callMapper.GetCallTagPairsByName(flowName, headCallName);
+            if (pairs.Any(p => !string.IsNullOrWhiteSpace(p.OutTag)))
+            {
+                // 멀티 PLC: 이 Flow 의 PLC 로 한정 — 다른 PLC 의 엣지가 비가동 구간 판정에 섞이지 않게.
+                return await CycleBoundaryEdges.HeadStartsAsync(
+                    _plcRepository, pairs, start, end, _project.TryGetSystemIdByFlowName(flowName));
+            }
         }
 
         return await _cycleAnalysis.GetCycleBoundaryTimesAsync(flowName, start, end);
