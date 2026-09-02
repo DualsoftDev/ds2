@@ -42,10 +42,12 @@ public sealed class CallApiCallItem : ObservableObject
         string valueSpecText,
         string inputValueSpecText,
         int outputSpecTypeIndex,
-        int inputSpecTypeIndex)
+        int inputSpecTypeIndex,
+        bool isSensorless)
     {
         ApiCallId                   = apiCallId;
         ApiDefDisplayName           = apiDefDisplayName;
+        IsSensorless                = isSensorless;
         OutputSpecTypeIndex         = outputSpecTypeIndex;
         InputSpecTypeIndex          = inputSpecTypeIndex;
 
@@ -74,10 +76,27 @@ public sealed class CallApiCallItem : ObservableObject
             row.OutputTagName, row.OutputAddress,
             row.InputTagName, row.InputAddress,
             row.ValueSpecText, row.InputValueSpecText,
-            row.OutputSpecTypeIndex, row.InputSpecTypeIndex);
+            row.OutputSpecTypeIndex, row.InputSpecTypeIndex,
+            row.IsSensorless);
 
     public Guid ApiCallId { get; }
     public string ApiDefDisplayName { get; }
+
+    /// <summary>ApiDef.SensingType = Virtual — 설비에 센서가 없어 입력 태그/주소를 사용하지 않는다.</summary>
+    public bool IsSensorless { get; }
+
+    /// <summary>입력 태그/주소 편집 가능 여부. 센서 없는 device 는 비활성(딤) 처리한다.</summary>
+    public bool IsInputEditable => !IsSensorless;
+
+    /// <summary>비활성 입력칸에 표시할 안내 툴팁. 편집 가능하면 null.</summary>
+    public string? InputDisabledTooltip => IsSensorless
+        ? $"이 ApiCall 의 디바이스에는 센서가 없습니다.\n"
+          + $"ApiDef '{ApiDefDisplayName}' 의 SensingType 이 Virtual(센서 없음) 로 설정되어 있어\n"
+          + "입력 태그·주소를 사용하지 않고, 출력 시점부터 지정한 시간(ms) 뒤 자동으로 완료 처리됩니다.\n\n"
+          + "실제로 센서를 설치해 주소를 넣으려면\n"
+          + "ApiDef 편집 다이얼로그에서 SensingType 을 Normal(센서 감지 후 완료) 또는 Latch 로 변경하세요.\n"
+          + "변경하면 이 칸이 활성화됩니다."
+        : null;
     public int OutputSpecTypeIndex { get; }
     public int InputSpecTypeIndex  { get; }
 

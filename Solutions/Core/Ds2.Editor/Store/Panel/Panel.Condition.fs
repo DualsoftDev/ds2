@@ -31,6 +31,19 @@ type ConditionTreeDto = {
 // =============================================================================
 
 module internal ConditionTreeOps =
+    /// SkipAction 조건 leaf 의 기본 기대값.
+    /// UndefinedValue 로 두면 런타임 checkConditionSpecBase 가 "RxWork 가 Finish 인가" 분기를 타서
+    /// 참조 신호의 값을 전혀 보지 않는다 → 어떤 상태에서도 skip 이 발생하지 않는다.
+    /// BoolValue(Single false) 로 두어야 "신호 off(디바이스 Work=Ready)" 를 값으로 판정하고,
+    /// ContactKind(참조건/부정조건) 선택이 그대로 실행/건너뜀으로 이어진다.
+    let internal defaultSkipActionInputSpec = ValueSpec.BoolValue(Single false)
+
+    /// SkipAction 조건에 들어가는 leaf 는 기대값이 비어 있으면 기본값을 채운다.
+    /// (원본 ApiCall 은 디바이스 캐스케이드 기본값이라 InputSpec 이 UndefinedValue 다)
+    let internal applySkipActionInputSpec (condType: ConditionType option) (apiCall: ApiCall) =
+        if condType = Some ConditionType.SkipAction && apiCall.InputSpec = ValueSpec.UndefinedValue then
+            apiCall.InputSpec <- defaultSkipActionInputSpec
+
     let rec build (store: DsStore) (dto: ConditionTreeDto) (typeOpt: ConditionType option) : Condition =
         let cc = Condition(IsOR = dto.IsOR, IsInverted = dto.IsInverted, Type = typeOpt)
         // items: 기존 store 의 ApiCall 을 deep copy 해서 spec 보존. ContactKind 적용.
@@ -50,6 +63,7 @@ module internal ConditionTreeOps =
                     let copy = src.DeepCopy()
                     copy.Id <- src.Id
                     copy.ContactKind <- kind
+                    applySkipActionInputSpec typeOpt copy
                     cc.ApiCalls.Add(copy)
                 | None -> ()
         // raw 심볼(_ON/_OFF 등 ApiCall 외 leaf) → dummy ApiCall 로 변환하여 cc.ApiCalls 에 추가.
@@ -120,6 +134,7 @@ type DsStorePanelConditionExtensions =
             for src in sources do
                 let copy = src.DeepCopy()
                 copy.Id <- src.Id
+                ConditionTreeOps.applySkipActionInputSpec (Some condType) copy
                 cond.ApiCalls.Add(copy))
         cond.Id
 
@@ -168,6 +183,7 @@ type DsStorePanelConditionExtensions =
                 for src in sources do
                     let copy = src.DeepCopy()
                     copy.Id <- src.Id
+                    ConditionTreeOps.applySkipActionInputSpec cond.Type copy
                     cond.ApiCalls.Add(copy))
             sources.Length
 
@@ -276,6 +292,7 @@ type DsStorePanelWorkConditionExtensions =
             for src in sources do
                 let copy = src.DeepCopy()
                 copy.Id <- src.Id
+                ConditionTreeOps.applySkipActionInputSpec (Some condType) copy
                 cond.ApiCalls.Add(copy))
         cond.Id
 
@@ -319,6 +336,7 @@ type DsStorePanelWorkConditionExtensions =
                 for src in sources do
                     let copy = src.DeepCopy()
                     copy.Id <- src.Id
+                    ConditionTreeOps.applySkipActionInputSpec cond.Type copy
                     cond.ApiCalls.Add(copy))
             sources.Length
 

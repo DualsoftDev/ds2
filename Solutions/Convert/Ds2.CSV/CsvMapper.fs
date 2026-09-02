@@ -15,15 +15,16 @@ module internal CsvMapper =
             project.PassiveSystemIds.Contains(systemId))
         |> Option.map (fun project -> project.Id)
 
+    /// Flow 별 디바이스 캐스케이드 입력에 (Call, ApiCall 이름, Passive System 이름) 1건 등록.
+    /// **CSV 한 행 = 버킷 1건** 이므로 같은 Call 이라도 System 열이 다르면 행마다
+    /// 별도 Passive System/ApiDef/ApiCall 이 생성된다.
+    /// (실설비 패턴: 솔레노이드 1개가 LATCH1~5 를 구동하고 실린더마다 개별 센서가 달린 경우)
     let private addBucketItem
-        (buckets: Dictionary<string, ResizeArray<Call * string * string option * string option * string option * string option>>)
+        (buckets: Dictionary<string, ResizeArray<Call * string * string option>>)
         (flowName: string)
         (call: Call)
-        (callLabel: string)
-        (inName: string option)
-        (inAddress: string option)
-        (outName: string option)
-        (outAddress: string option) =
+        (apiCallLabel: string)
+        (systemHint: string option) =
         let bucket =
             match buckets.TryGetValue(flowName) with
             | true, existing -> existing
@@ -31,16 +32,15 @@ module internal CsvMapper =
                 let created = ResizeArray()
                 buckets.[flowName] <- created
                 created
-        bucket.Add(call, callLabel, inName, inAddress, outName, outAddress)
+        bucket.Add(call, apiCallLabel, systemHint)
 
     let mapToSystemPlan (store: DsStore) (projectId: Guid) (systemId: Guid) (document: CsvDocument) : ImportPlan =
         let operations = ResizeArray<ImportPlanOperation>()
         let flows = Dictionary<string, Flow>()
         let works = Dictionary<Guid * string, Work>()
         let calls = Dictionary<Guid * string * string * string, Call>()
-        let callsByFlow = Dictionary<string, ResizeArray<Call * string * string option * string option * string option * string option>>()
-        let mutable entryByCall = Map.empty<Guid, CsvEntry>
-        // 같은 Call에 매핑된 entry IO 정보를 순서대로 추적
+        let callsByFlow = Dictionary<string, ResizeArray<Call * string * string option>>()
+        // 같은 Call에 매핑된 entry IO 정보를 행 순서대로 추적 — ApiCall 생성 순서와 1:1 대응
         let ioEntriesByCall = Dictionary<Guid, ResizeArray<string option * string option * string option * string option>>()
 
         for entry in document.Entries do
@@ -71,10 +71,10 @@ module internal CsvMapper =
                     let created = Call(entry.DeviceAlias, entry.ApiName, work.Id)
                     operations.Add(AddCall created)
                     calls.[callKey] <- created
-                    entryByCall <- Map.add created.Id entry entryByCall
-                    let callLabel = $"{created.DevicesAlias}.{created.ApiName}"
-                    addBucketItem callsByFlow entry.FlowName created callLabel entry.InName entry.InAddress entry.OutName entry.OutAddress
                     created
+
+            // 행마다 등록 — System 열이 다르면 그 수만큼 Passive System/ApiDef/ApiCall 이 만들어진다.
+            addBucketItem callsByFlow entry.FlowName call $"{entry.SystemName}.{entry.ApiName}" (Some entry.SystemName)
 
             let ioEntries =
                 match ioEntriesByCall.TryGetValue(call.Id) with
@@ -87,16 +87,13 @@ module internal CsvMapper =
 
         let allFlowCalls =
             [ for KeyValue(flowName, flowCalls) in callsByFlow do
-                let linkedCalls =
-                    flowCalls |> Seq.map (fun (call, label, _, _, _, _) ->
-                        let sysHint = entryByCall |> Map.tryFind call.Id |> Option.map (fun e -> e.SystemName)
-                        call, label, sysHint) |> Seq.toList
-                yield flowName, linkedCalls ]
+                yield flowName, List.ofSeq flowCalls ]
         ImportPlanDeviceOps.linkCallsToDevicesMultiFlow store projectId allFlowCalls operations
 
         for KeyValue(callId, ioEntries) in ioEntriesByCall do
             let call = calls.Values |> Seq.find (fun c -> c.Id = callId)
-            // ApiCall이 부족하면 첫 번째 ApiCall을 기반으로 추가 생성
+            // 방어용 — 정상 입력은 행마다 ApiCall 이 생성되어 개수가 이미 일치한다.
+            // ApiName 이 비어 캐스케이드가 건너뛴 경우 등에서만 부족분을 첫 ApiCall 기준으로 채운다.
             if ioEntries.Count > call.ApiCalls.Count && call.ApiCalls.Count > 0 then
                 let template = call.ApiCalls.[0]
                 for _ in call.ApiCalls.Count .. ioEntries.Count - 1 do
@@ -120,5 +117,17 @@ module internal CsvMapper =
                         | None, Some address -> apiCall.OutTag <- Some(IOTag("Out", address, ""))
                         | Some name, None -> apiCall.OutTag <- Some(IOTag(name, "", ""))
                         | None, None -> ()
+
+        // 센서를 생략한 API 는 CSV 행이 없어 캐스케이드가 만든 ApiCall 의 태그가 비어 있다.
+        // 출력(솔레노이드)은 같은 Call 안에서 공유되므로 형제 ApiCall 의 OutTag 를 물려준다.
+        // V1 검증(ActionType≠Virtual ⇒ OutTag 필수) 충족. InTag 는 SensingType=Virtual 이라 불필요.
+        for call in calls.Values do
+            match call.ApiCalls |> Seq.tryFind (fun apiCall -> apiCall.OutTag.IsSome) with
+            | Some source ->
+                let sourceTag = source.OutTag.Value
+                for apiCall in call.ApiCalls do
+                    if apiCall.OutTag.IsNone then
+                        apiCall.OutTag <- Some(IOTag(sourceTag.Name, sourceTag.Address, sourceTag.Description))
+            | None -> ()
 
         ImportPlan.ofSeq operations
