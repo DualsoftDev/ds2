@@ -364,6 +364,10 @@
                                                             <div class="ct-lane-row-leg" x-show="row.lane.outTag || row.lane.inTag">
                                                                 <span class="leg-out" x-show="row.lane.outTag"><i></i><span x-text="row.lane.outTag"></span></span>
                                                                 <span class="leg-in"  x-show="row.lane.inTag"><i></i><span x-text="row.lane.inTag"></span></span>
+                                                                <!-- ApiCall(I/O 쌍) 이 여러 개면 범례는 첫 쌍만 — 배지로 알리고 펼침 유도 -->
+                                                                <span class="leg-more" x-show="(row.lane.apiCalls || []).length > 1"
+                                                                      :title="'I/O ' + (row.lane.apiCalls || []).length + '쌍 등록 — ▸ 를 눌러 전체 확인'"
+                                                                      x-text="'+' + ((row.lane.apiCalls || []).length - 1) + '쌍'"></span>
                                                             </div>
                                                         </div>
                                                     </template>
@@ -385,10 +389,15 @@
                                                             <div class="ct-api-info">
                                                                 <div class="ct-api-name">
                                                                     <span class="ct-api-dot"></span>
-                                                                    <span x-text="row.ac.name"></span>
-                                                                    <span class="ct-api-tags" x-text="(row.ac.outTag ? ('OUT ' + row.ac.outTag) : '') + (row.ac.inTag ? ('  IN ' + row.ac.inTag) : '')"></span>
+                                                                    <span class="ct-api-name-text" x-text="row.ac.name"></span>
+                                                                    <span class="ct-api-tags">
+                                                                        <span class="t out" x-show="row.ac.outTag" :title="'OUT(명령) ' + row.ac.outTag"><i></i>OUT <b x-text="row.ac.outTag"></b></span>
+                                                                        <span class="t in" x-show="row.ac.inTag" :title="'IN(응답) ' + row.ac.inTag"><i></i>IN <b x-text="row.ac.inTag"></b></span>
+                                                                        <span class="t none" x-show="!row.ac.outTag && !row.ac.inTag">태그 미지정</span>
+                                                                    </span>
                                                                 </div>
-                                                                <div class="ct-api-stats">
+                                                                <div class="ct-api-stats"
+                                                                     :title="(row.lane.apiCalls || []).length > 1 ? '실측은 Call 대표 신호(첫 I/O 쌍) 기준 — ApiCall 쌍별 분리 집계는 아직 지원되지 않습니다' : ''">
                                                                     <span class="ct-api-meas" x-show="row.m.count > 0">
                                                                         <span class="m"><i>실측</i><b x-text="row.m.count + '회'"></b></span>
                                                                         <span class="m"><i>min</i><b x-text="formatMs(row.m.min)"></b></span>
@@ -955,6 +964,10 @@
                                                         <div class="ct-lane-row-leg" x-show="row.lane.outTag || row.lane.inTag">
                                                             <span class="leg-out" x-show="row.lane.outTag"><i></i><span x-text="row.lane.outTag"></span></span>
                                                             <span class="leg-in"  x-show="row.lane.inTag"><i></i><span x-text="row.lane.inTag"></span></span>
+                                                            <!-- ApiCall(I/O 쌍) 이 여러 개면 범례는 첫 쌍만 — 배지로 알리고 펼침 유도 -->
+                                                            <span class="leg-more" x-show="(row.lane.apiCalls || []).length > 1"
+                                                                  :title="'I/O ' + (row.lane.apiCalls || []).length + '쌍 등록 — ▸ 를 눌러 전체 확인'"
+                                                                  x-text="'+' + ((row.lane.apiCalls || []).length - 1) + '쌍'"></span>
                                                         </div>
                                                     </div>
                                                 </template>
@@ -973,10 +986,15 @@
                                                         <div class="ct-api-info">
                                                             <div class="ct-api-name">
                                                                 <span class="ct-api-dot"></span>
-                                                                <span x-text="row.ac.name"></span>
-                                                                <span class="ct-api-tags" x-text="(row.ac.outTag ? ('OUT ' + row.ac.outTag) : '') + (row.ac.inTag ? ('  IN ' + row.ac.inTag) : '')"></span>
+                                                                <span class="ct-api-name-text" x-text="row.ac.name"></span>
+                                                                <span class="ct-api-tags">
+                                                                    <span class="t out" x-show="row.ac.outTag" :title="'OUT(명령) ' + row.ac.outTag"><i></i>OUT <b x-text="row.ac.outTag"></b></span>
+                                                                    <span class="t in" x-show="row.ac.inTag" :title="'IN(응답) ' + row.ac.inTag"><i></i>IN <b x-text="row.ac.inTag"></b></span>
+                                                                    <span class="t none" x-show="!row.ac.outTag && !row.ac.inTag">태그 미지정</span>
+                                                                </span>
                                                             </div>
-                                                            <div class="ct-api-stats">
+                                                            <div class="ct-api-stats"
+                                                                 :title="(row.lane.apiCalls || []).length > 1 ? '실측은 Call 대표 신호(첫 I/O 쌍) 기준 — ApiCall 쌍별 분리 집계는 아직 지원되지 않습니다' : ''">
                                                                 <span class="ct-api-meas" x-show="row.m.count > 0">
                                                                     <span class="m"><i>실측</i><b x-text="row.m.count + '회'"></b></span>
                                                                     <span class="m"><i>min</i><b x-text="fmtMs(row.m.min)"></b></span>

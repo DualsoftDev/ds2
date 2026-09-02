@@ -145,6 +145,8 @@
         .ct-lane-row-leg .leg-out i { background: #fb8c00; }
         .ct-lane-row-leg .leg-in  { color: #1e88e5; }
         .ct-lane-row-leg .leg-in  i { background: #1e88e5; }
+        /* ApiCall(I/O 쌍) 복수 등록 배지 — 범례는 대표(첫) 쌍만 보여주므로 나머지 개수를 알린다 */
+        .ct-lane-row-leg .leg-more { color: var(--color-text-secondary); font-weight: 800; cursor: help; }
         .ct-badge { display: inline-block; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.08em; padding: 1px 5px; border-radius: var(--radius-sm); color: #fff; line-height: 1.5; }
         .ct-badge.head { background: #4caf50; }
         .ct-badge.tail { background: #ab47bc; }
@@ -164,9 +166,21 @@
         .ct-api-apply { flex: 0 0 auto; align-self: center; font-size: 0.62rem; font-weight: 800; padding: 3px 9px; border-radius: var(--radius-sm); border: 1px solid var(--color-primary); background: transparent; color: var(--color-primary); cursor: pointer; transition: background-color 0.12s, color 0.12s; }
         .ct-api-apply:hover:not(:disabled) { background: var(--color-primary); color: #fff; }
         .ct-api-apply:disabled { opacity: 0.5; cursor: not-allowed; }
-        .ct-api-name { font-size: 0.72rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+        .ct-api-name { font-size: 0.72rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; display: flex; align-items: center; gap: 6px; min-width: 0; }
         .ct-api-dot { width: 6px; height: 6px; border-radius: 50%; background: #607d8b; flex: 0 0 auto; }
-        .ct-api-tags { font-size: 0.58rem; font-weight: 500; color: var(--color-text-secondary); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
+        /* IN/OUT 태그는 서브행의 구분 정보 — 절대 잘리지 않게 flex:none, 대신 이름이 줄어든다 */
+        .ct-api-name-text { flex: 0 1 auto; min-width: 32px; overflow: hidden; text-overflow: ellipsis; }
+        .ct-api-tags { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 8px; font-size: 0.58rem; font-weight: 500; font-family: var(--font-mono); }
+        .ct-api-tags .t { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+        .ct-api-tags .t i { display: inline-block; width: 10px; height: 2px; border-radius: 1px; flex-shrink: 0; }
+        .ct-api-tags .t.out { color: #fb8c00; }
+        .ct-api-tags .t.out i { background: #fb8c00; }
+        .ct-api-tags .t.in { color: #1e88e5; }
+        .ct-api-tags .t.in i { background: #1e88e5; }
+        .ct-api-tags .t b { font-weight: 700; }
+        .ct-api-tags .t.none { font-style: italic; opacity: 0.6; color: var(--color-text-secondary); }
+        .dark-theme .ct-api-tags .t.in { color: #64b5f6; }
+        .dark-theme .ct-api-tags .t.in i { background: #64b5f6; }
         .ct-api-stats { display: flex; flex-direction: column; gap: 2px; font-size: 0.64rem; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; min-width: 0; }
         /* 메트릭은 칩 단위(min 1.40초)로 줄바꿈 — 값이 절대 잘리지 않게 wrap */
         .ct-api-meas, .ct-api-cur { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1px 8px; }
