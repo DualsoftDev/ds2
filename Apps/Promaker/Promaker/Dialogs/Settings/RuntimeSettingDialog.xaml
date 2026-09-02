@@ -98,6 +98,8 @@
                         <ColumnDefinition Width="Auto"/>   <!-- Hub 주소 -->
                         <ColumnDefinition Width="34"/>
                         <ColumnDefinition Width="Auto"/>   <!-- 자동정합 -->
+                        <ColumnDefinition Width="34"/>
+                        <ColumnDefinition Width="Auto"/>   <!-- 제어 시뮬레이션 (Control 전용) -->
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
@@ -144,6 +146,21 @@
                                   Content="자동 duration 정합 (실측 학습)"
                                   Foreground="{DynamicResource PrimaryTextBrush}"
                                   ToolTip="ON: device OUT→IN 동작시간을 실측 학습해 이상(ActionUnder/Over) 판정 기준으로 씁니다. 스캔주기 양자화 마진이 자동 포함됩니다. 모니터링 정지 시 '모델(AASX)에 반영?'을 묻고, 반영하면 OFF 로 전환되어 그 확정값으로 판정합니다."/>
+                    </StackPanel>
+
+                    <!-- 제어(Control) 시뮬레이션 — 실 PLC/Agent 없이 자체 엔진 + 가상 Hub 로 가상 시운전.
+                         Control 카드 선택 시에만 노출. 세션 단위 토글(영구 저장 안 함 — 현장 실 제어가
+                         재시작 후 '시뮬레이션' 박제로 조용히 죽는 사고 방지). -->
+                    <StackPanel x:Name="ControlSimPanel" Grid.Column="6" Orientation="Vertical" Visibility="Collapsed">
+                        <TextBlock Text="제어 옵션" Style="{StaticResource FieldLabelStyle}"/>
+                        <CheckBox x:Name="ControlSimBox"
+                                  Height="34"
+                                  VerticalContentAlignment="Center"
+                                  Content="시뮬레이션 (PLC 없이 가상 시운전)"
+                                  Foreground="{DynamicResource PrimaryTextBrush}"
+                                  Checked="ControlSimBox_Toggled"
+                                  Unchecked="ControlSimBox_Toggled"
+                                  ToolTip="체크하면 실 PLC/Agent 연결 없이 Promaker 자체 엔진과 가상 Hub 로 제어 로직을 가상 시운전합니다. OUT 신호는 가상 Hub 로만 출력되고 device 는 duration 기준으로 자동 완료됩니다. (세션 단위 — 앱 재시작 시 해제)"/>
                     </StackPanel>
                 </Grid>
             </Border>

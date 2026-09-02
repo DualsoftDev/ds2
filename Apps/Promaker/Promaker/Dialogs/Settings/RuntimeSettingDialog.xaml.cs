@@ -43,6 +43,9 @@ public partial class RuntimeSettingDialog : Window
         // 자동 duration 정합 초기값 — (구) PLC 설정 다이얼로그에서 이사. 확인 시 커밋.
         AutoCalibrateBox.IsChecked = vm.Simulation.AutoDurationCalibrate;
 
+        // 제어 시뮬레이션(가상 시운전) 초기값 — 세션 단위 VM 상태 복원. 확인 시 커밋.
+        ControlSimBox.IsChecked = vm.Simulation.ControlSimulationMode;
+
         UpdateModeDependentState();
     }
 
@@ -104,30 +107,40 @@ public partial class RuntimeSettingDialog : Window
             SelectMode(item);
     }
 
+    /// <summary>선택 모드가 실 PLC 연결을 요구하는지 — Monitoring 은 항상, Control 은 '시뮬레이션'
+    /// 체크(가상 시운전) 시 미요구. Sim/VP 는 항상 미요구.</summary>
+    private bool RequiresRealPlc(ModeItemVM? selected) =>
+        selected is not null
+        && (selected.Mode == RuntimeMode.Monitoring
+            || (selected.Mode == RuntimeMode.Control && ControlSimBox.IsChecked != true));
+
     /// <summary>선택 모드에 따라 Hub 주소 / 실 PLC 옵션 활성 여부와 하단 PLC 상태 표시를 갱신.</summary>
     private void UpdateModeDependentState()
     {
         var selected = _items.FirstOrDefault(v => v.IsSelected);
         // Sim 모드는 Hub 연결 불필요 → 주소 편집 불가.
         var isSim = selected is null || selected.Mode == RuntimeMode.Simulation;
-        // 실 PLC 옵션은 Control/Monitoring 에서만 의미 (둘 다 실 PLC 직접 연결).
-        var requiresPlc = selected is not null
-            && (selected.Mode == RuntimeMode.Control || selected.Mode == RuntimeMode.Monitoring);
+        var requiresPlc = RequiresRealPlc(selected);
 
         HubAddressBox.IsEnabled = !isSim;
-        // 자동 정합은 실 PLC 판정(Control/Monitoring)에서만 의미 — Sim/VP 에선 비활성.
+        // 자동 정합은 실 PLC 판정에서만 의미 — Sim/VP/제어 시뮬레이션에선 비활성.
         AutoCalibrateBox.IsEnabled = requiresPlc;
+        // '시뮬레이션(가상 시운전)' 체크는 Control 전용 옵션 — 다른 모드에선 숨김.
+        ControlSimPanel.Visibility = selected?.Mode == RuntimeMode.Control
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
         UpdatePlcFooter();
     }
+
+    private void ControlSimBox_Toggled(object sender, RoutedEventArgs e) => UpdateModeDependentState();
 
     /// <summary>하단 푸터의 PLC 연결 상태(점 색 + 텍스트) 갱신. 접속 편집은 System 속성 패널로 이사 —
     /// 여기서는 상태 요약만. 다중 System 이면 endpoint 지정 현황을, 단일이면 접속값을 보여준다.</summary>
     private void UpdatePlcFooter()
     {
         var selected = _items.FirstOrDefault(v => v.IsSelected);
-        var requiresPlc = selected is not null
-            && (selected.Mode == RuntimeMode.Control || selected.Mode == RuntimeMode.Monitoring);
+        var requiresPlc = RequiresRealPlc(selected);
 
         if (requiresPlc)
         {
@@ -150,7 +163,9 @@ public partial class RuntimeSettingDialog : Window
         else
         {
             PlcStatusDot.Fill = PlcOffBrush;
-            PlcStatusText.Text = "PLC 연결: 해당 없음 (시뮬레이션 / 가상 시운전 모드)";
+            PlcStatusText.Text = selected?.Mode == RuntimeMode.Control
+                ? "PLC 연결: 사용 안 함 (제어 시뮬레이션 — 자체 엔진 + 가상 Hub 가상 시운전)"
+                : "PLC 연결: 해당 없음 (시뮬레이션 / 가상 시운전 모드)";
         }
     }
 
@@ -309,13 +324,20 @@ public partial class RuntimeSettingDialog : Window
     private void Apply_Click(object sender, RoutedEventArgs e)
     {
         var selected = _items.FirstOrDefault(v => v.IsSelected);
+        // 제어 시뮬레이션 체크를 모드 커밋보다 먼저 반영 — OnSelectedRuntimeModeChanged 의
+        // IsRealPlcConnected 파생 계산이 이 값을 읽는다.
+        var controlSim = ControlSimBox.IsChecked == true;
+        _vm.Simulation.ControlSimulationMode = controlSim;
         if (selected != null)
             _vm.Simulation.SelectedRuntimeMode = selected.Mode;
         // HubAddress 는 TextBox 가 TwoWay 바인딩이라 자동 반영됨.
-        // IsRealPlcConnected 는 모드 파생값 — Control/Monitoring = 실 PLC(Agent 경유), Sim/VP = false.
+        // IsRealPlcConnected 는 모드 파생값 — Monitoring = 실 PLC(Agent 경유), Control 은 '시뮬레이션'
+        // 체크 시 미접속(자체 엔진 + 가상 Hub 가상 시운전), Sim/VP = false.
+        // 모드가 안 바뀐 경우 OnSelectedRuntimeModeChanged 가 안 돌므로 여기서도 명시 커밋.
         // 직접/위임 수집 방식은 더 이상 여기서 결정하지 않음 — '업로드' 버튼(직접/위임)이 session.json 에 박제.
         _vm.Simulation.IsRealPlcConnected = selected is not null
-            && (selected.Mode == RuntimeMode.Control || selected.Mode == RuntimeMode.Monitoring);
+            && (selected.Mode == RuntimeMode.Monitoring
+                || (selected.Mode == RuntimeMode.Control && !controlSim));
 
         // 자동 duration 정합 커밋 — set 시 OnChanged 가 PlcSettings 동기 + hub 전파(전 인스턴스 + 엔진).
         // 파일 영속화는 여기서 명시 호출 — (구) PLC 설정 다이얼로그 Apply 의 _vm.Save() 역할을 승계.

@@ -442,6 +442,20 @@ public partial class SimulationPanelState : ObservableObject
     /// 모니터링만 시작하고 DSPilot 브라우저는 띄우지 않는다. (세션 단위 토글, 영구 저장 안 함)</summary>
     [ObservableProperty] private bool _launchDspilotOnMonitoring = true;
 
+    /// <summary>Control(제어) 모드의 '시뮬레이션' 체크 — 실 PLC/Agent 없이 자체 엔진 + 가상 Hub 로
+    /// 제어 로직을 가상 시운전한다. 체크 시 IsRealPlcConnected=false 로 파생되어 TryStartHost 가
+    /// 자체 호스팅(idle) 경로를 타고, device Work 는 duration 기준으로 자동 완료된다.
+    /// 세션 단위 토글(영구 저장 안 함) — 재시작 후 '시뮬레이션' 이 박제되어 현장 실 제어가
+    /// 조용히 죽는 사고를 막기 위해 항상 해제 상태로 시작한다.</summary>
+    [ObservableProperty] private bool _controlSimulationMode;
+
+    partial void OnControlSimulationModeChanged(bool value)
+    {
+        // Control 선택 중 토글 시 즉시 파생 재계산. 다른 모드에선 모드 전환 핸들러가 계산하므로 no-op.
+        if (SelectedRuntimeMode == RuntimeMode.Control)
+            IsRealPlcConnected = !value;
+    }
+
     /// <summary>실 라인 owner 일 때만 원위치 버튼 노출 — Sim 모드는 PLAY 가 곧 자동 원위치라 별도 버튼 불필요,
     /// VP/Monitoring 은 외부 컨트롤러가 owner 라 부적절.</summary>
     public bool IsHomingButtonVisible =>
@@ -512,8 +526,14 @@ public partial class SimulationPanelState : ObservableObject
         }
 
         _previousRuntimeMode = value;
-        // IsRealPlcConnected = 모드 파생값 동기화 — Control/Monitoring 은 항상 실 PLC(Agent 경유).
-        IsRealPlcConnected = value is RuntimeMode.Control or RuntimeMode.Monitoring;
+        // IsRealPlcConnected = 모드 파생값 동기화 — Monitoring 은 항상 실 PLC(Agent 경유),
+        // Control 은 '시뮬레이션' 체크 시 실 PLC 미접속(자체 엔진 + 가상 Hub 가상 시운전).
+        IsRealPlcConnected = value switch
+        {
+            RuntimeMode.Control    => !ControlSimulationMode,
+            RuntimeMode.Monitoring => true,
+            _                      => false,
+        };
         OnPropertyChanged(nameof(IsDelegatedUploadAvailable));
         OnPropertyChanged(nameof(NeedsHubConnection));
         OnPropertyChanged(nameof(ShowCommBlockTestToggle));

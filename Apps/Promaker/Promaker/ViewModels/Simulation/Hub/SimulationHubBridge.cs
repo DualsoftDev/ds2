@@ -196,12 +196,14 @@ public sealed partial class SimulationHubBridge : ObservableObject
         || (_runtimeMode() == RuntimeMode.Monitoring && _isRealPlcConnected());
 
     /// <summary>툴바에 표시할 hosting 상태. Monitoring + 실 PLC 는 항상 Agent 위임이라 "Agent [읽기전용]".
-    /// Control 은 자체 호스팅.</summary>
+    /// Control 은 자체 호스팅 — '시뮬레이션' 체크(실 PLC 미접속) 시 가상 시운전임을 배지로 구분.</summary>
     public string HostingLabel =>
         !IsHubHost ? ""
         : _runtimeMode() == RuntimeMode.Monitoring
             ? "Agent [읽기전용]"
-            : "Self-Hosted";
+            : _isRealPlcConnected()
+                ? "Self-Hosted"
+                : "Self-Hosted · 시뮬레이션";
 
     /// <summary>편집/노출 Hub 주소. Agent 가 5051 단일 호스팅이라 모든 모드(Control/Monitoring/VP)가
     /// 같은 주소(_monitoringHubAddress, 기본 localhost:5051)를 공유한다.</summary>
