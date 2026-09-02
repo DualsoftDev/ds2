@@ -7,8 +7,15 @@
 ; 따라서:
 ;   - 설치 경로는 각 서브 설치본의 기본 경로를 그대로 따른다(통합본 자체 {app} 는 uninstaller 만 보관).
 ;   - 설치 로직(서비스/포트/MediaMTX/Agent/sc·fd)은 각 .iss 가 SSOT 로 유지 → 여기엔 중복하지 않는다.
-;   - Promaker 설치본이 Promaker.Agent + AgentTray 를 항상 동봉/소유(PromakerAgentService).
-;     → DSPilot 서브설치는 installagent 태스크를 건드리지 않아(기본 OFF) 서비스 이중 등록을 피한다.
+;
+; ── 설치 구성 선택 (3개 기본 체크: DSPilot / Promaker / Promaker Agent) ──
+; 체크 조합은 서브 설치본의 installagent 태스크로 사상한다 — Agent 서비스(PromakerAgentService)의
+; 이중 등록을 피하는 소유권 규칙:
+;   Promaker ✓ + Agent ✓ : Promaker 가 Agent+Tray 동봉/소유 (installagent 기본 체크, 그대로)
+;   Promaker ✓ + Agent ✗ : Promaker 에 /MERGETASKS="!installagent" → 본체만
+;   Promaker ✗ + Agent ✓ : DSPilot 에 /MERGETASKS="installagent" → DSPilot 이 Agent+Collector 설치
+;   Agent 단독(둘 다 ✗)  : 실행할 서브 설치본이 없어 마법사가 차단
+;   → DSPilot 서브설치는 Promaker 선택 시 installagent 를 건드리지 않아(기본 OFF) 이중 등록을 피한다.
 ;
 ; 빌드: ../build-suite.sh 가 두 서브 설치본을 만든 뒤 아래 /D 인자를 주입해 ISCC 컴파일.
 ;   ISCC /DDsPilotSetup=<...exe> /DPromakerSetup=<...exe> /DSuiteVersion=<x.y.z.w> Installer\Suite.iss
@@ -78,12 +85,23 @@ Source: "..\Assets\Suite.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Run]
 ; 설치 완료 페이지의 옵션 체크박스 — 클릭 시 DSPilot 웹 대시보드 열기. 사일런트 설치에선 생략.
+; DSPilot 을 구성에서 뺐으면 열 대시보드가 없으므로 체크박스 자체를 숨긴다(Check).
 Filename: "{code:GetDashboardUrl}"; Description: "DSPilot 웹 대시보드 열기"; \
-  Flags: postinstall shellexec nowait skipifsilent
+  Flags: postinstall shellexec nowait skipifsilent; Check: DsPilotSelected
 
 [Code]
 var
   PortPage: TInputQueryWizardPage;
+  CompPage: TInputOptionWizardPage;
+  SummaryPage: TOutputMsgMemoWizardPage;
+
+// ── 설치 구성 선택 상태 (CompPage 인덱스 SSOT: 0=DSPilot, 1=Promaker, 2=Agent) ──
+function SelDsPilot(): Boolean;  begin Result := CompPage.Values[0]; end;
+function SelPromaker(): Boolean; begin Result := CompPage.Values[1]; end;
+function SelAgent(): Boolean;    begin Result := CompPage.Values[2]; end;
+
+// [Run] Check 용 별칭.
+function DsPilotSelected(): Boolean; begin Result := SelDsPilot(); end;
 
 // ── netstat 기반 포트 점유 검사 (DSPilot.iss 의 동일 헬퍼를 재사용 복사) ──
 // ':80 ' 처럼 포트 뒤 공백까지 매칭해 ':8080' 부분일치를 회피한다.
@@ -123,25 +141,28 @@ procedure InitializeWizard();
 var
   DefaultPort: String;
   PortHint: String;
-  SummaryPage, NoticePage: TOutputMsgMemoWizardPage;
+  NoticePage: TOutputMsgMemoWizardPage;
 begin
-  // ── 페이지 1: 설치 구성 요약 (무엇이 설치되는지) ──
-  SummaryPage := CreateOutputMsgMemoPage(wpWelcome,
-    '설치 구성 요약', '이 마법사가 설치하는 구성 요소입니다.',
-    '아래 구성 요소가 한 번에 설치됩니다. 각 구성 요소는 기본 설치 경로에 설치됩니다.',
-    '■ DSPilot  —  웹 기반 PLC 모니터링/분석' + #13#10 +
-    '    · DSPilot 웹 서비스 (Windows 서비스, 시스템 시작 시 자동 실행)' + #13#10 +
-    '    · CCTV 중계 게이트웨이 (MediaMTX, Windows 서비스)' + #13#10 +
-    '    · 설치 경로: C:\Program Files\DualSoft\DSPilot' + #13#10#13#10 +
-    '■ Promaker  —  설비 모델 저작 데스크톱 앱' + #13#10 +
-    '    · Promaker 본체  (C:\Program Files\Promaker)' + #13#10 +
-    '    · Promaker Agent (헤드리스 모니터링 서비스, 자동 실행 · ...\Promaker\Agent)' + #13#10 +
-    '    · Promaker Agent Tray (알림 영역 상태 표시 · ...\Promaker\AgentTray)' + #13#10 +
-    '■ 공통' + #13#10 +
-    '    · 공유 폴더: %ProgramData%\DualSoft\Shared (모델 파일 공유)' + #13#10 +
-    '    · 필요한 Windows 방화벽 인바운드 규칙 자동 등록');
+  // ── 페이지 1: 설치 구성 선택 (3개 기본 체크) ──
+  CompPage := CreateInputOptionPage(wpWelcome,
+    '설치 구성 선택', '설치할 프로그램을 선택하세요.',
+    '설치할 구성 요소를 체크하세요. 세 가지 모두 설치하는 것이 기본입니다.' + #13#10 +
+    'Promaker Agent 는 단독 설치할 수 없습니다 (Promaker 또는 DSPilot 와 함께 선택).',
+    False, False);
+  CompPage.Add('DSPilot — 웹 기반 PLC 모니터링/분석 (웹 서비스 + CCTV 게이트웨이)');
+  CompPage.Add('Promaker — 설비 모델 저작 데스크톱 앱');
+  CompPage.Add('Promaker Agent — 헤드리스 PLC 모니터링 서비스 (+ 알림 영역 트레이)');
+  CompPage.Values[0] := True;
+  CompPage.Values[1] := True;
+  CompPage.Values[2] := True;
 
-  // ── 페이지 2: 설치 전 안내 / 오픈소스 고지 ──
+  // ── 페이지 2: 설치 구성 요약 — 본문은 CurPageChanged 가 선택 반영해 채운다 ──
+  SummaryPage := CreateOutputMsgMemoPage(CompPage.ID,
+    '설치 구성 요약', '선택한 구성 요소입니다.',
+    '아래 구성 요소가 한 번에 설치됩니다. 각 구성 요소는 기본 설치 경로에 설치됩니다.',
+    '');
+
+  // ── 페이지 3: 설치 전 안내 / 오픈소스 고지 ──
   NoticePage := CreateOutputMsgMemoPage(SummaryPage.ID,
     '설치 안내', '설치 전 확인해 주세요.',
     '서비스 자동 실행 · 방화벽 · 오픈소스 고지 안내입니다.',
@@ -158,7 +179,7 @@ begin
     '  라이선스 전문은 설치 후 DSPilot 설치 폴더의 mediamtx\LICENSE,' + #13#10 +
     '  mediamtx\LICENSE-winsw.txt 에서 확인할 수 있습니다.');
 
-  // ── 페이지 3: DSPilot 포트 설정 ──
+  // ── 페이지 4: DSPilot 포트 설정 (DSPilot 미선택 시 ShouldSkipPage 로 건너뜀) ──
   DefaultPort := '{#MyDefaultPort}';
   PortHint := '기본값: {#MyDefaultPort} (포트 80은 URL에서 포트 번호 생략 가능)';
   // 80 이 이미 점유돼 있으면 8080 을 권장. (구버전 DSPilot 서비스 점유는 DSPilot 설치본의
@@ -175,6 +196,52 @@ begin
     'DSPilot 웹 대시보드가 사용할 포트 번호를 입력하세요.' + #13#10 + PortHint);
   PortPage.Add('포트 번호:', False);
   PortPage.Values[0] := DefaultPort;
+end;
+
+// ── 요약 페이지 본문을 선택 상태로 재구성 ──
+procedure CurPageChanged(CurPageID: Integer);
+var
+  S: String;
+begin
+  if CurPageID = SummaryPage.ID then
+  begin
+    S := '';
+    if SelDsPilot() then
+    begin
+      S := S + '■ DSPilot  —  웹 기반 PLC 모니터링/분석' + #13#10 +
+        '    · DSPilot 웹 서비스 (Windows 서비스, 시스템 시작 시 자동 실행)' + #13#10 +
+        '    · CCTV 중계 게이트웨이 (MediaMTX, Windows 서비스)' + #13#10 +
+        '    · 설치 경로: C:\Program Files\DualSoft\DSPilot' + #13#10;
+      // Promaker 없이 Agent 선택 → Agent 는 DSPilot 설치본이 함께 설치.
+      if SelAgent() and (not SelPromaker()) then
+        S := S + '    · Promaker Agent + Data Collector 포함 설치 (헤드리스 모니터링 서비스)' + #13#10;
+      S := S + #13#10;
+    end;
+    if SelPromaker() then
+    begin
+      S := S + '■ Promaker  —  설비 모델 저작 데스크톱 앱' + #13#10 +
+        '    · Promaker 본체  (C:\Program Files\Promaker)' + #13#10;
+      if SelAgent() then
+        S := S +
+          '    · Promaker Agent (헤드리스 모니터링 서비스, 자동 실행 · ...\Promaker\Agent)' + #13#10 +
+          '    · Promaker Agent Tray (알림 영역 상태 표시 · ...\Promaker\AgentTray)' + #13#10
+      else
+        S := S + '    · Promaker Agent 제외 (실 PLC 모니터링 없이 저작/시뮬레이션만)' + #13#10;
+      S := S + #13#10;
+    end;
+    S := S + '■ 공통' + #13#10 +
+      '    · 공유 폴더: %ProgramData%\DualSoft\Shared (모델 파일 공유)' + #13#10 +
+      '    · 필요한 Windows 방화벽 인바운드 규칙 자동 등록';
+    SummaryPage.RichEditViewer.Lines.Text := S;
+  end;
+end;
+
+// DSPilot 미선택이면 포트 페이지는 의미가 없어 건너뛴다(기본값 유지 → GetDashboardUrl 안전).
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  if PageID = PortPage.ID then
+    Result := not SelDsPilot();
 end;
 
 function GetSuitePort(): String;
@@ -200,6 +267,23 @@ var
   PortNum: Integer;
 begin
   Result := True;
+  if CurPageID = CompPage.ID then
+  begin
+    if not (SelDsPilot() or SelPromaker() or SelAgent()) then
+    begin
+      MsgBox('설치할 구성 요소를 하나 이상 선택하세요.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    // Agent 단독은 실행할 서브 설치본이 없다 — Agent 는 Promaker(동봉) 또는 DSPilot(installagent) 편승.
+    if SelAgent() and (not SelPromaker()) and (not SelDsPilot()) then
+    begin
+      MsgBox('Promaker Agent 는 단독으로 설치할 수 없습니다.' + #13#10 +
+             'Promaker 또는 DSPilot 을 함께 선택해 주세요.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+  end;
   if CurPageID = PortPage.ID then
   begin
     if PortPage.Values[0] = '' then
@@ -281,24 +365,42 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Extra: String;
 begin
-  // ssPostInstall = 번들된 서브 설치본이 {tmp} 로 풀린 뒤 단계. 여기서 순차 체이닝한다.
+  // ssPostInstall = 번들된 서브 설치본이 {tmp} 로 풀린 뒤 단계. 선택된 구성만 순차 체이닝한다.
   if CurStep = ssPostInstall then
   begin
-    // 1) DSPilot 먼저 — /Port 로 선택 포트 전달(DSPilot.iss GetPort 가 {param:Port} 우선 사용).
-    //    installagent 태스크는 전달하지 않음(기본 OFF) → Agent 소유권은 Promaker 가 가짐.
-    RunChildInstaller('{#DsPilotSetupName}',
-      '/Port=' + GetSuitePort(),
-      'DSPilot 설치 중... (웹 서비스 + CCTV)');
+    // 1) DSPilot — /Port 로 선택 포트 전달(DSPilot.iss GetPort 가 {param:Port} 우선 사용).
+    if SelDsPilot() then
+    begin
+      Extra := '/Port=' + GetSuitePort();
+      // Promaker 없이 Agent 선택 → DSPilot 설치본의 installagent 태스크로 Agent+Collector 설치.
+      // (Promaker 도 선택했으면 전달하지 않음(기본 OFF) — Agent 소유권은 Promaker, 이중 등록 방지.)
+      if SelAgent() and (not SelPromaker()) then
+        Extra := Extra + ' /MERGETASKS="installagent"';
+      RunChildInstaller('{#DsPilotSetupName}', Extra,
+        'DSPilot 설치 중... (웹 서비스 + CCTV)');
+    end;
 
-    // 2) Promaker 다음 — Agent + AgentTray 동봉/소유. 추가 인자 없음(sc 모드 그대로).
-    RunChildInstaller('{#PromakerSetupName}',
-      '',
-      'Promaker 설치 중... (Promaker + Agent + Tray)');
+    // 2) Promaker — installagent 기본 체크(Agent+Tray 동봉/소유). Agent 미선택이면 해제 전달.
+    if SelPromaker() then
+    begin
+      Extra := '';
+      if not SelAgent() then
+        Extra := '/MERGETASKS="!installagent"';
+      if SelAgent() then
+        RunChildInstaller('{#PromakerSetupName}', Extra,
+          'Promaker 설치 중... (Promaker + Agent + Tray)')
+      else
+        RunChildInstaller('{#PromakerSetupName}', Extra,
+          'Promaker 설치 중... (본체만, Agent 제외)');
 
-    // 3) Promaker 트레이 즉시 실행 — 자식이 /SILENT 라 자식의 트레이 즉시실행 [Run]
-    //    (skipifsilent) 이 건너뛰어졌으므로 여기서 원래 사용자 컨텍스트로 띄운다.
-    LaunchPromakerTray();
+      // 3) Promaker 트레이 즉시 실행 — 자식이 /SILENT 라 자식의 트레이 즉시실행 [Run]
+      //    (skipifsilent) 이 건너뛰어졌으므로 여기서 원래 사용자 컨텍스트로 띄운다. Agent 선택 시에만.
+      if SelAgent() then
+        LaunchPromakerTray();
+    end;
   end;
 end;
 
