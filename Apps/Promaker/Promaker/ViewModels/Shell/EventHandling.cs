@@ -66,6 +66,8 @@ public partial class MainViewModel
                 // live binding 이 없어, ApplyEntityRename 의 ID 패치로는 갱신되지 않는다(특히 Flow rename →
                 // ContextBuilder 의 FlowName / 좌측 Flow 그룹 헤더). 같은 이유로 3D 재동기화한다.
                 ResyncView3DIfOpen();
+                // 개명은 이름 정책 위반을 만들거나 해소할 수 있다 — 하단 배지 재계산.
+                RefreshNamePolicyLint();
                 return;
 
             case EditorEvent.HistoryChanged h:
@@ -122,6 +124,8 @@ public partial class MainViewModel
                 // RebuildAll 은 tree/canvas 만 재구축하고 3D(BuildScene)는 안 건드린다. Undo/Redo 로 Flow
                 // rename 을 되돌릴 때(rename 은 light event 미부착 → StoreRefreshed 경로) 3D 가 stale 되므로 재동기화.
                 ResyncView3DIfOpen();
+                // undo/redo·임포트·프로젝트 닫기 모두 이 경로 — 이름 정책 배지도 함께 재계산.
+                RefreshNamePolicyLint();
                 return;
         }
 

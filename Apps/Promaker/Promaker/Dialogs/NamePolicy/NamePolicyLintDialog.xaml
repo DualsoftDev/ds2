@@ -1,0 +1,111 @@
+<Window x:Class="Promaker.Dialogs.NamePolicyLintDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="이름 정책 정리"
+        Width="680"
+        Height="520"
+        MinWidth="520"
+        MinHeight="380"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        ResizeMode="CanResize">
+    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1">
+        <Grid Margin="14">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="12"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="12"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="12"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <TextBlock x:Name="HeaderText"
+                       Grid.Row="0"
+                       Text="이름 정책 경고"
+                       FontSize="18"
+                       FontWeight="SemiBold"/>
+
+            <!-- 경고: 개명은 DSPilot 이력 단절을 동반 -->
+            <Border Grid.Row="2"
+                    Background="{DynamicResource TertiaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="3"
+                    Padding="10,8">
+                <TextBlock TextWrapping="Wrap"
+                           Text="⚠ DSPilot 의 수집 이력은 이름 기준입니다. 변환(개명)하면 과거 이력이 구 이름에 남고 새 이름은 0부터 쌓입니다. 운영 중인 설비 이름은 현장과 협의 후 변환하세요. (변환은 Undo 가능)"/>
+            </Border>
+
+            <!-- Issues -->
+            <Border Grid.Row="4"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="3">
+                <DataGrid x:Name="IssueGrid"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          HeadersVisibility="Column"
+                          GridLinesVisibility="None"
+                          SelectionMode="Single"
+                          Background="Transparent"
+                          BorderThickness="0">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Width="42">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="종류"
+                                            Binding="{Binding KindLabel}"
+                                            Width="80"
+                                            IsReadOnly="True"/>
+                        <DataGridTextColumn Header="현재 이름"
+                                            Binding="{Binding CurrentName}"
+                                            Width="*"
+                                            IsReadOnly="True"/>
+                        <DataGridTextColumn Header="변환 이름"
+                                            Binding="{Binding SuggestedName}"
+                                            Width="*"
+                                            IsReadOnly="True"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+
+            <!-- Footer -->
+            <Grid Grid.Row="6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="체크한 항목만 변환됩니다."
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+
+                <Button Grid.Column="1"
+                        MinWidth="110"
+                        Style="{StaticResource DarkButton}"
+                        Content="선택 항목 변환"
+                        Click="Accept_Click"/>
+
+                <Button Grid.Column="3"
+                        MinWidth="82"
+                        Style="{StaticResource DarkButton}"
+                        Content="닫기"
+                        IsCancel="True"/>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

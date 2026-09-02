@@ -55,6 +55,25 @@
         <promakerDock:DockHost x:Name="dockHost" Grid.Row="1"/>
 
         <StatusBar Grid.Row="2">
+            <!-- 우측 상시 배지 — 좌측 StatusText 는 일회성 로그라 다음 액션에 덮이므로,
+                 이름 정책 경고는 해결될 때까지 남는 별도 항목으로 노출(침묵화 방지).
+                 DockPanel 기반 StatusBar 라 Right 항목을 먼저 선언해야 좌측 텍스트가 나머지를 채운다. -->
+            <StatusBarItem DockPanel.Dock="Right">
+                <Button Command="{Binding OpenNamePolicyLintCommand}"
+                        Content="{Binding NamePolicyIssueCount, StringFormat={}⚠ 이름 정책 경고 {0}건}"
+                        Padding="8,1"
+                        ToolTip="이름 정책 위반('/', '\', &quot; / &quot;)이 있는 System/Flow/Work 목록을 열어 일괄 변환합니다.">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource DarkButton}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding NamePolicyIssueCount}" Value="0">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </StatusBarItem>
             <StatusBarItem>
                 <TextBlock Text="{Binding StatusText}"/>
             </StatusBarItem>

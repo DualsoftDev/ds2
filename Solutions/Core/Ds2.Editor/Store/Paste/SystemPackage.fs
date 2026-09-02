@@ -190,7 +190,10 @@ module internal SystemPackageOps =
         let cloneSystem (sys: DsSystem) =
             let clone = sys.DeepCopy()
             idMap.[sys.Id] <- clone.Id
-            let unique = Queries.nextUniqueName clone.Name (List.ofSeq existingNames)
+            // 이름 정책(문자 변환) → 유일화 순서 고정 — 변환 후 이름으로 중복을 검사해야
+            // "A/B → A-B" 가 기존 "A-B" 와 충돌하는 경우를 놓치지 않는다.
+            let sanitized = NamePolicy.SanitizeIdentifier clone.Name
+            let unique = Queries.nextUniqueName sanitized (List.ofSeq existingNames)
             if unique <> clone.Name then
                 renames.Add { Kind = "System"; OldName = clone.Name; NewName = unique }
                 clone.Name <- unique
@@ -207,6 +210,27 @@ module internal SystemPackageOps =
         for old, clone in workClones   do idMap.[old.Id] <- clone.Id
         for old, clone in callClones   do idMap.[old.Id] <- clone.Id
         for old, clone in apiDefClones do idMap.[old.Id] <- clone.Id
+
+        // Flow 이름 정책 — Flow 도 식별자(URL·저장 키)라 System 과 동일하게 문자 변환.
+        // 유일화 범위는 소속 System 내(원 규약 유지) — 시스템이 다른 동명 flow 는 허용.
+        // 개명된 flow 의 Work.FlowPrefix cascade 를 위해 old flow id → 새 이름을 기록한다.
+        let flowRenamedNames = Dictionary<Guid, string>()
+        let flowNamesBySystem = Dictionary<Guid, HashSet<string>>()
+        for old, clone in flowClones do
+            let names =
+                match flowNamesBySystem.TryGetValue old.ParentId with
+                | true, set -> set
+                | _ ->
+                    let set = HashSet<string>()
+                    flowNamesBySystem.[old.ParentId] <- set
+                    set
+            let sanitized = NamePolicy.SanitizeIdentifier clone.Name
+            let unique = Queries.nextUniqueName sanitized (List.ofSeq names)
+            if unique <> clone.Name then
+                renames.Add { Kind = "Flow"; OldName = clone.Name; NewName = unique }
+                flowRenamedNames.[old.Id] <- unique
+                clone.Name <- unique
+            names.Add clone.Name |> ignore
 
         // ── Pass 2: 참조 fixup (idMap 완성 후) ─────────────────────────────────
         let remapReferenceOf (kind: string) (name: string) (refOpt: Guid option) =
@@ -228,6 +252,10 @@ module internal SystemPackageOps =
             clone.Status4 <- Status4.Ready
             clone.ReferenceOf <- remapReferenceOf "Work" clone.Name old.ReferenceOf
             renewConditions clone.Conditions tryMap (tryMap old.ParentId)
+            // 소속 flow 가 이름 정책으로 개명됐으면 FlowPrefix cascade (store 의 flow rename 규약과 동일).
+            match flowRenamedNames.TryGetValue old.ParentId with
+            | true, newFlowName -> clone.FlowPrefix <- newFlowName
+            | _ -> ()
 
         let sourceWorkFlowId =
             let byId = closure.Works |> List.map (fun w -> w.Id, w.ParentId) |> dict

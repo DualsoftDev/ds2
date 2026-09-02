@@ -85,6 +85,10 @@ public partial class MainViewModel
             return;
         }
 
+        // 이름 정책 관문 — 속성 패널 ApplyName·트리 rename 이 전부 이 커맨드로 모이므로 여기 한 곳.
+        if (!Services.NameInputPolicy.TryConfirm(SelectedNode.EntityType, newName, out newName))
+            return;
+
         if (!GuardSimulationSemanticEdit("이름 변경"))
             return;
 
@@ -636,6 +640,7 @@ public partial class MainViewModel
             var suggestedName = GetUniqueName(srcFlow.Name, existingNames, "_");
             var newName = _dialogService.PromptName("Flow 복사 — 새 이름", suggestedName);
             if (newName is null) return;
+            if (!Services.NameInputPolicy.TryConfirm(EntityKind.Flow, newName, out newName)) return;
             plans.Add((key.Id, sysId, newName));
         }
 

@@ -22,6 +22,7 @@ public partial class MainViewModel
 
         var name = _dialogService.PromptName(Resources.Strings.NewSystem, "NewSystem");
         if (name is null) return;
+        if (!Services.NameInputPolicy.TryConfirm(EntityKind.System, name, out name)) return;
         var (selType, selId, tabKind, tabRoot) = SnapshotContext();
         if (TryEditorAction(() => _store.AddSystemResolved(
                 name, Selection.ActiveTreePane == TreePaneKind.Control,
@@ -40,6 +41,10 @@ public partial class MainViewModel
 
         var name = _dialogService.PromptName(Resources.Strings.NewFlow, defaultName);
         if (name is null) return;
+
+        // 이름 정책(문자) → 중복 검사 순서 고정 — 변환 후 이름으로 검사해야
+        // "A/B → A-B" 가 기존 "A-B" 와 충돌하는 경우를 놓치지 않는다.
+        if (!Services.NameInputPolicy.TryConfirm(EntityKind.Flow, name, out name)) return;
 
         if (existingFlows.Any(f => f.Name == name))
         {
@@ -71,6 +76,8 @@ public partial class MainViewModel
 
         var name = _dialogService.PromptName(Resources.Strings.NewWork, defaultName);
         if (name is null) return;
+
+        if (!Services.NameInputPolicy.TryConfirm(EntityKind.Work, name, out name)) return;
 
         if (existingWorks.Any(w => w.LocalName == name))
         {

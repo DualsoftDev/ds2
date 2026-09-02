@@ -33,6 +33,10 @@ public partial class MainViewModel
         RecentFilesManager.AddRecentFile(filePath);
         _dispatcher.InvokeAsync(LoadRecentFiles);
 
+        // 이름 정책 열기 린트 — 기존 모델(외부 생성 포함)의 위반 이름을 하단 배지로 노출.
+        // 자동 변환은 하지 않는다(이름=DSPilot 이력 키) — 배지 클릭 → 사용자 명시 일괄 변환만.
+        RefreshNamePolicyLint();
+
         RequestRebuildAll(AfterFileLoad);
     }
 
