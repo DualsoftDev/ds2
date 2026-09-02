@@ -203,6 +203,55 @@ let ``already saved model with duplicate signalIds is repaired on load`` () =
     let signalIds = plan.Signals |> Seq.map _.SignalId |> List.ofSeq
     Assert.Equal(signalIds.Length, signalIds |> List.distinct |> List.length)
 
+/// signalId 가 **전량 빈 값**으로 저장된 모델의 로드 시 자동 복구.
+/// SignalId struct 에 JsonConstructor 가 없던 빌드(6421d525 이전)로 SDF 를 열면 역직렬화가
+/// raw=null 로 남겨 모든 signalId 가 "" 가 되고, 재저장하면 파일에 그대로 박제됐다(KGM 0902 사례).
+/// 그런 파일도 사용자가 손보지 않고 뜨도록, 빈 id 는 같은 규칙(주소, 충돌 시 주소@System해시)으로
+/// 재발급되어야 한다.
+[<Fact>]
+let ``already saved model with all-empty signalIds is repaired on load`` () =
+    let store = newPromakerProject ()
+    let project = store.Projects.Values |> Seq.head
+    let system1 = project.ActiveSystemIds.[0]
+    let system2 = store.AddSystem("SecondSystem", project.Id, true)
+    store.AddFlow("SecondFlow", system2) |> ignore
+
+    // 두 System 이 같은 주소를 하나 공유하는 구성 — 재발급이 분화 규칙까지 타는지 본다.
+    let shared = "%IX0.1.2"
+    let aid = AssetInterfacesDescription()
+    project.AssetInterfaces <- Some aid
+    AidXgtEndpointSettings.ensureBindingForSystem(
+        aid, system1, "LsXgi", "192.168.0.10", 2004, false, true,
+        0uy, 255uy, 3000, 100, [ shared; "%QX0.1.13" ])
+    |> ignore
+    AidXgtEndpointSettings.ensureBindingForSystem(
+        aid, system2, "LsXgb", "192.168.0.20", 2004, false, true,
+        0uy, 255uy, 3000, 100, [ shared; "%QX0.2.7" ])
+    |> ignore
+    // 구버전 역직렬화 산출물 모사 — 모든 interaction 의 signalId 를 "" 로 박제.
+    for index = 0 to aid.Interfaces.Count - 1 do
+        match aid.Interfaces.[index] with
+        | Xgt (endpoint, interactions) ->
+            let blanked =
+                interactions |> List.map (fun i -> { i with SignalId = Ds2.Core.SignalId "" })
+            aid.Interfaces.[index] <- Xgt (endpoint, blanked)
+        | _ -> ()
+
+    let plan = AidXgtGatewayConfig.buildForProject(store, project, aid)
+    Assert.True(plan.Success, String.Join(" / ", plan.Errors))
+
+    // 4개 신호 전부 살아나고, id 는 비어있지 않으며 AID 전체에서 유일하다.
+    Assert.Equal(4, plan.Signals.Length)
+    let signalIds = plan.Signals |> Seq.map _.SignalId |> List.ofSeq
+    Assert.All(signalIds, fun s -> Assert.False(String.IsNullOrWhiteSpace s))
+    Assert.Equal(signalIds.Length, signalIds |> List.distinct |> List.length)
+
+    // 겹치지 않는 주소는 주소 원문, 겹친 주소는 한쪽만 @System해시로 분화.
+    Assert.Contains("%QX0.1.13", signalIds)
+    Assert.Contains("%QX0.2.7", signalIds)
+    Assert.Contains(shared, signalIds)
+    Assert.Contains(signalIds, fun (s: string) -> s.StartsWith(shared + "@"))
+
 /// 게이트웨이/수집기 계층의 주소 중복 처리. 모델 계층이 위 제약으로 막더라도 이 계층은
 /// 외부 도구가 만든 AASX·수동 설정에서 중복을 만날 수 있으므로 (SystemId, 주소) 복합키로 동작해야 한다.
 /// 예전엔 여기서 ① 라우팅이 주소 단독 키라 한쪽 PLC 태그가 사라지고("last wins")

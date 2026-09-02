@@ -634,10 +634,13 @@ module AssetInterfacesDescriptionTypes =
                     aid.Interfaces.Add(Xgt (requestedEndpoint, interactions))
                     List.length interactions
 
-        /// 이미 저장된 모델의 signalId 중복 **자동 복구**.
+        /// 이미 저장된 모델의 signalId 중복·공백 **자동 복구**.
         /// 중복 주소 모델은 AASX 저장 자체는 성공하고 불러와 활성화할 때만 실패하므로,
         /// 현장에 "저장은 됐는데 안 뜨는" 파일이 이미 존재할 수 있다. 그런 파일도 사용자가
         /// 아무것도 하지 않고 뜨도록, 불러오는 시점에 같은 규칙(주소@System해시)으로 분화시킨다.
+        /// 빈 signalId 도 같은 이유로 여기서 재발급한다 — SignalId struct 의 STJ 역직렬화 버그
+        /// (JsonConstructor 부재, 6421d525 에서 수정) 이전 빌드가 SDF 재저장 시 전량 "" 로
+        /// 박제한 파일이 현장에 존재한다. 빈 id 는 다운스트림 영속 키로 쓰인 적이 없으니 안전하다.
         /// 그 모델은 지금 아예 활성화가 안 되는 상태라 깨질 다운스트림이 존재하지 않는다 — 안전하다.
         /// 앞선 endpoint 가 선점한 id 는 그대로 두고 뒤에 오는 중복만 바꾼다(기존 id 보존 우선).
         /// 반환 = 바뀐 interaction 수(0 이면 손댈 것이 없었음).
@@ -655,7 +658,8 @@ module AssetInterfacesDescriptionTypes =
                             interactions
                             |> List.map (fun interaction ->
                                 let current = interaction.SignalId.Value
-                                if claimed.Add current then interaction
+                                // 빈 id 는 점유(claimed)로 치지 않고 무조건 재발급 대상이다.
+                                if current <> "" && claimed.Add current then interaction
                                 else
                                     let minted = mintSignalId claimed endpoint.SystemId interaction.Href
                                     if minted = current || not (claimed.Add minted) then interaction
