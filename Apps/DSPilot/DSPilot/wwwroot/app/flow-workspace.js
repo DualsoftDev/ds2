@@ -1563,6 +1563,11 @@
                         if (ev.changedTouches && ev.changedTouches.length) return ev.changedTouches[0].clientX;
                         return ev.clientX;
                     };
+                    const eventY = (ev) => {
+                        if (ev.touches && ev.touches.length) return ev.touches[0].clientY;
+                        if (ev.changedTouches && ev.changedTouches.length) return ev.changedTouches[0].clientY;
+                        return ev.clientY;
+                    };
                     const onMove = (ev) => {
                         if (mode === 'touch') ev.preventDefault();   // 드래그 중 페이지 스크롤 방지
                         const cur = clampX(snapCurX(eventX(ev) - rectOf().left));
@@ -1584,8 +1589,16 @@
                         if (!moved) { if (this.selectedRange) this.clearRangeSelection(); return; }
                         const cur = clampX(snapCurX(eventX(ev) - rectOf().left));
                         const endMs = cs + (cur - LEFT_PAD) / xScale;
-                        this.selectedRange = { startMs: Math.min(startMs, endMs), endMs: Math.max(startMs, endMs) };
+                        // 툴팁 세로 위치 = 드래그를 끝낸 포인터 아래, 현재 보이는 영역 안(레인 상단 고정이면 세로 스크롤 시 화면 밖).
+                        const upY = eventY(ev);
+                        const tipTopOf = (h) => (window.CycleGantt ? window.CycleGantt.selTipTop(area, upY, h) : this.laneTopY + 6);
+                        this.selectedRange = { startMs: Math.min(startMs, endMs), endMs: Math.max(startMs, endMs), tipTop: tipTopOf(0) };
                         this.svgMarkup = this.buildSvg();
+                        // 렌더 후 실제 툴팁 높이로 한 번 보정(추정치 190px 와 다를 때 하단 잘림 방지)
+                        this.$nextTick(() => {
+                            const tip = area.querySelector('.ct-sel-tip');
+                            if (tip && this.selectedRange) this.selectedRange.tipTop = tipTopOf(tip.offsetHeight);
+                        });
                     };
                     this._drag = { onMove, onUp };
                     if (mode === 'touch') {
@@ -1644,7 +1657,8 @@
                 get selWaitMs() { return this._selCycleAgg.wt; },
 
                 // 선택 구간 플로팅 툴팁의 앵커 좌표(스크롤 컨테이너 콘텐츠=SVG 픽셀 좌표계).
-                // 가로: 선택 구간의 중앙(양 끝 근처면 툴팁이 잘리지 않게 클램프). 세로: 레인 영역 상단.
+                // 가로: 선택 구간의 중앙(양 끝 근처면 툴팁이 잘리지 않게 클램프).
+                // 세로: 드래그 종료 포인터 기준·보이는 영역 안(CycleGantt.selTipTop, 드래그 시 selectedRange.tipTop 에 확정). 폴백=레인 상단.
                 get selTipCenterPx() {
                     const r = this.selectedRange; if (!r || !this._geo) return 0;
                     const { cs, xScale } = this._geo;
@@ -1652,7 +1666,10 @@
                     const chartW = LEFT_PAD + this.plotWidth + RIGHT_PAD;
                     return Math.round(Math.max(170, Math.min(chartW - 170, raw)));
                 },
-                get selTipTopPx() { return this.laneTopY + 6; },
+                get selTipTopPx() {
+                    const r = this.selectedRange;
+                    return (r && typeof r.tipTop === 'number') ? r.tipTop : this.laneTopY + 6;
+                },
 
                 async resolveOverlays() {
                     if (!this.selectedFlow) return;

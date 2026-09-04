@@ -582,8 +582,14 @@ function bulkCycleApp() {
                 if (!moved) { if (slice.selectedRange) this.clearRangeSelection(slice); return; }
                 const cur = clampX(snapCurX(ev.clientX - rectOf().left));
                 const endMs = cs + (cur - LEFT_PAD) / xScale;
-                slice.selectedRange = { startMs: Math.min(startMs, endMs), endMs: Math.max(startMs, endMs) };
+                // 툴팁 세로 위치 = 드래그 종료 포인터 아래·보이는 영역 안(단일 페이지 flow-workspace 와 동일 규약, CG.selTipTop)
+                const upY = ev.clientY;
+                slice.selectedRange = { startMs: Math.min(startMs, endMs), endMs: Math.max(startMs, endMs), tipTop: CG.selTipTop(area, upY, 0) };
                 slice.svgMarkup = CG.buildSvg(slice);
+                this.$nextTick(() => {
+                    const tip = area.querySelector('.ct-sel-tip');
+                    if (tip && slice.selectedRange) slice.selectedRange.tipTop = CG.selTipTop(area, upY, tip.offsetHeight);
+                });
             };
             slice._drag = { onMove, onUp };
             document.addEventListener('pointermove', onMove, true);
@@ -657,7 +663,11 @@ function bulkCycleApp() {
             const chartW = LEFT_PAD + slice.plotWidth + RIGHT_PAD;
             return Math.round(Math.max(170, Math.min(chartW - 170, raw)));
         },
-        selTipTopPx(slice) { return CG.TOP_MARGIN + (slice.cycleBoundaries.length ? CG.RIBBON_H : 0) + 6; },
+        selTipTopPx(slice) {
+            const r = slice.selectedRange;
+            if (r && typeof r.tipTop === 'number') return r.tipTop;
+            return CG.TOP_MARGIN + (slice.cycleBoundaries.length ? CG.RIBBON_H : 0) + 6;
+        },
 
         // ── 사이클 기준 프리셋 (첫 번째 Flow 히스토리로 역산) ──
         async setRecentCycles(n) {

@@ -658,8 +658,47 @@
         return Math.max(1, mult * mag);
     }
 
+    // ── 드래그 선택 툴팁(.ct-sel-tip) 세로 좌표 ──
+    // 예전엔 "레인 영역 상단 + 6" 고정이라 call 이 많아 layout 세로 스크롤을 내린 상태에선 화면 밖(맨 위)에 그려졌다(2026-09-04).
+    // 드래그를 끝낸 포인터 Y(clientY) 바로 아래에 놓고, 조상 스크롤 컨테이너(.ct-gantt-layout / 모바일 .ct-gantt-chart-area)와
+    // 창 뷰포트의 교집합 = "실제 보이는 영역" 안으로 클램프한다. 반환값은 hscroll(position:relative) 콘텐츠 좌표 top(px).
+    //   area   : .ct-gantt-hscroll 요소(툴팁의 offsetParent)
+    //   clientY: 드래그 종료 포인터 clientY
+    //   tipH   : 툴팁 높이(px). 렌더 전 추정치, 렌더 후 offsetHeight 로 재호출해 보정.
+    var SEL_TIP_EST_H = 190, SEL_TIP_GAP = 12, SEL_TIP_MARGIN = 6;
+    function selTipTop(area, clientY, tipH) {
+        if (!area) return 0;
+        var h = (tipH && tipH > 0) ? tipH : SEL_TIP_EST_H;
+        var aRect = area.getBoundingClientRect();
+        // 보이는 영역(client 좌표) = 창 ∩ overflow-y 스크롤 조상들
+        var visTop = 0, visBottom = window.innerHeight || document.documentElement.clientHeight;
+        for (var el = area.parentElement; el; el = el.parentElement) {
+            var oy;
+            try { oy = getComputedStyle(el).overflowY; } catch (_) { oy = ''; }
+            if (oy === 'auto' || oy === 'scroll' || oy === 'hidden') {
+                var r = el.getBoundingClientRect();
+                if (r.top > visTop) visTop = r.top;
+                if (r.bottom < visBottom) visBottom = r.bottom;
+            }
+        }
+        // hscroll 콘텐츠 좌표로 변환(hscroll 은 세로 스크롤 없음 → scrollTop≈0 이지만 방어적으로 더함)
+        var st = area.scrollTop || 0;
+        var vTop = visTop - aRect.top + st, vBottom = visBottom - aRect.top + st;
+        var anchor = clientY - aRect.top + st;
+        var top = anchor + SEL_TIP_GAP;
+        var maxTop = vBottom - h - SEL_TIP_MARGIN, minTop = vTop + SEL_TIP_MARGIN;
+        // hscroll 은 overflow-y:hidden 이라 콘텐츠(SVG) 아래로 나간 부분은 잘린다 → 콘텐츠 하단 안으로도 클램프
+        var contentH = area.scrollHeight || aRect.height;
+        if (contentH - h - SEL_TIP_MARGIN < maxTop) maxTop = contentH - h - SEL_TIP_MARGIN;
+        if (top > maxTop) top = maxTop;          // 아래로 넘치면 위로 올림(포인터를 덮더라도 보이는 영역 우선)
+        if (top < minTop) top = minTop;          // 보이는 영역이 툴팁보다 짧으면 상단 정렬
+        if (top < 0) top = 0;                    // 콘텐츠 밖(음수)은 hscroll 경계에 붙임
+        return Math.round(top);
+    }
+
     // ── 공개 API ──
     window.CycleGantt = {
+        selTipTop: selTipTop,
         // 상수
         TOP_MARGIN: TOP_MARGIN, LANE_HEIGHT: LANE_HEIGHT, BAR_HEIGHT: BAR_HEIGHT, RIBBON_H: RIBBON_H,
         LEFT_PAD: LEFT_PAD, RIGHT_PAD: RIGHT_PAD, BOTTOM_PAD: BOTTOM_PAD,
