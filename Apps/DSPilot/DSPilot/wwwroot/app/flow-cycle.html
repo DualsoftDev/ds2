@@ -364,10 +364,10 @@
                                                             <div class="ct-lane-row-leg" x-show="row.lane.outTag || row.lane.inTag">
                                                                 <span class="leg-out" x-show="row.lane.outTag"><i></i><span x-text="row.lane.outTag"></span></span>
                                                                 <span class="leg-in"  x-show="row.lane.inTag"><i></i><span x-text="row.lane.inTag"></span></span>
-                                                                <!-- ApiCall(I/O 쌍) 이 여러 개면 범례는 첫 쌍만 — 배지로 알리고 펼침 유도 -->
+                                                                <!-- ApiCall(I/O 쌍) 이 여러 개면 범례는 첫 쌍만 — 배지는 총 개수('총 N쌍', '+N' 은 나머지 개수로 오독돼 폐기)로 알리고 펼침 유도 -->
                                                                 <span class="leg-more" x-show="(row.lane.apiCalls || []).length > 1"
-                                                                      :title="'I/O ' + (row.lane.apiCalls || []).length + '쌍 등록 — ▸ 를 눌러 전체 확인'"
-                                                                      x-text="'+' + ((row.lane.apiCalls || []).length - 1) + '쌍'"></span>
+                                                                      :title="'I/O 쌍 총 ' + (row.lane.apiCalls || []).length + '개 등록(범례는 첫 쌍만 표시) — ▸ 를 눌러 전체 확인'"
+                                                                      x-text="'총 ' + (row.lane.apiCalls || []).length + '쌍'"></span>
                                                             </div>
                                                         </div>
                                                     </template>
@@ -422,6 +422,8 @@
                                                 </div>
                                             </template>
                                         </div>
+                                        <!-- 사이드바 폭 리사이저(gantt-sidebar.js, 전 간트 공유 폭 · 더블클릭=기본) -->
+                                        <div class="ct-side-resizer" title="드래그로 CALL 목록 폭 조절 · 더블클릭=기본 폭"></div>
                                         <!-- 간트 본체. 이동/확대는 툴바 슬라이더 + Ctrl+휠(커서 앵커 줌, 브라우저 확대 차단) — 간트 드래그는 구간 선택 전용. -->
                                         <div class="ct-gantt-chart-area">
                                           <div class="ct-gantt-hscroll" x-ref="chartArea" @scroll="syncPan($el)"
@@ -563,6 +565,7 @@
                                                 </div>
                                             </template>
                                         </div>
+                                        <div class="ct-side-resizer" title="드래그로 CALL 목록 폭 조절 · 더블클릭=기본 폭"></div>
                                         <div class="ct-gantt-chart-area">
                                             <!-- 분기 간트도 Ctrl+휠 줌 — 줌은 상단과 공유(전 간트 일괄), 앵커는 이 카드 커서 위치. -->
                                             <div class="ct-gantt-hscroll" @wheel="onGanttWheel($event)">
@@ -964,10 +967,10 @@
                                                         <div class="ct-lane-row-leg" x-show="row.lane.outTag || row.lane.inTag">
                                                             <span class="leg-out" x-show="row.lane.outTag"><i></i><span x-text="row.lane.outTag"></span></span>
                                                             <span class="leg-in"  x-show="row.lane.inTag"><i></i><span x-text="row.lane.inTag"></span></span>
-                                                            <!-- ApiCall(I/O 쌍) 이 여러 개면 범례는 첫 쌍만 — 배지로 알리고 펼침 유도 -->
+                                                            <!-- ApiCall(I/O 쌍) 이 여러 개면 범례는 첫 쌍만 — 배지는 총 개수('총 N쌍', '+N' 은 나머지 개수로 오독돼 폐기)로 알리고 펼침 유도 -->
                                                             <span class="leg-more" x-show="(row.lane.apiCalls || []).length > 1"
-                                                                  :title="'I/O ' + (row.lane.apiCalls || []).length + '쌍 등록 — ▸ 를 눌러 전체 확인'"
-                                                                  x-text="'+' + ((row.lane.apiCalls || []).length - 1) + '쌍'"></span>
+                                                                  :title="'I/O 쌍 총 ' + (row.lane.apiCalls || []).length + '개 등록(범례는 첫 쌍만 표시) — ▸ 를 눌러 전체 확인'"
+                                                                  x-text="'총 ' + (row.lane.apiCalls || []).length + '쌍'"></span>
                                                         </div>
                                                     </div>
                                                 </template>
@@ -1015,6 +1018,7 @@
                                             </div>
                                         </template>
                                     </div>
+                                    <div class="ct-side-resizer" title="드래그로 CALL 목록 폭 조절 · 더블클릭=기본 폭"></div>
                                     <!-- 간트 본체. 이동/확대는 상단 공유 슬라이더 + Ctrl+휠(커서 앵커 줌, 전 카드 일괄) — 간트 드래그는 구간 선택 전용. -->
                                     <div class="ct-gantt-chart-area">
                                       <div class="ct-gantt-hscroll" :id="'cta-' + slice.id" @scroll="onAreaScroll(slice)"
@@ -1076,6 +1080,7 @@
     <script src="/app/flow-workspace.js"></script>
     <script src="/app/cycle-gantt.js"></script>
     <script src="/app/flow-cycle-bulk.js"></script>
+    <script src="/app/gantt-sidebar.js"></script>
     <script>
         // ── 진입 부트스트랩 (Alpine 로드 전, 파싱 시점 실행) ──
         // ?name= 있으면 단일 Flow(fc-single, flowApp) → 전체 루트(#fc-bulk) 제거.

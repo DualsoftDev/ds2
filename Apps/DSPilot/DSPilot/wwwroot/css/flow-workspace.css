@@ -118,7 +118,26 @@
            본체의 가로 스크롤은 안쪽 래퍼(.ct-gantt-hscroll)가 전담 — 본체 자체를 overflow-y 스크롤 컨테이너로 두면
            세로로 content 보다 짧게 잘려(하단 lane 소실) 이 방식으로 분리한다. 대개 call 수가 적어 세로 스크롤은 드묾. */
         .ct-gantt-layout { display: flex; align-items: flex-start; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); overflow-y: auto; overflow-x: hidden; max-height: calc(100vh - 300px); }
-        .ct-lane-sidebar { flex: 0 0 330px; width: 330px; background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow: visible; z-index: 1; }
+        /* 사이드바 폭 = 전역 CSS 변수(--ct-side-w, 기본 330px). 리사이저 드래그(gantt-sidebar.js)가 :root 에 세팅 + localStorage 보존
+           — 한 페이지의 모든 간트(단일/분기 카드/전체 편집)가 같은 폭을 공유한다. */
+        .ct-lane-sidebar { flex: 0 0 var(--ct-side-w, 330px); width: var(--ct-side-w, 330px); background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow: visible; z-index: 1; }
+        /* 사이드바↔본체 경계 리사이저(세로 손잡이). 사이드바 border 위에 겹치도록 음수 마진, 호버/드래그 시 악센트 띠. */
+        .ct-side-resizer { flex: 0 0 7px; align-self: stretch; margin: 0 -4px 0 -3px; cursor: col-resize; z-index: 3; position: relative; touch-action: none; }
+        .ct-side-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; transition: background-color 0.12s, width 0.12s, left 0.12s; }
+        .ct-side-resizer:hover::before, .ct-side-resizer.is-dragging::before { left: 2px; width: 3px; background: var(--color-primary); }
+        body.ct-side-resizing { cursor: col-resize; user-select: none; }
+        body.ct-side-resizing .ct-gantt-layout *:not(.ct-side-resizer) { pointer-events: none; }   /* 드래그 중 SVG/버튼 호버 억제(손잡이는 캡처 유지) */
+        /* 사이드바 잘린 텍스트 툴팁 — body 직속 position:fixed(레이아웃 컨테이너 overflow 에 안 잘리게). 잘린 행에서만 뜬다(gantt-sidebar.js). */
+        .ct-lane-tip { position: fixed; z-index: 1000; max-width: min(460px, 90vw); padding: 8px 11px 9px; background: var(--color-surface); color: var(--color-text-primary); border: 1px solid var(--color-lines-strong); border-radius: 8px; box-shadow: 0 8px 26px rgba(0,0,0,0.22); font-size: 0.74rem; line-height: 1.35; pointer-events: none; opacity: 0; transform: translateY(2px); transition: opacity 0.1s, transform 0.1s; }
+        .ct-lane-tip.is-on { opacity: 1; transform: none; }
+        .ct-lane-tip .lt-title { font-weight: 800; font-size: 0.8rem; word-break: break-all; }
+        .ct-lane-tip .lt-sub { color: var(--color-text-secondary); font-size: 0.68rem; margin-top: 1px; word-break: break-all; }
+        .ct-lane-tip .lt-tags { display: flex; flex-wrap: wrap; gap: 3px 12px; margin-top: 5px; font-family: var(--font-mono); font-size: 0.66rem; }
+        .ct-lane-tip .lt-tags span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+        .ct-lane-tip .lt-tags i { display: inline-block; width: 10px; height: 2px; border-radius: 1px; }
+        .ct-lane-tip .lt-out { color: #fb8c00; } .ct-lane-tip .lt-out i { background: #fb8c00; }
+        .ct-lane-tip .lt-in  { color: #1e88e5; } .ct-lane-tip .lt-in  i { background: #1e88e5; }
+        .ct-lane-tip .lt-hint { margin-top: 5px; font-size: 0.6rem; color: var(--color-text-secondary); }
         /* 일체형 세로 스크롤로 전환 후 sticky 제거 — layout 스크롤 시 헤더만 고정되면 본체 축(SVG 내부, 고정 불가)과 어긋나 lane 정렬이 깨진다. 헤더/축이 함께 스크롤되게 통일. */
         .ct-sidebar-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; padding: 0 12px 6px; font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.12em; border-bottom: 1.5px solid var(--color-text-primary); background: var(--color-surface-variant); }
         .ct-sh-title { flex: 0 0 auto; }
@@ -391,6 +410,7 @@
             /* 간트 layout: 세로 스택(사이드바 위, 차트 아래) */
             .ct-gantt-layout { flex-direction: column; max-height: none; }
             .ct-lane-sidebar { flex: 0 0 auto; width: 100%; max-height: 200px; overflow-y: auto; overflow-x: hidden; border-right: none; border-bottom: 1px solid var(--color-lines); }
+            .ct-side-resizer { display: none; }   /* 세로 스택에선 폭 조절 의미 없음 */
             /* 모바일 스택: 세로는 본체가 자체 스크롤(가로는 안쪽 .ct-gantt-hscroll). */
             .ct-gantt-chart-area { min-height: 250px; max-height: 60vh; overflow-y: auto; overflow-x: hidden; }
 
