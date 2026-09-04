@@ -60,6 +60,8 @@ fi
 rm -f "$STAGE"/app/wwwroot/uploads/blueprint.* \
       "$STAGE"/app/wwwroot/uploads/layout-data.json* \
       "$STAGE"/app/wwwroot/uploads/cctv-overlays.json 2>/dev/null || true
+# 관리자 계정(아이디/비밀번호)·데모 전환 파일 — 사이트별 런타임 산출물. csproj 가 publish 에서 빼지만 이중 방어.
+rm -f "$STAGE"/app/demo-admin.json "$STAGE"/app/demo-admin.enabled 2>/dev/null || true
 rm -rf "$STAGE"/app/wwwroot/uploads/cctv-fallbacks 2>/dev/null || true
 
 VERSION="$(grep -oE '<Version>[^<]+' "$PROJECT" | head -n1 | sed 's/<Version>//')"

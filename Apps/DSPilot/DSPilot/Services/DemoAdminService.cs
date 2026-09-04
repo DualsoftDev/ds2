@@ -8,15 +8,20 @@ using System.Text.Json;
 namespace DSPilot.Services;
 
 /// <summary>
-/// 데모용 관리자 게이트 + 데모 프리젠테이션 설정.
-/// /demo/admin 관리 페이지에서 admin 로그인 후 다음을 제어한다(데모 전환이 마스터 스위치):
-///   - Enabled(데모 전환): ON 이면 로그인 게이트 활성 + 사이드바 외부 바로가기 노출. OFF 면 순정 설치처럼 동작.
+/// 관리자 계정(로그인 게이트) + 데모 프리젠테이션 설정.
+///
+/// 2026-09-04 이관: 계정 활성화(로그인 요구)·아이디/비밀번호 변경은 정규 설정 페이지(설정 ▸ 고급 ▸ 계정·로그인,
+/// /api/account/*)로 옮겨 정식 기능이 됐다. /demo/admin 관리 패널에는 데모 전환(바로가기 노출)만 남는다.
+///   - LoginEnabled(계정 활성화): ON 이면 로그인 게이트 활성. LoginScope 로 범위 결정.
 ///   - LoginScope: 로그인 요구 범위 — "settings"(설정 페이지만) | "app"(첫 화면부터 전체).
 ///   - AdminId / 비밀번호: 관리자 자격 증명(비밀번호는 PBKDF2 해시로만 저장, 기본 admin/2747).
+///   - Enabled(데모 전환): ON 이면 사이드바 외부 바로가기 노출. 예전엔 로그인 게이트까지 겸했으나 분리됨
+///     (구 파일에 loginEnabled 가 없으면 enabled 값을 승계해 기존 데모 사이트의 게이트가 꺼지지 않게 한다).
 ///   - Shortcuts: 설비박사·ReverseAI 바로가기의 개별 노출 여부·라벨·URL.
-/// 설정은 AppSettings 와 분리된 마커/JSON 파일(demo-admin.json)로 영속 — GET /api/settings 스냅샷에 나타나지 않는다.
-/// 관리 API(config/credentials)는 로그인 세션이 있어야만 상태를 노출한다(로그인 전에는 비노출 유지).
-/// 세션 토큰은 인메모리 전용 — 서버 재시작 시 전부 무효화(재로그인 필요). 데모 용도로 충분.
+/// 설정은 AppSettings 와 분리된 JSON 파일(demo-admin.json, content root)로 영속 — GET /api/settings 스냅샷에 나타나지 않는다.
+/// ★ 이 파일은 사이트별 런타임 산출물이다. csproj 에서 publish 제외 + 인스톨러 Excludes — 개발 PC 의 파일이
+///   설치본에 실려 현장 계정을 덮어쓰던(=업데이트마다 아이디/비밀번호 초기화) 사고의 재발 방지.
+/// 세션 토큰은 인메모리 전용 — 서버 재시작 시 전부 무효화(재로그인 필요).
 /// </summary>
 public class DemoAdminService
 {
@@ -48,11 +53,31 @@ public class DemoAdminService
         _config = Load();
     }
 
-    /// <summary>데모 전환(로그인 게이트 + 바로가기 노출) 활성 여부.</summary>
+    /// <summary>데모 전환(사이드바 바로가기 노출) 활성 여부. 로그인 게이트와는 무관(IsLoginEnabled 참조).</summary>
     public bool IsEnabled => _config.Enabled;
+
+    /// <summary>계정 활성화 — 로그인 게이트 활성 여부(정규 설정 ▸ 고급에서 제어).</summary>
+    public bool IsLoginEnabled => _config.LoginEnabled ?? _config.Enabled;
 
     /// <summary>로그인 요구 범위 — "settings"(설정 페이지만) | "app"(첫 화면부터 전체).</summary>
     public string LoginScope => _config.LoginScope;
+
+    /// <summary>비밀번호를 아직 한 번도 바꾸지 않은 초기 상태(기본 2747 사용 중)인지.</summary>
+    public bool IsPasswordDefault
+    {
+        get { lock (_lock) return string.IsNullOrEmpty(_config.PasswordHash) || string.IsNullOrEmpty(_config.PasswordSalt); }
+    }
+
+    /// <summary>세션 쿠키 옵션 — 로그인 엔드포인트(account / demo-admin)가 공유. LAN HTTP 배포라 Secure 미강제.</summary>
+    public static CookieOptions SessionCookieOptions() => new()
+    {
+        HttpOnly = true,
+        SameSite = SameSiteMode.Lax,
+        Secure = false,   // LAN HTTP 배포 (UseHsts 비활성) — Secure 강제 시 쿠키 유실
+        Path = "/",
+        IsEssential = true,
+        // Expires 미지정 = 브라우저 세션 쿠키. 서버측 토큰도 재시작 시 소멸.
+    };
 
     // ── 로그인 세션 ──────────────────────────────────────────────────────────
 
@@ -66,9 +91,16 @@ public class DemoAdminService
         if (!string.Equals(id?.Trim(), cfg.AdminId, StringComparison.Ordinal) || !VerifyPassword(cfg, password))
             return false;
 
-        token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        _sessions[token] = 1;
+        token = IssueSession();
         return true;
+    }
+
+    /// <summary>세션 토큰만 발급(자격 검증은 호출측이 이미 마친 경우 — 예: 비밀번호 확인 후 계정 활성화).</summary>
+    public string IssueSession()
+    {
+        var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        _sessions[token] = 1;
+        return token;
     }
 
     public bool IsSessionValid(string? token)
@@ -79,46 +111,38 @@ public class DemoAdminService
         if (!string.IsNullOrEmpty(token)) _sessions.TryRemove(token, out _);
     }
 
-    // ── 관리 패널 (로그인 세션 필요, 컨트롤러에서 검증) ─────────────────────────
+    /// <summary>현재 비밀번호 대조(변경 없이 검증만). 계정 활성화 시 잠금 방지 확인용.</summary>
+    public bool VerifyCurrentPassword(string? password)
+    {
+        DemoAdminConfig cfg;
+        lock (_lock) cfg = _config;
+        return VerifyPassword(cfg, password);
+    }
 
-    /// <summary>관리 패널 표시용 설정 스냅샷(비밀번호 해시는 노출하지 않음).</summary>
-    public DemoAdminConfigDto GetConfigForAdmin()
+    // ── 계정(정규 설정 ▸ 고급) ──────────────────────────────────────────────────
+
+    /// <summary>설정 페이지 계정 카드용 스냅샷(비밀번호 해시는 노출하지 않음).</summary>
+    public AccountInfoDto GetAccountInfo(bool authenticated)
     {
         lock (_lock)
         {
-            return new DemoAdminConfigDto(
-                _config.Enabled,
+            return new AccountInfoDto(
+                _config.LoginEnabled ?? _config.Enabled,
                 _config.LoginScope,
                 _config.AdminId,
-                _config.Shortcuts
-                    .Select(s => new DemoShortcutDto(s.Key, s.Label, s.Href, s.Icon, s.Show))
-                    .ToList());
+                string.IsNullOrEmpty(_config.PasswordHash) || string.IsNullOrEmpty(_config.PasswordSalt),
+                authenticated);
         }
     }
 
-    /// <summary>데모 전환·로그인 범위·바로가기 설정 저장. 자격 증명은 별도(UpdateCredentials).</summary>
-    public void UpdateSettings(bool enabled, string? loginScope, IReadOnlyList<DemoShortcutDto>? shortcuts)
+    /// <summary>계정 활성화(로그인 게이트) on/off + 범위 저장. 자격 증명은 별도(UpdateCredentials).</summary>
+    public void UpdateLoginGate(bool enabled, string? loginScope)
     {
         lock (_lock)
         {
             var next = _config.Clone();
-            next.Enabled = enabled;
+            next.LoginEnabled = enabled;
             next.LoginScope = NormalizeScope(loginScope);
-
-            if (shortcuts != null)
-            {
-                // 알려진 key(기본 바로가기)만 갱신 — 노출 여부·라벨·URL 만 반영, 항목 추가/삭제는 없음.
-                foreach (var incoming in shortcuts)
-                {
-                    var target = next.Shortcuts.FirstOrDefault(s =>
-                        string.Equals(s.Key, incoming.Key, StringComparison.OrdinalIgnoreCase));
-                    if (target == null) continue;
-                    target.Show = incoming.Show;
-                    if (!string.IsNullOrWhiteSpace(incoming.Label)) target.Label = incoming.Label.Trim();
-                    if (!string.IsNullOrWhiteSpace(incoming.Href)) target.Href = incoming.Href.Trim();
-                }
-            }
-
             _config = next;
             Persist(next);
         }
@@ -145,6 +169,48 @@ public class DemoAdminService
             _config = next;
             Persist(next);
             return true;
+        }
+    }
+
+    // ── 데모 관리 패널 (로그인 세션 필요, 컨트롤러에서 검증) ───────────────────────
+
+    /// <summary>데모 관리 패널 표시용 설정 스냅샷(데모 전환 + 바로가기).</summary>
+    public DemoAdminConfigDto GetConfigForAdmin()
+    {
+        lock (_lock)
+        {
+            return new DemoAdminConfigDto(
+                _config.Enabled,
+                _config.Shortcuts
+                    .Select(s => new DemoShortcutDto(s.Key, s.Label, s.Href, s.Icon, s.Show))
+                    .ToList());
+        }
+    }
+
+    /// <summary>데모 전환·바로가기 설정 저장. 로그인 게이트/자격 증명은 여기서 건드리지 않는다(정규 설정으로 이관).</summary>
+    public void UpdateSettings(bool enabled, IReadOnlyList<DemoShortcutDto>? shortcuts)
+    {
+        lock (_lock)
+        {
+            var next = _config.Clone();
+            next.Enabled = enabled;
+
+            if (shortcuts != null)
+            {
+                // 알려진 key(기본 바로가기)만 갱신 — 노출 여부·라벨·URL 만 반영, 항목 추가/삭제는 없음.
+                foreach (var incoming in shortcuts)
+                {
+                    var target = next.Shortcuts.FirstOrDefault(s =>
+                        string.Equals(s.Key, incoming.Key, StringComparison.OrdinalIgnoreCase));
+                    if (target == null) continue;
+                    target.Show = incoming.Show;
+                    if (!string.IsNullOrWhiteSpace(incoming.Label)) target.Label = incoming.Label.Trim();
+                    if (!string.IsNullOrWhiteSpace(incoming.Href)) target.Href = incoming.Href.Trim();
+                }
+            }
+
+            _config = next;
+            Persist(next);
         }
     }
 
@@ -182,12 +248,13 @@ public class DemoAdminService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "데모 관리자 설정 로드 실패, 기본값 사용: {Path}", _configPath);
+            _logger.LogError(ex, "관리자 계정 설정 로드 실패, 기본값 사용: {Path}", _configPath);
         }
 
-        // 신규 설치 또는 손상 — 기본값. 구 마커 파일(demo-admin.enabled)이 있으면 데모 전환 ON 으로 승계.
+        // 신규 설치 또는 손상 — 기본값. 구 마커 파일(demo-admin.enabled)이 있으면 데모 전환+게이트 ON 으로 승계.
         var config = DemoAdminConfig.CreateDefault();
         config.Enabled = File.Exists(_legacyFlagPath);
+        config.LoginEnabled = config.Enabled;
         return config;
     }
 
@@ -203,7 +270,7 @@ public class DemoAdminService
         catch (Exception ex)
         {
             // 파일 실패해도 인메모리 상태는 갱신(현 프로세스 동작 우선). 재시작 시 파일 기준으로 복원된다.
-            _logger.LogError(ex, "데모 관리자 설정 저장 실패: {Path}", _configPath);
+            _logger.LogError(ex, "관리자 계정 설정 저장 실패: {Path}", _configPath);
         }
     }
 
@@ -247,7 +314,13 @@ public class DemoAdminService
 /// <summary>demo-admin.json 직렬화 모델. 관리 API 로만 갱신되며 AppSettings 와 분리 유지.</summary>
 public class DemoAdminConfig
 {
+    /// <summary>데모 전환(사이드바 바로가기 노출).</summary>
     public bool Enabled { get; set; }
+    /// <summary>
+    /// 계정 활성화(로그인 게이트). null = 구버전 파일(분리 전) → Normalize 가 Enabled 값을 승계한다.
+    /// 예전엔 Enabled 하나가 게이트+바로가기를 함께 켰으므로, 기존 데모 사이트의 게이트가 업데이트로 꺼지지 않게 하기 위함.
+    /// </summary>
+    public bool? LoginEnabled { get; set; }
     public string LoginScope { get; set; } = "settings";
     public string AdminId { get; set; } = "admin";
     /// <summary>PBKDF2 해시(hex). null/빈 값이면 기본 비밀번호(2747) 사용 상태.</summary>
@@ -258,6 +331,7 @@ public class DemoAdminConfig
     public static DemoAdminConfig CreateDefault() => new()
     {
         Enabled = false,
+        LoginEnabled = false,
         LoginScope = "settings",
         AdminId = "admin",
         PasswordHash = null,
@@ -271,9 +345,10 @@ public class DemoAdminConfig
         new DemoShortcutConfig { Key = "reverseAi",       Label = "ReverseAI PLCtoAASX", Href = "http://121.139.3.28:2747",  Icon = "sync_alt",  Show = true },
     };
 
-    /// <summary>로드 후 누락/구버전 필드 보정 — 기본 바로가기가 빠져 있으면 채워 넣는다.</summary>
+    /// <summary>로드 후 누락/구버전 필드 보정 — 기본 바로가기가 빠져 있으면 채워 넣고, loginEnabled 부재는 enabled 승계.</summary>
     public void Normalize()
     {
+        LoginEnabled ??= Enabled;
         LoginScope = string.Equals(LoginScope, "app", StringComparison.OrdinalIgnoreCase) ? "app" : "settings";
         if (string.IsNullOrWhiteSpace(AdminId)) AdminId = "admin";
         Shortcuts ??= new List<DemoShortcutConfig>();
@@ -297,6 +372,7 @@ public class DemoAdminConfig
     public DemoAdminConfig Clone() => new()
     {
         Enabled = Enabled,
+        LoginEnabled = LoginEnabled,
         LoginScope = LoginScope,
         AdminId = AdminId,
         PasswordHash = PasswordHash,
@@ -319,10 +395,17 @@ public class DemoShortcutConfig
 
 // ── DTO (camelCase) ──────────────────────────────────────────────────────────
 
+/// <summary>데모 관리 패널 스냅샷 — 데모 전환 + 바로가기(계정 항목은 /api/account 로 이관).</summary>
 public record DemoAdminConfigDto(
     bool Enabled,
-    string LoginScope,
-    string AdminId,
     List<DemoShortcutDto> Shortcuts);
 
 public record DemoShortcutDto(string Key, string Label, string Href, string Icon, bool Show);
+
+/// <summary>설정 ▸ 고급 ▸ 계정·로그인 카드 스냅샷. Authenticated = 요청에 유효한 세션 쿠키가 있었는지.</summary>
+public record AccountInfoDto(
+    bool LoginEnabled,
+    string LoginScope,
+    string AdminId,
+    bool PasswordIsDefault,
+    bool Authenticated);

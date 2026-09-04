@@ -102,6 +102,9 @@ Apps/DSPilot/DSPilot/sample/db/DsDB.sqlite3
 /Apps/DSPilot/DSPilot/sample/db/DsDB.sqlite3-wal
 Apps/DSPilot/example.html
 /Apps/DSPilot/DSPilot/sample/db
+# DSPilot 관리자 계정(아이디/비밀번호 해시)·데모 전환 — 사이트별 런타임 파일. 저장소/설치본에 실리면 현장 계정을 덮어쓴다.
+Apps/DSPilot/DSPilot/demo-admin.json
+Apps/DSPilot/DSPilot/demo-admin.enabled
 Apps/DSPilot/publish/
 Apps/DSPilot/publish-agent/
 Apps/DSPilot/publish-collector/

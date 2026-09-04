@@ -93,7 +93,9 @@ Name: "{#MySharedDir}"; Permissions: users-modify
 ; - 업그레이드: 기존 사용자 데이터 보존 (Excludes 로 덮어쓰기 방지).
 ; cctv-overlays.json 은 git 미추적 런타임 산출물이라 로컬 빌드 시 dev 의 파일이 publish 에 섞여
 ; 들어가 타겟 PC 의 오버레이를 덮어쓰므로(layout-data.json 과 동일 케이스) 함께 제외한다.
-Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "wwwroot\uploads\blueprint.*,wwwroot\uploads\layout-data.json,wwwroot\uploads\layout-data.json.*,wwwroot\uploads\cctv-overlays.json,wwwroot\uploads\cctv-fallbacks\*"
+; demo-admin.json(관리자 계정 아이디/비밀번호·데모 전환)도 사이트별 런타임 파일 — csproj 가 publish 에서 빼지만,
+; 예전 publish 산출물이 남아 있어도 현장 계정을 덮어쓰지 않도록 이중으로 제외한다(업데이트 시 계정 초기화 사고 방지).
+Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "demo-admin.json,demo-admin.enabled,wwwroot\uploads\blueprint.*,wwwroot\uploads\layout-data.json,wwwroot\uploads\layout-data.json.*,wwwroot\uploads\cctv-overlays.json,wwwroot\uploads\cctv-fallbacks\*"
 ; Icon file for shortcuts
 Source: "..\DSPilot\DSPilot.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; CCTV — MediaMTX 바이너리 + WinSW 래퍼. build-installer.bat 가 mediamtx 폴더를 채운다.

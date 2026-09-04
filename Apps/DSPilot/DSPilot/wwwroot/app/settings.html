@@ -101,6 +101,9 @@
         .set-subhead { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--color-text-secondary); }
         .set-subhead .material-icons { font-size: 16px; color: var(--color-primary); }
         .set-subnote { color: var(--color-text-secondary); display: block; margin-bottom: 10px; font-size: 0.72rem; line-height: 1.5; }
+        /* 계정·로그인 카드 — 새 아이디/새 비밀번호 2열(폰에서 1열) */
+        .acct-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+        @media (max-width: 480px) { .acct-row2 { grid-template-columns: 1fr; } }
 
         /* ── 이 DSPilot 정보(고급 탭 하단) ── */
         /* 카드 자체는 두 열을 가로지르므로 내부는 3열까지 자동 접힘(auto-fit). 긴 경로는 열을 부풀리지 않게 줄바꿈. */
@@ -884,6 +887,114 @@
                                 </div>
                             </div>
 
+                            <!-- 계정 · 로그인 (관리자 게이트) — 2026-09-04 데모 관리 패널(/demo/admin)에서 정규 기능으로 이관.
+                                 정본은 AppSettings(this.s) 밖(demo-admin.json, /api/account)이라 상단 저장/dirty 와 분리 — 카드 자체 [적용]/[변경].
+                                 세션 없이 활성화할 땐 현재 비밀번호 확인 필수(잠금 방지, 서버가 강제 + 확인 성공 시 세션 쿠키 발급). -->
+                            <div class="card" x-show="activeTab === 'advanced'">
+                                <div class="card-header">
+                                    <span class="material-icons">manage_accounts</span>
+                                    <span>계정 · 로그인</span>
+                                    <span class="chip" style="margin-left:auto;" :class="acct.saved.loginEnabled ? 'chip-success' : ''"
+                                          x-text="!acct.loaded ? '' : (acct.saved.loginEnabled ? '로그인 요구 중' : '로그인 없음')"></span>
+                                </div>
+                                <div class="card-content">
+                                    <template x-if="acct.error">
+                                        <div class="settings-note" style="border-left-color:var(--color-error);">
+                                            <small x-text="acct.error"></small>
+                                            <template x-if="acct.needLogin">
+                                                <small> <a :href="'/admin-login?return=' + encodeURIComponent('/settings?tab=advanced')">로그인 화면으로 이동</a></small>
+                                            </template>
+                                        </div>
+                                    </template>
+
+                                    <!-- 1. 계정 활성화(로그인 요구) + 적용 범위 -->
+                                    <label class="switch mb-2">
+                                        <input type="checkbox" x-model="acct.form.loginEnabled" :disabled="acct.busy || !acct.loaded" />
+                                        <span><b>계정 활성화</b> — 관리자 로그인 요구</span>
+                                    </label>
+                                    <small class="settings-hint" style="display:block;margin:0 0 10px;">
+                                        켜면 아래 범위의 화면에 진입할 때 관리자 아이디·비밀번호를 요구합니다. 끄면 누구나 바로 진입합니다.
+                                    </small>
+
+                                    <div x-show="acct.form.loginEnabled" x-cloak>
+                                        <p style="font-size:0.78rem;font-weight:700;margin:0 0 4px;">적용 범위</p>
+                                        <div class="segmented" role="group" aria-label="로그인 적용 범위" style="margin:2px 0 6px;">
+                                            <button type="button" :class="{ active: acct.form.loginScope !== 'app' }" @click="acct.form.loginScope = 'settings'">
+                                                <span class="material-icons">settings</span> 설정만
+                                            </button>
+                                            <button type="button" :class="{ active: acct.form.loginScope === 'app' }" @click="acct.form.loginScope = 'app'">
+                                                <span class="material-icons">shield</span> 첫 화면부터
+                                            </button>
+                                        </div>
+                                        <small class="settings-hint" style="display:block;margin:0 0 12px;"
+                                               x-text="acct.form.loginScope === 'app'
+                                                   ? '앱을 열자마자 모든 화면(대시보드 포함)에서 로그인을 요구합니다.'
+                                                   : '설정 계열 페이지(설정·메일·클라우드 계정)에 진입할 때만 로그인을 요구합니다.'"></small>
+
+                                        <!-- 잠금 방지 — 세션 없이 켤 때만 현재 비밀번호 확인(서버도 동일 규칙 강제) -->
+                                        <div class="form-group" x-show="!acct.saved.loginEnabled && !acct.authenticated" style="margin-bottom:10px;">
+                                            <label class="form-label">현재 비밀번호 (활성화 확인)</label>
+                                            <input type="password" class="form-field" x-model="acct.gatePassword" autocomplete="current-password"
+                                                   @keydown.enter.prevent="saveLoginGate()" />
+                                            <small class="settings-hint">
+                                                비밀번호를 모른 채 켜서 설정에서 잠기는 일을 막기 위해 확인합니다.
+                                                <span x-show="acct.passwordIsDefault">초기 계정은 <code>admin</code> / <code>2747</code> 입니다 — 활성화 후 아래에서 변경하세요.</span>
+                                            </small>
+                                        </div>
+                                    </div>
+
+                                    <template x-if="acct.saved.loginEnabled && acct.passwordIsDefault">
+                                        <div class="settings-warn" style="margin:0 0 10px;">
+                                            <span class="material-icons">warning</span>
+                                            <span>초기 비밀번호를 그대로 사용 중입니다. 아래에서 비밀번호를 변경하세요.</span>
+                                        </div>
+                                    </template>
+
+                                    <div style="display:flex;justify-content:flex-end;">
+                                        <button class="btn btn-sm" :class="acctGateDirty() ? 'btn-filled' : ''" @click="saveLoginGate()"
+                                                :disabled="acct.busy || !acct.loaded || !acctGateDirty()">
+                                            <span class="material-icons">check</span> <span x-text="acctGateDirty() ? '적용*' : '적용'"></span>
+                                        </button>
+                                    </div>
+
+                                    <hr class="divider my-3" />
+
+                                    <!-- 2. 아이디 · 비밀번호 변경 -->
+                                    <div class="set-subhead"><span class="material-icons">key</span> 아이디 · 비밀번호 변경</div>
+                                    <small class="set-subnote">
+                                        현재 아이디 <b x-text="acct.adminId || '—'"></b> · 비밀번호
+                                        <b x-text="acct.passwordIsDefault ? '초기값' : '변경됨'"></b>.
+                                        변경할 항목만 입력하세요(비우면 유지). 확인을 위해 현재 비밀번호가 필요합니다.
+                                    </small>
+                                    <form @submit.prevent="changeCredentials()" autocomplete="off">
+                                        <div class="form-group mb-2">
+                                            <label class="form-label">현재 비밀번호</label>
+                                            <input type="password" class="form-field" x-model="acct.cred.current" autocomplete="current-password" required />
+                                        </div>
+                                        <div class="acct-row2">
+                                            <div class="form-group mb-2">
+                                                <label class="form-label">새 아이디</label>
+                                                <input type="text" class="form-field" x-model="acct.cred.newId" autocapitalize="off" spellcheck="false" placeholder="변경 안 하면 비움" />
+                                            </div>
+                                            <div class="form-group mb-2">
+                                                <label class="form-label">새 비밀번호</label>
+                                                <input type="password" class="form-field" x-model="acct.cred.newPw" autocomplete="new-password" placeholder="변경 안 하면 비움" />
+                                            </div>
+                                        </div>
+                                        <div class="form-group mb-2">
+                                            <label class="form-label">새 비밀번호 확인</label>
+                                            <input type="password" class="form-field" x-model="acct.cred.newPw2" autocomplete="new-password" :disabled="!acct.cred.newPw" />
+                                        </div>
+                                        <div style="display:flex;align-items:center;gap:10px;">
+                                            <small class="settings-hint" style="flex:1;margin:0;color:var(--color-error);" x-text="acct.cred.error"></small>
+                                            <button type="submit" class="btn btn-sm btn-outlined" :disabled="acct.busy || !acct.loaded">
+                                                <span class="material-icons">manage_accounts</span> 변경
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+
                             <!-- OPC UA 외부 클라이언트 인증서 -->
                             <div class="card" x-show="activeTab === 'advanced'">
                                 <div class="card-header">
@@ -1246,6 +1357,15 @@
                 autoCalibrate: true, // 자동 duration 정합 ON/OFF (Agent 동기화)
                 opcUaCert: { password: '', showPassword: false, busy: false },
                 opcUaRejected: { loading: false, items: [] },
+                // 계정·로그인(고급 탭) — 정본 demo-admin.json(/api/account). this.s 밖이라 상단 저장/dirty 와 무관, 카드 자체 적용.
+                acct: {
+                    loaded: false, busy: false, error: '', needLogin: false,
+                    authenticated: false, adminId: '', passwordIsDefault: true,
+                    saved: { loginEnabled: false, loginScope: 'settings' },
+                    form: { loginEnabled: false, loginScope: 'settings' },
+                    gatePassword: '',
+                    cred: { current: '', newId: '', newPw: '', newPw2: '', error: '' },
+                },
                 // 사용자 정의 에러(UserTag 정의) 읽기전용 목록 — filter/sort/page 클라이언트 처리
                 ude: { loading: false, items: [], error: '', q: '', sortKey: 'name', sortDir: 'asc', page: 0, pageSize: 20 },
 
@@ -1269,6 +1389,7 @@
                     // 게이트 상태 폴링 — 수동 재측정/외부 AASX 변경을 30초 내 배지에 반영.
                     this._calibTimer = setInterval(() => this.loadCalibStatus(), 30000);
                     this.loadUserDefinedErrors();
+                    this.loadAccount();
                     this.loadOpcUaRejected();
                     this.loadAppInfo();
                     // 가동 시간은 서버 재조회 없이 클라이언트에서 1초씩 증가시켜 표시(새로고침 시 서버값으로 재동기화).
@@ -1989,6 +2110,103 @@
                     this.toast = { show: true, msg, type: type || 'success' };
                     clearTimeout(this._toastTimer);
                     this._toastTimer = setTimeout(() => { this.toast.show = false; }, 4000);
+                },
+
+                // ── 계정 · 로그인 (관리자 게이트, /api/account) ──
+                // 접근 규칙은 서버(AccountController.CanManage): 세션 있음 또는 계정 비활성. 401 이면 로그인 링크 안내.
+                acctGateDirty() {
+                    const f = this.acct.form, s = this.acct.saved;
+                    return f.loginEnabled !== s.loginEnabled || (f.loginEnabled && f.loginScope !== s.loginScope);
+                },
+                _applyAccount(a, keepForm) {
+                    this.acct.authenticated = !!a.authenticated;
+                    this.acct.adminId = a.adminId || '';
+                    this.acct.passwordIsDefault = !!a.passwordIsDefault;
+                    this.acct.saved = { loginEnabled: !!a.loginEnabled, loginScope: a.loginScope === 'app' ? 'app' : 'settings' };
+                    if (!keepForm) this.acct.form = { ...this.acct.saved };
+                    this.acct.loaded = true;
+                    this.acct.error = ''; this.acct.needLogin = false;
+                },
+                _acctNeedLogin() {
+                    this.acct.error = '계정 설정을 변경하려면 로그인이 필요합니다.';
+                    this.acct.needLogin = true;
+                },
+                async _acctPost(url, body) {
+                    const res = await fetch(url, {
+                        method: 'POST', headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    let data = null;
+                    try { data = await res.json(); } catch (_) { /* 비 JSON 무시 */ }
+                    return { ok: res.ok, status: res.status, data };
+                },
+                async loadAccount() {
+                    try {
+                        const res = await fetch('/api/account', { headers: { 'Accept': 'application/json' } });
+                        if (res.status === 401) { this.acct.loaded = false; this._acctNeedLogin(); return; }
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        this._applyAccount(await res.json());
+                    } catch (e) {
+                        this.acct.error = '계정 정보를 불러오지 못했습니다: ' + e.message;
+                    }
+                },
+                async saveLoginGate() {
+                    if (this.acct.busy || !this.acct.loaded || !this.acctGateDirty()) return;
+                    const enabling = this.acct.form.loginEnabled && !this.acct.saved.loginEnabled;
+                    if (enabling && !this.acct.authenticated && !this.acct.gatePassword) {
+                        this.showToast('활성화 확인을 위해 현재 비밀번호를 입력하세요.', 'error');
+                        return;
+                    }
+                    if (!this.acct.form.loginEnabled && this.acct.saved.loginEnabled) {
+                        const ok = await this.askConfirm('계정 비활성화',
+                            '로그인 요구를 끄면 설정 페이지에 누구나 진입할 수 있습니다. 계속하시겠습니까?', '비활성화', '취소');
+                        if (!ok) return;
+                    }
+                    this.acct.busy = true;
+                    try {
+                        const r = await this._acctPost('/api/account/login-gate', {
+                            enabled: this.acct.form.loginEnabled,
+                            loginScope: this.acct.form.loginScope,
+                            currentPassword: this.acct.gatePassword || null,
+                        });
+                        if (r.ok && r.data && r.data.account) {
+                            this._applyAccount(r.data.account);
+                            this.acct.gatePassword = '';
+                            this.showToast(this.acct.saved.loginEnabled
+                                ? '계정이 활성화되었습니다 — ' + (this.acct.saved.loginScope === 'app' ? '첫 화면부터' : '설정 페이지에서') + ' 로그인을 요구합니다.'
+                                : '계정이 비활성화되었습니다 — 로그인 없이 진입합니다.');
+                        } else if (r.status === 401) {
+                            this._acctNeedLogin();
+                        } else {
+                            this.showToast((r.data && r.data.message) || '적용에 실패했습니다.', 'error');
+                        }
+                    } catch (e) {
+                        this.showToast('서버에 연결할 수 없습니다.', 'error');
+                    } finally { this.acct.busy = false; }
+                },
+                async changeCredentials() {
+                    const c = this.acct.cred;
+                    c.error = '';
+                    if (this.acct.busy || !this.acct.loaded) return;
+                    if (!c.newId && !c.newPw) { c.error = '변경할 아이디 또는 비밀번호를 입력하세요.'; return; }
+                    if (c.newPw && c.newPw !== c.newPw2) { c.error = '새 비밀번호가 일치하지 않습니다.'; return; }
+                    this.acct.busy = true;
+                    try {
+                        const r = await this._acctPost('/api/account/credentials', {
+                            currentPassword: c.current, newId: c.newId, newPassword: c.newPw,
+                        });
+                        if (r.ok) {
+                            if (r.data && r.data.account) this._applyAccount(r.data.account, true);
+                            this.acct.cred = { current: '', newId: '', newPw: '', newPw2: '', error: '' };
+                            this.showToast('아이디·비밀번호가 변경되었습니다.');
+                        } else if (r.status === 401) {
+                            this._acctNeedLogin();
+                        } else {
+                            c.error = (r.data && r.data.message) || '변경에 실패했습니다.';
+                        }
+                    } catch (e) {
+                        c.error = '서버에 연결할 수 없습니다.';
+                    } finally { this.acct.busy = false; }
                 }
             };
         }

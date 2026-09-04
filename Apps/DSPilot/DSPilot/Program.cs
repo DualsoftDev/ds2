@@ -117,7 +117,7 @@ builder.Services.AddHostedService<NonProdWriteQueueService>();
 // Core services
 builder.Services.AddSingleton<AppSettingsService>();
 builder.Services.AddSingleton<ExternalAccessService>(); // 외부 접속 주소 유효값(사용자 설정 ▸ 설치 주입) 해석
-builder.Services.AddSingleton<DemoAdminService>(); // 데모용 관리자 게이트 (설정 페이지 보호, /demo/admin 토글)
+builder.Services.AddSingleton<DemoAdminService>(); // 관리자 계정(로그인 게이트, 설정 ▸ 고급) + 데모 전환(/demo/admin 바로가기)
 builder.Services.AddSingleton(_ => new OpcUaClientCertificateService()); // Softing 등 외부 OPC UA 클라이언트 PFX 발급 + Agent PKI 승인
 builder.Services.AddSingleton<DsProjectService>();
 builder.Services.AddScoped<DashboardEditService>();
@@ -368,9 +368,10 @@ static void Revalidate(Microsoft.AspNetCore.StaticFiles.StaticFileResponseContex
     });
 }
 
-// ── 데모 관리자 게이트: 로그인 요구 (데모 전환 활성 시에만) ──
-// /demo/admin 관리 페이지에서 admin 로그인 후 데모 전환·범위를 설정(DemoAdminService). 정적 서빙(UseStaticFiles)
-// 보다 먼저 실행해야 /app/*.html 직접 접근도 가로챈다. 데모 전환 비활성 시 완전 무개입(기존과 동일 진입).
+// ── 관리자 계정 게이트: 로그인 요구 (계정 활성화 시에만) ──
+// 설정 ▸ 고급 ▸ "계정·로그인" 카드에서 계정 활성화·범위를 설정(DemoAdminService.IsLoginEnabled, /api/account).
+// (2026-09-04 이전엔 /demo/admin 의 "데모 전환"이 게이트를 겸했다 — 지금은 데모 전환=바로가기 노출만.)
+// 정적 서빙(UseStaticFiles)보다 먼저 실행해야 /app/*.html 직접 접근도 가로챈다. 계정 비활성 시 완전 무개입.
 // 로그인 범위(LoginScope):
 //   - "settings" : 설정 계열 페이지 진입 시에만 로그인 요구(기본).
 //   - "app"      : 첫 화면부터 모든 페이지(HTML 문서) 진입 시 로그인 요구.
@@ -378,7 +379,7 @@ static void Revalidate(Microsoft.AspNetCore.StaticFiles.StaticFileResponseContex
 {
     var demoAdmin = app.Services.GetRequiredService<DemoAdminService>();
 
-    // 데모 전환이 "app" 범위여도 절대 가로채지 않는 경로(로그인 진입로 + 백엔드).
+    // 계정이 "app" 범위여도 절대 가로채지 않는 경로(로그인 진입로 + 백엔드).
     static bool IsGatePassthrough(string path)
         => string.Equals(path, "/admin-login", StringComparison.OrdinalIgnoreCase)
         || string.Equals(path, "/app/admin-login.html", StringComparison.OrdinalIgnoreCase)
@@ -399,7 +400,7 @@ static void Revalidate(Microsoft.AspNetCore.StaticFiles.StaticFileResponseContex
     {
         var reqPath = context.Request.Path.Value ?? string.Empty;
         if (HttpMethods.IsGet(context.Request.Method)
-            && demoAdmin.IsEnabled
+            && demoAdmin.IsLoginEnabled
             && !IsGatePassthrough(reqPath))
         {
             bool requiresLogin;
@@ -457,9 +458,9 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/settings-cloud"] = "settings-cloud.html",   // CloudWorks 클라우드 계정 연동(회원가입/로그인, 설정 페이지에서 링크)
     ["/flow-trend"] = "flow-trend.html",
     ["/flow-cycle"] = "flow-cycle.html",   // ?name= 단일 · 매개변수 없음/?system= 전체 편집(bulkCycleApp)
-    // 데모 관리자 게이트(2026-07-09): 나브에 노출하지 않는 직접 URL 전용 페이지 2종.
-    ["/admin-login"] = "admin-login.html", // 데모 전환 활성 시 진입 관문 (위 데모 게이트 미들웨어가 302)
-    ["/demo/admin"] = "demo-admin.html",   // admin 로그인 → 데모 전환·범위·자격증명·바로가기 관리 패널
+    // 관리자 게이트(2026-07-09): 나브에 노출하지 않는 직접 URL 전용 페이지 2종.
+    ["/admin-login"] = "admin-login.html", // 계정 활성화 시 진입 관문 (위 계정 게이트 미들웨어가 302)
+    ["/demo/admin"] = "demo-admin.html",   // admin 로그인 → 데모 전환·바로가기 관리 패널 (계정/비밀번호는 설정 ▸ 고급으로 이관)
 };
 // 구 통합 경로 → 물리 분리 페이지 리다이렉트(가동시간·이상 분리, 2026-07-01). 쿼리스트링 보존.
 //   /uptime, /oee 는 이제 효율 현황(/uptime-oee)으로 302. 이상·알람은 좌측 나브/링크가 /uptime-alarm 직접 이동.

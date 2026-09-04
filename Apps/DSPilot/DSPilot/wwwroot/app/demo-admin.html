@@ -8,11 +8,11 @@
 
     <!--
       데모 관리 패널 (/demo/admin, 나브 비노출·직접 URL 전용, 독립 셸: shell.js/나브 미로드).
-      admin 로그인(기본 admin/2747) 후 다음을 제어한다(DemoAdminService / /api/demo-admin/*):
-        - 데모 전환(enabled)  : 마스터 스위치. ON 이면 로그인 게이트 + 사이드바 바로가기 노출.
-        - 로그인 요구 범위    : 설정 페이지만 / 첫 화면부터 전체.
-        - 관리자 자격 증명    : 아이디·비밀번호 변경(현재 비밀번호 확인).
+      admin 로그인 후 다음을 제어한다(DemoAdminService / /api/demo-admin/*):
+        - 데모 전환(enabled)  : ON 이면 사이드바에 외부 바로가기 노출. (로그인 게이트와는 무관)
         - 바로가기            : 설비박사·ReverseAI 개별 노출 체크 + 라벨/URL.
+      2026-09-04 이관: 계정 활성화(로그인 요구·범위)와 아이디/비밀번호 변경은 정규 설정(설정 ▸ 고급 ▸ 계정·로그인,
+      /api/account/*)으로 옮겨 여기서는 다루지 않는다.
       GET /api/demo-admin/config 가 401 이면 로그인 화면, 200 이면 관리 패널을 보여준다.
       디자인 시스템: /css/ds.css (Control Room 토큰). 페이지 고유 클래스(dadm-*)만 인라인.
     -->
@@ -46,8 +46,6 @@
         .dadm-field { margin-bottom: 14px; }
         .dadm-field label { display: block; font-size: 0.74rem; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 6px; letter-spacing: 0.02em; }
         .dadm-field .form-field { width: 100%; box-sizing: border-box; }
-        .dadm-row2 { display: flex; gap: 12px; }
-        .dadm-row2 > * { flex: 1; min-width: 0; }
 
         /* 스위치(체크박스) 행 */
         .dadm-toggle { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--color-lines); }
@@ -65,16 +63,6 @@
         .dadm-switch input:checked ~ .thumb { transform: translateX(20px); }
         .dadm-switch input:disabled ~ .track { opacity: .45; }
 
-        /* 세그먼트(로그인 범위) */
-        .dadm-seg { display: flex; gap: 8px; }
-        .dadm-seg-opt { flex: 1; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); padding: 12px; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
-        .dadm-seg-opt input { position: absolute; opacity: 0; }
-        .dadm-seg-opt .st { font-size: 0.84rem; font-weight: 700; display: flex; align-items: center; gap: 6px; }
-        .dadm-seg-opt .sd { display: block; font-size: 0.7rem; color: var(--color-text-secondary); margin-top: 4px; line-height: 1.4; }
-        .dadm-seg-opt.active { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
-        .dadm-seg-opt.active .st { color: var(--color-primary); }
-        .dadm-seg[aria-disabled="true"] { opacity: .5; pointer-events: none; }
-
         /* 바로가기 항목 */
         .dadm-shortcut { border: 1px solid var(--color-lines); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 12px; }
         .dadm-shortcut:last-child { margin-bottom: 0; }
@@ -90,6 +78,12 @@
         .dadm-msg .material-icons { font-size: 15px; }
         .dadm-msg.ok { color: var(--color-success); }
         .dadm-msg.err { color: var(--color-error); }
+
+        /* 이관 안내(계정·로그인 → 설정 ▸ 고급) */
+        .dadm-moved { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--color-lines); border-left: 3px solid var(--color-primary); border-radius: var(--radius-sm); background: var(--color-surface-variant); font-size: 0.78rem; line-height: 1.5; color: var(--color-text-secondary); }
+        .dadm-moved .material-icons { font-size: 18px; color: var(--color-primary); flex: 0 0 auto; }
+        .dadm-moved .grow { flex: 1; min-width: 0; }
+        .dadm-moved a { white-space: nowrap; }
 
         .dadm-foot { text-align: center; margin-top: 16px; color: var(--color-text-secondary); font-size: 0.68rem; letter-spacing: 0.06em; user-select: none; }
         .dadm-hidden { display: none !important; }
@@ -138,39 +132,23 @@
 
             <!-- ── 관리 패널 ── -->
             <div class="dadm-hidden" id="panelView">
-                <!-- 데모 전환 + 로그인 범위 -->
+                <!-- 데모 전환 -->
                 <div class="dadm-card">
                     <div class="dadm-head">
                         <span class="material-icons" aria-hidden="true">tune</span>
                         <span class="dadm-title">데모 전환</span>
                     </div>
-                    <small class="dadm-sub">데모 전환은 마스터 스위치입니다. 켜면 로그인 게이트가 활성화되고 아래 바로가기가 사이드바에 노출됩니다. 끄면 순정 설치처럼 로그인·바로가기 없이 동작합니다.</small>
+                    <small class="dadm-sub">켜면 아래 바로가기가 사이드바에 노출됩니다. 끄면 순정 설치처럼 바로가기 없이 동작합니다.</small>
 
                     <div class="dadm-toggle">
                         <div class="dadm-toggle-main">
                             <span class="t">데모 전환</span>
-                            <span class="d">데모 모드 전체 on/off</span>
+                            <span class="d">데모 바로가기 노출 on/off</span>
                         </div>
                         <label class="dadm-switch">
                             <input type="checkbox" id="cfgEnabled" />
                             <span class="track"></span><span class="thumb"></span>
                         </label>
-                    </div>
-
-                    <div class="dadm-field" id="scopeField" style="margin-top:14px;">
-                        <label>로그인 요구 범위</label>
-                        <div class="dadm-seg" id="scopeSeg" role="radiogroup" aria-label="로그인 요구 범위">
-                            <label class="dadm-seg-opt" data-scope="settings">
-                                <input type="radio" name="loginScope" value="settings" />
-                                <span class="st"><span class="material-icons" style="font-size:16px;">settings</span> 설정만</span>
-                                <span class="sd">설정 계열 페이지 진입 시에만 로그인을 요구합니다.</span>
-                            </label>
-                            <label class="dadm-seg-opt" data-scope="app">
-                                <input type="radio" name="loginScope" value="app" />
-                                <span class="st"><span class="material-icons" style="font-size:16px;">shield</span> 첫 화면부터</span>
-                                <span class="sd">앱을 열자마자 모든 화면에서 로그인을 요구합니다.</span>
-                            </label>
-                        </div>
                     </div>
                 </div>
 
@@ -194,40 +172,13 @@
                     </div>
                 </div>
 
-                <!-- 자격 증명 변경 -->
+                <!-- 계정·로그인 이관 안내 -->
                 <div class="dadm-card">
-                    <div class="dadm-head">
-                        <span class="material-icons" aria-hidden="true">key</span>
-                        <span class="dadm-title">아이디 · 비밀번호 변경</span>
+                    <div class="dadm-moved">
+                        <span class="material-icons" aria-hidden="true">manage_accounts</span>
+                        <span class="grow">계정 활성화(로그인 요구·범위)와 아이디·비밀번호 변경은 정규 설정으로 옮겨졌습니다.</span>
+                        <a class="btn btn-sm btn-outlined" href="/settings?tab=advanced">설정 ▸ 고급 열기</a>
                     </div>
-                    <small class="dadm-sub">변경할 항목만 입력하세요(비우면 유지). 확인을 위해 현재 비밀번호가 필요합니다.</small>
-
-                    <form id="credForm" autocomplete="off">
-                        <div class="dadm-field">
-                            <label for="curPw">현재 비밀번호</label>
-                            <input class="form-field" id="curPw" type="password" autocomplete="current-password" required />
-                        </div>
-                        <div class="dadm-row2">
-                            <div class="dadm-field">
-                                <label for="newId">새 아이디</label>
-                                <input class="form-field" id="newId" type="text" autocapitalize="off" spellcheck="false" placeholder="변경 안 하면 비움" />
-                            </div>
-                            <div class="dadm-field">
-                                <label for="newPw">새 비밀번호</label>
-                                <input class="form-field" id="newPw" type="password" autocomplete="new-password" placeholder="변경 안 하면 비움" />
-                            </div>
-                        </div>
-                        <div class="dadm-field">
-                            <label for="newPw2">새 비밀번호 확인</label>
-                            <input class="form-field" id="newPw2" type="password" autocomplete="new-password" />
-                        </div>
-                        <div class="dadm-actions">
-                            <small class="dadm-msg grow" id="credMsg" role="status"></small>
-                            <button type="submit" class="btn btn-outlined" id="credBtn">
-                                <span class="material-icons" aria-hidden="true">manage_accounts</span> 자격 증명 변경
-                            </button>
-                        </div>
-                    </form>
                 </div>
 
                 <div class="dadm-actions" style="justify-content:flex-end;margin-top:8px;">
@@ -306,24 +257,8 @@
             });
 
             // ── 패널 렌더 ──
-            function syncScopeUi() {
-                var enabled = $('cfgEnabled').checked;
-                var seg = $('scopeSeg');
-                seg.setAttribute('aria-disabled', enabled ? 'false' : 'true');
-                Array.prototype.forEach.call(seg.querySelectorAll('input'), function (i) { i.disabled = !enabled; });
-                Array.prototype.forEach.call(seg.querySelectorAll('.dadm-seg-opt'), function (opt) {
-                    var checked = opt.querySelector('input').checked;
-                    opt.classList.toggle('active', checked);
-                });
-            }
-
             function renderPanel(cfg) {
                 $('cfgEnabled').checked = !!cfg.enabled;
-                var scope = cfg.loginScope === 'app' ? 'app' : 'settings';
-                Array.prototype.forEach.call($('scopeSeg').querySelectorAll('input'), function (i) {
-                    i.checked = (i.value === scope);
-                });
-                syncScopeUi();
 
                 var list = $('shortcutList');
                 list.innerHTML = '';
@@ -331,7 +266,6 @@
                     list.appendChild(buildShortcutRow(s));
                 });
                 setMsg($('cfgMsg'), '', true);
-                setMsg($('credMsg'), '', true);
             }
 
             function buildShortcutRow(s) {
@@ -378,16 +312,11 @@
                 return wrap;
             }
 
-            // 세그먼트 클릭 시 active 스타일 갱신
-            $('scopeSeg').addEventListener('change', syncScopeUi);
-            $('cfgEnabled').addEventListener('change', syncScopeUi);
-
             // ── 설정 저장 ──
             $('cfgSaveBtn').addEventListener('click', async function () {
                 var btn = this; btn.disabled = true;
                 setMsg($('cfgMsg'), '', true);
                 try {
-                    var scopeInput = $('scopeSeg').querySelector('input:checked');
                     var shortcuts = Array.prototype.map.call(
                         document.querySelectorAll('#shortcutList .dadm-shortcut'),
                         function (row) {
@@ -400,7 +329,6 @@
                         });
                     var r = await api('POST', '/api/demo-admin/config', {
                         enabled: $('cfgEnabled').checked,
-                        loginScope: scopeInput ? scopeInput.value : 'settings',
                         shortcuts: shortcuts
                     });
                     if (r.ok) {
@@ -413,37 +341,6 @@
                     }
                 } catch (_) {
                     setMsg($('cfgMsg'), '서버에 연결할 수 없습니다.', false);
-                } finally { btn.disabled = false; }
-            });
-
-            // ── 자격 증명 변경 ──
-            $('credForm').addEventListener('submit', async function (e) {
-                e.preventDefault();
-                var btn = $('credBtn'); btn.disabled = true;
-                setMsg($('credMsg'), '', true);
-                try {
-                    var newPw = $('newPw').value, newPw2 = $('newPw2').value, newId = $('newId').value;
-                    if (!newId && !newPw) {
-                        setMsg($('credMsg'), '변경할 아이디 또는 비밀번호를 입력하세요.', false);
-                        btn.disabled = false; return;
-                    }
-                    if (newPw && newPw !== newPw2) {
-                        setMsg($('credMsg'), '새 비밀번호가 일치하지 않습니다.', false);
-                        btn.disabled = false; return;
-                    }
-                    var r = await api('POST', '/api/demo-admin/credentials', {
-                        currentPassword: $('curPw').value, newId: newId, newPassword: newPw
-                    });
-                    if (r.ok) {
-                        setMsg($('credMsg'), '변경되었습니다.', true);
-                        $('credForm').reset();
-                    } else if (r.status === 401) {
-                        await boot();
-                    } else {
-                        setMsg($('credMsg'), (r.data && r.data.message) || '변경에 실패했습니다.', false);
-                    }
-                } catch (_) {
-                    setMsg($('credMsg'), '서버에 연결할 수 없습니다.', false);
                 } finally { btn.disabled = false; }
             });
 

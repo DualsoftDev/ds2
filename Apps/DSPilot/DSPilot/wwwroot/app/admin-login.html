@@ -7,9 +7,9 @@
     <title>관리자 로그인 — DSPilot</title>
 
     <!--
-      데모 관리자 게이트 — 로그인 관문 페이지 (독립 셸: shell.js/나브 미로드).
-      게이트 활성 시 Program.cs 미들웨어가 /settings → 여기로 302 (?return= 원래 경로).
-      POST /api/demo-admin/login {id, password} → 성공 시 HttpOnly 세션 쿠키 발급 후 return 경로로 이동.
+      관리자 계정 게이트 — 로그인 관문 페이지 (독립 셸: shell.js/나브 미로드).
+      계정 활성화(설정 ▸ 고급 ▸ 계정·로그인) 시 Program.cs 미들웨어가 /settings → 여기로 302 (?return= 원래 경로).
+      POST /api/account/login {id, password} → 성공 시 HttpOnly 세션 쿠키 발급 후 return 경로로 이동.
       게이트 활성/비활성 상태는 이 페이지 어디에도 표시하지 않는다.
       디자인 시스템: /css/ds.css (Control Room 토큰). 페이지 고유 클래스(alogin-*)만 인라인.
     -->
@@ -117,7 +117,7 @@
                 errBox.classList.remove('show');
                 submitBtn.disabled = true;
                 try {
-                    var res = await fetch('/api/demo-admin/login', {
+                    var res = await fetch('/api/account/login', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({

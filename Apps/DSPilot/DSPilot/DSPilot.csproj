@@ -59,6 +59,11 @@
          (dev 실행은 content root=프로젝트폴더에서 직접 읽으므로 output 복사 불필요.) -->
     <None Update="dsp.conf" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
     <Content Remove="dsp.conf" />
+    <!-- demo-admin.json(관리자 계정·데모 전환, DemoAdminService) 은 사이트별 런타임 산출물 — Web SDK 기본 glob(**/*.json)이
+         Content 로 잡아 publish 에 실렸고, 인스톨러가 {app} 에 덮어써 현장 아이디/비밀번호가 업데이트마다 초기화됐다.
+         dsp.conf 와 동일하게 bin/publish 모두 제외(dev 실행은 content root=프로젝트폴더에서 직접 읽음). -->
+    <None Update="demo-admin.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+    <Content Remove="demo-admin.json" />
   </ItemGroup>
 
   <!--
