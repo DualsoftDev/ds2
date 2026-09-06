@@ -505,3 +505,55 @@
 .ct-lane-row.is-collapsed .ct-lane-row-leg { display: none; }
 .ct-lane-row.is-collapsed .ct-tag-btn { min-width: 20px; height: 20px; font-size: 0.6rem; padding: 0 5px; }
 .ct-lane-row.is-collapsed .ct-badge { transform: scale(0.9); }
+
+/* ════ 간트 탭 (2026-09-06) — [flow 전체] [분기 n …] [+ 분기 추가]. 분기별 간트를 세로로 줄지어 그리던 카드를 탭으로 대체 ════ */
+.fg-tabs { display: flex; align-items: flex-end; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--color-lines); padding: 0 2px; }
+.fg-tab { --fg-c: var(--color-primary); display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; margin-bottom: -1px;
+          border: 1px solid transparent; border-bottom: 1px solid var(--color-lines); border-radius: var(--radius-md) var(--radius-md) 0 0;
+          background: transparent; color: var(--color-text-secondary); font: inherit; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+          white-space: nowrap; max-width: 280px; position: relative; transition: background-color 0.12s, color 0.12s; }
+.fg-tab > span { overflow: hidden; text-overflow: ellipsis; }
+.fg-tab .material-icons { font-size: 16px; flex: 0 0 auto; }
+.fg-tab:hover:not(:disabled) { color: var(--color-text-primary); background: color-mix(in srgb, var(--fg-c) 7%, transparent); }
+.fg-tab.is-active { color: var(--color-text-primary); background: var(--color-surface); border-color: var(--color-lines); border-bottom-color: var(--color-surface); box-shadow: inset 0 3px 0 var(--fg-c); }
+.fg-tab .fg-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--fg-c); flex: 0 0 auto; }
+.fg-tab-sub { font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.fg-tab-dup { font-size: 0.6rem; font-weight: 800; color: #fff; background: #e53935; border-radius: 999px; padding: 1px 6px; line-height: 1.3; }
+.fg-tab-add { color: var(--color-primary); border-style: dashed; border-color: color-mix(in srgb, var(--color-primary) 40%, transparent); border-bottom-style: solid; border-bottom-color: var(--color-lines); }
+.fg-tab-add:disabled { opacity: 0.4; cursor: not-allowed; }
+.dark-theme .fg-tab.is-active { background: var(--color-surface); }
+
+/* 분기 탭 헤더(이름·통계·우선순위·삭제) — 분기색 옅은 배경 */
+.fg-bhead { padding: 8px 10px; border: 1px solid var(--color-lines); border-radius: var(--radius-md); background: color-mix(in srgb, var(--fg-c, var(--color-primary)) 5%, var(--color-surface)); }
+.fg-bhint { flex: 1 1 260px; min-width: 0; }
+.fg-dupwarn b { color: #e53935; }
+
+/* flow 전체 탭 · 분기별 CT 합산 요약 */
+.fg-union { padding: 8px 10px; border: 1px dashed var(--color-lines-strong); border-radius: var(--radius-md); }
+.fg-stat-link { cursor: pointer; border-radius: 999px; padding: 1px 6px; margin: -1px -6px; }
+.fg-stat-link:hover { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
+.fb-stat i.fg-hatch, .ct-sw-hatch { background: repeating-linear-gradient(45deg, rgba(229,57,53,0.9) 0 2px, rgba(229,57,53,0.15) 2px 5px); border: 1px solid #e53935; }
+.ct-sw-none { background: #cfd8dc; border: 1px solid #90a4ae; }
+
+/* 툴바 검색(간트 내부 필터) */
+.ct-search { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px 2px 8px; border: 1px solid var(--color-lines-strong); border-radius: 999px; background: var(--color-surface); min-width: 170px; }
+.ct-search .material-icons { font-size: 16px; color: var(--color-text-secondary); flex: 0 0 auto; }
+.ct-search input { border: none; outline: none; background: transparent; font: inherit; font-size: 0.74rem; width: 110px; min-width: 0; color: var(--color-text-primary); }
+.ct-search:focus-within { border-color: var(--color-primary); }
+.ct-search-n { font-size: 0.64rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-text-secondary); white-space: nowrap; }
+.ct-search-x { border: none; background: transparent; cursor: pointer; font-size: 0.8rem; color: var(--color-text-secondary); padding: 0 4px; line-height: 1; }
+.ct-search-x:hover { color: var(--color-text-primary); }
+.fg-empty-filter { padding: 16px 12px; font-size: 0.74rem; color: var(--color-text-secondary); text-align: center; border-bottom: 1px solid var(--color-lines); }
+.fg-empty-filter a { color: var(--color-primary); font-weight: 700; }
+.dark-theme .ct-search { background: var(--color-surface-variant); }
+
+@media (max-width: 480px) {
+    .ct-search { width: 100%; }
+    .ct-search input { flex: 1; width: auto; }
+    .fg-tabs { gap: 2px; }
+    .fg-tab { padding: 6px 9px; font-size: 0.72rem; max-width: 180px; }
+    .fg-bhint { display: none; }
+}
+/* 툴바에 정렬·검색이 추가돼(2026-09-06) 중간 폭에서 이동/확대 슬라이더가 둘째 줄로 밀린다 — 힌트 문구는 넓은 화면에서만 */
+@media (max-width: 1700px) { .ct-gantt-toolbar .ct-tb-hint { display: none; } }
+@media (max-width: 1400px) { .ct-gantt-toolbar .ct-pan { flex-basis: 140px; } .ct-search { min-width: 150px; } .ct-search input { width: 90px; } }

@@ -76,25 +76,45 @@
     // ════════════════════════════════════════════════════════════════════════
     function hasApiCalls(lane) { return !!(lane && lane.apiCalls && lane.apiCalls.length); }
 
+    // 사이드바 검색(필터) — call 이름 · Work · IN/OUT 태그 주소 · 소속 I/O 쌍 이름을 대상으로 부분 일치.
+    //   공백으로 나눈 토큰은 AND(모두 어딘가에 맞아야 표시). 대소문자 무시. 빈 질의 = 전체 표시.
+    function laneMatches(lane, q) {
+        var terms = String(q || '').toLowerCase().split(/\s+/).filter(function (t) { return t; });
+        if (!terms.length) return true;
+        var hay = [lane.callName, lane.workName, lane.inTag, lane.outTag];
+        (lane.apiCalls || []).forEach(function (ac) { hay.push(ac.name, ac.inTag, ac.outTag); });
+        var joined = hay.filter(function (h) { return h; }).join('\n').toLowerCase();
+        for (var i = 0; i < terms.length; i++) if (joined.indexOf(terms[i]) === -1) return false;
+        return true;
+    }
+    function visibleLanes(s) {
+        var q = (s.laneFilter || '').trim();
+        if (!q) return s.callLanes;
+        return s.callLanes.filter(function (l) { return laneMatches(l, q); });
+    }
+
     function laneLayout(s) {
         var rows = [];
         var y = 0;
+        // 표시 lane = 검색 필터 통과분(2026-09-06). 필터는 표시만 줄인다 — 사이클/분기 계산은 호출자가 전체 lane 으로.
+        var lanes = visibleLanes(s);
         // Work 그룹 헤더(2026-08-27) — 서로 다른 Work 가 2개 이상일 때만 lane 사이에 얇은 헤더 행을 끼워
-        // Work 경계를 시각화한다(단일 Work flow 는 종전과 동일). lane 순서는 서버가 Work→Call 정렬로
-        // 내려주므로 연속 구간 = 같은 Work. 사이드바(flow-workspace laneLayout)와 반드시 같은 규칙 유지.
+        // Work 경계를 시각화한다(단일 Work flow 는 종전과 동일). 사이드바와 SVG 가 이 한 함수를 공유한다.
+        //   s.noWorkRows=true(2026-09-06 '시작·끝 정렬' 모드) 면 헤더를 넣지 않는다 — 신호 시각 순 정렬은
+        //   Work 가 뒤섞여 헤더가 행마다 끼어드는 충돌이 있었다. Work 헤더는 'Work 그룹' 정렬 모드 전용.
         var workSet = {};
         var workCount = 0;
-        for (var wi = 0; wi < s.callLanes.length; wi++) {
-            var wn0 = s.callLanes[wi].workName || '';
+        for (var wi = 0; wi < lanes.length; wi++) {
+            var wn0 = lanes[wi].workName || '';
             if (!workSet[wn0]) { workSet[wn0] = true; workCount++; }
         }
-        var useWorkRows = workCount >= 2;
+        var useWorkRows = workCount >= 2 && !s.noWorkRows;
         // 접힌 lane(2026-08-28) — s.collapsedCallNames[callName]=true 인 call 은 얇은 띠로 축소(신호 미표시).
         //   분기 간트의 '제외' call 시각화 전용 — 상단/벌크 간트는 이 필드가 없어 종전과 동일.
         var collapsed = s.collapsedCallNames || null;
         var prevWork = null;
-        for (var li = 0; li < s.callLanes.length; li++) {
-            var lane = s.callLanes[li];
+        for (var li = 0; li < lanes.length; li++) {
+            var lane = lanes[li];
             var wn = lane.workName || '';
             if (useWorkRows && wn !== prevWork) {
                 rows.push({ kind: 'work', key: 'w:' + wn + ':' + li, workName: wn || '(Work 없음)', y: y, h: WORK_ROW_H });
@@ -227,19 +247,41 @@
     // ════════════════════════════════════════════════════════════════════════
     //  사이클 목록 파생 — flow.html:1779-1815
     // ════════════════════════════════════════════════════════════════════════
-    function cycleRows(s) {
-        if (!s.chartStart || s.cycleBoundaries.length === 0) return [];
-        var ce = s.chartEnd ? s.chartEnd.getTime() : 0;
-        var bnd = s.cycleBoundaries.map(function (d) { return d.getTime(); });
-        var tails = s.tailEdges.map(function (d) { return d.getTime(); }).slice().sort(function (a, b) { return a - b; });
+    // ── 사이클 스팬 단일 소스(2026-09-06) ──
+    // 종전엔 리본/밴드/목록이 각자 cycleBoundaries(Date[]) 에서 "연속 경계 = 스팬" 을 다시 만들었다.
+    // 분기 탭(이 분기로 분류된 스팬만 — 사이 구간은 비어 있음)과 flow 합산(스팬마다 어느 분기/중복/없음 메타)은
+    // 경계 배열로 표현할 수 없어 s.cycleSpans 로 스팬을 직접 넘길 수 있게 했다. 없으면 종전처럼 경계에서 파생.
+    //   스팬 = { start, end(ms), number, isOpen, tailIn?(ms|null — 주어지면 tailEdges 스캔 생략), union?{win,dup,color,label,title} }
+    function cycleSpansOf(s) {
+        if (s.cycleSpans) return s.cycleSpans;
+        var bnd = (s.cycleBoundaries || []);
+        if (!bnd.length || !s.chartEnd) return [];
+        var ce = s.chartEnd.getTime();
+        var ms = bnd.map(function (d) { return d.getTime(); });
         var spans = [];
-        for (var i = 0; i < bnd.length - 1; i++) spans.push({ start: bnd[i], end: bnd[i + 1], number: i + 1, isOpen: false });
-        if (bnd.length > 0 && ce && bnd[bnd.length - 1] < ce) spans.push({ start: bnd[bnd.length - 1], end: ce, number: bnd.length, isOpen: true });
-        var tIdx = 0;
+        for (var i = 0; i < ms.length - 1; i++) spans.push({ start: ms[i], end: ms[i + 1], number: i + 1, isOpen: false });
+        if (ce && ms[ms.length - 1] < ce) spans.push({ start: ms[ms.length - 1], end: ce, number: ms.length, isOpen: true });
+        return spans;
+    }
+    function hasRibbon(s) { return cycleSpansOf(s).length > 0; }
+    // 스팬별 완료 마커(ms|null) — 스팬이 tailIn 을 들고 있으면 그대로, 아니면 s.tailEdges 를 순방향 스캔(종전 규칙).
+    function tailInsOf(spans, s) {
+        var tails = (s.tailEdges || []).map(function (d) { return d.getTime(); }).slice().sort(function (a, b) { return a - b; });
+        var idx = 0;
         return spans.map(function (span) {
-            while (tIdx < tails.length && tails[tIdx] <= span.start) tIdx++;
-            var tailIn = null;
-            if (tIdx < tails.length && tails[tIdx] < span.end) tailIn = tails[tIdx];
+            if (span.tailIn !== undefined) return span.tailIn;
+            while (idx < tails.length && tails[idx] <= span.start) idx++;
+            return (idx < tails.length && tails[idx] < span.end) ? tails[idx] : null;
+        });
+    }
+
+    function cycleRows(s) {
+        if (!s.chartStart) return [];
+        var spans = cycleSpansOf(s);
+        if (!spans.length) return [];
+        var tailIns = tailInsOf(spans, s);
+        return spans.map(function (span, si) {
+            var tailIn = tailIns[si];
             var ctMs = span.end - span.start;
             var atMs = tailIn !== null ? tailIn - span.start : null;
             var wtMs = atMs !== null ? Math.max(0, ctMs - atMs) : null;
@@ -291,17 +333,21 @@
         var totalMs = Math.max(1.0, ce - cs);
         var PW = s.plotWidth;
         var chartW = LEFT_PAD + PW + RIGHT_PAD;
-        var ribbonH = s.cycleBoundaries.length ? RIBBON_H : 0;
+        var ribbonH = hasRibbon(s) ? RIBBON_H : 0;
         var laneAreaTop = TOP_MARGIN + ribbonH;
         var layout = laneLayout(s);
         var laneAreaBottom = laneAreaTop + layout.totalH;
         var chartH = laneAreaBottom + BOTTOM_PAD;
         var xScale = PW / totalMs;
-        s._geo = { cs: cs, xScale: xScale };
+        // laneTop/laneAreaH 도 함께 — 드래그 선택(flow-workspace _beginDrag)이 활성 탭의 레인 영역을 여기서 읽는다.
+        s._geo = { cs: cs, xScale: xScale, laneTop: laneAreaTop, laneAreaH: layout.totalH };
         var msOf = function (d) { return d.getTime() - cs; };
 
         var sb = '';
         sb += '<svg class="ct-gantt" width="' + chartW + '" height="' + chartH + '" xmlns="http://www.w3.org/2000/svg">';
+        // CT 중복(둘 이상의 분기가 같은 스팬을 정상 판별) 해치 패턴 — flow 합산 리본 전용.
+        sb += '<defs><pattern id="ctDupHatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
+            + '<rect width="7" height="7" fill="rgba(229,57,53,0.14)"/><line x1="0" y1="0" x2="0" y2="7" stroke="#e53935" stroke-width="2.2"/></pattern></defs>';
         sb += '<rect width="100%" height="100%" fill="#ffffff"/>';
 
         if (ribbonH > 0) {
@@ -518,22 +564,17 @@
     }
 
     function appendCycleRibbon(s, xScale, ribbonTop, ribbonH, cs, ce) {
-        if (s.cycleBoundaries.length === 0) return '';
+        var spans = cycleSpansOf(s);
+        if (!spans.length) return '';
         var sb = '';
-        var bnd = s.cycleBoundaries.map(function (d) { return d.getTime(); });
         var msOf = function (t) { return t - cs; };
         var plotRight = LEFT_PAD + s.plotWidth;
-
-        var spans = [];
-        for (var i = 0; i < bnd.length - 1; i++) spans.push({ start: bnd[i], end: bnd[i + 1], number: i + 1, isOpen: false });
-        if (bnd[bnd.length - 1] < ce) spans.push({ start: bnd[bnd.length - 1], end: ce, number: bnd.length, isOpen: true });
-
-        var tails = s.tailEdges.map(function (d) { return d.getTime(); });
-        var tailIdx = 0;
+        var tailIns = tailInsOf(spans, s);
 
         var barY = ribbonTop + 16;
         var barH = Math.max(14, ribbonH - 20);
         var barCY = barY + barH / 2.0;
+        var mono = 'Inter,ui-monospace,Cascadia Code,Consolas,monospace';
 
         sb += '<rect x="' + f(LEFT_PAD) + '" y="' + ribbonTop + '" width="' + f(plotRight - LEFT_PAD) + '" height="' + ribbonH + '" fill="#fafbfc"/>';
         sb += '<line x1="0" y1="' + f(ribbonTop + ribbonH) + '" x2="' + f(plotRight) + '" y2="' + f(ribbonTop + ribbonH) + '" stroke="#cfd8dc" stroke-width="1"/>';
@@ -546,15 +587,46 @@
             var isEven = span.number % 2 === 0;
             var dim = span.isOpen ? 0.55 : 1;
 
-            while (tailIdx < tails.length && tails[tailIdx] <= span.start) tailIdx++;
-            var tailIn = null;
-            if (tailIdx < tails.length && tails[tailIdx] < span.end) tailIn = tails[tailIdx];
+            var tailIn = tailIns[si];
             var tailX = tailIn !== null ? LEFT_PAD + msOf(tailIn) * xScale : null;
 
             var ctMs = span.end - span.start;
             var atMs = tailIn !== null ? tailIn - span.start : null;
             var idleMs = atMs !== null ? ctMs - atMs : null;
             var ratio = (atMs !== null && ctMs > 0) ? Math.round(atMs / ctMs * 100) : null;
+
+            // ── flow 합산 모드(분기 사용 중) — 스팬 색 = 판별된 분기, 회색 = 정상 CT 없음, 빨간 해치 = CT 중복 ──
+            var u = span.union;
+            if (u) {
+                var none = u.win === -1;
+                var base = none ? '#cfd8dc' : u.color;
+                var ug = '<g><title>' + esc(u.title || u.label || '') + (atMs !== null ? '  · 동작 ' + esc(formatMs(atMs)) + ' / 대기 ' + esc(formatMs(idleMs)) : '') + '</title>';
+                if (tailX !== null && !none) {
+                    ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(Math.max(0, tailX - sx)) + '" height="' + barH + '" fill="' + base + '" opacity="' + (0.92 * dim) + '"/>';
+                    ug += '<rect x="' + f(tailX) + '" y="' + barY + '" width="' + f(Math.max(0, ex - tailX)) + '" height="' + barH + '" fill="' + base + '" opacity="' + (0.38 * dim) + '"/>';
+                } else {
+                    ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="' + base + '" opacity="' + ((none ? 0.85 : 0.6) * dim) + '"/>';
+                }
+                if (u.dup) {
+                    ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="url(#ctDupHatch)"/>';
+                    ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="none" stroke="#e53935" stroke-width="1.6"/>';
+                } else {
+                    ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="none" stroke="' + (none ? '#90a4ae' : base) + '" stroke-width="0.9"/>';
+                }
+                if (span.isOpen) ug += '<line x1="' + f(ex) + '" y1="' + barY + '" x2="' + f(ex) + '" y2="' + f(barY + barH) + '" stroke="#90a4ae" stroke-width="1" stroke-dasharray="3 2"/>';
+                if (bandW > 64) {
+                    var ul = (u.label || '') + ' · ' + formatMs(ctMs);
+                    var fill = none ? '#455a64' : (u.dup ? '#b71c1c' : '#ffffff');
+                    // 텍스트가 바 폭을 넘치면 잘라낸다(라벨 폭 ≈ 글자수×6.2px)
+                    var maxCh = Math.floor((bandW - 8) / 6.2);
+                    if (ul.length > maxCh) ul = ul.slice(0, Math.max(0, maxCh - 1)) + '…';
+                    ug += '<text x="' + f(sx + bandW / 2.0) + '" y="' + f(barCY) + '" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="800" fill="' + fill + '" font-family="' + mono + '"' + (none || u.dup ? '' : ' style="paint-order:stroke" stroke="rgba(0,0,0,0.35)" stroke-width="2"') + '>' + esc(ul) + '</text>';
+                }
+                if (bandW > 22) ug += '<text x="' + f(sx + 4) + '" y="' + f(ribbonTop + 12) + '" font-size="11" font-weight="800" fill="#263238">#' + span.number + (span.isOpen ? ' ↻' : '') + '</text>';
+                ug += '</g>';
+                sb += ug;
+                continue;
+            }
 
             var tip = tailIn !== null
                 ? '가동 #' + span.number + (span.isOpen ? ' (진행중)' : '') + ' · 동작시간 ' + formatMs(atMs) + ' · 대기시간 ' + formatMs(idleMs) + ' / 가동시간 ' + formatMs(ctMs) + ' · 동작률 ' + ratio + '%'
@@ -587,17 +659,11 @@
     }
 
     function appendCycleBands(s, xScale, laneAreaTop, laneAreaBottom, cs, ce) {
-        if (s.cycleBoundaries.length === 0) return '';
+        var spans = cycleSpansOf(s);
+        if (!spans.length) return '';
         var sb = '';
-        var bnd = s.cycleBoundaries.map(function (d) { return d.getTime(); });
         var msOf = function (t) { return t - cs; };
-
-        var spans = [];
-        for (var i = 0; i < bnd.length - 1; i++) spans.push({ start: bnd[i], end: bnd[i + 1], number: i + 1, isOpen: false });
-        if (bnd[bnd.length - 1] < ce) spans.push({ start: bnd[bnd.length - 1], end: ce, number: bnd.length, isOpen: true });
-
-        var tails = s.tailEdges.map(function (d) { return d.getTime(); });
-        var tailIdx = 0;
+        var tailIns = tailInsOf(spans, s);
         var laneAreaH = laneAreaBottom - laneAreaTop;
 
         for (var si = 0; si < spans.length; si++) {
@@ -608,10 +674,21 @@
             var isEven = span.number % 2 === 0;
             var dim = span.isOpen ? 0.6 : 1;
 
-            while (tailIdx < tails.length && tails[tailIdx] <= span.start) tailIdx++;
-            var tailIn = null;
-            if (tailIdx < tails.length && tails[tailIdx] < span.end) tailIn = tails[tailIdx];
+            var tailIn = tailIns[si];
             var tailX = tailIn !== null ? LEFT_PAD + msOf(tailIn) * xScale : null;
+
+            if (span.union) {
+                // flow 합산 — 레인 영역 틴트 = 판별 분기색(없음=회색, 중복=빨강 해치). 경계선은 공통.
+                var uu = span.union;
+                var tint = uu.win === -1 ? '#90a4ae' : uu.color;
+                sb += '<rect x="' + f(sx) + '" y="' + laneAreaTop + '" width="' + f(bandW) + '" height="' + laneAreaH + '" fill="' + tint + '" opacity="' + ((uu.win === -1 ? 0.06 : 0.07) * dim) + '"/>';
+                if (uu.dup) sb += '<rect x="' + f(sx) + '" y="' + laneAreaTop + '" width="' + f(bandW) + '" height="' + laneAreaH + '" fill="url(#ctDupHatch)" opacity="0.35"/>';
+                sb += '<line x1="' + f(sx) + '" y1="' + TOP_MARGIN + '" x2="' + f(sx) + '" y2="' + laneAreaBottom + '" stroke="#455a64" stroke-width="1.8" opacity="0.9"/>';
+                if (tailX !== null) sb += '<line x1="' + f(tailX) + '" y1="' + laneAreaTop + '" x2="' + f(tailX) + '" y2="' + laneAreaBottom + '" stroke="' + tint + '" stroke-width="1.2" stroke-dasharray="3 2" opacity="0.85"/>';
+                if (si === spans.length - 1 && span.end >= cs && span.end <= ce && !span.isOpen)
+                    sb += '<line x1="' + f(ex) + '" y1="' + TOP_MARGIN + '" x2="' + f(ex) + '" y2="' + laneAreaBottom + '" stroke="#455a64" stroke-width="1.8" opacity="0.9"/>';
+                continue;
+            }
 
             if (tailX !== null) {
                 sb += '<rect x="' + f(sx) + '" y="' + laneAreaTop + '" width="' + f(tailX - sx) + '" height="' + laneAreaH + '" fill="#fb8c00" opacity="' + (0.10 * dim) + '"/>';
@@ -625,12 +702,11 @@
             if (tailX !== null) {
                 sb += '<line x1="' + f(tailX) + '" y1="' + laneAreaTop + '" x2="' + f(tailX) + '" y2="' + laneAreaBottom + '" stroke="#ab47bc" stroke-width="1.2" stroke-dasharray="3 2" opacity="0.85"/>';
             }
-        }
-
-        var lastEdge = bnd[bnd.length - 1];
-        if (lastEdge >= cs && lastEdge <= ce) {
-            var lx = LEFT_PAD + msOf(lastEdge) * xScale;
-            sb += '<line x1="' + f(lx) + '" y1="' + TOP_MARGIN + '" x2="' + f(lx) + '" y2="' + laneAreaBottom + '" stroke="#455a64" stroke-width="1.8" opacity="0.9"/>';
+            // 닫힌 스팬의 끝 경계 — 다음 스팬이 바로 이어지지 않을 때만(명시 스팬 목록: 분기 탭은 다른 분기 구간이 비어 있음).
+            // 경계 파생 스팬은 항상 연속이라 종전과 같이 스팬 시작선만 그려지고, 마지막 경계(=ce 와 일치)만 여기서 추가된다.
+            var nextStartsHere = si + 1 < spans.length && spans[si + 1].start === span.end;
+            if (!span.isOpen && !nextStartsHere && span.end >= cs && span.end <= ce)
+                sb += '<line x1="' + f(ex) + '" y1="' + TOP_MARGIN + '" x2="' + f(ex) + '" y2="' + laneAreaBottom + '" stroke="#455a64" stroke-width="1.8" opacity="0.9"/>';
         }
         return sb;
     }
@@ -707,6 +783,8 @@
         f: f, esc: esc, formatMs: formatMs, fmt: fmt, fmtAasx: fmtAasx, hms: hms, hms2: hms2,
         // 레이아웃/파생
         hasApiCalls: hasApiCalls, laneLayout: laneLayout, laneRows: laneRows,
+        laneMatches: laneMatches, visibleLanes: visibleLanes,
+        cycleSpansOf: cycleSpansOf, hasRibbon: hasRibbon, tailInsOf: tailInsOf,
         laneRowClass: laneRowClass, rowClass: rowClass,
         apiSpans: apiSpans, apiMeasured: apiMeasured, apiMeasuredOf: apiMeasuredOf, buildDurationChange: buildDurationChange,
         canApplyApi: canApplyApi, collectAllDurationChanges: collectAllDurationChanges,

@@ -1,12 +1,10 @@
         function flowApp() {
             // ── BuildSvg 레이아웃 상수 (cycle-time-analysis 와 동일) ──
-            const TOP_MARGIN = 50, LANE_HEIGHT = 44, BAR_HEIGHT = 18, RIBBON_H = 48, LEFT_PAD = 12, RIGHT_PAD = 40, BOTTOM_PAD = 20, MIN_PLOT_WIDTH = 640, MAX_ZOOM = 24;
-            const WORK_ROW_H = 22;   // Work 그룹 헤더 행 높이 — cycle-gantt.js WORK_ROW_H 와 동일 유지
+            const TOP_MARGIN = 50, LANE_HEIGHT = 44, RIBBON_H = 48, LEFT_PAD = 12, RIGHT_PAD = 40, MIN_PLOT_WIDTH = 640, MAX_ZOOM = 24;   // 렌더 상수 본체는 cycle-gantt.js — 여기선 드래그/툴팁 좌표·템플릿 높이만 사용
             // 사이클 분기 팔레트 — 미리보기 스트립/통계 칩 공용(미분류 = 회색 #9e9e9e 고정).
             const BR_COLORS = ['#2e7d32', '#7b1fa2', '#0277bd', '#ef6c00', '#c2185b', '#5d4037', '#00695c', '#455a64'];
             // 모바일(≤480px) 에서는 최소 플롯 폭을 줄여 좁은 화면에 맞춤(불필요한 가로 overflow 방지).
             const minPlotW = () => (typeof window !== 'undefined' && window.innerWidth < 480) ? 280 : MIN_PLOT_WIDTH;
-            const API_ROW_HEIGHT = 64;   // Call lane 확장 시 끼어드는 ApiCall 서브행 높이(사이드바·SVG 공통) — 실측/AASX 메트릭 wrap 여유
             const histCache = {};   // flowName → rows: 전환 시 즉시 표시(서버 왕복 대기 없이)
             // ── Chart.js 인스턴스는 Alpine 반응형 밖(클로저)에 보관 ──
             // 컴포넌트 프로퍼티(this._x)로 두면 Alpine 이 차트의 내부 config/_resolverCache/_fallback 까지
@@ -16,6 +14,9 @@
             let _charts = { trend: null, count: null };   // 추이 탭 (trend/count)
             let _cycleChart = null;   // 사이클 분석 탭
             let _histChart = null;    // 최근 히스토리 탭
+            // 활성 간트 슬라이스(탭 하나 = flow 전체 | 분기 i) — buildSvg() 가 세운 마지막 슬라이스. lane 배열·스팬을
+            // 통째로 들고 있어 Alpine 깊은 Proxy 를 피하려고 클로저에 둔다(템플릿용 요약은 this.act).
+            let _act = null;
 
             // x축(category) 눈금 라벨: 첫·마지막은 항상 표시하고 나머지는 균등 간격으로 남긴다.
             // Chart.js 기본 autoSkip 은 균등 간격만 유지하고 끝 눈금 보존을 보장하지 않아
@@ -40,8 +41,18 @@
                 branches: [],            // [{name, startCallName, endCallName, excludedCallNames[]}] — 편집 중 상태
                 branchesSaved: '[]',     // 저장 스냅샷(JSON) — dirty 판정
                 branchSavedCount: 0,     // 저장된 분기 수(0 = 분기 미사용)
-                branchEditorOpen: false,
                 branchBusy: false,
+                // ── 간트 탭(2026-09-06) — 'flow'(전체) | 분기 index. 분기별 간트를 세로로 줄지어 그리던 카드를 탭으로 대체:
+                //    한 번에 간트 하나만 그리고(사이드바·SVG 템플릿 1벌), 탭이 활성 슬라이스를 고른다.
+                ganttTab: 'flow',
+                ganttRows: [],           // 활성 탭의 사이드바 행(CycleGantt.laneRows) — buildSvg() 가 SVG 와 함께 갱신
+                // 활성 탭 요약(템플릿용) — 시작/끝/제외 배지·버튼 활성·헤더 통계. 상세는 클로저 _act.
+                act: { kind: 'flow', bi: -1, headCallId: null, tailCallId: null, editable: true, unionMode: false, hasRibbon: false,
+                       avgCycleMs: null, avgActiveMs: null, tailCompletionSource: null, excluded: [], visibleLanes: 0, totalLanes: 0 },
+                // CALL 정렬 모드 — 'signal'(시작 맨 위·끝 맨 아래·사이는 첫 신호 시각 순, Work 헤더 없음)
+                //                 | 'work'(Work 그룹 고정 순서 = 모델 순, 시작/끝을 바꿔도 행이 안 움직임). localStorage 보존.
+                sortMode: 'signal',
+                laneFilter: '',          // 간트 내부 검색(사이드바 행 필터) — call/Work/태그/I/O 쌍 이름 부분 일치, 공백 AND
                 branchMsg: '',
                 branchError: '',
                 tab: 'trend',   // 'trend' | 'cycle' | 'history' — 콘텐츠 탭 전환
@@ -133,6 +144,8 @@
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
                     // 미완료 제외 토글 복원(로컬 UI 선호 — 기본 ON)
                     this.excludeIncomplete = localStorage.getItem('dspilot-flow-exclude-incomplete') !== '0';
+                    // 간트 CALL 정렬 모드 복원(기본 = 시작·끝 정렬)
+                    try { this.sortMode = localStorage.getItem('dspilot-gantt-sort') === 'work' ? 'work' : 'signal'; } catch (_) { }
                     this.flowName = new URLSearchParams(location.search).get('name');
                     // 뷰 모드 확정 — 전용 페이지(window.DSP_FLOW_VIEW) ▸ ?view= ▸ 기본 'both'(구 flow.html).
                     this.view = window.DSP_FLOW_VIEW || new URLSearchParams(location.search).get('view') || 'both';
@@ -910,6 +923,7 @@
                 // H/T 토글 — Head/Tail 은 무조건 존재(이동만, 해제 없음). 같은 Call 에 둘 다 허용
                 // (단일 신호 Call 1개를 자기 OutTag↑→완료(InTag↑/OutTag↓)로 MT 분해 — head==tail).
                 async toggleHead(callId) {
+                    if (this.branches.length) return;   // 분기 사용 중 = flow 경계 편집 잠김(분기 탭에서 정의)
                     if (this.headCallId === callId) return;
                     this.headCallId = callId;
                     this.userOverrodeHeadTail = true;
@@ -919,6 +933,7 @@
                     await this.resolveOverlays();
                 },
                 async toggleTail(callId) {
+                    if (this.branches.length) return;
                     if (this.tailCallId === callId) return;
                     this.tailCallId = callId;
                     this.userOverrodeHeadTail = true;
@@ -973,15 +988,10 @@
                 //     별도 화면이 아니라 <b>본 간트</b>(리본 상단 분기 색 바 + lane 제외 토글)에 그려진다. ═══
                 get branchesDirty() { return JSON.stringify(this.branches) !== this.branchesSaved; },
                 brColor(i) { return BR_COLORS[i % BR_COLORS.length]; },
-                // 편집 변경 → 상단(전체) 간트 오버레이 즉시 반영(수동 SVG 재빌드 — svgMarkup 은 반응형이 아님).
-                //   분기별 간트 카드(brCards)는 반응형 게터라 자동 갱신.
+                // 편집 변경 → 활성 탭 간트 즉시 재빌드(수동 — svgMarkup/ganttRows 는 반응형이 아님).
                 _brRefresh() {
                     if (this.callLanes.length) this.svgMarkup = this.buildSvg();
                 },
-                // ── 분기별 간트 카드 (2026-08-28) — 분기마다 상단과 동일한 간트를 하나씩 그려, 그 간트의
-                //    lane 에서 시작/끝/제외를 클릭해 정의한다(상단 간트 = flow 전체 보기, 편집 없음).
-                //    CycleGantt.buildSvg 는 상태 객체만 받으므로(벌크 페이지와 같은 패턴) 분기별 의사 슬라이스를
-                //    만들어 위임한다 — 시간창/줌(plotWidth)을 상단과 공유해 축이 항상 일치한다.
                 brSetHead(b, callName) {
                     b.startCallName = callName;
                     b.excludedCallNames = b.excludedCallNames.filter(c => c !== callName);
@@ -996,59 +1006,141 @@
                     if (callName === b.startCallName || callName === b.endCallName) return;
                     this.brToggleExcl(b, callName);
                 },
-                _brSlice(b, bi, pv) {
+                brName(bi) { const b = this.branches[bi]; return b ? (b.name || ('분기' + (bi + 1))) : ''; },
+                // 활성 분기 탭의 분기/통계 — null 안전(탭이 'flow' 로 바뀌는 틱에 템플릿 자식이 먼저 재평가되는 Alpine 함정 회피)
+                get curBranch() { return (typeof this.ganttTab === 'number' && this.branches[this.ganttTab]) || null; },
+                get curStat() {
+                    const st = (typeof this.ganttTab === 'number') ? this.branchPreview.stats[this.ganttTab] : null;
+                    return st || { count: 0, pct: 0, dup: 0 };
+                },
+                brRename(name) { const b = this.curBranch; if (!b) return; b.name = name; this._brRefresh(); },
+
+                // ═══ 간트 탭 · 활성 슬라이스 (2026-09-06) ═══════════════════════════════════════════════
+                // 간트는 한 번에 하나(탭). flow 전체 탭과 분기 탭이 "같은 슬라이스 규약"으로 CycleGantt 에 위임되므로
+                // 사이드바/SVG 템플릿이 1벌이다 — 막대/InOut 라인·정렬·검색·확대/이동·드래그 구간통계가 모든 탭에 동일 적용.
+                setGanttTab(t) {
+                    if (typeof t === 'number' && !this.branches[t]) t = 'flow';
+                    this.ganttTab = t;
+                    this.selectedRange = null;
+                    this.svgMarkup = this.buildSvg();
+                    this.syncPanSoon();
+                },
+                // 표시 순서 — 'signal': 시작 맨 위·끝 맨 아래·사이는 첫 신호 시각(Work 헤더 없음) / 'work': Work 그룹 고정(모델 순).
+                _orderedLanes(headId, tailId) {
+                    const raw = this.callLanesRaw || [];
+                    if (this.sortMode === 'work') {
+                        const groups = new Map();
+                        raw.forEach(l => { const k = l.workName || ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); });
+                        const li = (l) => (typeof l.laneIndex === 'number' ? l.laneIndex : 0);
+                        const out = [];
+                        groups.forEach(arr => { arr.slice().sort((a, b) => li(a) - li(b)).forEach(l => out.push(l)); });
+                        return out;
+                    }
+                    return window.CycleGantt.sortLanes(raw, headId, tailId);
+                },
+                // 활성 탭의 렌더 슬라이스 — CycleGantt.buildSvg/laneRows 가 읽는 필드 규약(cycle-gantt.js 헤더 참고).
+                activeSlice() {
+                    const base = {
+                        chartStart: this.chartStart, chartEnd: this.chartEnd, plotWidth: this.plotWidth,
+                        viewMode: this.viewMode, expandedCalls: this.expandedCalls,
+                        topGaps: this.topGaps, showMaxGap: this.showMaxGap, selectedGapIndex: this.selectedGapIndex,
+                        selectedRange: this.selectedRange, unmeasuredRegions: this.unmeasuredRegions || [],
+                        laneFilter: this.laneFilter, noWorkRows: this.sortMode !== 'work',
+                    };
+                    const pv = this.branches.length ? this.branchPreview : null;
+                    const bi = this.ganttTab;
+                    const b = (typeof bi === 'number') ? this.branches[bi] : null;
+                    if (!b) {
+                        // ── flow 전체 탭 ──
+                        const s = Object.assign(base, {
+                            kind: 'flow', bi: -1, branch: null,
+                            callLanes: this._orderedLanes(this.headCallId, this.tailCallId),
+                            headCallId: this.headCallId, tailCallId: this.tailCallId,
+                            cycleBoundaries: this.cycleBoundaries, tailEdges: this.tailEdges,
+                            editable: this.branches.length === 0,
+                            avgCycleMs: this.avgCycleMs, avgActiveMs: this.avgActiveMs,
+                            tailCompletionSource: this.tailCompletionSource,
+                            unionMode: false,
+                        });
+                        if (pv) {
+                            // 분기 사용 중 → 리본 = 분기별 CT 합산(어느 분기의 CT / CT 중복 / 정상 CT 없음). flow 자체 경계·평균은 잠김.
+                            s.unionMode = true;
+                            s.avgCycleMs = null; s.avgActiveMs = null;
+                            s.cycleSpans = pv.spans.map((sp, i) => ({
+                                start: sp.sMs, end: sp.eMs, number: i + 1, isOpen: sp.isOpen, tailIn: sp.tailIn,
+                                union: { win: sp.win, dup: sp.dup, color: sp.color, label: sp.label, title: sp.title },
+                            }));
+                        }
+                        return s;
+                    }
+                    // ── 분기 탭 ──
                     const laneBy = {};
-                    this.callLanes.forEach(l => { laneBy[l.callName] = l; });
+                    (this.callLanesRaw || []).forEach(l => { laneBy[l.callName] = l; });
                     const head = laneBy[b.startCallName] || null;
                     const tail = laneBy[b.endCallName] || null;
-                    // 이 분기의 사이클 경계 = 자기 head OutTag↑. 완료 마커 = tail InTag↑, 없으면 OutTag↓
-                    // (서버 CycleCompletionResolver 와 동일 규칙의 클라이언트 근사).
-                    const bnd = head ? (head.outIntervals || []).map(iv => new Date(iv.start)) : [];
-                    let tailEdges = [];
-                    if (tail) {
-                        const ins = (tail.inIntervals || []).map(iv => new Date(iv.start));
-                        tailEdges = ins.length ? ins : (tail.outIntervals || []).map(iv => new Date(iv.end));
-                    }
-                    // 오버레이 — 병합 분류에서 이 분기 것만 분기색, 나머지(형제/미분류)는 옅은 회색.
-                    const spans = (pv.spans || []).map(sp => ({
-                        sMs: sp.sMs, eMs: sp.eMs, title: sp.title,
-                        color: sp.win === bi ? this.brColor(bi) : '#d7dde3',
-                    }));
-                    // 제외 call lane 은 이 분기 간트에서 접힌 띠로 축소(신호 숨김 — 복원은 사이드바 '제외' 재클릭).
-                    const collapsedCallNames = {};
-                    (b.excludedCallNames || []).forEach(n => { collapsedCallNames[n] = true; });
-                    return {
-                        callLanes: this.callLanes,
-                        chartStart: this.chartStart, chartEnd: this.chartEnd,
-                        plotWidth: this.plotWidth,
-                        viewMode: 'bar',
-                        headCallId: head ? head.callId : null,
-                        tailCallId: tail ? tail.callId : null,
-                        cycleBoundaries: bnd,
-                        tailEdges,
-                        expandedCalls: {},
-                        collapsedCallNames,
-                        topGaps: [], showMaxGap: false, selectedGapIndex: -1,
-                        selectedRange: null,
-                        branchPreview: { spans },
-                        unmeasuredRegions: this.unmeasuredRegions || [],
-                    };
-                },
-                get brCards() {
-                    if (!this.branchEditorOpen || !this.branches.length || !this.callLanes.length
-                        || !this.chartStart || !window.CycleGantt) return [];
-                    const pv = this.branchPreview;
-                    return this.branches.map((b, bi) => {
-                        const slice = this._brSlice(b, bi, pv);
-                        const st = pv.stats && pv.stats[bi] ? pv.stats[bi] : { count: 0, pct: 0 };
-                        return {
-                            rows: window.CycleGantt.laneRows(slice),
-                            svg: window.CycleGantt.buildSvg(slice),
-                            hasRibbon: slice.cycleBoundaries.length > 0,
-                            count: st.count, pct: st.pct,
-                        };
+                    const spans = [];
+                    let ctSum = 0, ctN = 0, atSum = 0, atN = 0;
+                    (pv ? pv.spans : []).forEach(sp => {
+                        if (sp.passing.indexOf(bi) === -1) return;   // 이 분기로 판별된 스팬만(중복 포함) — 사이 구간은 비어 보인다
+                        const tailIn = sp.tailInBy[bi] === undefined ? null : sp.tailInBy[bi];
+                        spans.push({ start: sp.sMs, end: sp.eMs, number: spans.length + 1, isOpen: sp.isOpen, tailIn });
+                        if (!sp.isOpen) { ctSum += sp.eMs - sp.sMs; ctN++; }
+                        if (tailIn !== null) { atSum += tailIn - sp.sMs; atN++; }
+                    });
+                    const collapsed = {};
+                    (b.excludedCallNames || []).forEach(n => { collapsed[n] = true; });
+                    // 리본 상단 색 바 = 이 분기 관점의 스팬 분류(분기색=이 분기 · 빨강=중복 · 회색=다른 분기/제외 발화)
+                    const ct = (sp) => this.formatMs(sp.eMs - sp.sMs);
+                    const bar = (pv ? pv.spans : []).map(sp => {
+                        const me = sp.byBranch[bi];
+                        let color, title;
+                        if (me && me.pass) {
+                            color = sp.dup ? '#e53935' : this.brColor(bi);
+                            title = (sp.dup ? 'CT 중복 — ' + sp.passing.map(x => this.brName(x)).join(', ') + ' 모두 정상 판별 · ' : this.brName(bi) + ' · ') + ct(sp);
+                        } else if (me) {
+                            color = '#d7dde3';
+                            title = '이 분기 아님 — 제외 call \'' + me.reason + '\' 발화 · ' + ct(sp);
+                        } else {
+                            color = '#d7dde3';
+                            title = '이 분기 시작 아님 — ' + (sp.win === -1 ? '미분류' : this.brName(sp.win)) + ' · ' + ct(sp);
+                        }
+                        return { sMs: sp.sMs, eMs: sp.eMs, color, title };
+                    });
+                    return Object.assign(base, {
+                        kind: 'branch', bi, branch: b,
+                        callLanes: this._orderedLanes(head ? head.callId : null, tail ? tail.callId : null),
+                        headCallId: head ? head.callId : null, tailCallId: tail ? tail.callId : null,
+                        cycleBoundaries: [], tailEdges: [], cycleSpans: spans,
+                        collapsedCallNames: collapsed,
+                        editable: true, unionMode: false,
+                        avgCycleMs: ctN ? ctSum / ctN : null, avgActiveMs: atN ? atSum / atN : null,
+                        tailCompletionSource: tail ? ((tail.inIntervals || []).length ? 'InTag' : ((tail.outIntervals || []).length ? 'OutTag' : null)) : null,
+                        branchPreview: { spans: bar },
                     });
                 },
+                // 사이드바 lane 버튼 — 활성 탭에 따라 flow 경계(잠김 가능) 또는 분기 정의로 분기.
+                gToggleHead(row) {
+                    if (!_act) return;
+                    if (_act.kind === 'flow') { if (_act.editable) this.toggleHead(row.lane.callId); }
+                    else this.brSetHead(_act.branch, row.lane.callName);
+                },
+                gToggleTail(row) {
+                    if (!_act) return;
+                    if (_act.kind === 'flow') { if (_act.editable) this.toggleTail(row.lane.callId); }
+                    else this.brSetTail(_act.branch, row.lane.callName);
+                },
+                gToggleExcl(row) { if (_act && _act.kind === 'branch') this.brToggleExclByName(_act.branch, row.lane.callName); },
+                gWorkClick(row) { if (_act && _act.kind === 'branch') this.brToggleWorkByName(_act.branch, row.workName); },
+                isBoundRow(row) { return row.lane.callName === (_act && _act.branch ? _act.branch.startCallName : null) || row.lane.callName === (_act && _act.branch ? _act.branch.endCallName : null); },
+                // ── 정렬 모드 / 검색 필터 (모든 탭 공유) ──
+                setSortMode(m) {
+                    if (this.sortMode === m) return;
+                    this.sortMode = m;
+                    try { localStorage.setItem('dspilot-gantt-sort', m); } catch (_) { }
+                    this.svgMarkup = this.buildSvg();
+                },
+                onLaneFilter() { this.svgMarkup = this.buildSvg(); },
+                clearLaneFilter() { this.laneFilter = ''; this.svgMarkup = this.buildSvg(); },
                 async loadBranches() {
                     if (!this.flowName) return;
                     try {
@@ -1059,8 +1151,7 @@
                         }));
                         this.branchesSaved = JSON.stringify(this.branches);
                         this.branchSavedCount = this.branches.length;
-                        // 분기 사용 중이면 편집기(분기별 간트 카드)를 자동으로 펼친다 — 이 페이지가 분기 관리 단일 진입점.
-                        if (this.branchSavedCount > 0) this.branchEditorOpen = true;
+                        // 분기가 있으면 flow 전체 탭 = 분기별 CT 합산 뷰(편집 잠김) — 탭 자체는 'flow' 유지.
                         this._brRefresh();
                     } catch (_) { /* 분기 API 실패 — 편집기만 비활성(가동 분석 자체는 무관) */ }
                 },
@@ -1073,11 +1164,14 @@
                         endCallName: this.callNameOf(this.tailCallId) || '',
                         excludedCallNames: [],
                     });
-                    this.branchEditorOpen = true;
-                    this._brRefresh();
+                    this.setGanttTab(this.branches.length - 1);   // 새 분기 탭으로 바로 이동(정의는 그 탭의 lane 에서)
                 },
                 brRemove(i) {
+                    if (!window.confirm('분기 "' + (this.branches[i].name || ('분기' + (i + 1))) + '" 을(를) 삭제합니다. (저장 전까지는 서버에 반영되지 않습니다)')) return;
                     this.branches.splice(i, 1);
+                    // 탭 보정 — 지운 탭이면 flow 전체로, 뒤쪽 탭이면 index 한 칸 앞으로.
+                    if (this.ganttTab === i) this.ganttTab = 'flow';
+                    else if (typeof this.ganttTab === 'number' && this.ganttTab > i) this.ganttTab -= 1;
                     this._brRefresh();
                 },
                 brMove(i, d) {
@@ -1085,6 +1179,8 @@
                     if (j < 0 || j >= this.branches.length) return;
                     const t = this.branches.splice(i, 1)[0];
                     this.branches.splice(j, 0, t);
+                    if (this.ganttTab === i) this.ganttTab = j;
+                    else if (this.ganttTab === j) this.ganttTab = i;
                     this._brRefresh();
                 },
                 brToggleExcl(b, name) {
@@ -1113,8 +1209,10 @@
                 },
                 // 라이브 미리보기 — 서버 재도출과 같은 규칙의 근사: 분기 head OutTag↑ 병합 스트림으로 스팬을
                 // 만들고, 스팬 안 제외 call 발화 = 그 분기 기각, 복수 통과 = 정의 순서 첫 매칭, 전멸 = 미분류.
+                // 스팬별로 "통과한 분기 전부(passing)" 를 남긴다(2026-09-06) — 서버는 우선순위 첫 통과(win)만 쓰지만, 화면은
+                // 둘 이상 통과 = CT 중복(dup) 을 빨간 해치로 드러내 사용자가 제외 call 로 갈라주게 한다. 통과 0 = 정상 CT 없음.
                 get branchPreview() {
-                    const empty = { spans: [], stats: [], un: 0, unPct: 0, total: 0 };
+                    const empty = { spans: [], stats: [], un: 0, unPct: 0, dup: 0, total: 0 };
                     if (!this.branches.length || !this.callLanes.length || !this.chartStart) return empty;
                     const cs = this.chartStart.getTime();
                     const ce = this.chartEnd ? this.chartEnd.getTime() : cs;
@@ -1124,6 +1222,13 @@
                     const risesOf = (name) => {
                         const l = laneByName[name];
                         return l ? (l.outIntervals || []).map(iv => new Date(iv.start).getTime()).sort((a, b) => a - b) : [];
+                    };
+                    // 완료 마커 = 끝 call InTag↑, 없으면 OutTag↓ (서버 CycleCompletionResolver 규칙의 클라이언트 근사)
+                    const tailsOf = (name) => {
+                        const l = laneByName[name];
+                        if (!l) return [];
+                        const ins = (l.inIntervals || []).map(iv => new Date(iv.start).getTime());
+                        return (ins.length ? ins : (l.outIntervals || []).map(iv => new Date(iv.end).getTime())).sort((a, b) => a - b);
                     };
                     const startMap = new Map();   // startMs → [분기 index...] (정의 순서)
                     this.branches.forEach((b, bi) => {
@@ -1135,47 +1240,64 @@
                     });
                     const starts = Array.from(startMap.keys()).sort((a, b) => a - b);
                     if (!starts.length) return empty;
-                    const exclEdges = this.branches.map(b => {
-                        let es = [];
-                        (b.excludedCallNames || []).forEach(n => {
-                            if (n === b.startCallName || n === b.endCallName) return;
-                            es = es.concat(risesOf(n));
-                        });
-                        return es.sort((x, y) => x - y);
-                    });
-                    const hasIn = (arr, s, e) => {
-                        let lo = 0, hi = arr.length;
-                        while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < s) lo = m + 1; else hi = m; }
-                        return lo < arr.length && arr[lo] < e;
-                    };
+                    // 분기별 제외 call 의 OutTag↑ 목록(call 이름 보존 — 기각 사유 툴팁용)
+                    const exclOf = this.branches.map(b => (b.excludedCallNames || [])
+                        .filter(n => n !== b.startCallName && n !== b.endCallName)
+                        .map(n => ({ name: n, edges: risesOf(n) })));
+                    const tailsBy = this.branches.map(b => tailsOf(b.endCallName));
+                    const lowerBound = (arr, v) => { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; } return lo; };
+                    const hasIn = (arr, s, e) => { const lo = lowerBound(arr, s); return lo < arr.length && arr[lo] < e; };
+                    const firstAfter = (arr, s, e) => { const lo = lowerBound(arr, s + 1); return (lo < arr.length && arr[lo] < e) ? arr[lo] : null; };
                     const spans = [];
                     const counts = this.branches.map(() => 0);
-                    let un = 0;
+                    const dupCounts = this.branches.map(() => 0);
+                    let un = 0, dupTotal = 0;
                     for (let i = 0; i < starts.length; i++) {
                         const s = starts[i], e = i + 1 < starts.length ? starts[i + 1] : ce;
                         if (e <= s) continue;
                         const cands = startMap.get(s).slice().sort((a, b) => a - b);
-                        let win = -1;
-                        for (const bi of cands) { if (!hasIn(exclEdges[bi], s, e)) { win = bi; break; } }
+                        const byBranch = {};   // bi → { pass, reason(기각시킨 제외 call) }
+                        const passing = [];
+                        for (const bi of cands) {
+                            let fired = null;
+                            for (const ex of exclOf[bi]) { if (hasIn(ex.edges, s, e)) { fired = ex.name; break; } }
+                            byBranch[bi] = { pass: !fired, reason: fired };
+                            if (!fired) passing.push(bi);
+                        }
+                        const win = passing.length ? passing[0] : -1;   // 서버 규칙 = 정의 순서 첫 통과
+                        const dup = passing.length > 1;
                         if (win === -1) un++; else counts[win]++;
+                        if (dup) { dupTotal++; passing.forEach(bi => { dupCounts[bi]++; }); }
+                        const tailInBy = {};
+                        passing.forEach(bi => { tailInBy[bi] = firstAfter(tailsBy[bi], s, e); });
+                        const isOpen = i === starts.length - 1;   // 마지막 스팬 끝 = 조회 창 끝(진행중)
+                        const ctTxt = this.formatMs(e - s);
+                        let label, title, color;
+                        if (win === -1) {
+                            color = '#9e9e9e'; label = '정상 CT 없음';
+                            title = '정상 CT 없음(미분류) — ' + cands.map(bi => this.brName(bi) + (byBranch[bi].reason ? ': 제외 \'' + byBranch[bi].reason + '\' 발화' : '')).join(' · ') + ' · 가동시간 ' + ctTxt;
+                        } else if (dup) {
+                            color = this.brColor(win); label = 'CT 중복 ' + passing.map(bi => this.brName(bi)).join('+');
+                            title = 'CT 중복 — ' + passing.map(bi => this.brName(bi)).join(', ') + ' 모두 정상 판별(우선순위 승자 ' + this.brName(win) + '). 제외 call 을 지정해 갈라주세요 · 가동시간 ' + ctTxt;
+                        } else {
+                            color = this.brColor(win); label = this.brName(win);
+                            title = this.brName(win) + ' · 가동시간 ' + ctTxt;
+                        }
                         spans.push({
-                            // ms 좌표 — 간트 SVG 오버레이(appendBranchOverlay)가 같은 xScale 로 그린다.
-                            sMs: s, eMs: e,
-                            win,   // 매칭 분기 index (-1 = 미분류) — 분기별 간트 카드가 자기 것만 강조할 때 사용
-                            color: win === -1 ? '#9e9e9e' : this.brColor(win),
-                            label: win === -1 ? '미분류' : (this.branches[win].name || ('분기' + (win + 1))),
-                            title: (win === -1 ? '미분류' : (this.branches[win].name || ('분기' + (win + 1))))
-                                + ' · ' + this.formatMs(e - s),
+                            // ms 좌표 — 간트 SVG(합산 리본/분기 색 바)가 같은 xScale 로 그린다.
+                            sMs: s, eMs: e, isOpen, win, dup, passing, byBranch,
+                            tailIn: win === -1 ? null : tailInBy[win], tailInBy,
+                            color, label, title,
                         });
                     }
                     const total = starts.length;
                     return {
                         spans,
                         stats: this.branches.map((b, bi) => ({
-                            name: b.name || ('분기' + (bi + 1)), color: this.brColor(bi),
-                            count: counts[bi], pct: Math.round(counts[bi] / total * 100),
+                            name: this.brName(bi), color: this.brColor(bi),
+                            count: counts[bi], pct: Math.round(counts[bi] / total * 100), dup: dupCounts[bi],
                         })),
-                        un, unPct: Math.round(un / total * 100), total,
+                        un, unPct: Math.round(un / total * 100), dup: dupTotal, total,
                     };
                 },
                 async saveBranches(disable) {
@@ -1522,8 +1644,9 @@
                     if (!svg || !this._geo) return;
                     const rectOf = () => svg.getBoundingClientRect();
                     const clampX = (x) => Math.max(LEFT_PAD, Math.min(LEFT_PAD + this.plotWidth, x));
-                    const laneTop = this.laneTopY;
-                    const laneAreaH = this.laneLayout().totalH;
+                    // 레인 영역 = 활성 탭 SVG 의 실제 기하(_geo, CycleGantt.buildSvg 가 세팅) — 분기 탭/필터/Work 헤더 유무를 그대로 따른다.
+                    const laneTop = this._geo.laneTop;
+                    const laneAreaH = this._geo.laneAreaH;
                     const laneBottom = laneTop + laneAreaH;
                     const r0 = rectOf();
                     const x0 = clientX - r0.left, y0 = clientY - r0.top;
@@ -1539,7 +1662,8 @@
                             }
                         }
                     }
-                    for (const b of (this.cycleBoundaries || [])) edgePx.push(LEFT_PAD + (b.getTime() - cs) * xScale);
+                    // 스냅 후보에 활성 탭의 사이클 경계(분기 탭이면 그 분기 스팬의 시작/끝)도 포함
+                    for (const sp of this.actSpans()) { edgePx.push(LEFT_PAD + (sp.start - cs) * xScale); edgePx.push(LEFT_PAD + (sp.end - cs) * xScale); }
                     const SNAP_PX = 10;
                     const snapCurX = (x) => {
                         let best = x, bestDist = SNAP_PX;
@@ -1629,12 +1753,15 @@
                 },
 
                 get selRangeLenMs() { return this.selectedRange ? Math.max(0, this.selectedRange.endMs - this.selectedRange.startMs) : 0; },
+                // 구간 통계는 활성 탭 기준 — flow 탭 = flow 사이클(분기 있으면 합산 스팬), 분기 탭 = 그 분기로 분류된 사이클.
+                actSpans() { return (_act && window.CycleGantt) ? window.CycleGantt.cycleSpansOf(_act) : []; },
+                actCycleRows() { return (_act && window.CycleGantt) ? window.CycleGantt.cycleRows(_act) : []; },
                 // 이 구간에 걸치는(겹치는) 사이클 수. Tail 미지정(경계 없음) Flow 는 산출 불가 → selHasCycles=false.
-                get selHasCycles() { return this.cycleBoundaries.length > 0; },
+                get selHasCycles() { return this.act.hasRibbon; },
                 get selCycleCount() {
                     const r = this.selectedRange; if (!r) return 0;
                     let n = 0;
-                    for (const c of this.cycleList) {
+                    for (const c of this.actCycleRows()) {
                         const s = c.startMs, e = c.startMs + (c.ctMs || 0);
                         if (Math.min(e, r.endMs) > Math.max(s, r.startMs)) n++;
                     }
@@ -1646,7 +1773,7 @@
                     const r = this.selectedRange;
                     const out = { mt: 0, wt: 0 };
                     if (!r) return out;
-                    for (const c of this.cycleList) {
+                    for (const c of this.actCycleRows()) {
                         if (c.isOpen || c.atMs == null) continue;
                         const s = c.startMs, e = c.startMs + (c.ctMs || 0);
                         if (Math.min(e, r.endMs) > Math.max(s, r.startMs)) { out.mt += c.atMs; out.wt += (c.wtMs || 0); }
@@ -1708,13 +1835,9 @@
 
                 get headName() { const l = this.headCallId ? this.callLanes.find(x => x.callId === this.headCallId) : null; return l ? l.callName : null; },
                 get tailName() { const l = this.tailCallId ? this.callLanes.find(x => x.callId === this.tailCallId) : null; return l ? l.callName : null; },
-                laneRowClass(lane) {
-                    if (this.headCallId === lane.callId) return 'ct-lane-row is-head';
-                    if (this.tailCallId === lane.callId) return 'ct-lane-row is-tail';
-                    return 'ct-lane-row';
-                },
 
-                get laneTopY() { return TOP_MARGIN + (this.cycleBoundaries.length ? RIBBON_H : 0); },
+                // 활성 탭 레인 영역 상단(SVG y) — 드래그 툴팁 폴백 위치. _geo 는 buildSvg 가 세팅.
+                get laneTopY() { return this._geo ? this._geo.laneTop : TOP_MARGIN; },
 
                 // ── Call lane 확장(ApiCall 서브행) ──────────────────────────────
                 hasApiCalls(lane) { return !!(lane && lane.apiCalls && lane.apiCalls.length); },
@@ -1723,40 +1846,10 @@
                     this.expandedCalls = { ...this.expandedCalls, [callId]: !this.expandedCalls[callId] };
                     this.svgMarkup = this.buildSvg();   // SVG 는 x-html 이라 수동 재빌드
                 },
-                // 사이드바·SVG 가 공유하는 행 레이아웃: Call 행 + (확장 시) 그 아래 ApiCall 서브행들.
-                // y 는 laneArea 상단 기준 누적 오프셋, h 는 행 높이. totalH = laneArea 총 높이.
-                laneLayout() {
-                    // ★cycle-gantt.js laneLayout 과 행 구성이 반드시 일치해야 한다(사이드바 ↔ SVG 정렬).
-                    //   Work 그룹 헤더(2026-08-27): 서로 다른 Work 2개 이상일 때만 경계 헤더 행 삽입.
-                    const rows = [];
-                    let y = 0;
-                    const workNames = new Set(this.callLanes.map(l => l.workName || ''));
-                    const useWorkRows = workNames.size >= 2;
-                    let prevWork = null;
-                    for (const lane of this.callLanes) {
-                        const wn = lane.workName || '';
-                        if (useWorkRows && wn !== prevWork) {
-                            rows.push({ kind: 'work', key: 'w:' + wn + ':' + y, workName: wn || '(Work 없음)', y, h: WORK_ROW_H });
-                            y += WORK_ROW_H;
-                            prevWork = wn;
-                        }
-                        rows.push({ kind: 'call', key: 'c:' + lane.callId, lane, y, h: LANE_HEIGHT });
-                        y += LANE_HEIGHT;
-                        if (this.expandedCalls[lane.callId] && this.hasApiCalls(lane)) {
-                            lane.apiCalls.forEach((ac, idx) => {
-                                const m = this.apiMeasuredOf(lane, ac);   // 쌍별 실측 min/max/mean
-                                rows.push({ kind: 'api', key: 'a:' + lane.callId + ':' + (ac.apiCallId || idx), lane, ac, y, h: API_ROW_HEIGHT, m });
-                                y += API_ROW_HEIGHT;
-                            });
-                        }
-                    }
-                    return { rows, totalH: y };
-                },
-                get laneRows() { return this.laneLayout().rows; },
-                rowClass(row) {
-                    if (row.kind === 'work') return 'ct-work-row';
-                    return row.kind === 'call' ? this.laneRowClass(row.lane) : 'ct-api-row';
-                },
+                // 사이드바 행 레이아웃은 cycle-gantt.js laneLayout 단일 소스(2026-09-06 — flowApp 의 중복 구현 제거).
+                //   활성 탭의 행은 buildSvg() 가 this.ganttRows 에 채운다(SVG 와 같은 슬라이스로 계산 → 항상 정렬 일치).
+                rowClass(row) { return window.CycleGantt.rowClass(this.act, row); },
+                isExcludedRow(row) { return this.act.kind === 'branch' && this.act.excluded.indexOf(row.lane.callName) !== -1; },
 
                 // OutTag↑(명령) → 다음 InTag↑(응답) 까지를 한 동작 duration 으로 페어링한 ms 배열.
                 // 진영 B(PLC 기준): OutTag=출력(명령)=동작 시작, InTag=입력(응답)=동작 완료.
@@ -1904,301 +1997,33 @@
                     } finally { this.applyDurBusy = false; }
                 },
 
-                // ── BuildSvg() ──
+                // ── BuildSvg() — 활성 탭(flow 전체 | 분기 i) 간트 1장 ──
+                // 렌더는 cycle-gantt.js(window.CycleGantt) 단일 소스(개별·분기·전체 편집이 같은 코드). flowApp 의 자체
+                // 폴백 렌더러(구 flow.html 원본 복제)는 2026-09-06 제거 — flow-cycle.html 이 항상 cycle-gantt.js 를 로드한다.
+                // SVG 와 사이드바 행(ganttRows)을 같은 슬라이스로 만들어 정렬/필터/접힘이 항상 일치한다.
                 buildSvg() {
-                    // ── 단일 소스 렌더 ──
-                    // 개별(?name=)·전체(?system=) 사이클 간트가 "같은 코드"를 쓰도록 cycle-gantt.js(window.CycleGantt)
-                    // 로 위임한다. flow-cycle.html 이 cycle-gantt.js 를 로드하므로 개별 페이지도 이 경로를 탄다.
-                    // (cycle-gantt.js 미로드 페이지 — 구 flow.html 등 — 는 아래 원본 구현으로 폴백.)
-                    // flowApp 인스턴스(this)가 CycleGantt.buildSvg(s) 가 읽는 필드를 100% 보유(callLanes/chartStart/
-                    // chartEnd/plotWidth/viewMode/headCallId/tailCallId/cycleBoundaries/tailEdges/expandedCalls/
-                    // topGaps/showMaxGap/selectedGapIndex/selectedRange) + _geo 도 동일하게 세팅됨.
-                    if (window.CycleGantt && typeof window.CycleGantt.buildSvg === 'function') {
-                        return window.CycleGantt.buildSvg(this);
+                    const CG = window.CycleGantt;
+                    if (!CG || !this.callLanesRaw.length || !this.chartStart || !this.chartEnd) {
+                        _act = null; this.ganttRows = [];
+                        return '';
                     }
-                    if (this.callLanes.length === 0) return '';
-                    const cs = this.chartStart.getTime(), ce = this.chartEnd.getTime();
-                    const totalMs = Math.max(1.0, ce - cs);
-                    const PW = this.plotWidth;
-                    const chartW = LEFT_PAD + PW + RIGHT_PAD;
-                    const ribbonH = this.cycleBoundaries.length ? RIBBON_H : 0;
-                    const laneAreaTop = TOP_MARGIN + ribbonH;
-                    const layout = this.laneLayout();   // Call 행 + 확장된 ApiCall 서브행 (사이드바와 공유)
-                    const laneAreaBottom = laneAreaTop + layout.totalH;
-                    const chartH = laneAreaBottom + BOTTOM_PAD;
-                    const xScale = PW / totalMs;
-                    this._geo = { cs, xScale };
-                    const ms = (d) => d.getTime() - cs;
-
-                    let sb = '';
-                    sb += `<svg class="ct-gantt" width="${chartW}" height="${chartH}" xmlns="http://www.w3.org/2000/svg">`;
-                    sb += `<rect width="100%" height="100%" fill="#ffffff"/>`;
-
-                    if (ribbonH > 0) sb += this.appendCycleRibbon(xScale, TOP_MARGIN, ribbonH, cs, ce);
-                    sb += this.appendCycleBands(xScale, laneAreaTop, laneAreaBottom, cs, ce);
-                    sb += this.appendTimeAxis(totalMs, xScale, cs, laneAreaTop, laneAreaBottom);
-
-                    const plotRightX = LEFT_PAD + PW;
-                    for (const row of layout.rows) {
-                        const lane = row.lane;
-                        const rowY = laneAreaTop + row.y;
-
-                        if (row.kind === 'work') {
-                            // Work 그룹 헤더 밴드 — cycle-gantt.js 와 동일(폴백 렌더러 정합 유지).
-                            sb += `<rect x="0" y="${this.f(rowY)}" width="${chartW}" height="${WORK_ROW_H}" fill="#eceff1" opacity="0.6"/>`;
-                            sb += `<line x1="0" y1="${this.f(rowY + WORK_ROW_H)}" x2="${chartW}" y2="${this.f(rowY + WORK_ROW_H)}" stroke="#cfd8dc" stroke-width="1"/>`;
-                            continue;
-                        }
-
-                        if (row.kind === 'api') {
-                            // ── ApiCall 서브행: 들여쓴 옅은 배경 + 자신의 OUT/IN 트레이스(1:1 이면 Call 과 동일) ──
-                            sb += `<rect x="0" y="${this.f(rowY)}" width="${chartW}" height="${API_ROW_HEIGHT}" fill="#f5f7fa" opacity="0.7"/>`;
-                            sb += `<line x1="0" y1="${this.f(rowY + API_ROW_HEIGHT)}" x2="${chartW}" y2="${this.f(rowY + API_ROW_HEIGHT)}" stroke="#e3e6ea" stroke-width="1"/>`;
-                            sb += `<rect x="0" y="${this.f(rowY)}" width="3" height="${API_ROW_HEIGHT}" fill="#90a4ae" opacity="0.5"/>`;
-                            sb += this.appendSignalTrace(row.ac.outIntervals || lane.outIntervals, '#fb8c00', rowY + 22, rowY + 9, cs, xScale, plotRightX, row.ac.name, row.ac.outTag, 'OUT 명령');
-                            sb += this.appendSignalTrace(row.ac.inIntervals || lane.inIntervals, '#1e88e5', rowY + API_ROW_HEIGHT - 8, rowY + 26, cs, xScale, plotRightX, row.ac.name, row.ac.inTag, 'IN 응답');
-                            continue;
-                        }
-
-                        const laneY = rowY;
-                        const laneCY = laneY + LANE_HEIGHT / 2.0;
-                        const isHead = this.headCallId === lane.callId;
-                        const isTail = this.tailCallId === lane.callId;
-
-                        if (isHead || isTail) {
-                            const stripeFill = isHead ? '#c8e6c9' : '#e1bee7';
-                            sb += `<rect x="0" y="${laneY}" width="${chartW}" height="${LANE_HEIGHT}" fill="${stripeFill}" opacity="0.35"/>`;
-                        }
-                        sb += `<line x1="0" y1="${laneY + LANE_HEIGHT}" x2="${chartW}" y2="${laneY + LANE_HEIGHT}" stroke="#e3e6ea" stroke-width="1"/>`;
-
-                        if (this.viewMode === 'bar') {
-                            // OUTTAG/INTAG 기준 2색 분할(프로메이커 간트와 동일 색언어) — head/tail 역할색 대신
-                            // 합집합 막대를 OUT(명령=주황) 베이스로 깔고 IN(응답=파랑) 구간을 덮는다.
-                            // 보이는 주황 = OUT-only(union\IN) = 명령 후 응답 전 구간, 파랑 = IN(응답) 구간.
-                            const barTop = laneCY - BAR_HEIGHT / 2.0;
-                            for (const iv of lane.intervals) {
-                                const s = new Date(iv.start), e = new Date(iv.end);
-                                const x = LEFT_PAD + ms(s) * xScale;
-                                const w = Math.max(2, (e.getTime() - s.getTime()) * xScale);
-                                const durMs = e.getTime() - s.getTime();
-                                const tip = `${lane.callName} · OUT 명령${lane.outTag ? ` (${lane.outTag})` : ''}  ${this.hms(s)} ~ ${this.hms(e)}  (${this.formatMs(durMs)})`;
-                                sb += `<g><title>${this.esc(tip)}</title>`;
-                                sb += `<rect x="${this.f(x)}" y="${this.f(barTop)}" width="${this.f(w)}" height="${BAR_HEIGHT}" rx="2" fill="#fb8c00" stroke="#e65100" stroke-width="0.5"/>`;
-                                sb += `</g>`;
-                            }
-                            for (const iv of (lane.inIntervals || [])) {
-                                const s = new Date(iv.start), e = new Date(iv.end);
-                                const x = LEFT_PAD + ms(s) * xScale;
-                                const w = Math.max(2, (e.getTime() - s.getTime()) * xScale);
-                                const durMs = e.getTime() - s.getTime();
-                                const tip = `${lane.callName} · IN 응답${lane.inTag ? ` (${lane.inTag})` : ''}  ${this.hms(s)} ~ ${this.hms(e)}  (${this.formatMs(durMs)})`;
-                                sb += `<g><title>${this.esc(tip)}</title>`;
-                                sb += `<rect x="${this.f(x)}" y="${this.f(barTop)}" width="${this.f(w)}" height="${BAR_HEIGHT}" rx="2" fill="#1e88e5"/>`;
-                                sb += `</g>`;
-                            }
-                        } else {
-                            const unionFill = isHead ? '#4caf50' : isTail ? '#ab47bc' : '#5b9bd5';
-                            for (const iv of lane.intervals) {
-                                const s = new Date(iv.start), e = new Date(iv.end);
-                                const x = LEFT_PAD + ms(s) * xScale;
-                                const w = Math.max(2, (e.getTime() - s.getTime()) * xScale);
-                                sb += `<rect x="${this.f(x)}" y="${this.f(laneY + 6)}" width="${this.f(w)}" height="${LANE_HEIGHT - 12}" rx="2" fill="${unionFill}" opacity="0.10"/>`;
-                            }
-                            sb += this.appendSignalTrace(lane.outIntervals, '#fb8c00', laneY + 20, laneY + 7, cs, xScale, plotRightX, lane.callName, lane.outTag, 'OUT 명령');
-                            sb += this.appendSignalTrace(lane.inIntervals, '#1e88e5', laneY + 37, laneY + 24, cs, xScale, plotRightX, lane.callName, lane.inTag, 'IN 응답');
-                        }
-                    }
-
-                    if (this.selectedRange) {
-                        const a = Math.max(cs, this.selectedRange.startMs), b = Math.min(ce, this.selectedRange.endMs);
-                        if (b > a) {
-                            const rx = LEFT_PAD + (a - cs) * xScale;
-                            const rw = Math.max(1, (b - a) * xScale);
-                            sb += `<rect x="${this.f(rx)}" y="${laneAreaTop}" width="${this.f(rw)}" height="${this.f(laneAreaBottom - laneAreaTop)}" fill="rgba(126,87,194,0.16)" pointer-events="none"/>`;
-                            sb += `<line x1="${this.f(rx)}" y1="${laneAreaTop}" x2="${this.f(rx)}" y2="${laneAreaBottom}" stroke="#7e57c2" stroke-width="1.2" stroke-dasharray="4 3" pointer-events="none"/>`;
-                            sb += `<line x1="${this.f(rx + rw)}" y1="${laneAreaTop}" x2="${this.f(rx + rw)}" y2="${laneAreaBottom}" stroke="#7e57c2" stroke-width="1.2" stroke-dasharray="4 3" pointer-events="none"/>`;
-                        }
-                    }
-                    const gap = this.activeGap();
-                    if (gap) {
-                        const gapRow = layout.rows.find(r => r.kind === 'call' && r.lane.callId === gap.callId);
-                        if (gapRow) {
-                            const gy = laneAreaTop + gapRow.y;
-                            const gx = LEFT_PAD + (gap.startMs - cs) * xScale;
-                            const gw = Math.max(2, (gap.endMs - gap.startMs) * xScale);
-                            sb += `<rect x="${this.f(gx)}" y="${this.f(gy)}" width="${this.f(gw)}" height="${LANE_HEIGHT}" rx="3" fill="rgba(245,166,35,0.28)" stroke="#e5494f" stroke-width="2" pointer-events="none"/>`;
-                            if (gw > 40) {
-                                const label = `⚠ ${this.formatMs(gap.durMs)}`;
-                                const fs = 11, tw = label.length * (fs * 0.62), padX = 6, padY = 3;
-                                const bgW = tw + padX * 2, bgH = fs + padY * 2;
-                                const cx = gx + gw / 2, cy = gy + LANE_HEIGHT / 2;
-                                sb += `<rect x="${this.f(cx - bgW / 2)}" y="${this.f(cy - bgH / 2)}" width="${this.f(bgW)}" height="${this.f(bgH)}" rx="3" fill="#ffffff" stroke="#e5494f" stroke-width="1.2" pointer-events="none"/>`;
-                                sb += `<text x="${this.f(cx)}" y="${this.f(cy)}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="700" fill="#e5494f" pointer-events="none">${this.esc(label)}</text>`;
-                            }
-                        }
-                    }
-
-                    sb += `</svg>`;
-                    return sb;
-                },
-
-                appendSignalTrace(intervals, color, yLow, yHigh, cs, xScale, plotRightX, callName, tagName, kindLabel) {
-                    let sb = '';
-                    sb += `<line x1="${LEFT_PAD}" y1="${this.f(yLow)}" x2="${this.f(plotRightX)}" y2="${this.f(yLow)}" stroke="${color}" stroke-width="0.75" opacity="0.28"/>`;
-                    if (!intervals || intervals.length === 0) return sb;
-                    const ms = (d) => d.getTime() - cs;
-                    const segs = intervals.map(iv => ({ s: new Date(iv.start), e: new Date(iv.end) })).sort((a, b) => a.s - b.s);
-                    let pts = `${this.f(LEFT_PAD)},${this.f(yLow)}`;
-                    for (const seg of segs) {
-                        const xs = LEFT_PAD + ms(seg.s) * xScale;
-                        const xe = Math.max(LEFT_PAD + ms(seg.e) * xScale, xs + 1.5);
-                        const durMs = seg.e.getTime() - seg.s.getTime();
-                        const tip = `${callName} · ${kindLabel}${tagName ? ' (' + tagName + ')' : ''}  ${this.hms(seg.s)} ~ ${this.hms(seg.e)}  (${this.formatMs(durMs)})`;
-                        sb += `<g><title>${this.esc(tip)}</title><rect x="${this.f(xs)}" y="${this.f(yHigh)}" width="${this.f(xe - xs)}" height="${this.f(yLow - yHigh)}" fill="${color}" opacity="0.20"/></g>`;
-                        pts += ` ${this.f(xs)},${this.f(yLow)} ${this.f(xs)},${this.f(yHigh)} ${this.f(xe)},${this.f(yHigh)} ${this.f(xe)},${this.f(yLow)}`;
-                    }
-                    pts += ` ${this.f(plotRightX)},${this.f(yLow)}`;
-                    sb += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.4"/>`;
-                    return sb;
-                },
-
-                appendCycleRibbon(xScale, ribbonTop, ribbonH, cs, ce) {
-                    if (this.cycleBoundaries.length === 0) return '';
-                    let sb = '';
-                    const bnd = this.cycleBoundaries.map(d => d.getTime());
-                    const ms = (t) => t - cs;
-                    const plotRight = LEFT_PAD + this.plotWidth;
-
-                    const spans = [];
-                    for (let i = 0; i < bnd.length - 1; i++) spans.push({ start: bnd[i], end: bnd[i + 1], number: i + 1, isOpen: false });
-                    if (bnd[bnd.length - 1] < ce) spans.push({ start: bnd[bnd.length - 1], end: ce, number: bnd.length, isOpen: true });
-
-                    const tails = this.tailEdges.map(d => d.getTime());
-                    let tailIdx = 0;
-
-                    const barY = ribbonTop + 16;
-                    const barH = Math.max(14, ribbonH - 20);
-                    const barCY = barY + barH / 2.0;
-
-                    sb += `<rect x="${this.f(LEFT_PAD)}" y="${ribbonTop}" width="${this.f(plotRight - LEFT_PAD)}" height="${ribbonH}" fill="#fafbfc"/>`;
-                    sb += `<line x1="0" y1="${this.f(ribbonTop + ribbonH)}" x2="${this.f(plotRight)}" y2="${this.f(ribbonTop + ribbonH)}" stroke="#cfd8dc" stroke-width="1"/>`;
-
-                    for (const span of spans) {
-                        const sx = LEFT_PAD + ms(span.start) * xScale;
-                        const ex = LEFT_PAD + ms(span.end) * xScale;
-                        const bandW = Math.max(1, ex - sx);
-                        const isEven = span.number % 2 === 0;
-                        const dim = span.isOpen ? 0.55 : 1;
-
-                        while (tailIdx < tails.length && tails[tailIdx] <= span.start) tailIdx++;
-                        let tailIn = null;
-                        if (tailIdx < tails.length && tails[tailIdx] < span.end) tailIn = tails[tailIdx];
-                        const tailX = tailIn !== null ? LEFT_PAD + ms(tailIn) * xScale : null;
-
-                        const ctMs = span.end - span.start;
-                        const atMs = tailIn !== null ? tailIn - span.start : null;
-                        const idleMs = atMs !== null ? ctMs - atMs : null;
-                        const ratio = (atMs !== null && ctMs > 0) ? Math.round(atMs / ctMs * 100) : null;
-
-                        const tip = tailIn !== null
-                            ? `가동 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 동작시간 ${this.formatMs(atMs)} · 대기시간 ${this.formatMs(idleMs)} / 가동시간 ${this.formatMs(ctMs)} · 동작률 ${ratio}%`
-                            : `가동 #${span.number}${span.isOpen ? ' (진행중)' : ''} · 가동시간 ${this.formatMs(ctMs)}`;
-                        let g = `<g><title>${this.esc(tip)}</title>`;
-
-                        if (tailX !== null) {
-                            const aw = Math.max(0, tailX - sx);
-                            const iw = Math.max(0, ex - tailX);
-                            g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(aw)}" height="${barH}" fill="#fb8c00" opacity="${0.9 * dim}"/>`;
-                            g += `<rect x="${this.f(tailX)}" y="${barY}" width="${this.f(iw)}" height="${barH}" fill="#AEB9C6" opacity="${0.9 * dim}"/>`;
-                            if (aw > 54) g += `<text x="${this.f(sx + aw / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="700" fill="#5a3200" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">${this.esc(this.formatMs(atMs))}</text>`;
-                            if (iw > 54) g += `<text x="${this.f(tailX + iw / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">${this.esc(this.formatMs(idleMs))}</text>`;
-                        } else {
-                            const fill = isEven ? '#9fa8da' : '#ce93d8';
-                            g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(bandW)}" height="${barH}" fill="${fill}" opacity="${0.85 * dim}"/>`;
-                            if (bandW > 54) g += `<text x="${this.f(sx + bandW / 2.0)}" y="${this.f(barCY)}" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">가동시간 ${this.esc(this.formatMs(ctMs))}</text>`;
-                        }
-                        g += `<rect x="${this.f(sx)}" y="${barY}" width="${this.f(bandW)}" height="${barH}" fill="none" stroke="#90a4ae" stroke-width="0.75"/>`;
-                        if (span.isOpen) g += `<line x1="${this.f(ex)}" y1="${barY}" x2="${this.f(ex)}" y2="${this.f(barY + barH)}" stroke="#90a4ae" stroke-width="1" stroke-dasharray="3 2"/>`;
-
-                        if (bandW > 22) {
-                            const num = span.isOpen ? `#${span.number} ↻` : `#${span.number}`;
-                            g += `<text x="${this.f(sx + 4)}" y="${this.f(ribbonTop + 12)}" font-size="11" font-weight="800" fill="#263238">${num}</text>`;
-                        }
-                        g += `</g>`;
-                        sb += g;
-                    }
-                    return sb;
-                },
-
-                appendCycleBands(xScale, laneAreaTop, laneAreaBottom, cs, ce) {
-                    if (this.cycleBoundaries.length === 0) return '';
-                    let sb = '';
-                    const bnd = this.cycleBoundaries.map(d => d.getTime());
-                    const ms = (t) => t - cs;
-
-                    const spans = [];
-                    for (let i = 0; i < bnd.length - 1; i++) spans.push({ start: bnd[i], end: bnd[i + 1], number: i + 1, isOpen: false });
-                    if (bnd[bnd.length - 1] < ce) spans.push({ start: bnd[bnd.length - 1], end: ce, number: bnd.length, isOpen: true });
-
-                    const tails = this.tailEdges.map(d => d.getTime());
-                    let tailIdx = 0;
-                    const laneAreaH = laneAreaBottom - laneAreaTop;
-
-                    for (const span of spans) {
-                        const sx = LEFT_PAD + ms(span.start) * xScale;
-                        const ex = LEFT_PAD + ms(span.end) * xScale;
-                        const bandW = Math.max(1, ex - sx);
-                        const isEven = span.number % 2 === 0;
-                        const dim = span.isOpen ? 0.6 : 1;
-
-                        while (tailIdx < tails.length && tails[tailIdx] <= span.start) tailIdx++;
-                        let tailIn = null;
-                        if (tailIdx < tails.length && tails[tailIdx] < span.end) tailIn = tails[tailIdx];
-                        const tailX = tailIn !== null ? LEFT_PAD + ms(tailIn) * xScale : null;
-
-                        if (tailX !== null) {
-                            sb += `<rect x="${this.f(sx)}" y="${laneAreaTop}" width="${this.f(tailX - sx)}" height="${laneAreaH}" fill="#fb8c00" opacity="${0.10 * dim}"/>`;
-                            sb += `<rect x="${this.f(tailX)}" y="${laneAreaTop}" width="${this.f(ex - tailX)}" height="${laneAreaH}" fill="#AEB9C6" opacity="${0.08 * dim}"/>`;
-                        } else {
-                            const bandFill = isEven ? '#5c6bc0' : '#8e24aa';
-                            sb += `<rect x="${this.f(sx)}" y="${laneAreaTop}" width="${this.f(bandW)}" height="${laneAreaH}" fill="${bandFill}" opacity="${0.07 * dim}"/>`;
-                        }
-
-                        sb += `<line x1="${this.f(sx)}" y1="${TOP_MARGIN}" x2="${this.f(sx)}" y2="${laneAreaBottom}" stroke="#455a64" stroke-width="1.8" opacity="0.9"/>`;
-                        if (tailX !== null) {
-                            sb += `<line x1="${this.f(tailX)}" y1="${laneAreaTop}" x2="${this.f(tailX)}" y2="${laneAreaBottom}" stroke="#ab47bc" stroke-width="1.2" stroke-dasharray="3 2" opacity="0.85"/>`;
-                        }
-                    }
-
-                    const lastEdge = bnd[bnd.length - 1];
-                    if (lastEdge >= cs && lastEdge <= ce) {
-                        const lx = LEFT_PAD + ms(lastEdge) * xScale;
-                        sb += `<line x1="${this.f(lx)}" y1="${TOP_MARGIN}" x2="${this.f(lx)}" y2="${laneAreaBottom}" stroke="#455a64" stroke-width="1.8" opacity="0.9"/>`;
-                    }
-                    return sb;
-                },
-
-                appendTimeAxis(totalMs, xScale, cs, laneAreaTop, laneAreaBottom) {
-                    let sb = '';
-                    sb += `<line x1="${LEFT_PAD}" y1="${TOP_MARGIN - 6}" x2="${LEFT_PAD + this.plotWidth}" y2="${TOP_MARGIN - 6}" stroke="#888" stroke-width="1"/>`;
-                    const tickStep = this.chooseTickStepMs(totalMs);
-                    for (let t = 0; t <= totalMs + 1e-6; t += tickStep) {
-                        const x = LEFT_PAD + t * xScale;
-                        sb += `<line x1="${this.f(x)}" y1="${this.f(laneAreaTop)}" x2="${this.f(x)}" y2="${this.f(laneAreaBottom)}" stroke="#e9ecef" stroke-width="1" stroke-dasharray="2 4"/>`;
-                        const labelTime = new Date(cs + t);
-                        sb += `<text x="${this.f(x)}" y="${TOP_MARGIN - 12}" text-anchor="middle" font-size="10" fill="#666" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">${this.esc(this.hms2(labelTime))}</text>`;
-                    }
-                    return sb;
-                },
-
-                chooseTickStepMs(totalMs) {
-                    const targetCount = 10;
-                    const rough = totalMs / targetCount;
-                    const mag = Math.pow(10, Math.floor(Math.log10(Math.max(1, rough))));
-                    const norm = rough / mag;
-                    let mult;
-                    if (norm <= 1) mult = 1; else if (norm <= 2) mult = 2; else if (norm <= 5) mult = 5; else mult = 10;
-                    return Math.max(1, mult * mag);
+                    if (typeof this.ganttTab === 'number' && !this.branches[this.ganttTab]) this.ganttTab = 'flow';
+                    const s = this.activeSlice();
+                    const svg = CG.buildSvg(s);
+                    _act = s;
+                    this._geo = s._geo;
+                    const rows = CG.laneRows(s);
+                    this.ganttRows = rows;
+                    this.act = {
+                        kind: s.kind, bi: s.bi,
+                        headCallId: s.headCallId, tailCallId: s.tailCallId,
+                        editable: s.editable, unionMode: s.unionMode, hasRibbon: CG.hasRibbon(s),
+                        avgCycleMs: s.avgCycleMs, avgActiveMs: s.avgActiveMs,
+                        tailCompletionSource: s.tailCompletionSource,
+                        excluded: s.kind === 'branch' ? (s.branch.excludedCallNames || []).slice() : [],
+                        visibleLanes: rows.filter(r => r.kind === 'call').length, totalLanes: s.callLanes.length,
+                    };
+                    return svg;
                 },
 
                 formatMs(ms) {
