@@ -14,9 +14,9 @@
             let _charts = { trend: null, count: null };   // 추이 탭 (trend/count)
             let _cycleChart = null;   // 사이클 분석 탭
             let _histChart = null;    // 최근 히스토리 탭
-            // 활성 간트 슬라이스(탭 하나 = flow 전체 | 분기 i) — buildSvg() 가 세운 마지막 슬라이스. lane 배열·스팬을
-            // 통째로 들고 있어 Alpine 깊은 Proxy 를 피하려고 클로저에 둔다(템플릿용 요약은 this.act).
-            let _act = null;
+            // 간트 슬라이스(2026-09-06 2간트) — 상단=flow 항상, 하단=분기(있을 때, 탭으로 활성 분기 1개).
+            // lane 배열·스팬을 통째로 들고 있어 Alpine 깊은 Proxy 를 피하려 클로저에 둔다(템플릿용 요약은 flowAct/brAct).
+            let _flowAct = null, _brAct = null;
 
             // x축(category) 눈금 라벨: 첫·마지막은 항상 표시하고 나머지는 균등 간격으로 남긴다.
             // Chart.js 기본 autoSkip 은 균등 간격만 유지하고 끝 눈금 보존을 보장하지 않아
@@ -42,17 +42,22 @@
                 branchesSaved: '[]',     // 저장 스냅샷(JSON) — dirty 판정
                 branchSavedCount: 0,     // 저장된 분기 수(0 = 분기 미사용)
                 branchBusy: false,
-                // ── 간트 탭(2026-09-06) — 'flow'(전체) | 분기 index. 분기별 간트를 세로로 줄지어 그리던 카드를 탭으로 대체:
-                //    한 번에 간트 하나만 그리고(사이드바·SVG 템플릿 1벌), 탭이 활성 슬라이스를 고른다.
-                ganttTab: 'flow',
-                ganttRows: [],           // 활성 탭의 사이드바 행(CycleGantt.laneRows) — buildSvg() 가 SVG 와 함께 갱신
-                // 활성 탭 요약(템플릿용) — 시작/끝/제외 배지·버튼 활성·헤더 통계. 상세는 클로저 _act.
-                act: { kind: 'flow', bi: -1, headCallId: null, tailCallId: null, editable: true, unionMode: false, hasRibbon: false,
-                       avgCycleMs: null, avgActiveMs: null, tailCompletionSource: null, excluded: [], visibleLanes: 0, totalLanes: 0 },
+                // ── 2간트 구성(2026-09-06) — 상단 flow 간트는 항상, 하단 분기 간트는 분기가 있을 때만. 분기가 여럿이면
+                //    하단 간트를 탭(branchTab)으로 전환한다(최대 2개 간트). 각 간트는 SVG + 사이드바 행 + 요약을 따로 갖는다.
+                branchTab: 0,            // 하단 간트에 그릴 활성 분기 index
+                flowSvg: '', brSvg: '',  // 각 간트 SVG (x-html)
+                flowRows: [], brRows: [],// 각 간트 사이드바 행(CycleGantt.laneRows)
+                // 템플릿용 요약(배지·버튼 활성·헤더 통계). 상세 슬라이스는 클로저 _flowAct/_brAct.
+                flowAct: { headCallId: null, tailCallId: null, editable: true, unionMode: false, hasRibbon: false,
+                           avgCycleMs: null, avgActiveMs: null, tailCompletionSource: null, visibleLanes: 0, totalLanes: 0 },
+                brAct: { bi: -1, headCallId: null, tailCallId: null, hasRibbon: false,
+                         avgCycleMs: null, avgActiveMs: null, tailCompletionSource: null, excluded: [], visibleLanes: 0, totalLanes: 0 },
                 // CALL 정렬 모드 — 'signal'(시작 맨 위·끝 맨 아래·사이는 첫 신호 시각 순, Work 헤더 없음)
                 //                 | 'work'(Work 그룹 고정 순서 = 모델 순, 시작/끝을 바꿔도 행이 안 움직임). localStorage 보존.
                 sortMode: 'signal',
                 laneFilter: '',          // 간트 내부 검색(사이드바 행 필터) — call/Work/태그/I/O 쌍 이름 부분 일치, 공백 AND
+                // 복수 선택 모드(분기 탭) — 체크한 call 들을 '선택 제외/해제' 로 일괄 적용. selCalls = callName → true
+                selMode: false, selCalls: {}, selMsg: '', _selAnchor: null,
                 branchMsg: '',
                 branchError: '',
                 tab: 'trend',   // 'trend' | 'cycle' | 'history' — 콘텐츠 탭 전환
@@ -100,7 +105,6 @@
                 exporting: false,
                 avgCycleMs: null, avgActiveMs: null,
                 tailCompletionSource: null,
-                svgMarkup: '',
                 cycleView: 'chart',   // 사이클 목록: 'table' | 'chart' (기본=차트)
                 cyclePreset: null,    // 활성 사이클-기준 프리셋(최근 N 사이클) — 시간 프리셋/수동 변경 시 해제
                 timePreset: null,     // 활성 시간 프리셋('m1'|'m5'|'m30'|'h1'|'h24') — 사이클/수동 변경 시 해제
@@ -173,7 +177,7 @@
                         clearTimeout(_rt);
                         _rt = setTimeout(() => {
                             if (this._drag) return;
-                            if (this.callLanes.length) { this.measurePlotWidth(); this.svgMarkup = this.buildSvg(); this.syncPanSoon(); }
+                            if (this.callLanes.length) { this.measurePlotWidth(); this.render(); this.syncPanSoon(); }
                             _resizeCharts();
                         }, 150);
                     });
@@ -268,7 +272,7 @@
                     this.tab = t;
                     this.$nextTick(() => {
                         if (t === 'trend') { if (this.trend.cycleCount > 0) this.drawCharts(); }
-                        else if (t === 'cycle') { if (this.callLanes.length) { this.measurePlotWidth(); this.svgMarkup = this.buildSvg(); } if (this.cycleView === 'chart') this.renderCycleChart(); }
+                        else if (t === 'cycle') { if (this.callLanes.length) { this.measurePlotWidth(); this.render(); } if (this.cycleView === 'chart') this.renderCycleChart(); }
                         else if (t === 'history') { if (this.histView === 'chart') this.renderHistChart(); }
                     });
                 },
@@ -690,7 +694,7 @@
                 setView(mode) {
                     if (this.viewMode === mode) return;
                     this.viewMode = mode;
-                    this.svgMarkup = this.buildSvg();
+                    this.render();
                 },
                 // ── 간트 이동/확대 슬라이더 ────────────────────────────────────────────
                 // 확대 슬라이더는 로그 스케일(0=100%, 1000=MAX_ZOOM) — 선형이면 100~200% 구간이
@@ -719,9 +723,11 @@
                     ro.observe(el);
                     if (el.firstElementChild) ro.observe(el.firstElementChild);   // .ct-gantt-wrapper (SVG 폭)
                 },
-                // 간트 스크롤 컨테이너. $refs 는 중첩 x-if 안에서 첫 mount 때 비어 있을 수 있어 DOM 조회로 폴백.
-                chartAreaEl() { return this.$refs.chartArea || document.querySelector('.ct-gantt-hscroll'); },
-                // 현재 스크롤 위치 → 이동 슬라이더 값(+ 활성 여부). 스크롤 이벤트/줌/로드 후 호출.
+                // 간트 스크롤 컨테이너. 상단 flow 간트가 이동/확대 슬라이더의 기준(둘은 폭·줌 공유).
+                chartAreaEl() { return this.$refs.flowChart || document.querySelector('.ct-gantt-hscroll'); },
+                // 현재 존재하는 모든 간트 스크롤 컨테이너(상단 flow + 하단 분기) — 이동/확대는 둘을 함께 맞춘다.
+                chartAreaEls() { return Array.from(document.querySelectorAll('.ct-gantt-hscroll')); },
+                // 현재 스크롤 위치 → 이동 슬라이더 값(+ 활성 여부). 스크롤 이벤트/줌/로드 후 호출. 기준 = flow 간트.
                 syncPan(el) {
                     el = el || this.chartAreaEl();
                     if (!el) { this.panPct = 0; this.canPan = false; return; }
@@ -730,24 +736,29 @@
                     this.panPct = max > 1 ? Math.round(el.scrollLeft / max * 1000) : 0;
                 },
                 onPanSlider(value) {
-                    const el = this.chartAreaEl();
-                    if (!el) return;
                     const t = Math.min(1, Math.max(0, Number(value) / 1000));
-                    const max = el.scrollWidth - el.clientWidth;
                     this.panPct = Math.round(t * 1000);
-                    el.scrollLeft = max > 0 ? t * max : 0;
+                    this.chartAreaEls().forEach(el => { const max = el.scrollWidth - el.clientWidth; el.scrollLeft = max > 0 ? t * max : 0; });
+                },
+                // 한 간트를 스크롤하면 다른 간트도 같은 위치로(두 간트 가로축 잠금) + 슬라이더 동기. 피드백 루프는 플래그로 차단.
+                syncScroll(el) {
+                    if (this._scrolling) { this.syncPan(el); return; }
+                    this._scrolling = true;
+                    const left = el.scrollLeft;
+                    this.chartAreaEls().forEach(c => { if (c !== el && Math.abs(c.scrollLeft - left) > 0.5) c.scrollLeft = left; });
+                    this.syncPan(el);
+                    requestAnimationFrame(() => { this._scrolling = false; });
                 },
                 resetZoom() {
                     this.zoom = 1;
                     this.measurePlotWidth();
-                    this.svgMarkup = this.buildSvg();
+                    this.render();
                     this.$nextTick(() => {
-                        const el = this.chartAreaEl(); if (el) el.scrollLeft = 0;
+                        this.chartAreaEls().forEach(el => { el.scrollLeft = 0; });
                         requestAnimationFrame(() => this.syncPan());
                     });
                 },
-                // el(선택) = 앵커/스크롤 보정 대상 컨테이너 — 분기별 간트 카드처럼 상단(chartArea)이 아닌
-                // .ct-gantt-hscroll 에서 Ctrl+휠 줌할 때 그 컨테이너를 넘긴다(줌 자체는 전 간트 공유).
+                // el = 앵커(Ctrl+휠이 일어난 간트) — 줌 자체는 두 간트 공유, 스크롤도 함께 같은 위치로 맞춘다.
                 applyZoom(targetZoom, anchorX, el) {
                     el = el || this.chartAreaEl();
                     if (!el) return;
@@ -757,9 +768,10 @@
                     const frac = this.plotWidth > 0 ? Math.min(1, plotAreaX / this.plotWidth) : 0;
                     this.zoom = newZoom;
                     this.plotWidth = Math.max(minPlotW(), Math.round(this.baseWidth * this.zoom));
-                    this.svgMarkup = this.buildSvg();
+                    this.render();
                     this.$nextTick(() => {
-                        el.scrollLeft = frac * this.plotWidth + LEFT_PAD - anchorX;
+                        const left = frac * this.plotWidth + LEFT_PAD - anchorX;
+                        this.chartAreaEls().forEach(c => { c.scrollLeft = left; });
                         requestAnimationFrame(() => this.syncPan());
                     });
                 },
@@ -990,7 +1002,7 @@
                 brColor(i) { return BR_COLORS[i % BR_COLORS.length]; },
                 // 편집 변경 → 활성 탭 간트 즉시 재빌드(수동 — svgMarkup/ganttRows 는 반응형이 아님).
                 _brRefresh() {
-                    if (this.callLanes.length) this.svgMarkup = this.buildSvg();
+                    if (this.callLanes.length) this.render();
                 },
                 brSetHead(b, callName) {
                     b.startCallName = callName;
@@ -1007,22 +1019,100 @@
                     this.brToggleExcl(b, callName);
                 },
                 brName(bi) { const b = this.branches[bi]; return b ? (b.name || ('분기' + (bi + 1))) : ''; },
-                // 활성 분기 탭의 분기/통계 — null 안전(탭이 'flow' 로 바뀌는 틱에 템플릿 자식이 먼저 재평가되는 Alpine 함정 회피)
-                get curBranch() { return (typeof this.ganttTab === 'number' && this.branches[this.ganttTab]) || null; },
+                // 하단 간트의 활성 분기/통계 — null 안전(분기 삭제 틱에 템플릿 자식이 먼저 재평가되는 Alpine 함정 회피)
+                get curBranch() { return this.branches[this.branchTab] || null; },
                 get curStat() {
-                    const st = (typeof this.ganttTab === 'number') ? this.branchPreview.stats[this.ganttTab] : null;
+                    const st = this.branchPreview.stats[this.branchTab];
                     return st || { count: 0, pct: 0, dup: 0 };
                 },
                 brRename(name) { const b = this.curBranch; if (!b) return; b.name = name; this._brRefresh(); },
 
-                // ═══ 간트 탭 · 활성 슬라이스 (2026-09-06) ═══════════════════════════════════════════════
-                // 간트는 한 번에 하나(탭). flow 전체 탭과 분기 탭이 "같은 슬라이스 규약"으로 CycleGantt 에 위임되므로
-                // 사이드바/SVG 템플릿이 1벌이다 — 막대/InOut 라인·정렬·검색·확대/이동·드래그 구간통계가 모든 탭에 동일 적용.
-                setGanttTab(t) {
-                    if (typeof t === 'number' && !this.branches[t]) t = 'flow';
-                    this.ganttTab = t;
-                    this.selectedRange = null;
-                    this.svgMarkup = this.buildSvg();
+                // ═══ 복수 선택 → 일괄 제외/해제 (2026-09-06) — 분기 탭 전용 ═══
+                // 행마다 '제외' 를 하나씩 누르는 대신, 선택 모드에서 체크(행 클릭 · Work 헤더 = 그 Work 전체 · 표시된 행 전체 ·
+                // 반전 · Shift+클릭 범위)한 뒤 '선택 제외 / 제외 해제' 로 한 번에 적용한다. 시작/끝 call 은 적용 시 자동 제외.
+                toggleSelMode() {
+                    this.selMode = !this.selMode;
+                    if (!this.selMode) this.selClear();
+                    this.selMsg = '';
+                },
+                selIsOn(name) { return !!this.selCalls[name]; },
+                get selCount() { return Object.keys(this.selCalls).length; },
+                _selSet(names, on) {
+                    const next = { ...this.selCalls };
+                    names.forEach(n => { if (on) next[n] = true; else delete next[n]; });
+                    this.selCalls = next;
+                },
+                // 행 클릭/체크 — Shift 로 마지막 클릭 행과의 범위(표시 순서 기준) 일괄 토글
+                selToggleRow(row, ev) {
+                    const name = row.lane.callName;
+                    const callRows = this.brRows.filter(r => r.kind === 'call');
+                    const idx = callRows.findIndex(r => r.lane.callName === name);
+                    if (ev && ev.shiftKey && this._selAnchor != null) {
+                        const a = callRows.findIndex(r => r.lane.callName === this._selAnchor);
+                        if (a !== -1 && idx !== -1) {
+                            const [lo, hi] = a < idx ? [a, idx] : [idx, a];
+                            const on = !this.selIsOn(name);
+                            this._selSet(callRows.slice(lo, hi + 1).map(r => r.lane.callName), on);
+                            this._selAnchor = name;
+                            return;
+                        }
+                    }
+                    this._selSet([name], !this.selIsOn(name));
+                    this._selAnchor = name;
+                },
+                _workCalls(workName) {
+                    return this.callLanesRaw.filter(l => (l.workName || '(Work 없음)') === workName).map(l => l.callName);
+                },
+                // Work 헤더 체크 상태 — 'all' | 'some' | 'none'
+                selWorkState(workName) {
+                    const calls = this._workCalls(workName);
+                    if (!calls.length) return 'none';
+                    const n = calls.filter(c => this.selIsOn(c)).length;
+                    return n === 0 ? 'none' : (n === calls.length ? 'all' : 'some');
+                },
+                selToggleWork(workName) {
+                    const calls = this._workCalls(workName);
+                    this._selSet(calls, this.selWorkState(workName) !== 'all');
+                },
+                selAll() { this._selSet(this.callLanesRaw.map(l => l.callName), true); },
+                // 표시된 행(검색 필터 통과분)만 선택 — 검색으로 좁힌 뒤 한 번에 제외하는 흐름
+                selVisible() { this._selSet(this.brRows.filter(r => r.kind === 'call').map(r => r.lane.callName), true); },
+                selInvert() {
+                    const next = {};
+                    this.callLanesRaw.forEach(l => { if (!this.selIsOn(l.callName)) next[l.callName] = true; });
+                    this.selCalls = next;
+                },
+                selClear() { this.selCalls = {}; this._selAnchor = null; },
+                // 선택된 call 을 이 분기의 제외 목록에 일괄 반영(on=true 제외 / false 해제). 시작/끝 call 은 건너뛰고 알린다.
+                applySelExcl(on) {
+                    const b = this.curBranch;
+                    if (!b || !this.selCount) return;
+                    const names = Object.keys(this.selCalls);
+                    const bound = names.filter(n => n === b.startCallName || n === b.endCallName);
+                    const targets = names.filter(n => bound.indexOf(n) === -1);
+                    const set = new Set(b.excludedCallNames || []);
+                    let changed = 0;
+                    targets.forEach(n => {
+                        if (on && !set.has(n)) { set.add(n); changed++; }
+                        else if (!on && set.has(n)) { set.delete(n); changed++; }
+                    });
+                    b.excludedCallNames = Array.from(set);
+                    this.selMsg = (on ? '제외 ' : '제외 해제 ') + changed + '개 적용'
+                        + (bound.length ? ' · 시작/끝 call ' + bound.length + '개는 건너뜀' : '');
+                    this.selClear();
+                    this._brRefresh();
+                    setTimeout(() => { this.selMsg = ''; }, 5000);
+                },
+
+                // ═══ 2간트 렌더 · 슬라이스 (2026-09-06) ═══════════════════════════════════════════════
+                // 상단 flow 간트는 항상, 하단 분기 간트는 분기가 있을 때만(활성 분기 = branchTab). 두 간트가 "같은 슬라이스
+                // 규약"으로 CycleGantt 에 위임돼 막대/InOut·정렬·검색·확대/이동·드래그 구간통계가 양쪽 동일 적용.
+                setBranchTab(i) {
+                    if (!this.branches[i]) i = Math.max(0, this.branches.length - 1);
+                    this.branchTab = i;
+                    this.selClear(); this.selMsg = '';       // 선택은 분기 단위 — 탭 바꾸면 비움
+                    if (this.selectedRange && this.selectedRange.gantt === 'branch') this.selectedRange = null;
+                    this.render();
                     this.syncPanSoon();
                 },
                 // 표시 순서 — 'signal': 시작 맨 위·끝 맨 아래·사이는 첫 신호 시각(Work 헤더 없음) / 'work': Work 그룹 고정(모델 순).
@@ -1038,49 +1128,52 @@
                     }
                     return window.CycleGantt.sortLanes(raw, headId, tailId);
                 },
-                // 활성 탭의 렌더 슬라이스 — CycleGantt.buildSvg/laneRows 가 읽는 필드 규약(cycle-gantt.js 헤더 참고).
-                activeSlice() {
-                    const base = {
+                _sliceBase() {
+                    return {
                         chartStart: this.chartStart, chartEnd: this.chartEnd, plotWidth: this.plotWidth,
                         viewMode: this.viewMode, expandedCalls: this.expandedCalls,
                         topGaps: this.topGaps, showMaxGap: this.showMaxGap, selectedGapIndex: this.selectedGapIndex,
-                        selectedRange: this.selectedRange, unmeasuredRegions: this.unmeasuredRegions || [],
+                        unmeasuredRegions: this.unmeasuredRegions || [],
                         laneFilter: this.laneFilter, noWorkRows: this.sortMode !== 'work',
                     };
-                    const pv = this.branches.length ? this.branchPreview : null;
-                    const bi = this.ganttTab;
-                    const b = (typeof bi === 'number') ? this.branches[bi] : null;
-                    if (!b) {
-                        // ── flow 전체 탭 ──
-                        const s = Object.assign(base, {
-                            kind: 'flow', bi: -1, branch: null,
-                            callLanes: this._orderedLanes(this.headCallId, this.tailCallId),
-                            headCallId: this.headCallId, tailCallId: this.tailCallId,
-                            cycleBoundaries: this.cycleBoundaries, tailEdges: this.tailEdges,
-                            editable: this.branches.length === 0,
-                            avgCycleMs: this.avgCycleMs, avgActiveMs: this.avgActiveMs,
-                            tailCompletionSource: this.tailCompletionSource,
-                            unionMode: false,
-                        });
-                        if (pv) {
-                            // 분기 사용 중 → 리본 = 분기별 CT 합산(어느 분기의 CT / CT 중복 / 정상 CT 없음). flow 자체 경계·평균은 잠김.
-                            s.unionMode = true;
-                            s.avgCycleMs = null; s.avgActiveMs = null;
-                            s.cycleSpans = pv.spans.map((sp, i) => ({
-                                start: sp.sMs, end: sp.eMs, number: i + 1, isOpen: sp.isOpen, tailIn: sp.tailIn,
-                                union: { win: sp.win, dup: sp.dup, color: sp.color, label: sp.label, title: sp.title },
-                            }));
-                        }
-                        return s;
+                },
+                // 상단 flow 간트 슬라이스 — 분기 없으면 종전(편집 가능), 분기 있으면 잠금 + 분기별 CT 합산 리본.
+                flowSlice() {
+                    const base = this._sliceBase();
+                    base.selectedRange = (this.selectedRange && this.selectedRange.gantt === 'flow') ? this.selectedRange : null;
+                    const s = Object.assign(base, {
+                        kind: 'flow', bi: -1, branch: null,
+                        callLanes: this._orderedLanes(this.headCallId, this.tailCallId),
+                        headCallId: this.headCallId, tailCallId: this.tailCallId,
+                        cycleBoundaries: this.cycleBoundaries, tailEdges: this.tailEdges,
+                        editable: this.branches.length === 0,
+                        avgCycleMs: this.avgCycleMs, avgActiveMs: this.avgActiveMs,
+                        tailCompletionSource: this.tailCompletionSource, unionMode: false,
+                    });
+                    if (this.branches.length) {
+                        const pv = this.branchPreview;
+                        s.unionMode = true; s.avgCycleMs = null; s.avgActiveMs = null;
+                        s.cycleSpans = pv.spans.map((sp, i) => ({
+                            start: sp.sMs, end: sp.eMs, number: i + 1, isOpen: sp.isOpen, tailIn: sp.tailIn,
+                            union: { win: sp.win, dup: sp.dup, color: sp.color, label: sp.label, title: sp.title },
+                        }));
                     }
-                    // ── 분기 탭 ──
+                    return s;
+                },
+                // 하단 분기 간트 슬라이스 — 활성 분기(bi) 관점. 리본 = 이 분기로 판별된 스팬만, 상단 색 바 = 자기 관점 분류.
+                branchSlice(bi) {
+                    const b = this.branches[bi];
+                    if (!b) return null;
+                    const base = this._sliceBase();
+                    base.selectedRange = (this.selectedRange && this.selectedRange.gantt === 'branch') ? this.selectedRange : null;
+                    const pv = this.branchPreview;
                     const laneBy = {};
                     (this.callLanesRaw || []).forEach(l => { laneBy[l.callName] = l; });
                     const head = laneBy[b.startCallName] || null;
                     const tail = laneBy[b.endCallName] || null;
                     const spans = [];
                     let ctSum = 0, ctN = 0, atSum = 0, atN = 0;
-                    (pv ? pv.spans : []).forEach(sp => {
+                    pv.spans.forEach(sp => {
                         if (sp.passing.indexOf(bi) === -1) return;   // 이 분기로 판별된 스팬만(중복 포함) — 사이 구간은 비어 보인다
                         const tailIn = sp.tailInBy[bi] === undefined ? null : sp.tailInBy[bi];
                         spans.push({ start: sp.sMs, end: sp.eMs, number: spans.length + 1, isOpen: sp.isOpen, tailIn });
@@ -1089,20 +1182,17 @@
                     });
                     const collapsed = {};
                     (b.excludedCallNames || []).forEach(n => { collapsed[n] = true; });
-                    // 리본 상단 색 바 = 이 분기 관점의 스팬 분류(분기색=이 분기 · 빨강=중복 · 회색=다른 분기/제외 발화)
                     const ct = (sp) => this.formatMs(sp.eMs - sp.sMs);
-                    const bar = (pv ? pv.spans : []).map(sp => {
+                    const bar = pv.spans.map(sp => {
                         const me = sp.byBranch[bi];
                         let color, title;
                         if (me && me.pass) {
                             color = sp.dup ? '#e53935' : this.brColor(bi);
                             title = (sp.dup ? 'CT 중복 — ' + sp.passing.map(x => this.brName(x)).join(', ') + ' 모두 정상 판별 · ' : this.brName(bi) + ' · ') + ct(sp);
                         } else if (me) {
-                            color = '#d7dde3';
-                            title = '이 분기 아님 — 제외 call \'' + me.reason + '\' 발화 · ' + ct(sp);
+                            color = '#d7dde3'; title = '이 분기 아님 — 제외 call \'' + me.reason + '\' 발화 · ' + ct(sp);
                         } else {
-                            color = '#d7dde3';
-                            title = '이 분기 시작 아님 — ' + (sp.win === -1 ? '미분류' : this.brName(sp.win)) + ' · ' + ct(sp);
+                            color = '#d7dde3'; title = '이 분기 시작 아님 — ' + (sp.win === -1 ? '미분류' : this.brName(sp.win)) + ' · ' + ct(sp);
                         }
                         return { sMs: sp.sMs, eMs: sp.eMs, color, title };
                     });
@@ -1111,36 +1201,58 @@
                         callLanes: this._orderedLanes(head ? head.callId : null, tail ? tail.callId : null),
                         headCallId: head ? head.callId : null, tailCallId: tail ? tail.callId : null,
                         cycleBoundaries: [], tailEdges: [], cycleSpans: spans,
-                        collapsedCallNames: collapsed,
-                        editable: true, unionMode: false,
+                        collapsedCallNames: collapsed, editable: true, unionMode: false,
                         avgCycleMs: ctN ? ctSum / ctN : null, avgActiveMs: atN ? atSum / atN : null,
                         tailCompletionSource: tail ? ((tail.inIntervals || []).length ? 'InTag' : ((tail.outIntervals || []).length ? 'OutTag' : null)) : null,
                         branchPreview: { spans: bar },
                     });
                 },
-                // 사이드바 lane 버튼 — 활성 탭에 따라 flow 경계(잠김 가능) 또는 분기 정의로 분기.
-                gToggleHead(row) {
-                    if (!_act) return;
-                    if (_act.kind === 'flow') { if (_act.editable) this.toggleHead(row.lane.callId); }
-                    else this.brSetHead(_act.branch, row.lane.callName);
+                _summaryOf(s, rows) {
+                    return {
+                        bi: s.bi, headCallId: s.headCallId, tailCallId: s.tailCallId,
+                        editable: s.editable, unionMode: s.unionMode, hasRibbon: window.CycleGantt.hasRibbon(s),
+                        avgCycleMs: s.avgCycleMs, avgActiveMs: s.avgActiveMs, tailCompletionSource: s.tailCompletionSource,
+                        excluded: s.kind === 'branch' ? (s.branch.excludedCallNames || []).slice() : [],
+                        visibleLanes: rows.filter(r => r.kind === 'call').length, totalLanes: s.callLanes.length,
+                    };
                 },
-                gToggleTail(row) {
-                    if (!_act) return;
-                    if (_act.kind === 'flow') { if (_act.editable) this.toggleTail(row.lane.callId); }
-                    else this.brSetTail(_act.branch, row.lane.callName);
+                // 두 간트를 한 번에 갱신(SVG + 사이드바 행 + 요약 + geo). buildSvg() 대체 — 모든 재빌드 지점이 이걸 부른다.
+                render() {
+                    const CG = window.CycleGantt;
+                    if (!CG || !this.callLanesRaw.length || !this.chartStart || !this.chartEnd) {
+                        _flowAct = _brAct = null; this.flowSvg = this.brSvg = ''; this.flowRows = []; this.brRows = [];
+                        return;
+                    }
+                    if (this.branchTab >= this.branches.length) this.branchTab = Math.max(0, this.branches.length - 1);
+                    const fs = this.flowSlice();
+                    this.flowSvg = CG.buildSvg(fs); this.flowRows = CG.laneRows(fs);
+                    _flowAct = fs; this._flowGeo = fs._geo; this.flowAct = this._summaryOf(fs, this.flowRows);
+                    if (this.branches.length) {
+                        const bs = this.branchSlice(this.branchTab);
+                        this.brSvg = CG.buildSvg(bs); this.brRows = CG.laneRows(bs);
+                        _brAct = bs; this._brGeo = bs._geo; this.brAct = this._summaryOf(bs, this.brRows);
+                    } else {
+                        _brAct = null; this.brSvg = ''; this.brRows = []; this._brGeo = null;
+                    }
                 },
-                gToggleExcl(row) { if (_act && _act.kind === 'branch') this.brToggleExclByName(_act.branch, row.lane.callName); },
-                gWorkClick(row) { if (_act && _act.kind === 'branch') this.brToggleWorkByName(_act.branch, row.workName); },
-                isBoundRow(row) { return row.lane.callName === (_act && _act.branch ? _act.branch.startCallName : null) || row.lane.callName === (_act && _act.branch ? _act.branch.endCallName : null); },
-                // ── 정렬 모드 / 검색 필터 (모든 탭 공유) ──
+                // 정렬 모드 / 검색 필터 (두 간트 공유)
                 setSortMode(m) {
                     if (this.sortMode === m) return;
                     this.sortMode = m;
                     try { localStorage.setItem('dspilot-gantt-sort', m); } catch (_) { }
-                    this.svgMarkup = this.buildSvg();
+                    this.render();
                 },
-                onLaneFilter() { this.svgMarkup = this.buildSvg(); },
-                clearLaneFilter() { this.laneFilter = ''; this.svgMarkup = this.buildSvg(); },
+                onLaneFilter() { this.render(); },
+                clearLaneFilter() { this.laneFilter = ''; this.render(); },
+                // 분기 간트 lane 버튼(하단) — 항상 활성 분기 대상. 상단 flow 는 템플릿에서 toggleHead/Tail 직접 호출.
+                isBoundRow(row) { const b = this.curBranch; return !!b && (row.lane.callName === b.startCallName || row.lane.callName === b.endCallName); },
+                isExcludedRow(row) { return this.brAct.excluded.indexOf(row.lane.callName) !== -1; },
+                // rowClass 는 s.headCallId/tailCallId + row.collapsed 만 읽으므로 반응형 요약(flowAct/brAct)을 그대로 넘긴다.
+                flowRowClass(row) { return window.CycleGantt.rowClass(this.flowAct, row); },
+                brRowClass(row) {
+                    const c = window.CycleGantt.rowClass(this.brAct, row);
+                    return (this.selMode && row.kind === 'call' && this.selIsOn(row.lane.callName)) ? c + ' is-sel' : c;
+                },
                 async loadBranches() {
                     if (!this.flowName) return;
                     try {
@@ -1164,14 +1276,15 @@
                         endCallName: this.callNameOf(this.tailCallId) || '',
                         excludedCallNames: [],
                     });
-                    this.setGanttTab(this.branches.length - 1);   // 새 분기 탭으로 바로 이동(정의는 그 탭의 lane 에서)
+                    this.setBranchTab(this.branches.length - 1);   // 새 분기를 하단 간트 활성 탭으로
                 },
                 brRemove(i) {
                     if (!window.confirm('분기 "' + (this.branches[i].name || ('분기' + (i + 1))) + '" 을(를) 삭제합니다. (저장 전까지는 서버에 반영되지 않습니다)')) return;
                     this.branches.splice(i, 1);
-                    // 탭 보정 — 지운 탭이면 flow 전체로, 뒤쪽 탭이면 index 한 칸 앞으로.
-                    if (this.ganttTab === i) this.ganttTab = 'flow';
-                    else if (typeof this.ganttTab === 'number' && this.ganttTab > i) this.ganttTab -= 1;
+                    this.selClear(); this.selMsg = '';
+                    // 활성 탭 보정 — 지운 탭이거나 그 뒤면 한 칸 앞으로(하한 0). 분기 0개면 하단 간트 자체가 사라진다.
+                    if (this.branchTab >= i && this.branchTab > 0) this.branchTab -= 1;
+                    if (this.branchTab >= this.branches.length) this.branchTab = Math.max(0, this.branches.length - 1);
                     this._brRefresh();
                 },
                 brMove(i, d) {
@@ -1179,8 +1292,8 @@
                     if (j < 0 || j >= this.branches.length) return;
                     const t = this.branches.splice(i, 1)[0];
                     this.branches.splice(j, 0, t);
-                    if (this.ganttTab === i) this.ganttTab = j;
-                    else if (this.ganttTab === j) this.ganttTab = i;
+                    if (this.branchTab === i) this.branchTab = j;
+                    else if (this.branchTab === j) this.branchTab = i;
                     this._brRefresh();
                 },
                 brToggleExcl(b, name) {
@@ -1492,9 +1605,9 @@
                     this.selectedRange = null;
                     this.applySort();
                     this.recomputeTopGaps();
-                    this.svgMarkup = this.buildSvg();
+                    this.render();
                     this.$nextTick(() => {
-                        this.measurePlotWidth(); this.svgMarkup = this.buildSvg();
+                        this.measurePlotWidth(); this.render();
                         // svgMarkup 은 다음 틱에 DOM 에 붙는다 → 스크롤 폭이 확정된 뒤 이동 슬라이더 동기화.
                         this.syncPanSoon();
                         if (this.tab === 'cycle' && this.cycleView === 'chart') this.renderCycleChart();
@@ -1542,20 +1655,20 @@
                     return this.topGaps[i];
                 },
                 onGapPicked() {
-                    this.svgMarkup = this.buildSvg();
+                    this.render();
                     const g = this.activeGap();
                     if (g) this.$nextTick(() => this.scrollToGap(g));
                 },
                 focusMaxGap() {
                     if (!this.topGaps.length) return;
                     this.showMaxGap = true; this.selectedGapIndex = 0;
-                    this.svgMarkup = this.buildSvg();
+                    this.render();
                     this.$nextTick(() => this.scrollToGap(this.topGaps[0]));
                 },
                 scrollToGap(gap) {
                     const area = this.chartAreaEl();
-                    if (!area || !this._geo || !gap) return;
-                    const { cs, xScale } = this._geo;
+                    if (!area || !this._flowGeo || !gap) return;
+                    const { cs, xScale } = this._flowGeo;
                     const midX = LEFT_PAD + ((gap.startMs + gap.endMs) / 2 - cs) * xScale;
                     const target = Math.max(0, midX - area.clientWidth / 2);
                     try { area.scrollTo({ left: target, behavior: 'smooth' }); }
@@ -1624,37 +1737,38 @@
                     return 'ct-ratio-low';
                 },
 
-                // 마우스 드래그 진입(기존 경로 유지) — 좌클릭만.
-                onDragStart(e) {
+                // 마우스 드래그 진입 — 좌클릭만. gantt='flow'|'branch' = 드래그가 일어난 간트(위/아래).
+                onDragStart(e, gantt) {
                     if (e.button !== 0) return;
-                    this._beginDrag(e, e.clientX, e.clientY, 'mouse');
+                    this._beginDrag(e, e.clientX, e.clientY, 'mouse', gantt || 'flow', e.currentTarget);
                 },
-                // 터치 드래그 진입(추가) — 손가락 한 개. e.touches[0] 좌표로 동일 로직 실행.
-                // 핀치(손가락 2개) 는 무시해 브라우저 줌/스크롤에 양보.
-                onDragStartTouch(e) {
+                // 터치 드래그 진입 — 손가락 한 개(핀치는 무시). gantt 는 x-init 리스너에서 넘긴다.
+                onDragStartTouch(e, gantt) {
                     if (!e.touches || e.touches.length !== 1) return;
                     const t = e.touches[0];
-                    this._beginDrag(e, t.clientX, t.clientY, 'touch');
+                    this._beginDrag(e, t.clientX, t.clientY, 'touch', gantt || 'flow', e.currentTarget);
                 },
-                // 마우스/터치 공통 드래그 선택 코어. mode='mouse'|'touch'.
-                _beginDrag(e, clientX, clientY, mode) {
-                    if (!this.callLanes.length) return;
-                    const area = this.chartAreaEl();
+                // 마우스/터치 공통 드래그 선택 코어. mode='mouse'|'touch', gantt='flow'|'branch', area=그 간트의 hscroll.
+                _beginDrag(e, clientX, clientY, mode, gantt, area) {
+                    const slice = gantt === 'branch' ? _brAct : _flowAct;
+                    const geo = gantt === 'branch' ? this._brGeo : this._flowGeo;
+                    if (!slice || !geo) return;
+                    area = area || (gantt === 'branch' ? document.querySelector('.fg-branch-gantt .ct-gantt-hscroll') : this.chartAreaEl());
                     const svg = area && area.querySelector('svg');
-                    if (!svg || !this._geo) return;
+                    if (!svg) return;
+                    const lanes = slice.callLanes || [];
                     const rectOf = () => svg.getBoundingClientRect();
                     const clampX = (x) => Math.max(LEFT_PAD, Math.min(LEFT_PAD + this.plotWidth, x));
-                    // 레인 영역 = 활성 탭 SVG 의 실제 기하(_geo, CycleGantt.buildSvg 가 세팅) — 분기 탭/필터/Work 헤더 유무를 그대로 따른다.
-                    const laneTop = this._geo.laneTop;
-                    const laneAreaH = this._geo.laneAreaH;
+                    const laneTop = geo.laneTop;
+                    const laneAreaH = geo.laneAreaH;
                     const laneBottom = laneTop + laneAreaH;
                     const r0 = rectOf();
                     const x0 = clientX - r0.left, y0 = clientY - r0.top;
                     if (x0 < LEFT_PAD || x0 > LEFT_PAD + this.plotWidth || y0 < laneTop - 8 || y0 > laneBottom + 8) return;
                     e.preventDefault();
-                    const { cs, xScale } = this._geo;
+                    const { cs, xScale } = geo;
                     const edgePx = [];
-                    for (const lane of this.callLanes) {
+                    for (const lane of lanes) {
                         for (const arr of [lane.intervals, lane.outIntervals, lane.inIntervals]) {
                             for (const iv of (arr || [])) {
                                 edgePx.push(LEFT_PAD + (new Date(iv.start).getTime() - cs) * xScale);
@@ -1662,8 +1776,8 @@
                             }
                         }
                     }
-                    // 스냅 후보에 활성 탭의 사이클 경계(분기 탭이면 그 분기 스팬의 시작/끝)도 포함
-                    for (const sp of this.actSpans()) { edgePx.push(LEFT_PAD + (sp.start - cs) * xScale); edgePx.push(LEFT_PAD + (sp.end - cs) * xScale); }
+                    // 스냅 후보에 이 간트의 사이클 경계(분기 간트면 그 분기 스팬의 시작/끝)도 포함
+                    for (const sp of window.CycleGantt.cycleSpansOf(slice)) { edgePx.push(LEFT_PAD + (sp.start - cs) * xScale); edgePx.push(LEFT_PAD + (sp.end - cs) * xScale); }
                     const SNAP_PX = 10;
                     const snapCurX = (x) => {
                         let best = x, bestDist = SNAP_PX;
@@ -1715,9 +1829,9 @@
                         const endMs = cs + (cur - LEFT_PAD) / xScale;
                         // 툴팁 세로 위치 = 드래그를 끝낸 포인터 아래, 현재 보이는 영역 안(레인 상단 고정이면 세로 스크롤 시 화면 밖).
                         const upY = eventY(ev);
-                        const tipTopOf = (h) => (window.CycleGantt ? window.CycleGantt.selTipTop(area, upY, h) : this.laneTopY + 6);
-                        this.selectedRange = { startMs: Math.min(startMs, endMs), endMs: Math.max(startMs, endMs), tipTop: tipTopOf(0) };
-                        this.svgMarkup = this.buildSvg();
+                        const tipTopOf = (h) => (window.CycleGantt ? window.CycleGantt.selTipTop(area, upY, h) : laneTop + 6);
+                        this.selectedRange = { gantt, startMs: Math.min(startMs, endMs), endMs: Math.max(startMs, endMs), tipTop: tipTopOf(0) };
+                        this.render();
                         // 렌더 후 실제 툴팁 높이로 한 번 보정(추정치 190px 와 다를 때 하단 잘림 방지)
                         this.$nextTick(() => {
                             const tip = area.querySelector('.ct-sel-tip');
@@ -1734,7 +1848,7 @@
                         document.addEventListener('mouseup', onUp, true);
                     }
                 },
-                clearRangeSelection() { this.selectedRange = null; this.svgMarkup = this.buildSvg(); },
+                clearRangeSelection() { this.selectedRange = null; this.render(); },
 
                 // 드래그 선택 구간을 분석 시작·종료 시간으로 설정하고 다시 로드(사이클 기간 = 이 구간).
                 async applyRangeAsPeriod() {
@@ -1753,11 +1867,13 @@
                 },
 
                 get selRangeLenMs() { return this.selectedRange ? Math.max(0, this.selectedRange.endMs - this.selectedRange.startMs) : 0; },
-                // 구간 통계는 활성 탭 기준 — flow 탭 = flow 사이클(분기 있으면 합산 스팬), 분기 탭 = 그 분기로 분류된 사이클.
-                actSpans() { return (_act && window.CycleGantt) ? window.CycleGantt.cycleSpansOf(_act) : []; },
-                actCycleRows() { return (_act && window.CycleGantt) ? window.CycleGantt.cycleRows(_act) : []; },
+                // 구간 통계는 선택이 일어난 간트 기준 — 상단 flow(분기 있으면 합산 스팬) / 하단 분기(그 분기로 분류된 사이클).
+                _selSlice() { return (this.selectedRange && this.selectedRange.gantt === 'branch') ? _brAct : _flowAct; },
+                _selGeo() { return (this.selectedRange && this.selectedRange.gantt === 'branch') ? this._brGeo : this._flowGeo; },
+                _selSummary() { return (this.selectedRange && this.selectedRange.gantt === 'branch') ? this.brAct : this.flowAct; },
+                actCycleRows() { const s = this._selSlice(); return (s && window.CycleGantt) ? window.CycleGantt.cycleRows(s) : []; },
                 // 이 구간에 걸치는(겹치는) 사이클 수. Tail 미지정(경계 없음) Flow 는 산출 불가 → selHasCycles=false.
-                get selHasCycles() { return this.act.hasRibbon; },
+                get selHasCycles() { return this._selSummary().hasRibbon; },
                 get selCycleCount() {
                     const r = this.selectedRange; if (!r) return 0;
                     let n = 0;
@@ -1787,15 +1903,15 @@
                 // 가로: 선택 구간의 중앙(양 끝 근처면 툴팁이 잘리지 않게 클램프).
                 // 세로: 드래그 종료 포인터 기준·보이는 영역 안(CycleGantt.selTipTop, 드래그 시 selectedRange.tipTop 에 확정). 폴백=레인 상단.
                 get selTipCenterPx() {
-                    const r = this.selectedRange; if (!r || !this._geo) return 0;
-                    const { cs, xScale } = this._geo;
+                    const r = this.selectedRange; const geo = this._selGeo(); if (!r || !geo) return 0;
+                    const { cs, xScale } = geo;
                     const raw = LEFT_PAD + ((r.startMs + r.endMs) / 2 - cs) * xScale;
                     const chartW = LEFT_PAD + this.plotWidth + RIGHT_PAD;
                     return Math.round(Math.max(170, Math.min(chartW - 170, raw)));
                 },
                 get selTipTopPx() {
-                    const r = this.selectedRange;
-                    return (r && typeof r.tipTop === 'number') ? r.tipTop : this.laneTopY + 6;
+                    const r = this.selectedRange; const geo = this._selGeo();
+                    return (r && typeof r.tipTop === 'number') ? r.tipTop : ((geo ? geo.laneTop : TOP_MARGIN) + 6);
                 },
 
                 async resolveOverlays() {
@@ -1823,7 +1939,7 @@
                         this.avgActiveMs = d.avgActiveMs ?? null;
                         this.tailCompletionSource = d.tailCompletionSource ?? null;
                         this.applySort();   // head/tail 변경 → Head↑/Tail↓ 순서 즉시 반영
-                        this.svgMarkup = this.buildSvg();
+                        this.render();
                         if (this.cycleView === 'chart') this.$nextTick(() => this.renderCycleChart());
                     } catch (e) {
                         this.errorMessage = '오버레이 갱신 실패: ' + e.message;
@@ -1837,19 +1953,16 @@
                 get tailName() { const l = this.tailCallId ? this.callLanes.find(x => x.callId === this.tailCallId) : null; return l ? l.callName : null; },
 
                 // 활성 탭 레인 영역 상단(SVG y) — 드래그 툴팁 폴백 위치. _geo 는 buildSvg 가 세팅.
-                get laneTopY() { return this._geo ? this._geo.laneTop : TOP_MARGIN; },
+                get laneTopY() { return this._flowGeo ? this._flowGeo.laneTop : TOP_MARGIN; },
 
                 // ── Call lane 확장(ApiCall 서브행) ──────────────────────────────
                 hasApiCalls(lane) { return !!(lane && lane.apiCalls && lane.apiCalls.length); },
                 toggleExpand(callId) {
                     // 새 객체로 재할당 → Alpine 이 키 추가/변경을 확실히 추적.
                     this.expandedCalls = { ...this.expandedCalls, [callId]: !this.expandedCalls[callId] };
-                    this.svgMarkup = this.buildSvg();   // SVG 는 x-html 이라 수동 재빌드
+                    this.render();   // SVG 는 x-html 이라 수동 재빌드
                 },
-                // 사이드바 행 레이아웃은 cycle-gantt.js laneLayout 단일 소스(2026-09-06 — flowApp 의 중복 구현 제거).
-                //   활성 탭의 행은 buildSvg() 가 this.ganttRows 에 채운다(SVG 와 같은 슬라이스로 계산 → 항상 정렬 일치).
-                rowClass(row) { return window.CycleGantt.rowClass(this.act, row); },
-                isExcludedRow(row) { return this.act.kind === 'branch' && this.act.excluded.indexOf(row.lane.callName) !== -1; },
+                // 사이드바 행 레이아웃은 cycle-gantt.js laneLayout 단일 소스. 행 클래스는 flowRowClass/brRowClass(위)로 분리.
 
                 // OutTag↑(명령) → 다음 InTag↑(응답) 까지를 한 동작 duration 으로 페어링한 ms 배열.
                 // 진영 B(PLC 기준): OutTag=출력(명령)=동작 시작, InTag=입력(응답)=동작 완료.
@@ -1997,34 +2110,7 @@
                     } finally { this.applyDurBusy = false; }
                 },
 
-                // ── BuildSvg() — 활성 탭(flow 전체 | 분기 i) 간트 1장 ──
-                // 렌더는 cycle-gantt.js(window.CycleGantt) 단일 소스(개별·분기·전체 편집이 같은 코드). flowApp 의 자체
-                // 폴백 렌더러(구 flow.html 원본 복제)는 2026-09-06 제거 — flow-cycle.html 이 항상 cycle-gantt.js 를 로드한다.
-                // SVG 와 사이드바 행(ganttRows)을 같은 슬라이스로 만들어 정렬/필터/접힘이 항상 일치한다.
-                buildSvg() {
-                    const CG = window.CycleGantt;
-                    if (!CG || !this.callLanesRaw.length || !this.chartStart || !this.chartEnd) {
-                        _act = null; this.ganttRows = [];
-                        return '';
-                    }
-                    if (typeof this.ganttTab === 'number' && !this.branches[this.ganttTab]) this.ganttTab = 'flow';
-                    const s = this.activeSlice();
-                    const svg = CG.buildSvg(s);
-                    _act = s;
-                    this._geo = s._geo;
-                    const rows = CG.laneRows(s);
-                    this.ganttRows = rows;
-                    this.act = {
-                        kind: s.kind, bi: s.bi,
-                        headCallId: s.headCallId, tailCallId: s.tailCallId,
-                        editable: s.editable, unionMode: s.unionMode, hasRibbon: CG.hasRibbon(s),
-                        avgCycleMs: s.avgCycleMs, avgActiveMs: s.avgActiveMs,
-                        tailCompletionSource: s.tailCompletionSource,
-                        excluded: s.kind === 'branch' ? (s.branch.excludedCallNames || []).slice() : [],
-                        visibleLanes: rows.filter(r => r.kind === 'call').length, totalLanes: s.callLanes.length,
-                    };
-                    return svg;
-                },
+                // 렌더는 render()(위) 단일 진입 — 상단 flow + 하단 분기 간트를 한 번에 갱신한다.
 
                 formatMs(ms) {
                     if (ms <= 0) return '0초';

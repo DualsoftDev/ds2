@@ -122,7 +122,10 @@
                 prevWork = wn;
             }
             var isCol = !!(collapsed && collapsed[lane.callName]);
-            rows.push({ kind: 'call', key: 'c:' + lane.callId, lane: lane, y: y, h: isCol ? COLLAPSED_LANE_H : LANE_HEIGHT, collapsed: isCol });
+            // ★ key 에 collapsed 상태 포함 — 제외 토글로 collapsed 만 바뀌면 Alpine 이 :key 동일이라 DOM 을
+            //   재사용하고 :class(is-collapsed)를 갱신하지 않는 함정(height 는 :style 로 줄지만 class 누락 → 내용 넘침).
+            //   key 를 바꿔 행을 재생성하게 한다(사이드바 x-for 전용 — SVG 는 문자열 재빌드라 무관).
+            rows.push({ kind: 'call', key: 'c:' + lane.callId + (isCol ? ':x' : ''), lane: lane, y: y, h: isCol ? COLLAPSED_LANE_H : LANE_HEIGHT, collapsed: isCol });
             y += isCol ? COLLAPSED_LANE_H : LANE_HEIGHT;
             if (s.expandedCalls && s.expandedCalls[lane.callId] && hasApiCalls(lane)) {
                 lane.apiCalls.forEach(function (ac, idx) {

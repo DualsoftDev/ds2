@@ -557,3 +557,25 @@
 /* 툴바에 정렬·검색이 추가돼(2026-09-06) 중간 폭에서 이동/확대 슬라이더가 둘째 줄로 밀린다 — 힌트 문구는 넓은 화면에서만 */
 @media (max-width: 1700px) { .ct-gantt-toolbar .ct-tb-hint { display: none; } }
 @media (max-width: 1400px) { .ct-gantt-toolbar .ct-pan { flex-basis: 140px; } .ct-search { min-width: 150px; } .ct-search input { width: 90px; } }
+
+/* ── 복수 선택 모드(분기 탭, 2026-09-06) — 체크 후 일괄 제외/해제 ── */
+.fg-selbar { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; padding: 7px 10px; border: 1px solid color-mix(in srgb, var(--color-primary) 45%, transparent); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); }
+.fg-sel-count { font-size: 0.78rem; font-weight: 700; color: var(--color-text-secondary); white-space: nowrap; }
+.fg-sel-count b { font-size: 0.95rem; color: var(--color-primary); font-family: var(--font-mono); }
+.fg-sel-sep { width: 1px; height: 18px; background: var(--color-lines-strong); }
+.fg-chk { width: 15px; height: 15px; margin: 0 4px 0 0; flex: 0 0 auto; accent-color: var(--color-primary); cursor: pointer; }
+.ct-work-label .fg-chk { margin-right: 2px; }
+.ct-lane-name-block.is-selectable { cursor: pointer; user-select: none; }
+.ct-lane-row.is-sel { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)) !important; box-shadow: inset 3px 0 0 var(--color-primary); }
+.ct-lane-row.is-sel.is-collapsed { opacity: 0.9; }
+@media (max-width: 480px) { .fg-selbar .fb-hint { display: none; } }
+
+/* ── 2간트 구성(2026-09-06): 상단 원본 flow + 하단 분기(탭) ── */
+.fg-gantt-head { display: flex; align-items: center; gap: 8px; }
+.fg-gantt-name { font-size: 0.82rem; font-weight: 800; color: var(--color-text-primary); }
+.fg-gantt-tag { font-size: 0.64rem; font-weight: 800; color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-text-secondary) 12%, transparent); border-radius: 999px; padding: 2px 8px; }
+.fg-branch-section { display: flex; flex-direction: column; gap: 12px; border: 1px solid color-mix(in srgb, var(--fg-c, var(--color-primary)) 30%, var(--color-lines)); border-radius: var(--radius-md); padding: 12px; background: color-mix(in srgb, var(--fg-c, var(--color-primary)) 3%, var(--color-surface)); }
+.fg-divider { display: flex; align-items: center; gap: 10px; font-size: 0.72rem; font-weight: 800; color: var(--color-text-secondary); letter-spacing: 0.04em; }
+.fg-divider::before, .fg-divider::after { content: ''; flex: 1; height: 1px; background: var(--color-lines); }
+.ct-gantt-layout.is-branch { border-color: color-mix(in srgb, var(--fg-c, var(--color-primary)) 40%, var(--color-lines)); box-shadow: inset 3px 0 0 var(--fg-c, var(--color-primary)); }
+.fg-branch-gantt { max-height: 60vh; }
