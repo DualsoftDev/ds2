@@ -724,6 +724,128 @@ public class DsProjectService
     }
 
     /// <summary>
+    /// 설정▸수동등록TAG 편집기의 적용 경로 — 지정한 활성 System 들의 UserTag 목록을 <b>통째로 교체</b>하고
+    /// 공유 project.aasx 로 재export 한다. Promaker UserTagPanel 이 쓰는 <c>Store.ReplaceUserTags</c> 와 동일
+    /// 메서드(인코딩 = UserTagHelpers.format 6필드)라 형상 호환된다.
+    ///
+    /// ★ AID 병합이 핵심: Agent(Promaker.Agent) 의 PLC 스캔 대상은 AID InterfaceXGT 의 interaction 목록이지
+    /// LoggingProperties.UserTags 가 아니다(AidXgtConfig.buildForProject 는 SignalPolicies 만 읽음). Promaker 는
+    /// 저장 직전 StampPlcConnection 이 IO맵+UserTag 주소를 AID 에 병합해 주기 때문에 이 차이가 드러나지 않았다.
+    /// 여기서 그 단계를 빠뜨리면 "정의는 보이는데 알람이 영원히 안 뜨는" 파일이 만들어지므로, System 별 기존
+    /// endpoint 값을 그대로 읽어(<see cref="AidXgtEndpointSettings.TryReadForSystem"/>) 주소만 병합한다
+    /// (<see cref="AidXgtEndpointSettings.EnsureBindingForSystem"/>). endpoint 가 없는 System 은 병합할 곳이 없어
+    /// 경고로 돌려준다(삭제된 태그의 interaction 은 Promaker 와 같이 남긴다 — 병합만, 제거 없음).
+    ///
+    /// LogLevel 은 운영 정책상 항상 Error 로 기록한다(Promaker UserTagEditDialog 와 동일).
+    /// </summary>
+    /// <param name="bySystem">System Id → 그 System 의 최종 UserTag 목록(빈 목록 = 전부 삭제).</param>
+    public UserTagWriteResult WriteUserTagsAndExport(
+        IReadOnlyDictionary<Guid, IReadOnlyList<UserTagWriteEntry>> bySystem)
+    {
+        var warnings = new List<string>();
+        if (!IsLoaded || GetProject() is not { } project)
+            return new UserTagWriteResult(false, 0, warnings, "프로젝트(AASX)가 로드되지 않았습니다.");
+        if (bySystem is null || bySystem.Count == 0)
+            return new UserTagWriteResult(false, 0, warnings, "변경할 System 이 없습니다.");
+
+        var activeById = GetActiveSystems().ToDictionary(s => s.Id, s => s);
+        foreach (var sid in bySystem.Keys)
+        {
+            if (!activeById.ContainsKey(sid))
+                return new UserTagWriteResult(false, 0, warnings,
+                    $"System {sid} 는 활성 System 이 아닙니다(Passive/디바이스 System 은 수동등록TAG 를 지원하지 않음).");
+        }
+
+        // cross-process 직렬화 — Promaker publish / Agent 업로드 / 다른 인스턴스의 동시 export 충돌 방지.
+        if (!SharedWriteLock.TryAcquire("DSPilot", out var holder))
+        {
+            _logger.LogWarning(
+                "[DsProject] UserTag 적용 skip — 공유 쓰기 락 점유 중 (holder={Holder}, pid={Pid}).",
+                holder.Holder, holder.Pid);
+            return new UserTagWriteResult(false, 0, warnings,
+                $"공유 project.aasx 를 다른 프로세스({holder.Holder})가 쓰고 있습니다. 잠시 후 다시 시도하세요.");
+        }
+        try
+        {
+            // 1) System 별 UserTag 통째 교체 (한 System = 한 transaction).
+            var applied = 0;
+            foreach (var (sid, entries) in bySystem)
+            {
+                var tuples = entries
+                    .Where(e => !string.IsNullOrWhiteSpace(e.Name) && !string.IsNullOrWhiteSpace(e.TagAddress))
+                    .Select(e => (e.Name.Trim(), "Error", e.TagAddress.Trim(), e.ValueType ?? "Bit",
+                                  e.MatchOp ?? string.Empty, e.MatchValue ?? string.Empty))
+                    .ToList();
+                applied += _store.ReplaceUserTags(sid, tuples);
+            }
+
+            // 2) AID XGT interaction 병합 — System 별 IO맵 주소 + UserTag 주소 (Promaker EnumeratePlcAddressesForSystem 미러).
+            var aidOption = project.AssetInterfaces;
+            var aid = aidOption is not null
+                      && Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption)
+                ? aidOption.Value : null;
+            var singleActive = activeById.Count == 1;
+            foreach (var (sid, entries) in bySystem)
+            {
+                var sysName = activeById[sid].Name;
+                if (entries.Count == 0) continue; // 전부 삭제 — 병합할 주소 없음(기존 interaction 은 보존).
+                if (aid is null)
+                {
+                    warnings.Add($"{sysName}: 모델에 PLC 접속 정보(AID)가 없어 새 주소가 수집 대상에 포함되지 않습니다. Promaker 에서 PLC 접속을 지정해 저장하세요.");
+                    continue;
+                }
+                // System 에 배정된 endpoint 우선, 단일 System 모델이면 legacy(systemRef 없는) endpoint 를 승계.
+                var info = AidXgtEndpointSettings.TryReadForSystem(aid, sid)
+                           ?? (singleActive ? AidXgtEndpointSettings.TryReadFirst(aid) : null);
+                if (info is null || string.IsNullOrWhiteSpace(info.IpAddress) || info.Port <= 0)
+                {
+                    warnings.Add($"{sysName}: 이 System 에 배정된 PLC 접속(XGT endpoint)이 없어 새 주소가 수집 대상에 포함되지 않습니다.");
+                    continue;
+                }
+                var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var a in Queries.plcAddressesOfSystem(sid, _store)) addresses.Add(a);
+                foreach (var e in entries)
+                    if (!string.IsNullOrWhiteSpace(e.TagAddress)) addresses.Add(e.TagAddress.Trim());
+                var touched = AidXgtEndpointSettings.EnsureBindingForSystem(
+                    aid, sid, info.Vendor, info.IpAddress, info.Port, info.IsUdp, info.LocalEthernet,
+                    info.NetworkNumber, info.StationNumber, info.TimeoutMs, info.ScanIntervalMs, addresses);
+                if (touched <= 0)
+                    warnings.Add($"{sysName}: PLC 접속 정보 병합에 실패했습니다(vendor '{info.Vendor}'). 새 주소가 수집되지 않을 수 있습니다.");
+            }
+
+            // 3) store 전체 재export → 공유 project.aasx.
+            var ok = Ds2.Aasx.AasxExporter.exportFromStore(
+                _store, AasxFilePath, AasxIriPrefix, AasxSplitDevice, AasxAutoCreateEmptySubmodels);
+            if (!ok)
+            {
+                _logger.LogWarning("[DsProject] UserTag 적용 — exportFromStore 가 false 반환 (Project 없음?)");
+                return new UserTagWriteResult(false, applied, warnings, "project.aasx 내보내기에 실패했습니다.");
+            }
+
+            // 4) 자기-쓰기 억제 + 파생 캐시 무효화. LastLoadedUtc 갱신으로 UserTagAlertService 가 정의를 재로딩하고
+            //    엔진 plcTag 캐시(EnsureUserTagAddressesRegistered)까지 자동 갱신된다. 주소→System 커버리지 맵은
+            //    LoadProject 에서만 비워지므로 여기서 직접 비운다.
+            LastLoadedSha256 = ComputeFileSha256(AasxFilePath);
+            LastLoadedUtc = DateTime.UtcNow;
+            _addressSystemMap = null;
+
+            _logger.LogInformation(
+                "[DsProject] UserTag 적용 완료 — System {SysCount}개, 태그 {Applied}건, 경고 {Warn}건 → {Path}",
+                bySystem.Count, applied, warnings.Count, AasxFilePath);
+            return new UserTagWriteResult(true, applied, warnings, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DsProject] UserTag 적용 실패");
+            return new UserTagWriteResult(false, 0, warnings, $"적용 실패: {ex.Message}");
+        }
+        finally
+        {
+            SharedWriteLock.Release("DSPilot");
+        }
+    }
+
+    /// <summary>
     /// 모든 Work 의 이상감지 임계 MinDuration/MaxDuration 을 전부 비우고(null=clear) 공유 project.aasx 로 재export 한다.
     /// 자동 보정(<see cref="WriteWorkDurationCalibrationAndExport"/>)의 역연산 — 잘못 보정된 임계를 한 번에 초기화할 때 사용.
     /// Duration(거동 구동 평균)은 <b>현재값을 그대로 다시 기록해 보존</b>한다(batch 의 null=clear 규칙 때문에 생략하면 Duration 도 지워진다).
@@ -888,3 +1010,12 @@ public record CalibrationWorkStatus(
 /// SystemName = 배정된 활성 시스템 이름(여러 시스템이 한 PLC 를 공유하면 '·' 병기).
 /// </summary>
 public sealed record PlcEndpointInfo(string SystemName, string Vendor, string Ip, int Port, int TimeoutMs);
+
+/// <summary>수동등록TAG 편집기 → <see cref="DsProjectService.WriteUserTagsAndExport"/> 입력 1건 (LogLevel 은 서버가 Error 로 고정).</summary>
+public sealed record UserTagWriteEntry(string Name, string TagAddress, string ValueType, string MatchOp, string MatchValue);
+
+/// <summary>
+/// <see cref="DsProjectService.WriteUserTagsAndExport"/> 결과. Exported=false 면 Error 에 사유.
+/// Warnings = 적용은 됐지만 수집 반영이 불완전한 System(AID endpoint 부재 등) 안내.
+/// </summary>
+public sealed record UserTagWriteResult(bool Exported, int Applied, List<string> Warnings, string? Error);

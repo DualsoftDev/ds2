@@ -132,6 +132,57 @@
         .ude-pager-nav { display: flex; align-items: center; gap: 4px; }
         .ude-pager-nav .btn-sm .material-icons { font-size: 16px; }
         .ude-pager-page { font-size: 0.75rem; padding: 0 6px; white-space: nowrap; }
+
+        /* ── 수동등록TAG 편집기 (ut-*) — 행 상태 표시·툴바·모달 폼 ── */
+        /* 6열 테이블 + 행 액션이라 2열 그리드 한 칸(~460px)엔 좁다 — 이 카드만 전폭. */
+        .settings-grid > .card.ut-card { grid-column: 1 / -1; }
+        .ut-head-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+        .ut-head-actions .btn .material-icons { font-size: 16px; }
+        .ut-count { margin-left: 6px; }
+        .ut-row-new  td:first-child { box-shadow: inset 3px 0 0 var(--color-success); }
+        .ut-row-mod  td:first-child { box-shadow: inset 3px 0 0 var(--color-warning); }
+        .ut-row-del  { opacity: 0.55; }
+        .ut-row-del  td:first-child { box-shadow: inset 3px 0 0 var(--color-error); }
+        .ut-row-del  .ut-name, .ut-row-del .ut-addr { text-decoration: line-through; }
+        .ut-state { font-size: 0.62rem; padding: 1px 6px; margin-left: 6px; vertical-align: middle; }
+        .ut-actions { white-space: nowrap; text-align: right; }
+        .ut-actions .btn-icon.btn-sm { width: 26px; height: 26px; }
+        .ut-actions .btn-icon.btn-sm .material-icons { font-size: 17px; }
+        .ut-noep { font-size: 15px; vertical-align: -3px; color: var(--color-warning); margin-left: 3px; cursor: help; }
+        .ut-apply { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-lines); }
+        .ut-apply .ut-apply-info { font-size: 0.78rem; color: var(--color-text-secondary); flex: 1 1 200px; }
+        .ut-apply .ut-apply-info b { color: var(--color-text-primary); }
+        .ut-info { margin-top: 8px; font-size: 0.78rem; line-height: 1.6; color: var(--color-text-secondary); }
+        .ut-info li { margin: 2px 0; }
+        .ut-warn-list { margin: 6px 0 0; padding-left: 18px; font-size: 0.8rem; line-height: 1.5; }
+        /* 모달 폼 */
+        .ut-modal { max-width: min(560px, calc(100vw - 32px)); width: 100%; }
+        .ut-modal h3 { margin: 0 0 14px; font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+        .ut-form-row { margin-bottom: 12px; }
+        .ut-form-row > label { display: block; font-size: 0.74rem; font-weight: 700; color: var(--color-text-secondary); margin-bottom: 5px; letter-spacing: 0.02em; }
+        .ut-form-row .form-field, .ut-form-row .form-select { width: 100%; }
+        .ut-form-row .form-field.mono { font-family: var(--font-mono); }
+        .ut-form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .ut-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .ut-chips > button { font: inherit; font-size: 0.74rem; font-weight: 700; padding: 5px 10px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); background: transparent; color: var(--color-text-primary); cursor: pointer; transition: background .12s, border-color .12s; }
+        .ut-chips > button:hover { border-color: var(--color-primary); }
+        .ut-chips > button.is-active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+        .ut-field-err { font-size: 0.72rem; color: var(--color-error); margin-top: 4px; }
+        .ut-preview { margin: 4px 0 14px; padding: 10px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)); border: 1px dashed color-mix(in srgb, var(--color-primary) 40%, transparent); font-size: 0.82rem; line-height: 1.5; }
+        .ut-preview b { color: var(--color-primary); }
+        .ut-modal .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+        /* CSV 가져오기 미리보기 */
+        .ut-csv-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.76rem; color: var(--color-text-secondary); margin-bottom: 10px; }
+        .ut-csv-scroll { max-height: 42vh; overflow: auto; border: 1px solid var(--color-lines); border-radius: var(--radius-sm); }
+        .ut-csv-scroll table { margin: 0; }
+        .ut-csv-scroll td, .ut-csv-scroll th { font-size: 0.76rem; padding: 5px 8px; white-space: nowrap; }
+        .ut-csv-bad td { color: var(--color-error); }
+        .ut-csv-opts { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 10px; }
+        .ut-csv-opts .ut-form-row { margin: 0; flex: 1 1 180px; }
+        @media (max-width: 480px) {
+            .ut-form-2col { grid-template-columns: 1fr; }
+            .ut-head-actions { margin-left: 0; width: 100%; }
+        }
         .modal-confirm { max-width: 520px; }
         .modal-confirm h3 { margin: 0 0 12px; font-size: 1.05rem; font-weight: 700; color: var(--color-text-primary); }
         .modal-confirm .msg { white-space: pre-line; color: var(--color-text-secondary); line-height: 1.6; font-size: 0.85rem; max-height: 50vh; overflow-y: auto; }
@@ -337,84 +388,156 @@
                                 </div>
                             </div>
 
-                            <!-- 사용자 정의 에러 (읽기전용) — Promaker/AASX 에서 정의된 UserTag 조건 목록 조회 -->
-                            <div class="card" x-show="activeTab === 'monitoring'">
-                                <div class="card-header">
+                            <!-- 수동등록TAG(UserTag) 편집기 — 정본은 공유 project.aasx(System.LoggingProperties.UserTags).
+                                 편집은 클라이언트 작업 복사본(ut.items 의 state new/mod/del)에 쌓이고 '적용' 1회에 System 별 통째 교체 →
+                                 AID 주소 병합 → aasx 재export 로 반영된다(Agent 는 파일 워처로 재시작 1회). Promaker 사용자 태그 패널과 형상 호환. -->
+                            <div class="card ut-card" x-show="activeTab === 'monitoring'">
+                                <div class="card-header" style="flex-wrap:wrap; gap:8px;">
                                     <span class="material-icons">rule</span>
                                     <span>수동등록TAG</span>
+                                    <span class="chip ut-count" :class="ut.items.filter(i => i.state !== 'del').length ? 'chip-primary' : ''" x-text="ut.items.filter(i => i.state !== 'del').length + '건'"></span>
+                                    <div class="ut-head-actions">
+                                        <button class="btn btn-sm btn-outlined color-default" @click="utExportCsv()" :disabled="ut.busy || !ut.loaded" title="현재 목록(필터 System 기준)을 CSV 로 내려받기">
+                                            <span class="material-icons">download</span> CSV 내보내기
+                                        </button>
+                                        <button class="btn btn-sm btn-outlined color-default" @click="utCsvPick()" :disabled="ut.busy || !ut.loaded || !ut.systems.length" title="CSV 파일을 읽어 미리보기 후 목록에 반영(적용 전까지 저장되지 않음)">
+                                            <span class="material-icons">upload</span> CSV 가져오기
+                                        </button>
+                                        <input type="file" accept=".csv,text/csv" x-ref="utCsvFile" @change="utCsvFile($event)" style="display:none;" />
+                                        <button class="btn btn-sm btn-filled" @click="utOpenAdd()" :disabled="ut.busy || !ut.loaded || !ut.systems.length">
+                                            <span class="material-icons">add</span> 추가
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="card-content">
-                                    <div class="settings-note">
-                                        <small>
-                                            Promaker 에서 정의한 수동등록TAG 목록(조회 전용) — 이력은 <a href="/uptime-alarm" style="color:var(--color-primary);">이상·알람 분석</a>에서.
+                                    <div class="settings-note" style="display:flex; align-items:flex-start; gap:6px;">
+                                        <small style="flex:1;">
+                                            PLC 값 조건으로 알람을 만드는 사용자 태그를 여기서 추가·편집·삭제하고 <b>적용</b>하면 공유 project.aasx 에 저장되어 Agent 가 수집을 시작합니다 — 이력은
+                                            <a href="/uptime-alarm" style="color:var(--color-primary);">이상·알람 분석</a>에서.
                                         </small>
+                                        <button class="btn-icon btn-sm" @click="ut.showInfo = !ut.showInfo" :title="ut.showInfo ? '설명 접기' : '자세히'"><span class="material-icons" x-text="ut.showInfo ? 'expand_less' : 'info'"></span></button>
                                     </div>
-                                    <div x-show="ude.loading" class="progress-bar progress-bar-indeterminate" style="margin-bottom:8px;"><div class="progress-bar-fill"></div></div>
-                                    <template x-if="!ude.loading && ude.items.length > 0">
-                                        <div>
-                                            <!-- 툴바: 검색 + 페이지 크기 -->
-                                            <div class="ude-toolbar">
-                                                <div class="ude-search">
-                                                    <span class="material-icons">search</span>
-                                                    <input type="text" class="form-field" placeholder="이름·주소·조건 검색" x-model="ude.q" @input="udeResetPage()" />
-                                                    <button x-show="ude.q" class="btn-icon" @click="ude.q=''; udeResetPage()" title="지우기"><span class="material-icons">close</span></button>
-                                                </div>
-                                                <select class="form-field ude-sel" x-model.number="ude.pageSize" @change="udeResetPage()">
-                                                    <option :value="20">20개씩</option>
-                                                    <option :value="50">50개씩</option>
-                                                    <option :value="100">100개씩</option>
-                                                </select>
+                                    <ul class="ut-info" x-show="ut.showInfo" x-transition.opacity>
+                                        <li>적용 시 태그 주소가 그 System 의 PLC 접속 정보(AID)에 수집 대상으로 함께 등록됩니다. PLC 접속이 없는 System(<span class="material-icons ut-noep" style="cursor:default;">warning</span> 표시)은 태그는 저장되지만 수집되지 않으니 Promaker 에서 PLC 접속을 먼저 지정하세요.</li>
+                                        <li>Agent 는 파일 변경을 감지해 자동 재시작합니다(수 초 모니터링 공백). 변경을 모아 한 번에 적용하는 것을 권장합니다.</li>
+                                        <li>엣지 스캐너(Edge 위임 수집) 현장은 스캐너 설정에 주소를 따로 추가해야 수집됩니다.</li>
+                                        <li>Promaker 에서 같은 파일을 열어 둔 경우 마지막에 저장한 쪽이 남습니다. 로그 레벨은 운영 정책상 항상 Error 입니다.</li>
+                                        <li>CSV 양식은 Promaker 사용자 태그 내보내기와 같고(<code>이름, 로그 레벨, 태그 주소, 값 타입, 매칭 조건, 기준값</code>) 맨 앞에 <code>System</code> 열이 추가됩니다. Promaker 파일(System 열 없음)도 그대로 가져올 수 있습니다. <a href="#" @click.prevent="utTemplateCsv()" style="color:var(--color-primary);">양식 내려받기</a></li>
+                                    </ul>
+
+                                    <div x-show="ut.loading" class="progress-bar progress-bar-indeterminate" style="margin:8px 0;"><div class="progress-bar-fill"></div></div>
+                                    <div x-show="ut.error" class="alert alert-error" style="margin:8px 0;"><span class="material-icons">error</span><span x-text="ut.error"></span></div>
+                                    <div x-show="ut.loaded && !ut.projectLoaded" class="alert alert-warning" style="margin:8px 0;"><span class="material-icons">warning</span><span>AASX 모델이 로드되지 않아 편집할 수 없습니다.</span></div>
+                                    <div x-show="ut.loaded && ut.projectLoaded && !ut.systems.length" class="alert alert-warning" style="margin:8px 0;"><span class="material-icons">warning</span><span>편집 가능한 활성 System 이 없습니다.</span></div>
+                                    <div x-show="ut.hiddenPassiveCount > 0" class="settings-note" style="margin-top:6px;"><small>Passive(수동) System 에 정의된 <span x-text="ut.hiddenPassiveCount"></span>건은 편집 대상이 아니라 표시하지 않습니다.</small></div>
+                                    <!-- 마지막 적용 결과 경고(수집 반영 주의) -->
+                                    <div x-show="ut.warnings.length" class="alert alert-warning" style="margin:8px 0; display:block;">
+                                        <div style="display:flex; align-items:center; gap:6px;"><span class="material-icons">warning</span><b>저장은 됐지만 수집 반영에 주의가 필요합니다</b><button class="btn-icon btn-sm" style="margin-left:auto;" @click="ut.warnings = []"><span class="material-icons">close</span></button></div>
+                                        <ul class="ut-warn-list"><template x-for="w in ut.warnings"><li x-text="w"></li></template></ul>
+                                    </div>
+                                    <div x-show="ut.saveErrors.length" class="alert alert-error" style="margin:8px 0; display:block;">
+                                        <div style="display:flex; align-items:center; gap:6px;"><span class="material-icons">error</span><b>적용되지 않았습니다 — 아래 항목을 수정하세요</b><button class="btn-icon btn-sm" style="margin-left:auto;" @click="ut.saveErrors = []"><span class="material-icons">close</span></button></div>
+                                        <ul class="ut-warn-list"><template x-for="w in ut.saveErrors"><li x-text="w"></li></template></ul>
+                                    </div>
+
+                                    <div x-show="ut.loaded && ut.systems.length">
+                                        <!-- 툴바: System 필터 + 검색 + 페이지 크기 -->
+                                        <div class="ude-toolbar">
+                                            <select class="form-field ude-sel" x-model="ut.sys" @change="utResetPage()" title="System 필터 — CSV 내보내기 범위도 이 필터를 따릅니다">
+                                                <option value="">모든 System</option>
+                                                <template x-for="s in ut.systems" :key="s.systemId"><option :value="s.systemId" x-text="s.systemName + (s.hasEndpoint ? '' : ' (PLC 접속 없음)')"></option></template>
+                                            </select>
+                                            <div class="ude-search">
+                                                <span class="material-icons">search</span>
+                                                <input type="text" class="form-field" placeholder="이름·주소·조건 검색" x-model="ut.q" @input="utResetPage()" />
+                                                <button x-show="ut.q" class="btn-icon" @click="ut.q=''; utResetPage()" title="지우기"><span class="material-icons">close</span></button>
                                             </div>
-                                            <div class="ude-scroll">
-                                                <table class="ds-table ude-table">
-                                                    <thead><tr>
-                                                        <th @click="udeSort('systemName')">System <span class="material-icons ude-sort" x-text="udeSortIcon('systemName')"></span></th>
-                                                        <th @click="udeSort('name')">이름 <span class="material-icons ude-sort" x-text="udeSortIcon('name')"></span></th>
-                                                        <th @click="udeSort('tagAddress')">주소 <span class="material-icons ude-sort" x-text="udeSortIcon('tagAddress')"></span></th>
-                                                        <th @click="udeSort('valueType')">타입 <span class="material-icons ude-sort" x-text="udeSortIcon('valueType')"></span></th>
-                                                        <th @click="udeSort('match')">매칭 조건 <span class="material-icons ude-sort" x-text="udeSortIcon('match')"></span></th>
-                                                    </tr></thead>
-                                                    <tbody>
-                                                        <template x-for="d in udePaged" :key="d.tagAddress + '|' + d.name">
-                                                            <tr>
-                                                                <td data-label="System" x-text="d.systemName"></td>
-                                                                <td data-label="이름"><strong x-text="d.name"></strong></td>
-                                                                <td data-label="주소"><span style="font-family:var(--font-mono);" x-text="d.tagAddress"></span></td>
-                                                                <td data-label="타입" x-text="d.valueType"></td>
-                                                                <td data-label="매칭 조건" x-text="describeUdeOp(d.matchOp, d.matchValue)"></td>
-                                                            </tr>
-                                                        </template>
-                                                        <template x-if="udeFiltered.length === 0">
-                                                            <tr><td colspan="5" style="text-align:center; color:var(--text-secondary); padding:16px;">검색 조건에 맞는 항목이 없습니다.</td></tr>
-                                                        </template>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                            <!-- 페이징 -->
-                                            <div class="ude-pager" x-show="udeFiltered.length > 0">
-                                                <span class="ude-pager-info">
-                                                    총 <strong x-text="udeFiltered.length"></strong>건 ·
-                                                    <span x-text="(ude.page * ude.pageSize + 1)"></span>–<span x-text="Math.min((ude.page + 1) * ude.pageSize, udeFiltered.length)"></span>
-                                                </span>
-                                                <div class="ude-pager-nav">
-                                                    <button class="btn btn-sm btn-outlined" @click="ude.page = 0" :disabled="ude.page === 0" title="처음"><span class="material-icons">first_page</span></button>
-                                                    <button class="btn btn-sm btn-outlined" @click="udePrevPage()" :disabled="ude.page === 0">이전</button>
-                                                    <span class="ude-pager-page"><span x-text="ude.page + 1"></span> / <span x-text="udeMaxPage"></span></span>
-                                                    <button class="btn btn-sm btn-outlined" @click="udeNextPage()" :disabled="ude.page + 1 >= udeMaxPage">다음</button>
-                                                    <button class="btn btn-sm btn-outlined" @click="ude.page = udeMaxPage - 1" :disabled="ude.page + 1 >= udeMaxPage" title="마지막"><span class="material-icons">last_page</span></button>
-                                                </div>
+                                            <select class="form-field ude-sel" x-model.number="ut.pageSize" @change="utResetPage()">
+                                                <option :value="20">20개씩</option>
+                                                <option :value="50">50개씩</option>
+                                                <option :value="100">100개씩</option>
+                                            </select>
+                                        </div>
+                                        <div class="ude-scroll" style="min-height:200px;">
+                                            <table class="ds-table ude-table">
+                                                <thead><tr>
+                                                    <th @click="utSort('systemName')">System <span class="material-icons ude-sort" x-text="utSortIcon('systemName')"></span></th>
+                                                    <th @click="utSort('name')">이름 <span class="material-icons ude-sort" x-text="utSortIcon('name')"></span></th>
+                                                    <th @click="utSort('tagAddress')">주소 <span class="material-icons ude-sort" x-text="utSortIcon('tagAddress')"></span></th>
+                                                    <th @click="utSort('valueType')">타입 <span class="material-icons ude-sort" x-text="utSortIcon('valueType')"></span></th>
+                                                    <th @click="utSort('match')">매칭 조건 <span class="material-icons ude-sort" x-text="utSortIcon('match')"></span></th>
+                                                    <th style="cursor:default;"></th>
+                                                </tr></thead>
+                                                <tbody>
+                                                    <template x-for="d in utPaged" :key="d.key">
+                                                        <tr :class="d.state ? 'ut-row-' + d.state : ''">
+                                                            <td data-label="System">
+                                                                <span x-text="d.systemName"></span>
+                                                                <span class="material-icons ut-noep" x-show="!utSystemHasEndpoint(d.systemId)" title="이 System 에 PLC 접속(AID) 이 없어 수집되지 않습니다">warning</span>
+                                                            </td>
+                                                            <td data-label="이름">
+                                                                <strong class="ut-name" x-text="d.name"></strong>
+                                                                <span class="chip ut-state chip-success" x-show="d.state === 'new'">추가</span>
+                                                                <span class="chip ut-state chip-warning" x-show="d.state === 'mod'">수정</span>
+                                                                <span class="chip ut-state chip-error" x-show="d.state === 'del'">삭제</span>
+                                                            </td>
+                                                            <td data-label="주소"><span class="ut-addr" style="font-family:var(--font-mono);" x-text="d.tagAddress"></span></td>
+                                                            <td data-label="타입" x-text="d.valueType"></td>
+                                                            <td data-label="매칭 조건" x-text="describeUtOp(d.matchOp, d.matchValue)"></td>
+                                                            <td class="ut-actions" data-label="">
+                                                                <template x-if="d.state !== 'del'">
+                                                                    <span>
+                                                                        <button class="btn-icon btn-sm" @click="utOpenEdit(d)" title="편집"><span class="material-icons">edit</span></button>
+                                                                        <button class="btn-icon btn-sm" @click="utDelete(d)" title="삭제(적용 전까지 되돌릴 수 있음)"><span class="material-icons">delete</span></button>
+                                                                    </span>
+                                                                </template>
+                                                                <template x-if="d.state === 'del' || d.state === 'mod'">
+                                                                    <button class="btn-icon btn-sm" @click="utRestore(d)" :title="d.state === 'del' ? '삭제 취소' : '원래 값으로 되돌리기'"><span class="material-icons">undo</span></button>
+                                                                </template>
+                                                            </td>
+                                                        </tr>
+                                                    </template>
+                                                    <tr x-show="utFiltered.length === 0">
+                                                        <td colspan="6" style="text-align:center; color:var(--color-text-secondary); padding:18px;">
+                                                            <span x-show="ut.items.length === 0">정의된 수동등록TAG 가 없습니다. <b>추가</b> 또는 <b>CSV 가져오기</b>로 등록하세요.</span>
+                                                            <span x-show="ut.items.length > 0">검색 조건에 맞는 항목이 없습니다.</span>
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <!-- 페이징 -->
+                                        <div class="ude-pager" x-show="utFiltered.length > 0">
+                                            <span class="ude-pager-info">
+                                                총 <strong x-text="utFiltered.length"></strong>건 ·
+                                                <span x-text="(ut.page * ut.pageSize + 1)"></span>–<span x-text="Math.min((ut.page + 1) * ut.pageSize, utFiltered.length)"></span>
+                                            </span>
+                                            <div class="ude-pager-nav">
+                                                <button class="btn btn-sm btn-outlined" @click="ut.page = 0" :disabled="ut.page === 0" title="처음"><span class="material-icons">first_page</span></button>
+                                                <button class="btn btn-sm btn-outlined" @click="utPrevPage()" :disabled="ut.page === 0">이전</button>
+                                                <span class="ude-pager-page"><span x-text="ut.page + 1"></span> / <span x-text="utMaxPage"></span></span>
+                                                <button class="btn btn-sm btn-outlined" @click="utNextPage()" :disabled="ut.page + 1 >= utMaxPage">다음</button>
+                                                <button class="btn btn-sm btn-outlined" @click="ut.page = utMaxPage - 1" :disabled="ut.page + 1 >= utMaxPage" title="마지막"><span class="material-icons">last_page</span></button>
                                             </div>
                                         </div>
-                                    </template>
-                                    <template x-if="!ude.loading && ude.items.length === 0 && !ude.error">
-                                        <div class="settings-note" style="margin-top:0;">
-                                            <small>정의된 수동등록TAG가 없습니다. Promaker 의 사용자 태그 패널에서 추가하세요.</small>
+                                        <!-- 적용 바 — 저장 버튼 dirty 규약(중립 → 변경 시 PRIMARY+'*') -->
+                                        <div class="ut-apply">
+                                            <span class="ut-apply-info">
+                                                <template x-if="utDirty">
+                                                    <span>미적용 변경 <b x-text="utChangeCount.total + '건'"></b>
+                                                        (<span x-show="utChangeCount.add">추가 <span x-text="utChangeCount.add"></span></span><span x-show="utChangeCount.add && (utChangeCount.mod || utChangeCount.del)"> · </span><span x-show="utChangeCount.mod">수정 <span x-text="utChangeCount.mod"></span></span><span x-show="utChangeCount.mod && utChangeCount.del"> · </span><span x-show="utChangeCount.del">삭제 <span x-text="utChangeCount.del"></span></span>)
+                                                        — 적용하면 project.aasx 에 저장되고 Agent 가 재시작됩니다.</span>
+                                                </template>
+                                                <template x-if="!utDirty"><span>변경 없음 — 목록은 공유 project.aasx 와 동일합니다.</span></template>
+                                            </span>
+                                            <button class="btn btn-sm btn-outlined color-default" @click="utLoad()" :disabled="ut.busy || ut.loading" title="서버 정의를 다시 읽어 미적용 변경을 모두 버립니다">
+                                                <span class="material-icons">refresh</span> <span x-text="utDirty ? '되돌리기' : '새로고침'"></span>
+                                            </button>
+                                            <button class="btn btn-sm" :class="utDirty ? 'btn-filled' : ''" @click="utApply()" :disabled="ut.busy || !utDirty">
+                                                <span class="material-icons">save</span> <span x-text="utDirty ? '적용*' : '적용'"></span>
+                                            </button>
                                         </div>
-                                    </template>
-                                    <div x-show="ude.error" class="alert alert-error" style="margin-bottom:8px;"><span class="material-icons">error</span><span x-text="ude.error"></span></div>
-                                    <button class="btn btn-outlined w-100" style="margin-top:10px;" @click="loadUserDefinedErrors()" :disabled="ude.loading">
-                                        <span class="material-icons">refresh</span> 새로고침 (<span x-text="ude.items.length"></span>건)
-                                    </button>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1327,6 +1450,131 @@
             </div>
         </div>
 
+        <!-- 수동등록TAG 추가/편집 모달 — 라이브 미리보기 + 타입/조건 칩. 서버 규칙(UserTagEditorSupport)의 클라이언트 미러 검증. -->
+        <div class="modal-overlay" x-show="ut.modal.show" style="display:none; z-index:3000;" @click.self="ut.modal.show = false" @keydown.escape.window="ut.modal.show && (ut.modal.show = false)">
+            <div class="modal-content ut-modal" @click.stop>
+                <h3><span class="material-icons" x-text="ut.modal.mode === 'add' ? 'add_circle' : 'edit'"></span><span x-text="ut.modal.mode === 'add' ? '수동등록TAG 추가' : '수동등록TAG 편집'"></span></h3>
+                <div class="ut-preview">
+                    <b x-text="utModalPreview.sys"></b> · <b x-text="utModalPreview.name"></b> : 주소 <code x-text="utModalPreview.addr"></code> (<span x-text="utModalPreview.type"></span>) 값이
+                    <b x-text="utModalPreview.cond"></b> 이면 <b>Error 알림</b> 1건 기록
+                </div>
+                <div class="ut-form-2col">
+                    <div class="ut-form-row">
+                        <label>System</label>
+                        <select class="form-field" x-model="ut.modal.f.systemId" :disabled="ut.modal.mode === 'edit'" @change="utModalValidate(true)">
+                            <template x-for="s in ut.systems" :key="s.systemId"><option :value="s.systemId" x-text="s.systemName"></option></template>
+                        </select>
+                        <div class="ut-field-err" x-show="ut.modal.err.systemId" x-text="ut.modal.err.systemId"></div>
+                        <div class="ut-field-err" style="color:var(--color-warning);" x-show="utModalSystem && !utModalSystem.hasEndpoint">이 System 에 PLC 접속(AID)이 없어 저장은 되지만 수집되지 않습니다.</div>
+                        <div class="ut-field-err" style="color:var(--color-text-secondary);" x-show="ut.modal.mode === 'edit'">System 이동은 삭제 후 다시 추가하세요.</div>
+                    </div>
+                    <div class="ut-form-row">
+                        <label>이름</label>
+                        <input type="text" class="form-field" x-ref="utNameInput" x-model="ut.modal.f.name" @input="utModalValidate(true)" @keydown.enter="utModalSave()" placeholder="예: Motor_Overload" maxlength="80" />
+                        <div class="ut-field-err" x-show="ut.modal.err.name" x-text="ut.modal.err.name"></div>
+                    </div>
+                </div>
+                <div class="ut-form-2col">
+                    <div class="ut-form-row">
+                        <label>태그 주소</label>
+                        <input type="text" class="form-field mono" x-model="ut.modal.f.tagAddress" @input="utModalValidate(true)" @keydown.enter="utModalSave()" placeholder="예: M901, D100" maxlength="64" autocapitalize="characters" />
+                        <div class="ut-field-err" x-show="ut.modal.err.tagAddress" x-text="ut.modal.err.tagAddress"></div>
+                    </div>
+                    <div class="ut-form-row" x-show="utModalNeedsValue()">
+                        <label>기준값</label>
+                        <template x-if="ut.modal.f.valueType === 'Bit'">
+                            <div class="ut-chips">
+                                <button type="button" :class="ut.modal.f.matchValue === '0' ? 'is-active' : ''" @click="ut.modal.f.matchValue = '0'; utModalValidate(true)">0</button>
+                                <button type="button" :class="ut.modal.f.matchValue === '1' ? 'is-active' : ''" @click="ut.modal.f.matchValue = '1'; utModalValidate(true)">1</button>
+                            </div>
+                        </template>
+                        <template x-if="ut.modal.f.valueType !== 'Bit'">
+                            <input type="text" class="form-field mono" :inputmode="ut.modal.f.valueType === 'String' ? 'text' : 'decimal'" x-model="ut.modal.f.matchValue" @input="utModalValidate(true)" @keydown.enter="utModalSave()" :placeholder="ut.modal.f.valueType === 'String' ? '비교 문자열' : '숫자'" />
+                        </template>
+                        <div class="ut-field-err" x-show="ut.modal.err.matchValue" x-text="ut.modal.err.matchValue"></div>
+                    </div>
+                </div>
+                <div class="ut-form-row">
+                    <label>값 타입</label>
+                    <div class="ut-chips">
+                        <template x-for="vt in ut.valueTypes" :key="vt">
+                            <button type="button" :class="ut.modal.f.valueType === vt ? 'is-active' : ''" @click="utModalSetType(vt)" x-text="vt"></button>
+                        </template>
+                    </div>
+                </div>
+                <div class="ut-form-row">
+                    <label>매칭 조건 <span style="font-weight:400;">— 값 타입에 맞는 조건만 표시</span></label>
+                    <div class="ut-chips">
+                        <template x-for="op in utModalOps" :key="op">
+                            <button type="button" :class="ut.modal.f.matchOp === op ? 'is-active' : ''" @click="utModalSetOp(op)" x-text="utOpLabel(op)"></button>
+                        </template>
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="btn btn-outlined color-default" @click="ut.modal.show = false">취소</button>
+                    <button class="btn btn-filled" @click="utModalSave()" :disabled="Object.keys(ut.modal.err).length > 0">
+                        <span class="material-icons" style="font-size:18px;">check</span> <span x-text="ut.modal.mode === 'add' ? '목록에 추가' : '변경 반영'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 수동등록TAG CSV 가져오기 미리보기 모달 — 서버 파싱 결과(행별 검증)를 보여주고 System 배정·모드 선택 후 작업 목록에 반영. -->
+        <div class="modal-overlay" x-show="ut.csv.show" style="display:none; z-index:3000;" @click.self="ut.csv.show = false">
+            <div class="modal-content ut-modal" style="max-width:min(860px, calc(100vw - 32px));" @click.stop>
+                <h3><span class="material-icons">upload_file</span>CSV 가져오기 <span style="font-weight:400; font-size:0.8rem; color:var(--color-text-secondary);" x-text="ut.csv.fileName"></span></h3>
+                <div class="ut-csv-meta">
+                    <span>행 <b x-text="ut.csv.rows.length"></b></span>
+                    <span style="color:var(--color-success);">반영 <b x-text="utCsvSummary.ok"></b></span>
+                    <span x-show="utCsvSummary.skip" style="color:var(--color-warning);">건너뜀 <b x-text="utCsvSummary.skip"></b></span>
+                    <span x-show="utCsvSummary.bad" style="color:var(--color-error);">오류 <b x-text="utCsvSummary.bad"></b></span>
+                    <span>System 열 <b x-text="ut.csv.hasSystemColumn ? '있음' : '없음'"></b></span>
+                    <span>인코딩 <b x-text="ut.csv.encoding"></b></span>
+                </div>
+                <div class="ut-csv-opts">
+                    <div class="ut-form-row">
+                        <label x-text="ut.csv.hasSystemColumn ? '대상 System (System 열이 비어 있는 행)' : '대상 System'"></label>
+                        <select class="form-field" x-model="ut.csv.targetSystemId">
+                            <template x-for="s in ut.systems" :key="s.systemId"><option :value="s.systemId" x-text="s.systemName + (s.hasEndpoint ? '' : ' (PLC 접속 없음)')"></option></template>
+                        </select>
+                    </div>
+                    <div class="ut-form-row">
+                        <label>모드</label>
+                        <div class="ut-chips">
+                            <button type="button" :class="ut.csv.mode === 'append' ? 'is-active' : ''" @click="ut.csv.mode = 'append'" title="같은 이름이 이미 있으면 건너뜁니다">추가 (중복 이름 건너뜀)</button>
+                            <button type="button" :class="ut.csv.mode === 'replace' ? 'is-active' : ''" @click="ut.csv.mode = 'replace'" title="파일이 다루는 System 의 기존 태그를 모두 삭제 예약하고 파일 내용으로 바꿉니다">교체 (System 기존 태그 삭제)</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="ut-csv-scroll">
+                    <table class="ds-table">
+                        <thead><tr><th>#</th><th>System</th><th>이름</th><th>주소</th><th>타입</th><th>매칭 조건</th><th>결과</th></tr></thead>
+                        <tbody>
+                            <template x-for="r in ut.csv.rows" :key="r.line">
+                                <tr :class="utCsvRowStatus(r).ok ? '' : 'ut-csv-bad'">
+                                    <td x-text="r.line"></td>
+                                    <td x-text="utCsvRowStatus(r).ok ? utCsvRowStatus(r).text : (r.systemName || '—')"></td>
+                                    <td x-text="r.name"></td>
+                                    <td style="font-family:var(--font-mono);" x-text="r.tagAddress"></td>
+                                    <td x-text="r.valueType"></td>
+                                    <td x-text="describeUtOp(r.matchOp, r.matchValue)"></td>
+                                    <td x-text="utCsvRowStatus(r).ok ? '반영' : utCsvRowStatus(r).text" :style="utCsvRowStatus(r).skip ? 'color:var(--color-warning);' : ''"></td>
+                                </tr>
+                            </template>
+                            <tr x-show="!ut.csv.rows.length"><td colspan="7" style="text-align:center; padding:16px; color:var(--color-text-secondary);">읽을 수 있는 행이 없습니다.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="settings-note" style="margin-top:8px;"><small>반영은 작업 목록에만 추가됩니다(초록 '추가' 표시). 카드 하단의 <b>적용</b>을 눌러야 project.aasx 에 저장됩니다.</small></div>
+                <div class="actions">
+                    <button class="btn btn-outlined color-default" @click="ut.csv.show = false">취소</button>
+                    <button class="btn btn-filled" @click="utCsvApply()" :disabled="utCsvSummary.ok === 0">
+                        <span class="material-icons" style="font-size:18px;">playlist_add</span> <span x-text="utCsvSummary.ok + '건 목록에 반영'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- 토스트 -->
         <div class="dsp-toast" :class="toast.type" x-show="toast.show" x-transition style="display:none;" x-text="toast.msg"></div>
     </div>
@@ -1366,8 +1614,16 @@
                     gatePassword: '',
                     cred: { current: '', newId: '', newPw: '', newPw2: '', error: '' },
                 },
-                // 사용자 정의 에러(UserTag 정의) 읽기전용 목록 — filter/sort/page 클라이언트 처리
-                ude: { loading: false, items: [], error: '', q: '', sortKey: 'name', sortDir: 'asc', page: 0, pageSize: 20 },
+                // 수동등록TAG(UserTag) 편집기 — 서버 정의의 작업 복사본. items[i].state = ''|'new'|'mod'|'del', orig = 로드 시점 값.
+                //   filter/sort/page 는 클라이언트 처리. '적용' 이 변경된 System 만 통째 교체(PUT /api/user-tags/editor).
+                ut: {
+                    loading: false, loaded: false, projectLoaded: true, busy: false, error: '', showInfo: false,
+                    systems: [], valueTypes: [], matchOpsByType: {}, hiddenPassiveCount: 0,
+                    items: [], warnings: [], saveErrors: [],
+                    q: '', sys: '', sortKey: 'systemName', sortDir: 'asc', page: 0, pageSize: 20,
+                    modal: { show: false, mode: 'add', key: null, f: { systemId: '', name: '', tagAddress: '', valueType: 'Bit', matchOp: 'RisingEdge', matchValue: '' }, err: {} },
+                    csv: { show: false, busy: false, fileName: '', rows: [], hasSystemColumn: false, encoding: '', mode: 'append', targetSystemId: '' },
+                },
 
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
@@ -1388,7 +1644,7 @@
                     this.loadCalibStatus();
                     // 게이트 상태 폴링 — 수동 재측정/외부 AASX 변경을 30초 내 배지에 반영.
                     this._calibTimer = setInterval(() => this.loadCalibStatus(), 30000);
-                    this.loadUserDefinedErrors();
+                    this.utLoad();
                     this.loadAccount();
                     this.loadOpcUaRejected();
                     this.loadAppInfo();
@@ -1399,7 +1655,7 @@
                     clearInterval(this._uptimeTimer);
                     this._uptimeTimer = setInterval(() => { if (this.info.d && this.appInfoOpen) this.info.uptimeSec++; }, 1000);
                     // 더티 가드 등록 — 미저장 설정 변경 이탈 방지
-                    window.dspDirtyRegister(() => this.settingsDirty);
+                    window.dspDirtyRegister(() => this.settingsDirty || this.utDirty);
                     // 딥링크: 다른 페이지(예: 이상·알람의 "설정 > 실측 duration 자동 보정")에서
                     //   ?tab=monitoring#calib-fill 로 진입하면 해당 탭을 열고 대상 버튼으로 스크롤·강조한다.
                     this.applyDeepLink();
@@ -1425,18 +1681,35 @@
                     }
                 },
 
-                // ── 사용자 정의 에러(UserTag 정의) 읽기전용 조회 — Promaker/AASX 정의를 경량 엔드포인트로 가져온다.
-                async loadUserDefinedErrors() {
-                    this.ude.loading = true; this.ude.error = '';
+                // ══ 수동등록TAG(UserTag) 편집기 ══════════════════════════════════════════
+                // 서버(GET /api/user-tags/editor)의 정의를 작업 복사본(ut.items)으로 들고 편집을 쌓는다.
+                //   state '' = 서버와 동일 / 'new' = 추가 / 'mod' = 수정(orig 보유) / 'del' = 삭제 예약(적용 전 되돌리기 가능).
+                //   적용(PUT) 은 변경이 있는 System 만 통째 교체 → 서버가 검증·AID 병합·aasx export 를 한 번에 수행.
+                async utLoad() {
+                    this.ut.loading = true; this.ut.error = '';
                     try {
-                        this.ude.items = await this.apiGet('/api/user-tags/definitions');
+                        const d = await this.apiGet('/api/user-tags/editor');
+                        this.ut.systems = d.systems || [];
+                        this.ut.valueTypes = d.valueTypes || [];
+                        this.ut.matchOpsByType = d.matchOpsByType || {};
+                        this.ut.hiddenPassiveCount = d.hiddenPassiveCount || 0;
+                        this.ut.projectLoaded = d.projectLoaded !== false;
+                        this.ut.items = (d.tags || []).map((t, i) => ({
+                            key: t.systemId + '|' + i, systemId: t.systemId, systemName: t.systemName,
+                            name: t.name, tagAddress: t.tagAddress, valueType: t.valueType, matchOp: t.matchOp, matchValue: t.matchValue || '',
+                            state: '', orig: null,
+                        }));
+                        if (this.ut.sys && !this.ut.systems.some(s => s.systemId === this.ut.sys)) this.ut.sys = '';
+                        this.ut.saveErrors = [];
+                        this.ut.loaded = true;
+                        if (this.ut.page >= this.utMaxPage) this.ut.page = 0;
                     } catch (e) {
-                        this.ude.error = '수동등록TAG 목록을 불러오지 못했습니다: ' + e.message;
-                        this.ude.items = [];
-                    } finally { this.ude.loading = false; }
+                        this.ut.error = '수동등록TAG 목록을 불러오지 못했습니다: ' + e.message;
+                        this.ut.items = [];
+                    } finally { this.ut.loading = false; }
                 },
-                // 매칭 조건 표기 — 사용자 정의 에러(UserTag)는 AbnormalDetect 가 아닌 값/엣지 조건.
-                describeUdeOp(op, mv) {
+                // 매칭 조건 표기 — UserTag 는 AbnormalDetect 가 아닌 값/엣지 조건.
+                describeUtOp(op, mv) {
                     const v = (mv == null || mv === '') ? '?' : mv;
                     switch (op) {
                         case 'RisingEdge': return '0 → 1'; case 'FallingEdge': return '1 → 0'; case 'Changed': return '값 변경';
@@ -1446,41 +1719,297 @@
                         default: return op || '?';
                     }
                 },
-                // 검색어 필터 + 정렬 적용된 전체 목록
-                get udeFiltered() {
-                    const q = (this.ude.q || '').trim().toLowerCase();
-                    let list = (this.ude.items || []).filter(d => {
+                utOpLabel(op) {
+                    return ({ RisingEdge: '0 → 1 (상승)', FallingEdge: '1 → 0 (하강)', Changed: '값 변경', Eq: '같아질 때 (=)', Neq: '달라질 때 (≠)',
+                              Gt: '초과 (>)', Gte: '이상 (≥)', Lt: '미만 (<)', Lte: '이하 (≤)' })[op] || op;
+                },
+                utSystemHasEndpoint(systemId) {
+                    const s = this.ut.systems.find(x => x.systemId === systemId);
+                    return !s || s.hasEndpoint;
+                },
+                // 검색어·System 필터 + 정렬 적용된 전체 목록(삭제 예약 행도 표시 — 되돌리기 위해)
+                get utFiltered() {
+                    const q = (this.ut.q || '').trim().toLowerCase();
+                    const sys = this.ut.sys;
+                    let list = (this.ut.items || []).filter(d => {
+                        if (sys && d.systemId !== sys) return false;
                         if (q) {
-                            const hay = [d.systemName, d.name, d.tagAddress, d.valueType, this.describeUdeOp(d.matchOp, d.matchValue)]
+                            const hay = [d.systemName, d.name, d.tagAddress, d.valueType, this.describeUtOp(d.matchOp, d.matchValue)]
                                 .map(x => (x || '').toString().toLowerCase()).join(' ');
                             if (!hay.includes(q)) return false;
                         }
                         return true;
                     });
-                    const key = this.ude.sortKey, dir = this.ude.sortDir === 'asc' ? 1 : -1;
-                    const val = (d) => key === 'match' ? this.describeUdeOp(d.matchOp, d.matchValue) : (d[key] ?? '');
-                    return [...list].sort((a, b) => dir * val(a).toString().localeCompare(val(b).toString(), undefined, { numeric: true }));
+                    const key = this.ut.sortKey, dir = this.ut.sortDir === 'asc' ? 1 : -1;
+                    const val = (d) => key === 'match' ? this.describeUtOp(d.matchOp, d.matchValue) : (d[key] ?? '');
+                    return [...list].sort((a, b) => {
+                        const c = dir * val(a).toString().localeCompare(val(b).toString(), undefined, { numeric: true });
+                        return c !== 0 ? c : a.name.localeCompare(b.name, undefined, { numeric: true });
+                    });
                 },
-                get udeMaxPage() { return Math.max(1, Math.ceil(this.udeFiltered.length / this.ude.pageSize)); },
-                // 현재 페이지에 표시할 항목
-                get udePaged() {
-                    const start = this.ude.page * this.ude.pageSize;
-                    return this.udeFiltered.slice(start, start + this.ude.pageSize);
+                get utMaxPage() { return Math.max(1, Math.ceil(this.utFiltered.length / this.ut.pageSize)); },
+                get utPaged() {
+                    const start = this.ut.page * this.ut.pageSize;
+                    return this.utFiltered.slice(start, start + this.ut.pageSize);
                 },
-                // 정렬 열 헤더 클릭 — 같은 열이면 방향 토글, 다른 열이면 오름차순 시작
-                udeSort(key) {
-                    if (this.ude.sortKey === key) this.ude.sortDir = this.ude.sortDir === 'asc' ? 'desc' : 'asc';
-                    else { this.ude.sortKey = key; this.ude.sortDir = 'asc'; }
-                    this.ude.page = 0;
+                get utChangeCount() {
+                    let add = 0, mod = 0, del = 0;
+                    for (const i of this.ut.items) { if (i.state === 'new') add++; else if (i.state === 'mod') mod++; else if (i.state === 'del') del++; }
+                    return { add, mod, del, total: add + mod + del };
                 },
-                udeSortIcon(key) {
-                    if (this.ude.sortKey !== key) return 'unfold_more';
-                    return this.ude.sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward';
+                get utDirty() { return this.utChangeCount.total > 0; },
+                utSort(key) {
+                    if (this.ut.sortKey === key) this.ut.sortDir = this.ut.sortDir === 'asc' ? 'desc' : 'asc';
+                    else { this.ut.sortKey = key; this.ut.sortDir = 'asc'; }
+                    this.ut.page = 0;
                 },
-                // 필터 변경 시 첫 페이지로
-                udeResetPage() { this.ude.page = 0; },
-                udePrevPage() { if (this.ude.page > 0) this.ude.page--; },
-                udeNextPage() { if (this.ude.page + 1 < this.udeMaxPage) this.ude.page++; },
+                utSortIcon(key) {
+                    if (this.ut.sortKey !== key) return 'unfold_more';
+                    return this.ut.sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward';
+                },
+                utResetPage() { this.ut.page = 0; },
+                utPrevPage() { if (this.ut.page > 0) this.ut.page--; },
+                utNextPage() { if (this.ut.page + 1 < this.utMaxPage) this.ut.page++; },
+
+                // ── 행 편집 (추가/편집 모달) ──
+                utOpenAdd() {
+                    const sysId = this.ut.sys || (this.ut.systems[0]?.systemId ?? '');
+                    this.ut.modal = { show: true, mode: 'add', key: null, err: {},
+                        f: { systemId: sysId, name: '', tagAddress: '', valueType: 'Bit', matchOp: 'RisingEdge', matchValue: '' } };
+                    this.$nextTick(() => this.$refs.utNameInput?.focus());
+                },
+                utOpenEdit(d) {
+                    this.ut.modal = { show: true, mode: 'edit', key: d.key, err: {},
+                        f: { systemId: d.systemId, name: d.name, tagAddress: d.tagAddress, valueType: d.valueType, matchOp: d.matchOp, matchValue: d.matchValue || '' } };
+                    this.$nextTick(() => this.$refs.utNameInput?.focus());
+                },
+                get utModalOps() { return this.ut.matchOpsByType[this.ut.modal.f.valueType] || ['Changed']; },
+                utModalNeedsValue(op) { return ['Eq', 'Neq', 'Gt', 'Gte', 'Lt', 'Lte'].includes(op || this.ut.modal.f.matchOp); },
+                utModalSetType(vt) {
+                    const f = this.ut.modal.f;
+                    f.valueType = vt;
+                    const ops = this.ut.matchOpsByType[vt] || ['Changed'];
+                    if (!ops.includes(f.matchOp)) f.matchOp = vt === 'Bit' ? 'RisingEdge' : 'Changed';
+                    if (vt === 'Bit' && this.utModalNeedsValue(f.matchOp) && !['0', '1'].includes(f.matchValue)) f.matchValue = '1';
+                    this.utModalValidate(true);
+                },
+                utModalSetOp(op) {
+                    const f = this.ut.modal.f;
+                    f.matchOp = op;
+                    if (f.valueType === 'Bit' && this.utModalNeedsValue(op) && !['0', '1'].includes(f.matchValue)) f.matchValue = '1';
+                    this.utModalValidate(true);
+                },
+                get utModalSystem() { return this.ut.systems.find(s => s.systemId === this.ut.modal.f.systemId) || null; },
+                get utModalPreview() {
+                    const f = this.ut.modal.f;
+                    const name = (f.name || '').trim() || '(이름)';
+                    const addr = (f.tagAddress || '').trim() || '(주소)';
+                    const cond = this.describeUtOp(f.matchOp, this.utModalNeedsValue() ? f.matchValue : '');
+                    const sys = this.utModalSystem?.systemName || '(System)';
+                    return { name, addr, cond, sys, type: f.valueType };
+                },
+                // 검증 — 서버(UserTagEditorSupport.Normalize) 규칙의 클라이언트 미러. soft=true 면 비어 있는 필드는 아직 에러로 안 띄움.
+                utModalValidate(soft) {
+                    const f = this.ut.modal.f, err = {};
+                    const name = (f.name || '').trim(), addr = (f.tagAddress || '').trim();
+                    if (!f.systemId) err.systemId = 'System 을 선택하세요.';
+                    if (!name) { if (!soft) err.name = '이름을 입력하세요.'; }
+                    else {
+                        const dup = this.ut.items.some(i => i.systemId === f.systemId && i.state !== 'del' && i.key !== this.ut.modal.key
+                            && i.name.toLowerCase() === name.toLowerCase());
+                        if (dup) err.name = `'${name}' 이름이 이 System 에 이미 있습니다.`;
+                    }
+                    if (!addr) { if (!soft) err.tagAddress = '태그 주소를 입력하세요.'; }
+                    else if (/\s/.test(addr)) err.tagAddress = '주소에 공백이 있습니다.';
+                    if (this.utModalNeedsValue()) {
+                        const mv = (f.matchValue || '').trim();
+                        if (!mv) { if (!soft) err.matchValue = '기준값을 입력하세요.'; }
+                        else if (f.valueType === 'Bit' && !['0', '1', 'true', 'false'].includes(mv.toLowerCase())) err.matchValue = 'Bit 기준값은 0 또는 1 입니다.';
+                        else if (f.valueType !== 'Bit' && f.valueType !== 'String' && !isFinite(Number(mv))) err.matchValue = '숫자를 입력하세요.';
+                    }
+                    this.ut.modal.err = err;
+                    return Object.keys(err).length === 0;
+                },
+                utModalSave() {
+                    if (!this.utModalValidate(false)) return;
+                    const f = this.ut.modal.f;
+                    const sys = this.utModalSystem;
+                    const vals = { systemId: f.systemId, systemName: sys?.systemName || '', name: f.name.trim(), tagAddress: f.tagAddress.trim(),
+                                   valueType: f.valueType, matchOp: f.matchOp, matchValue: this.utModalNeedsValue() ? f.matchValue.trim() : '' };
+                    if (this.ut.modal.mode === 'add') {
+                        this.ut.items.push({ key: 'new|' + Date.now() + '|' + Math.random().toString(36).slice(2, 7), ...vals, state: 'new', orig: null });
+                        this.showToast(`'${vals.name}' 추가 대기 — 적용을 누르면 저장됩니다.`, 'info');
+                    } else {
+                        const it = this.ut.items.find(i => i.key === this.ut.modal.key);
+                        if (!it) return;
+                        if (it.state === '' ) it.orig = { systemId: it.systemId, systemName: it.systemName, name: it.name, tagAddress: it.tagAddress, valueType: it.valueType, matchOp: it.matchOp, matchValue: it.matchValue };
+                        // System 이동은 원 System 에서 삭제 + 새 System 에 추가와 같다 — 단순화를 위해 편집에서 System 은 잠근다(모달 disabled).
+                        Object.assign(it, vals);
+                        if (it.state !== 'new') {
+                            const same = it.orig && ['name', 'tagAddress', 'valueType', 'matchOp', 'matchValue'].every(k => (it.orig[k] || '') === (it[k] || ''));
+                            it.state = same ? '' : 'mod';
+                            if (same) it.orig = null;
+                        }
+                    }
+                    this.ut.modal.show = false;
+                },
+                utDelete(d) {
+                    if (d.state === 'new') { this.ut.items = this.ut.items.filter(i => i.key !== d.key); return; }
+                    if (d.state === '' ) d.orig = { systemId: d.systemId, systemName: d.systemName, name: d.name, tagAddress: d.tagAddress, valueType: d.valueType, matchOp: d.matchOp, matchValue: d.matchValue };
+                    d.state = 'del';
+                },
+                utRestore(d) {
+                    if (!d.orig) { d.state = ''; return; }
+                    Object.assign(d, d.orig);
+                    d.orig = null; d.state = '';
+                },
+
+                // ── 적용 — 변경된 System 만 통째 교체 ──
+                async utApply() {
+                    if (!this.utDirty || this.ut.busy) return;
+                    const c = this.utChangeCount;
+                    const changedSys = [...new Set(this.ut.items.filter(i => i.state).map(i => i.systemId))];
+                    const noEp = changedSys.filter(id => !this.utSystemHasEndpoint(id)).map(id => this.ut.systems.find(s => s.systemId === id)?.systemName).filter(Boolean);
+                    let msg = `추가 ${c.add} · 수정 ${c.mod} · 삭제 ${c.del} 건을 공유 project.aasx 에 저장합니다.\n` +
+                              `Agent 가 파일 변경을 감지해 자동 재시작되며(수 초 모니터링 공백), 새 주소는 재시작 후부터 수집됩니다.`;
+                    if (noEp.length) msg += `\n\n⚠ PLC 접속(AID)이 없는 System: ${noEp.join(', ')} — 태그는 저장되지만 수집되지 않습니다.`;
+                    const ok = await this.askConfirm('수동등록TAG 적용', msg, '적용');
+                    if (!ok) return;
+
+                    const systems = changedSys.map(id => ({
+                        systemId: id,
+                        tags: this.ut.items.filter(i => i.systemId === id && i.state !== 'del')
+                            .map(i => ({ name: i.name, tagAddress: i.tagAddress, valueType: i.valueType, matchOp: i.matchOp, matchValue: i.matchValue || '' })),
+                    }));
+                    this.ut.busy = true; this.ut.saveErrors = []; this.ut.warnings = [];
+                    try {
+                        const res = await fetch('/api/user-tags/editor', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ systems }) });
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        const r = await res.json();
+                        if (!r.ok) {
+                            this.ut.saveErrors = (r.errors && r.errors.length) ? r.errors : [r.error || '저장 실패'];
+                            this.showToast(r.error || '적용 실패', 'error');
+                            return;
+                        }
+                        this.ut.warnings = r.warnings || [];
+                        this.showToast(`수동등록TAG ${r.applied}건 적용 — project.aasx 저장됨${this.ut.warnings.length ? ' (경고 ' + this.ut.warnings.length + '건)' : ''}`, this.ut.warnings.length ? 'info' : 'success');
+                        await this.utLoad();
+                    } catch (e) {
+                        this.ut.saveErrors = ['서버 통신 실패: ' + e.message];
+                        this.showToast('적용 실패: ' + e.message, 'error');
+                    } finally { this.ut.busy = false; }
+                },
+
+                // ── CSV ──
+                async utDownload(url, fallbackName) {
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    const blob = await res.blob();
+                    const cd = res.headers.get('Content-Disposition') || '';
+                    const m = /filename\*=UTF-8''([^;]+)/i.exec(cd) || /filename="?([^";]+)"?/i.exec(cd);
+                    let name = fallbackName;
+                    if (m) { try { name = decodeURIComponent(m[1]); } catch { name = m[1]; } }
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob); a.download = name;
+                    document.body.appendChild(a); a.click(); a.remove();
+                    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+                },
+                async utExportCsv() {
+                    if (this.utDirty) {
+                        const ok = await this.askConfirm('CSV 내보내기', '미적용 변경이 있습니다. CSV 는 서버에 저장된(적용된) 정의만 담습니다.\n계속할까요?', '내보내기');
+                        if (!ok) return;
+                    }
+                    try {
+                        const q = this.ut.sys ? '?systemId=' + encodeURIComponent(this.ut.sys) : '';
+                        await this.utDownload('/api/user-tags/editor/csv' + q, 'UserTags.csv');
+                    } catch (e) { this.showToast('CSV 내보내기 실패: ' + e.message, 'error'); }
+                },
+                async utTemplateCsv() {
+                    try { await this.utDownload('/api/user-tags/editor/csv?template=true', 'UserTags_Template.csv'); }
+                    catch (e) { this.showToast('양식 내려받기 실패: ' + e.message, 'error'); }
+                },
+                utCsvPick() { const el = this.$refs.utCsvFile; if (el) { el.value = ''; el.click(); } },
+                async utCsvFile(ev) {
+                    const file = ev.target.files && ev.target.files[0];
+                    if (!file) return;
+                    this.ut.csv.busy = true;
+                    try {
+                        const fd = new FormData(); fd.append('file', file);
+                        const res = await fetch('/api/user-tags/editor/csv/parse', { method: 'POST', body: fd });
+                        const body = await res.json().catch(() => ({}));
+                        if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+                        this.ut.csv = { show: true, busy: false, fileName: file.name, rows: body.rows || [], hasSystemColumn: !!body.hasSystemColumn,
+                                        encoding: body.encoding || '', mode: 'append', targetSystemId: this.ut.sys || (this.ut.systems[0]?.systemId ?? '') };
+                    } catch (e) {
+                        this.ut.csv.busy = false;
+                        this.showToast('CSV 읽기 실패: ' + e.message, 'error');
+                    }
+                },
+                // System 컬럼 값 → System (이름 대소문자 무시). 없거나 미일치면 대상 System.
+                utCsvResolveSystem(row) {
+                    const n = (row.systemName || '').trim().toLowerCase();
+                    if (n) {
+                        const s = this.ut.systems.find(x => x.systemName.toLowerCase() === n);
+                        if (s) return s;
+                        return null; // 이름이 있는데 모델에 없음 → 오류
+                    }
+                    return this.ut.systems.find(x => x.systemId === this.ut.csv.targetSystemId) || null;
+                },
+                utCsvRowStatus(row) {
+                    if (row.error) return { ok: false, text: row.error };
+                    const s = this.utCsvResolveSystem(row);
+                    if (!s) return { ok: false, text: (row.systemName ? `System '${row.systemName}' 이 모델에 없습니다.` : '대상 System 을 선택하세요.') };
+                    if (this.ut.csv.mode === 'append') {
+                        const dup = this.ut.items.some(i => i.systemId === s.systemId && i.state !== 'del' && i.name.toLowerCase() === row.name.toLowerCase());
+                        if (dup) return { ok: false, skip: true, text: `'${row.name}' 이미 있음 — 건너뜀` };
+                    }
+                    return { ok: true, text: s.systemName };
+                },
+                get utCsvSummary() {
+                    let ok = 0, skip = 0, bad = 0;
+                    const seen = new Set();
+                    for (const r of this.ut.csv.rows) {
+                        const st = this.utCsvRowStatus(r);
+                        if (st.ok) {
+                            const s = this.utCsvResolveSystem(r);
+                            const k = s.systemId + '|' + r.name.toLowerCase();
+                            if (seen.has(k)) { bad++; continue; } // 파일 안 중복 이름
+                            seen.add(k); ok++;
+                        } else if (st.skip) skip++; else bad++;
+                    }
+                    return { ok, skip, bad };
+                },
+                utCsvApply() {
+                    const csv = this.ut.csv;
+                    const seen = new Set();
+                    const toAdd = [];
+                    const touchedSys = new Set();
+                    for (const r of csv.rows) {
+                        const st = this.utCsvRowStatus(r);
+                        if (!st.ok) continue;
+                        const s = this.utCsvResolveSystem(r);
+                        const k = s.systemId + '|' + r.name.toLowerCase();
+                        if (seen.has(k)) continue;
+                        seen.add(k); touchedSys.add(s.systemId);
+                        toAdd.push({ systemId: s.systemId, systemName: s.systemName, name: r.name, tagAddress: r.tagAddress, valueType: r.valueType, matchOp: r.matchOp, matchValue: r.matchValue || '' });
+                    }
+                    if (csv.mode === 'replace') {
+                        // 교체 = 파일이 건드리는 System 의 기존 태그를 전부 삭제 예약(적용 전 되돌리기 가능).
+                        for (const it of this.ut.items) {
+                            if (!touchedSys.has(it.systemId)) continue;
+                            if (it.state === 'new') continue;
+                            if (it.state === '') it.orig = { systemId: it.systemId, systemName: it.systemName, name: it.name, tagAddress: it.tagAddress, valueType: it.valueType, matchOp: it.matchOp, matchValue: it.matchValue };
+                            it.state = 'del';
+                        }
+                        this.ut.items = this.ut.items.filter(i => !(i.state === 'new' && touchedSys.has(i.systemId)));
+                    }
+                    let n = 0;
+                    for (const v of toAdd) {
+                        this.ut.items.push({ key: 'new|' + Date.now() + '|' + (n++) + '|' + Math.random().toString(36).slice(2, 6), ...v, state: 'new', orig: null });
+                    }
+                    csv.show = false;
+                    this.showToast(`CSV ${toAdd.length}건 반영 대기 — 적용을 누르면 저장됩니다.`, 'info');
+                },
 
                 // ── 자동 duration 정합 — Agent abnormal 판정 기준(실측 학습 ↔ 모델 확정값) 전환. 전 인스턴스 동기화.
                 async loadAutoCalibrate() {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
+using Ds2.Editor;
 using DSPilot.Infrastructure;
 using DSPilot.Models.UserTagAlerts;
 using DSPilot.Repositories;
@@ -24,12 +25,18 @@ public class UserTagsController : ControllerBase
     private readonly UserTagAlertService _alertService;
     private readonly IUserTagAlertRepository _repo;
     private readonly AppSettingsService _settings;
+    private readonly DsProjectService _project;
+    private readonly ILogger<UserTagsController> _logger;
 
-    public UserTagsController(UserTagAlertService alertService, IUserTagAlertRepository repo, AppSettingsService settings)
+    public UserTagsController(
+        UserTagAlertService alertService, IUserTagAlertRepository repo, AppSettingsService settings,
+        DsProjectService project, ILogger<UserTagsController> logger)
     {
         _alertService = alertService;
         _repo = repo;
         _settings = settings;
+        _project = project;
+        _logger = logger;
     }
 
     // DSPilot 은 Error 레벨만 표시한다(운영 정책 — usertag/abnormal 모두 Error 취급, Warning/Info 는 미사용).
@@ -159,6 +166,140 @@ public class UserTagsController : ControllerBase
             .OrderBy(d => d.SystemName).ThenBy(d => d.Name)
             .ToList();
         return defs;
+    }
+
+    // ── 설정▸수동등록TAG 편집기 ────────────────────────────────────────────────
+    //   정의의 정본은 공유 project.aasx(System.LoggingProperties.UserTags). 여기서 편집한 결과는
+    //   DsProjectService.WriteUserTagsAndExport 가 store 교체 → AID 주소 병합 → 재export 하고,
+    //   Agent 는 aasx 파일 워처로 재시작해 새 주소를 수집한다(엣지 스캐너는 정적 설정이라 별도 배포).
+
+    /// <summary>편집기 초기 데이터 — 활성 System(endpoint 유무 포함) + 현재 태그 + 허용 값 표. AASX store 직독(집계 없음).</summary>
+    [HttpGet("editor")]
+    public ActionResult<UtEditorDto> GetEditor()
+    {
+        var matchOps = new Dictionary<string, string[]>();
+        foreach (var vt in UserTagEditorSupport.ValueTypes) matchOps[vt] = UserTagEditorSupport.MatchOpsFor(vt);
+
+        if (!_project.IsLoaded)
+            return new UtEditorDto([], [], UserTagEditorSupport.ValueTypes, matchOps, 0, false);
+
+        var endpointBySystem = _project.GetPlcEndpoints()
+            .SelectMany(e => e.SystemName.Split('·').Select(n => (Name: n, Ep: $"{e.Ip}:{e.Port}")))
+            .GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Ep, StringComparer.OrdinalIgnoreCase);
+        var active = _project.GetActiveSystems();
+        var systems = active
+            .Select(s => new UtEditorSystemDto(
+                s.Id.ToString(), s.Name,
+                endpointBySystem.ContainsKey(s.Name),
+                endpointBySystem.TryGetValue(s.Name, out var ep) ? ep : null))
+            .ToList();
+        var activeIds = active.Select(s => s.Id).ToHashSet();
+
+        var rows = _project.GetStore().GetAllUserTagsForProject();
+        var tags = rows
+            .Where(r => activeIds.Contains(r.SystemId))
+            .Select(r => new UtEditorTagDto(
+                r.SystemId.ToString(), r.SystemName, r.Name, r.TagAddress,
+                UserTagEditorSupport.NormalizeValueType(r.ValueType) ?? "Bit",
+                UserTagEditorSupport.NormalizeMatchOp(r.MatchOp, r.ValueType) ?? "RisingEdge",
+                r.MatchValue))
+            .OrderBy(t => t.SystemName).ThenBy(t => t.Name)
+            .ToList();
+        var hidden = rows.Count(r => !activeIds.Contains(r.SystemId));
+        return new UtEditorDto(systems, tags, UserTagEditorSupport.ValueTypes, matchOps, hidden, true);
+    }
+
+    /// <summary>
+    /// 적용 — 요청에 포함된 System 의 태그 목록을 통째로 교체하고 project.aasx 를 저장한다.
+    /// 전체 검증을 먼저 끝내고(하나라도 실패면 아무것도 쓰지 않음) 한 번의 export 로 반영해 Agent 재시작을 1회로 제한한다.
+    /// </summary>
+    [HttpPut("editor")]
+    public ActionResult<UtEditorSaveResult> SaveEditor([FromBody] UtEditorSaveRequest req)
+    {
+        var errors = new List<string>();
+        if (req?.Systems is null || req.Systems.Count == 0)
+            return new UtEditorSaveResult(false, 0, [], errors, "변경 내용이 없습니다.");
+        if (!_project.IsLoaded)
+            return new UtEditorSaveResult(false, 0, [], errors, "프로젝트(AASX)가 로드되지 않았습니다.");
+
+        var nameById = _project.GetActiveSystems().ToDictionary(s => s.Id, s => s.Name);
+        var bySystem = new Dictionary<Guid, IReadOnlyList<UserTagWriteEntry>>();
+        foreach (var sysIn in req.Systems)
+        {
+            if (!Guid.TryParse(sysIn.SystemId, out var sid) || !nameById.TryGetValue(sid, out var sysName))
+            {
+                errors.Add($"알 수 없는 System '{sysIn.SystemId}' — 활성 System 만 편집할 수 있습니다.");
+                continue;
+            }
+            if (bySystem.ContainsKey(sid)) { errors.Add($"{sysName}: System 이 요청에 두 번 들어 있습니다."); continue; }
+
+            var entries = new List<UserTagWriteEntry>();
+            foreach (var t in sysIn.Tags ?? [])
+            {
+                var (entry, err) = UserTagEditorSupport.Normalize(t.Name, t.TagAddress, t.ValueType, t.MatchOp, t.MatchValue);
+                if (entry is null) errors.Add($"{sysName} / '{t.Name}': {err}");
+                else entries.Add(entry);
+            }
+            foreach (var dup in UserTagEditorSupport.FindDuplicateNames(entries.Select(e => e.Name)))
+                errors.Add($"{sysName}: 이름 '{dup}' 가 중복됩니다(대소문자 무시).");
+            bySystem[sid] = entries;
+        }
+        if (errors.Count > 0)
+            return new UtEditorSaveResult(false, 0, [], errors, $"검증 실패 {errors.Count}건 — 저장하지 않았습니다.");
+
+        var result = _project.WriteUserTagsAndExport(bySystem);
+        if (!result.Exported)
+        {
+            _logger.LogWarning("[UserTags] 편집기 적용 실패 — {Error}", result.Error);
+            return new UtEditorSaveResult(false, result.Applied, result.Warnings, errors, result.Error ?? "저장에 실패했습니다.");
+        }
+        return new UtEditorSaveResult(true, result.Applied, result.Warnings, errors, null);
+    }
+
+    /// <summary>
+    /// CSV 내보내기(양식 겸용). systemId 지정 시 그 System 만. 태그가 없으면 헤더 + 예시 2행(template=1 일 때)을 담아
+    /// 양식으로 쓸 수 있게 한다. UTF-8 BOM — Excel 한글 호환. 헤더는 Promaker CSV 와 같고 맨 앞에 System 컬럼만 추가.
+    /// </summary>
+    [HttpGet("editor/csv")]
+    public IActionResult GetEditorCsv([FromQuery] string? systemId = null, [FromQuery] bool template = false)
+    {
+        var editor = GetEditor().Value!;
+        IEnumerable<UtEditorTagDto> rows = editor.Tags;
+        var fnPart = "All";
+        if (!string.IsNullOrWhiteSpace(systemId))
+        {
+            rows = rows.Where(t => string.Equals(t.SystemId, systemId, StringComparison.OrdinalIgnoreCase));
+            fnPart = editor.Systems.FirstOrDefault(s => string.Equals(s.SystemId, systemId, StringComparison.OrdinalIgnoreCase))?.SystemName ?? "System";
+        }
+        List<UtEditorTagDto> list = template ? [] : rows.ToList();
+        var bytes = UserTagEditorSupport.BuildCsv(list, includeExample: template);
+        var safe = string.Concat(fnPart.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+        var fn = template ? "UserTags_Template.csv" : $"{safe}_UserTags_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+        return File(bytes, UserTagEditorSupport.CsvMimeType, fn);
+    }
+
+    /// <summary>
+    /// CSV 가져오기 1단계 — 파일을 파싱·검증만 하고 행별 결과를 돌려준다(저장 없음). 클라이언트가 미리보기에서
+    /// System 배정·추가/교체 모드를 정한 뒤 PUT editor 로 반영한다. 인코딩 = BOM/UTF-8/CP949 자동.
+    /// </summary>
+    [HttpPost("editor/csv/parse")]
+    [RequestSizeLimit(4 * 1024 * 1024)]
+    public async Task<ActionResult<UtCsvParseResult>> ParseEditorCsv([FromForm] IFormFile? file, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            return BadRequest(new { error = "파일이 비어 있습니다." });
+        await using var ms = new MemoryStream();
+        await file.CopyToAsync(ms, ct);
+        try
+        {
+            return UserTagEditorSupport.ParseCsv(ms.ToArray());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[UserTags] CSV 파싱 실패 ({Name})", file.FileName);
+            return BadRequest(new { error = $"CSV 를 읽을 수 없습니다: {ex.Message}" });
+        }
     }
 
     /// <summary>

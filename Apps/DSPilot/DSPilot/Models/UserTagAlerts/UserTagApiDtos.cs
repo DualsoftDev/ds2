@@ -67,3 +67,50 @@ public record UserTagErrorStatusDto(
     string? LatestErrorAtLocal,     // "MM-dd HH:mm:ss" (로컬)
     string? LatestErrorSystem,
     string? LatestErrorName);
+
+// ── 설정▸수동등록TAG 편집기 (/api/user-tags/editor) ──────────────────────────
+
+/// <summary>편집 가능한 활성 System 1건. HasEndpoint=false 면 AID XGT 접속이 없어 새 주소가 Agent 수집 대상에 못 들어간다(UI 경고).</summary>
+public record UtEditorSystemDto(string SystemId, string SystemName, bool HasEndpoint, string? Endpoint);
+
+/// <summary>편집기 태그 행 — 정의(UtDefinitionDto)에 SystemId 를 더해 System 단위 교체 저장이 가능하게 한다.</summary>
+public record UtEditorTagDto(
+    string SystemId,
+    string SystemName,
+    string Name,
+    string TagAddress,
+    string ValueType,
+    string MatchOp,
+    string? MatchValue);
+
+/// <summary>편집기 초기 로드 — System 목록 + 태그 + 허용 값 표. HiddenPassiveCount = Passive System 에 남아 있는(편집 불가) 태그 수.</summary>
+public record UtEditorDto(
+    List<UtEditorSystemDto> Systems,
+    List<UtEditorTagDto> Tags,
+    string[] ValueTypes,
+    Dictionary<string, string[]> MatchOpsByType,
+    int HiddenPassiveCount,
+    bool ProjectLoaded);
+
+public record UtEditorTagInput(string? Name, string? TagAddress, string? ValueType, string? MatchOp, string? MatchValue);
+
+/// <summary>System 별 최종 목록(통째 교체). 포함되지 않은 System 은 건드리지 않는다.</summary>
+public record UtEditorSystemInput(string SystemId, List<UtEditorTagInput> Tags);
+
+public record UtEditorSaveRequest(List<UtEditorSystemInput> Systems);
+
+/// <summary>Ok=false 면 Error 에 사유(검증 실패 시 Errors 에 항목별). Warnings = 저장은 됐지만 수집 반영 주의.</summary>
+public record UtEditorSaveResult(bool Ok, int Applied, List<string> Warnings, List<string> Errors, string? Error);
+
+/// <summary>CSV 한 행 파싱 결과. Error=null 이면 유효(정규화된 값). SystemName 은 System 컬럼이 있을 때만 채워진다.</summary>
+public record UtCsvRowDto(
+    int Line,
+    string SystemName,
+    string Name,
+    string TagAddress,
+    string ValueType,
+    string MatchOp,
+    string MatchValue,
+    string? Error);
+
+public record UtCsvParseResult(List<UtCsvRowDto> Rows, bool HeaderDetected, bool HasSystemColumn, string Encoding);
