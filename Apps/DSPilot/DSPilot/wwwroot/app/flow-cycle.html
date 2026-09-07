@@ -253,9 +253,9 @@
                                     title="Work 별로 묶은 고정 순서(모델 순) — 시작/끝을 바꿔도 행이 움직이지 않음. 분기 탭에서는 Work 헤더 클릭 = 그 Work 통째 제외/해제">Work 그룹</button>
                         </div>
                         <!-- 간트 내부 검색 — call 이름 · Work · IN/OUT 태그 주소 · I/O 쌍 이름 부분 일치(공백 = AND). 표시만 줄이고 사이클 계산은 전체 lane. -->
-                        <label class="ct-search" title="CALL 이름 · Work · 태그 주소 · I/O 쌍 이름으로 행 필터 (공백으로 나누면 모두 일치해야 표시)">
+                        <label class="ct-search" title="call 이름으로 행 필터 (공백으로 나누면 모두 일치해야 표시). 다른 필드는 접두어로: work:이름 · tag:주소 · api:이름">
                             <span class="material-icons">search</span>
-                            <input type="text" x-model="laneFilter" @input.debounce.150ms="onLaneFilter()" placeholder="call 검색" />
+                            <input type="text" x-model="laneFilter" @input.debounce.150ms="onLaneFilter()" placeholder="call 이름 검색" />
                             <span class="ct-search-n" x-show="laneFilter" x-cloak x-text="flowAct.visibleLanes + '/' + flowAct.totalLanes"></span>
                             <button type="button" class="ct-search-x" x-show="laneFilter" x-cloak @click="clearLaneFilter()" title="필터 해제">✕</button>
                         </label>
@@ -336,7 +336,7 @@
 
                                     <!-- flow 전체 + 분기 있음: 분기별 CT 합산 요약 -->
                                     <div class="fb-stats fg-union" x-show="branches.length > 0" x-cloak>
-                                        <template x-if="branchPreview.total > 0">
+                                        <template x-if="branchPreview.total > 0 || branchPreview.open > 0">
                                             <div class="fb-stats" style="width:100%;">
                                                 <span class="fb-hint" style="font-weight:800; color:var(--color-text-primary);">분기별 CT 합산</span>
                                                 <template x-for="(st, sti) in branchPreview.stats" :key="'ust' + sti">
@@ -352,10 +352,14 @@
                                                       title="둘 이상의 분기가 같은 사이클을 함께 정상 판별 — 서버는 우선순위(위의 분기)로 확정하지만, 의도한 분리라면 제외 call 을 지정해 갈라주세요">
                                                     <i class="fg-hatch"></i>CT 중복 <b x-text="branchPreview.dup + '회'"></b>
                                                 </span>
+                                                <span class="fb-stat is-open" x-show="branchPreview.open > 0" x-cloak
+                                                      title="마지막 가동은 다음 시작이 아직 없어 진행 중 — 제외 call 이 발화하기 전이라 분기 간 중복이 구조적으로 생기므로 미완성으로 취급하고 횟수·중복·정상 CT 없음 집계에서 뺍니다">
+                                                    <i style="background:#e0e5e9; border:1px dashed #78909c;"></i>진행 중 <b x-text="branchPreview.open + '회'"></b><span class="fb-hint">(미완성 · 집계 제외)</span>
+                                                </span>
                                                 <span class="fb-hint" style="flex-basis:100%;">리본의 회색(정상 CT 없음)·빨간 해치(중복) 구간을 보고 아래 분기 간트에서 제외 call 을 조정하세요.</span>
                                             </div>
                                         </template>
-                                        <template x-if="branchPreview.total === 0">
+                                        <template x-if="branchPreview.total === 0 && branchPreview.open === 0">
                                             <span class="fb-hint">이 조회 창에 분기 시작 call 의 발화가 없습니다 — 기간을 늘려 보세요.</span>
                                         </template>
                                     </div>
@@ -412,6 +416,22 @@
                                                                       :title="'I/O 쌍 총 ' + (row.lane.apiCalls || []).length + '개 등록(범례는 첫 쌍만 표시) — ▸ 를 눌러 전체 확인'"
                                                                       x-text="'총 ' + (row.lane.apiCalls || []).length + '쌍'"></span>
                                                             </div>
+                                                        </div>
+                                                    </template>
+                                                    <!-- 분기 사용 중: 시작/끝 버튼 자리에 "어느 분기가 이 call 을 쓰는지" 배지(2026-09-07). 클릭 = 그 분기 탭으로 -->
+                                                    <template x-if="row.kind === 'call' && !flowAct.editable && branches.length > 0">
+                                                        <div class="ct-lane-tags fg-usage" :title="brUsageTitle(row.lane.callName)">
+                                                            <template x-if="brUsage(row.lane.callName).all">
+                                                                <span class="fg-use-chip is-all"><i class="fg-use-dot"></i>전 분기</span>
+                                                            </template>
+                                                            <template x-if="brUsage(row.lane.callName).none">
+                                                                <span class="fg-use-chip is-none">모두 제외</span>
+                                                            </template>
+                                                            <template x-for="c in (brUsage(row.lane.callName).all ? [] : brUsage(row.lane.callName).chips)" :key="'u' + row.lane.callId + ':' + c.bi">
+                                                                <span class="fg-use-chip" :class="c.role ? 'is-' + c.role : ''" :style="'--fg-c:' + c.color" @click.stop="setBranchTab(c.bi)">
+                                                                    <i class="fg-use-dot"></i><span x-text="c.name"></span><template x-if="c.role"><b x-text="c.role === 'head' ? '시작' : '끝'"></b></template>
+                                                                </span>
+                                                            </template>
                                                         </div>
                                                     </template>
                                                     <!-- 분기 사용 중(flowAct.editable=false)이면 시작/끝 버튼 자체를 숨긴다 — 경계는 아래 분기 간트에서 정의 -->
@@ -504,6 +524,7 @@
                                         </template>
                                         <template x-if="flowAct.unionMode"><span><i class="ct-sw ct-sw-none"></i> 정상 CT 없음</span></template>
                                         <template x-if="flowAct.unionMode"><span><i class="ct-sw ct-sw-hatch"></i> CT 중복</span></template>
+                                        <template x-if="flowAct.unionMode"><span title="마지막 가동 — 다음 시작 전이라 판별 보류(미완성), 횟수·중복 집계 제외"><i class="ct-sw ct-sw-open"></i> 진행 중</span></template>
                                         <template x-if="selectedRange && selectedRange.gantt === 'flow'"><span><i class="ct-sw ct-sw-range"></i> 선택 구간</span></template>
                                     </div>
 
@@ -620,7 +641,15 @@
                                                     </div>
                                                     <template x-for="row in brRows" :key="'b' + branchTab + row.key">
                                                         <div :class="brRowClass(row)" :style="`height:${row.h}px;`">
-                                                            <template x-if="row.kind === 'work'">
+                                                            <template x-if="row.kind === 'work' && row.exclGroup">
+                                                                <div class="ct-work-label fb-excl-group" :style="'--fg-c:' + brColor(branchTab)"
+                                                                     title="이 분기에서 제외한 call — 제외하지 않은 call 아래로 모아 표시합니다. 각 행의 '제외' 버튼을 다시 누르면 위 목록으로 돌아갑니다">
+                                                                    <span class="fb-excl-mark">⊘</span>
+                                                                    <span>제외 call</span><b x-text="row.count"></b>
+                                                                    <span class="fb-work-hint">이 call 이 발화한 사이클은 이 분기가 아님</span>
+                                                                </div>
+                                                            </template>
+                                                            <template x-if="row.kind === 'work' && !row.exclGroup">
                                                                 <div class="ct-work-label fb-work-toggle"
                                                                      @click="selMode ? selToggleWork(row.workName) : brToggleWorkByName(curBranch, row.workName)"
                                                                      :title="selMode ? '이 Work 의 call 전체 선택/해제' : '이 Work 의 call 전체를 제외/해제 (자기 시작·끝 call 은 유지)'">
@@ -1003,6 +1032,7 @@
                         <span title="분기 Flow: 리본 색 = 판별된 분기"><i class="ct-sw" style="background:linear-gradient(90deg,#2e7d32,#7b1fa2,#0277bd);"></i> 해당 분기</span>
                         <span title="둘 이상의 분기가 같은 가동을 정상 판별"><i class="ct-sw ct-sw-hatch"></i> CT 중복</span>
                         <span title="어느 분기로도 판별되지 않은 가동(미분류)"><i class="ct-sw ct-sw-none"></i> 정상 CT 없음</span>
+                        <span title="마지막 가동 — 다음 시작 전이라 판별 보류(미완성), 횟수·중복 집계 제외"><i class="ct-sw ct-sw-open"></i> 진행 중</span>
                         <span title="PLC/수집기/DSPilot 정지로 신호를 받지 못한 구간"><i class="ct-sw" style="background:repeating-linear-gradient(135deg,#cfd8dc 0 3px,#eceff1 3px 6px); border:1px solid #b0bec5;"></i> 정보 없음</span>
                     </div>
                     <div class="ct-pan">
@@ -1074,7 +1104,10 @@
                                         <i class="ov-sw ct-sw-none"></i>정상 CT 없음 <b x-text="slice.bp.un + '회 (' + slice.bp.unPct + '%)'"></b>
                                     </span>
                                 </template>
-                                <template x-if="slice.branches.length > 0 && slice.bp && slice.bp.total === 0 && slice.state === 'ok'">
+                                <template x-if="slice.bp && slice.bp.open > 0">
+                                    <span class="ov-chip is-muted" title="마지막 가동은 진행 중(다음 시작 전) — 미완성으로 취급해 횟수·중복·정상 CT 없음 집계에서 제외">진행 중 <b x-text="slice.bp.open + '회'"></b></span>
+                                </template>
+                                <template x-if="slice.branches.length > 0 && slice.bp && slice.bp.total === 0 && !slice.bp.open && slice.state === 'ok'">
                                     <span class="ov-chip is-muted" title="이 기간에 분기 시작 call 신호가 없어 판별할 가동이 없습니다">분기 판별 가동 없음</span>
                                 </template>
                                 <!-- 공통: 미계측(정보 없음) -->

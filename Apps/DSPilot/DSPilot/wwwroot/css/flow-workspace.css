@@ -508,6 +508,21 @@
 .ct-badge.fb-ex { background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
 .dark-theme .ct-badge.fb-ex { background: rgba(198,40,40,0.25); color: #ef9a9a; border-color: rgba(239,154,154,0.5); }
 .fb-work-toggle { cursor: pointer; user-select: none; width: 100%; }
+/* 제외 call 묶음 구분 행(분기 간트, 2026-09-07) — 제외 lane 을 아래로 모은 경계. 클릭 동작 없음(각 행의 '제외' 버튼으로 복귀). */
+.ct-work-row.is-excl-group { background: color-mix(in srgb, var(--fg-c, #90a4ae) 12%, var(--color-surface)); border-top: 1px solid color-mix(in srgb, var(--fg-c, #90a4ae) 45%, var(--color-lines)); }
+.fb-excl-group { width: 100%; cursor: default; color: var(--color-text-secondary); }
+.fb-excl-group b { font-family: var(--font-mono, monospace); color: var(--fg-c, var(--color-text-primary)); margin-left: -1px; }
+.fb-excl-group .fb-excl-mark { font-size: 13px; line-height: 1; color: var(--fg-c, #90a4ae); }
+.fb-stat.is-open b { color: #607d8b; }
+/* 상단 flow 간트 — call 별 분기 사용 배지(2026-09-07). 분기색 칩(시작/끝 역할은 흰 글자 꼬리표), 공통 call 은 '전 분기' 하나로 접음. */
+.ct-lane-tags.fg-usage { flex-wrap: wrap; justify-content: flex-end; align-content: center; gap: 3px; max-width: 160px; }
+.fg-use-chip { --fg-c: #607d8b; display: inline-flex; align-items: center; gap: 3px; height: 16px; padding: 0 5px; border-radius: 8px; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.02em; white-space: nowrap; cursor: pointer; color: var(--fg-c); background: color-mix(in srgb, var(--fg-c) 10%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--fg-c) 50%, transparent); }
+.fg-use-chip:hover { background: color-mix(in srgb, var(--fg-c) 22%, var(--color-surface)); }
+.fg-use-chip .fg-use-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-c); flex: 0 0 auto; }
+.fg-use-chip b { font-size: 0.5rem; line-height: 1; padding: 2px 3px; border-radius: 5px; background: var(--fg-c); color: #fff; }
+.fg-use-chip.is-all { cursor: default; }
+.fg-use-chip.is-none { --fg-c: #c62828; cursor: default; text-decoration: line-through; }
+.dark-theme .fg-use-chip { background: color-mix(in srgb, var(--fg-c) 18%, var(--color-surface)); }
 .fb-work-toggle:hover { color: var(--color-primary); }
 .fb-work-hint { margin-left: auto; font-size: 0.58rem; font-weight: 600; opacity: 0.6; white-space: nowrap; }
 
@@ -547,6 +562,7 @@
 .fg-stat-link:hover { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
 .fb-stat i.fg-hatch, .ct-sw-hatch { background: repeating-linear-gradient(45deg, rgba(229,57,53,0.9) 0 2px, rgba(229,57,53,0.15) 2px 5px); border: 1px solid #e53935; }
 .ct-sw-none { background: #cfd8dc; border: 1px solid #90a4ae; }
+.ct-sw-open { background: #e0e5e9; border: 1px dashed #78909c; }
 
 /* 툴바 검색(간트 내부 필터) */
 .ct-search { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px 2px 8px; border: 1px solid var(--color-lines-strong); border-radius: 999px; background: var(--color-surface); min-width: 170px; }

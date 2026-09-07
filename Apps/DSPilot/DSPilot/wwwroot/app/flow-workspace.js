@@ -57,7 +57,7 @@
                 // CALL 정렬 모드 — 'signal'(시작 맨 위·끝 맨 아래·사이는 첫 신호 시각 순, Work 헤더 없음)
                 //                 | 'work'(Work 그룹 고정 순서 = 모델 순, 시작/끝을 바꿔도 행이 안 움직임). localStorage 보존.
                 sortMode: 'signal',
-                laneFilter: '',          // 간트 내부 검색(사이드바 행 필터) — call/Work/태그/I/O 쌍 이름 부분 일치, 공백 AND
+                laneFilter: '',          // 간트 내부 검색(사이드바 행 필터) — 기본 call 이름만, work:/tag:/api: 접두어로 다른 필드, 공백 AND
                 // 복수 선택 모드(분기 탭) — 체크한 call 들을 '선택 제외/해제' 로 일괄 적용. selCalls = callName → true
                 selMode: false, selCalls: {}, selMsg: '', _selAnchor: null,
                 branchMsg: '',
@@ -1054,6 +1054,29 @@
                     return st || { count: 0, pct: 0, dup: 0 };
                 },
                 brRename(name) { const b = this.curBranch; if (!b) return; b.name = name; this._brRefresh(); },
+                // call 별 분기 사용 요약(2026-09-07) — 상단 flow 간트(분기 사용 중 = 시작/끝 버튼 자리)에 "어느 분기가 이 call 을
+                //   쓰는지" 배지로 보여준다. 사용 = 그 분기의 제외 목록에 없음(시작/끝 call 은 항상 사용 + 역할 표시).
+                //   all = 모든 분기가 쓰고 역할 없음(공통 call → 칩 하나로 접음), none = 모든 분기가 제외(어디에도 안 세는 call).
+                brUsage(callName) {
+                    const used = [], excl = [];
+                    let hasRole = false;
+                    this.branches.forEach((b, bi) => {
+                        const role = b.startCallName === callName ? 'head' : (b.endCallName === callName ? 'tail' : null);
+                        if (role) hasRole = true;
+                        if (role || (b.excludedCallNames || []).indexOf(callName) === -1) used.push({ bi, name: this.brName(bi), color: this.brColor(bi), role });
+                        else excl.push(this.brName(bi));
+                    });
+                    const n = this.branches.length;
+                    return { chips: used, excl, all: n > 0 && used.length === n && !hasRole, none: n > 0 && used.length === 0 };
+                },
+                brUsageTitle(callName) {
+                    const u = this.brUsage(callName);
+                    const roleTxt = (c) => c.role === 'head' ? '(시작)' : (c.role === 'tail' ? '(끝)' : '');
+                    const parts = [];
+                    parts.push(u.chips.length ? '사용: ' + u.chips.map(c => c.name + roleTxt(c)).join(', ') : '사용하는 분기 없음');
+                    if (u.excl.length) parts.push('제외: ' + u.excl.join(', '));
+                    return parts.join(' · ') + ' — 클릭하면 그 분기 간트로 이동';
+                },
 
                 // ═══ 복수 선택 → 일괄 제외/해제 (2026-09-06) — 분기 탭 전용 ═══
                 // 행마다 '제외' 를 하나씩 누르는 대신, 선택 모드에서 체크(행 클릭 · Work 헤더 = 그 Work 전체 · 표시된 행 전체 ·
@@ -1212,11 +1235,20 @@
                     });
                     const collapsed = {};
                     (b.excludedCallNames || []).forEach(n => { collapsed[n] = true; });
+                    // 제외 call 은 제외하지 않은 call 아래로 모아 표시(2026-09-07) — 순서 = 기존 정렬을 유지한 채 두 묶음으로 분할.
+                    //   head/tail 은 제외 불가라 항상 위 묶음(끝 call 이 위 묶음 마지막). CycleGantt.laneLayout 이 groupExcluded 로
+                    //   첫 제외 lane 앞에 '제외 call N' 구분 행을 끼운다. 계산(분기 판정·리본)은 순서 무관.
+                    const orderedAll = this._orderedLanes(head ? head.callId : null, tail ? tail.callId : null);
+                    const orderedLanes = orderedAll.filter(l => !collapsed[l.callName]).concat(orderedAll.filter(l => collapsed[l.callName]));
                     const ct = (sp) => this.formatMs(sp.eMs - sp.sMs);
                     const bar = pv.spans.map(sp => {
                         const me = sp.byBranch[bi];
                         let color, title;
-                        if (me && me.pass) {
+                        if (sp.open) {
+                            // 진행 중(미완성) — 판별 보류. 이 분기가 후보면 분기색 흐리게, 아니면 회색(사유는 툴팁).
+                            color = (me && me.pass) ? this.brColor(bi) : '#d7dde3';
+                            title = '진행 중(미완성) — 집계 제외 · ' + (me && me.pass ? this.brName(bi) + ' 후보' : (me ? '제외 call \'' + me.reason + '\' 발화' : '이 분기 시작 아님')) + ' · 경과 ' + ct(sp);
+                        } else if (me && me.pass) {
                             color = sp.dup ? '#e53935' : this.brColor(bi);
                             title = (sp.dup ? 'CT 중복 — ' + sp.passing.map(x => this.brName(x)).join(', ') + ' 모두 정상 판별 · ' : this.brName(bi) + ' · ') + ct(sp);
                         } else if (me) {
@@ -1224,14 +1256,14 @@
                         } else {
                             color = '#d7dde3'; title = '이 분기 시작 아님 — ' + (sp.win === -1 ? '미분류' : this.brName(sp.win)) + ' · ' + ct(sp);
                         }
-                        return { sMs: sp.sMs, eMs: sp.eMs, color, title };
+                        return { sMs: sp.sMs, eMs: sp.eMs, color, title, open: !!sp.open };
                     });
                     return Object.assign(base, {
                         kind: 'branch', bi, branch: b,
-                        callLanes: this._orderedLanes(head ? head.callId : null, tail ? tail.callId : null),
+                        callLanes: orderedLanes,
                         headCallId: head ? head.callId : null, tailCallId: tail ? tail.callId : null,
                         cycleBoundaries: [], tailEdges: [], cycleSpans: spans,
-                        collapsedCallNames: collapsed, editable: true, unionMode: false,
+                        collapsedCallNames: collapsed, groupExcluded: true, editable: true, unionMode: false,
                         // 제외 call 접기 ON — 같은 목록을 hiddenCallNames 로도 넘겨 CycleGantt.visibleLanes 가 행을 통째 뺀다.
                         hiddenCallNames: this.hideExcl ? collapsed : null,
                         avgCycleMs: ctN ? ctSum / ctN : null, avgActiveMs: atN ? atSum / atN : null,
