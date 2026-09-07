@@ -96,7 +96,9 @@ public class CycleAnalysisController : ControllerBase
         var start = ParseLocal(req.Start) ?? DateTime.Now.AddMinutes(-1);
         var end = ParseLocal(req.End) ?? DateTime.Now;
 
-        var dataTask = _cycleAnalysis.GetActualIoSignalSegmentsInTimeRangeAsync(req.FlowName, start, end);
+        // 구 Blazor 간트 전용 렌더 상한 유지(최신 N개). 분석 경로(CallLaneBuilderService)는 무제한.
+        var dataTask = _cycleAnalysis.GetActualIoSignalSegmentsInTimeRangeAsync(
+            req.FlowName, start, end, maxItems: CycleAnalysisService.MaxRenderedGanttItems);
         var idleEdgesTask = LoadIdleEdgesAsync(req.FlowName, start, end);
         await Task.WhenAll(dataTask, idleEdgesTask);
 

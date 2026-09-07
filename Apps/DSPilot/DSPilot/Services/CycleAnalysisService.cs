@@ -18,7 +18,13 @@ namespace DSPilot.Services;
 /// </summary>
 public class CycleAnalysisService
 {
-    private const int MaxRenderedGanttItems = 2000;
+    /// <summary>
+    /// 구 Blazor 간트(/api/cycle-analysis/gantt-data) 전용 렌더 상한. 초과 시 최신 N개만 남긴다.
+    /// ★ 분석 경로(CallLaneBuilderService → 가동시간 분석 간트/분기 판별/자동 보정)에는 절대 적용하지 말 것 —
+    /// call 이 많은 flow(분기 flow 58~180 lane)는 수 시간치만으로 2000개를 넘겨 창 앞부분 신호가 통째로
+    /// 사라졌다(2026-09-07 현장: 24h 요청에 최근 25분~6시간만 표시, 원본 plcTagLog 는 온전).
+    /// </summary>
+    public const int MaxRenderedGanttItems = 2000;
     private readonly IDspRepository _dspRepository;
     private readonly IPlcRepository _plcRepository;
     private readonly PlcToCallMapperService _mapperService;
@@ -174,11 +180,17 @@ public class CycleAnalysisService
     /// 미리보기. 그 시간 미만 유지된 ON/OFF 는 구간에서 사라진다(<see cref="SignalDebounce.FilterIntervals"/>) —
     /// 사이클 경계(<see cref="CycleBoundaryEdges"/>)와 같은 정의라 간트 파형·경계·분기 미리보기가 일치한다.
     /// </param>
+    /// <param name="maxItems">
+    /// 세그먼트 개수 상한. null(기본) = 무제한 — 요청 범위의 신호를 전부 반환한다. 값이 있으면 최신 N개만 남기고
+    /// <see cref="GanttChartData.IsTruncated"/> 를 세운다(구 Blazor 간트 렌더 보호용, <see cref="MaxRenderedGanttItems"/>).
+    /// 분석 소비자(lane 빌더/분기 판별/자동 보정)는 반드시 null 로 호출 — 잘린 데이터는 "과거 신호 소실"로 보인다.
+    /// </param>
     public async Task<GanttChartData> GetActualIoSignalSegmentsInTimeRangeAsync(
         string flowName,
         DateTime startTime,
         DateTime endTime,
-        int? chatterFilterMs = null)
+        int? chatterFilterMs = null,
+        int? maxItems = null)
     {
         var flow = GetFlowByName(flowName);
         if (flow == null)
@@ -316,10 +328,12 @@ public class CycleAnalysisService
         }
 
         var totalEventCount = items.Count;
-        var renderedItems = totalEventCount > MaxRenderedGanttItems
+        // 상한은 호출자가 명시한 경우에만(구 간트 렌더 보호). 기본은 무제한 — 분석 경로가 여기서 잘리면
+        // 창 앞부분 신호가 사라져 간트/분기 판별/보정이 전부 최근 구간만 보게 된다.
+        var renderedItems = maxItems is int cap && cap > 0 && totalEventCount > cap
             ? items
                 .OrderByDescending(item => item.GoingStartTime)
-                .Take(MaxRenderedGanttItems)
+                .Take(cap)
                 .OrderBy(item => item.GoingStartTime)
                 .ToList()
             : items
