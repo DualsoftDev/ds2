@@ -131,6 +131,9 @@
            본체의 가로 스크롤은 안쪽 래퍼(.ct-gantt-hscroll)가 전담 — 본체 자체를 overflow-y 스크롤 컨테이너로 두면
            세로로 content 보다 짧게 잘려(하단 lane 소실) 이 방식으로 분리한다. 대개 call 수가 적어 세로 스크롤은 드묾. */
         .ct-gantt-layout { display: flex; align-items: flex-start; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); overflow-y: auto; overflow-x: hidden; max-height: calc(100vh - 300px); }
+        /* 검색/정렬/제외 토글로 행(x-for)·SVG(x-html)가 통째로 재생성될 때 Chrome 스크롤 앵커링이 사라진 행을 기준점으로 잡아
+           창 스크롤을 위로 보정하던 버그(2026-09-07, 검색 타이핑마다 페이지가 위로 튐). 간트 서브트리는 앵커 후보에서 제외한다. */
+        .ct-gantt-layout, .ct-gantt-layout * { overflow-anchor: none; }
         /* 사이드바 폭 = 전역 CSS 변수(--ct-side-w, 기본 330px). 리사이저 드래그(gantt-sidebar.js)가 :root 에 세팅 + localStorage 보존
            — 한 페이지의 모든 간트(단일/분기 카드/전체 편집)가 같은 폭을 공유한다. */
         .ct-lane-sidebar { flex: 0 0 var(--ct-side-w, 330px); width: var(--ct-side-w, 330px); background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow: visible; z-index: 1; }
