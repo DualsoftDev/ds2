@@ -93,7 +93,7 @@
                             <b><span x-text="mqCurrentIssue.flowName"></span> — <span x-text="mqIssueLabel(mqCurrentIssue)"></span></b>
                             <div class="up-bnd-top-msg" x-text="mqIssueText(mqCurrentIssue)"></div>
                             <div class="up-bnd-top-act">
-                                <a :href="'/flow-cycle?flow=' + encodeURIComponent(mqCurrentIssue.flowName)">사이클 분석에서 경계 지정 →</a>
+                                <a :href="'/flow-cycle?name=' + encodeURIComponent(mqCurrentIssue.flowName)">사이클 분석에서 경계 지정 →</a>
                                 <a href="#measure-quality-section">데이터 무결성 보기</a>
                             </div>
                         </div>
@@ -922,7 +922,7 @@
                                     가동이 0건으로 남거나 가동시간이 배로 계상됩니다.
                                     <template x-for="f in mqIssueRows" :key="'bnd-'+f.flowName">
                                         <div class="up-mq-bnd-row">
-                                            <a :href="'/flow-cycle?flow=' + encodeURIComponent(f.flowName)" x-text="f.flowName"></a>
+                                            <a :href="'/flow-cycle?name=' + encodeURIComponent(f.flowName)" x-text="f.flowName"></a>
                                             <span class="tag" x-text="mqIssueLabel(f)"></span>
                                             <span x-text="mqIssueText(f)"></span>
                                         </div>

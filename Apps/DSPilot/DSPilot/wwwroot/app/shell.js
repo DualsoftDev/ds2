@@ -723,17 +723,29 @@ window.dspFmt = {
                     }
                     return false;
                 }
+                // "부모_분기" 가상이름 → 부모 flow (동작편차는 부모 축이라, 설비효율 표에서 분기 이름으로 진입해도 부모 행을 활성화)
+                function parentFlowOf(name) {
+                    if (!name || flows.indexOf(name) !== -1) return name;
+                    for (var i = 0; i < flows.length; i++) {
+                        var brs = fbr[flows[i]];
+                        if (!brs) continue;
+                        for (var j = 0; j < brs.length; j++)
+                            if (flows[i] + '_' + brs[j] === name) return flows[i];
+                    }
+                    return name;
+                }
+                var heatFlowEff = onHeatmapPage ? parentFlowOf(heatmapFlow) : '';
                 var sysHasCurrent =
                        (onFlowPage      && flows.indexOf(curFlowName) !== -1)
                     || (onFlowCycleBulk && flowCycleSystem === sys.name)
-                    || (onHeatmapPage   && flows.indexOf(heatmapFlow) !== -1)
+                    || (onHeatmapPage   && flows.indexOf(heatFlowEff) !== -1)
                     || (onOeePage     && (inSysFlows(oeeFlow) || oeeSystem  === sys.name))
                     || (onTeepPage    && (flows.indexOf(teepFlow) !== -1 || teepSystem === sys.name));
                 // 이상·알람은 최상위 트리(buildAlarmTree)로 이관돼 시스템 아코디언을 활성/자동펼침하지 않는다(2026-09-07).
 
                 if (!_hdrSys) {
                     var _isAnalysis = onFlowPage || onFlowCycleBulk || onHeatmapPage || onOeePage || onTeepPage || onAlarmPage;
-                    var _flowCtx = onFlowPage ? curFlowName : onHeatmapPage ? heatmapFlow : onOeePage ? oeeFlow : onTeepPage ? teepFlow : onAlarmPage ? alarmFlow : '';
+                    var _flowCtx = onFlowPage ? curFlowName : onHeatmapPage ? heatFlowEff : onOeePage ? oeeFlow : onTeepPage ? teepFlow : onAlarmPage ? alarmFlow : '';
                     var _flowInSys = _flowCtx && flows.indexOf(_flowCtx) !== -1;
                     var _bulkInSys = onFlowCycleBulk && flowCycleSystem === sys.name;
                     // 설비효율/생산효율 시스템 스코프(?system=) — 헤더/크럼도 그 시스템 컨텍스트로.
@@ -798,7 +810,7 @@ window.dspFmt = {
                 var cycleActive = (onFlowPage && curFlowView === 'cycle') || (onFlowCycleBulk && flowCycleSystem === sys.name);
                 var gCycle = buildAnalysisGroup(flows, '가동시간 분석', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false,
                     '');
-                var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatmapFlow, false, '/heatmap');
+                var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatFlowEff, false, '/heatmap');
                 // 종합효율 현황 → 설비효율(OEE)/생산효율(TEEP) 물리 분리(2026-07-03) — 구 내부 탭(?section=) 폐지.
                 // 헤더 클릭 = 이 시스템 스코프(?system=) — 전 시스템 합산은 최상위 NAV_ITEMS 링크가 담당(2026-08-25).
                 //   활성/자동펼침도 이 시스템 스코프(설비가 이 시스템 소속이거나 ?system= 일치)일 때만 — 종전엔

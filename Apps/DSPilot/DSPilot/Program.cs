@@ -474,7 +474,7 @@ var legacyRedirects = new Dictionary<string, string>(StringComparer.OrdinalIgnor
     //   이 리다이렉트는 정적 서빙·Blazor 폴백보다 먼저 실행되므로, 남아있는 Blazor @page(FlowWorkspace/PowerTools)로
     //   흘러가는 것도 함께 차단한다.
     ["/flow"] = "/flow-trend",                 // 구 통합 flow.html(추이+사이클) → 추이 분석
-    ["/cycle-time-analysis"] = "/flow-cycle",  // 구 cycle-time-analysis.html → 사이클 분석(구 ?flow= 파라미터는 무시)
+    ["/cycle-time-analysis"] = "/flow-cycle",  // 구 cycle-time-analysis.html → 사이클 분석(구 ?flow= 는 아래에서 ?name= 으로 치환)
     ["/pw"] = "/",                             // 구 pw.html(테스트 페이지) → 대시보드
 };
 app.Use(async (context, next) =>
@@ -482,7 +482,16 @@ app.Use(async (context, next) =>
     if (HttpMethods.IsGet(context.Request.Method)
         && legacyRedirects.TryGetValue(context.Request.Path.Value ?? string.Empty, out var redirectTarget))
     {
-        context.Response.Redirect(redirectTarget + context.Request.QueryString, permanent: false);
+        var redirectQs = context.Request.QueryString;
+        // /flow-cycle 는 ?name= 만 단일 Flow 로 읽는다(?flow= 는 무시 → ?name= 없음 = 전체 게이트 "개편 준비 중").
+        //   구 cycle-time-analysis?flow=X / flow-all?flow=X 북마크가 게이트로 떨어지지 않게 flow→name 으로 치환(2026-09-07).
+        if (string.Equals(redirectTarget, "/flow-cycle", StringComparison.OrdinalIgnoreCase)
+            && context.Request.Query.ContainsKey("flow") && !context.Request.Query.ContainsKey("name"))
+        {
+            redirectQs = QueryString.Create(context.Request.Query.SelectMany(kv =>
+                kv.Value.Select(v => KeyValuePair.Create(kv.Key == "flow" ? "name" : kv.Key, v))));
+        }
+        context.Response.Redirect(redirectTarget + redirectQs, permanent: false);
         return;
     }
     if (HttpMethods.IsGet(context.Request.Method)

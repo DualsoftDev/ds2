@@ -291,7 +291,7 @@
                                     가동이 0건으로 남거나 가동시간이 배로 계상됩니다.
                                     <template x-for="f in mqIssueRows" :key="'bnd-'+f.flowName">
                                         <div class="up-mq-bnd-row">
-                                            <a :href="'/flow-cycle?flow=' + encodeURIComponent(f.flowName)" x-text="f.flowName"></a>
+                                            <a :href="'/flow-cycle?name=' + encodeURIComponent(f.flowName)" x-text="f.flowName"></a>
                                             <span class="tag" x-text="mqIssueLabel(f)"></span>
                                             <span x-text="mqIssueText(f)"></span>
                                         </div>

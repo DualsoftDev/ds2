@@ -230,8 +230,12 @@
 
                 <!-- 오른쪽: 설비(Flow) 필터 상태 + Excel 다운로드 -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end;">
-                    <template x-if="flowParam">
-                        <span class="chip chip-info">설비: <b x-text="flowParam"></b></span>
+                    <template x-if="flowScope">
+                        <span class="chip chip-info"
+                              :title="flowScope.branch ? '동작편차는 flow(설비) 단위로 집계됩니다 — 분기 \'' + flowScope.branch + '\' 진입이라 부모 flow \'' + flowScope.flow + '\' 의 call 을 표시합니다(분기 공통 call 포함).' : ''">
+                            설비: <b x-text="flowScope.flow"></b>
+                            <template x-if="flowScope.branch"><span> · 분기 <b x-text="flowScope.branch"></b></span></template>
+                        </span>
                     </template>
                     <template x-if="flowParam">
                         <a class="btn btn-sm btn-outlined color-default" href="/heatmap">
@@ -523,6 +527,9 @@
                 error: null,
                 // 설비(Flow) 필터 — 좌측 메뉴 '동작편차' 트리에서 /heatmap?flow=이름 으로 진입. '' = 전체.
                 flowParam: '',
+                // 사이클 분기 가상이름 → 부모 flow 맵("#133_Q300" → {parent:'#133', branch:'Q300'}). /api/nav systems[].flowBranches 로 채움.
+                //   설비효율(OEE) 표에서 분기 단위 이름으로 진입할 때 동작편차는 flow(부모) 단위 집계라 부모로 번역해 필터한다.
+                branchMap: {},
                 viewMode: 'table', // 'matrix'(flow-call 블럭 매트릭스) | 'table'(정렬 표) — 한 번에 하나만, 기본=테이블
                 sortField: 'cv',
                 sortAsc: false,
@@ -546,6 +553,7 @@
                     this.showMs = localStorage.getItem('dspilot-heatmap-ms') === '1';
                     // 설비 필터는 URL(?flow=)에서만 온다(좌측 메뉴 트리). 없으면 전체.
                     this.flowParam = new URLSearchParams(location.search).get('flow') || '';
+                    await this.loadBranchMap();
                     window.addEventListener('storage', (e) => {
                         if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark';
                     });
@@ -621,10 +629,30 @@
                     }
                 },
 
+                // 분기 가상이름 맵 로드 — 실패해도 필터는 정확 일치로 동작(분기 미사용 현장과 동일).
+                async loadBranchMap() {
+                    try {
+                        const nav = await this.apiGet('/api/nav');
+                        const map = {};
+                        for (const sys of (nav && nav.systems) || []) {
+                            const fb = sys.flowBranches || {};
+                            for (const parent of Object.keys(fb))
+                                for (const br of (fb[parent] || [])) map[parent + '_' + br] = { parent, branch: br };
+                        }
+                        this.branchMap = map;
+                    } catch (e) { this.branchMap = {}; }
+                },
+                // 설비 필터 해석 — {flow: 실제 필터할 flow 이름, branch: 분기명|null}. 분기 가상이름이면 부모로 번역.
+                get flowScope() {
+                    if (!this.flowParam) return null;
+                    const hit = this.branchMap[this.flowParam];
+                    return hit ? { flow: hit.parent, branch: hit.branch } : { flow: this.flowParam, branch: null };
+                },
                 get filteredGroups() {
-                    // 설비 필터(URL ?flow=)가 있으면 정확히 그 Flow 만, 없으면 전체.
-                    if (!this.flowParam) return this.allGroups;
-                    return this.allGroups.filter(g => (g.flowName || '') === this.flowParam);
+                    // 설비 필터(URL ?flow=)가 있으면 그 Flow 만(분기 이름은 부모 flow 로 번역), 없으면 전체.
+                    const sc = this.flowScope;
+                    if (!sc) return this.allGroups;
+                    return this.allGroups.filter(g => (g.flowName || '') === sc.flow);
                 },
 
                 // FormatMetricValueShort(AverageTime/StdDeviation). 기본 초 단위, "ms로 보기" 시 정수 ms.
