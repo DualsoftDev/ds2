@@ -68,6 +68,25 @@ module AidXgtGatewayConfig =
                 Ok(uri.Host, port)
         with ex -> Error(sprintf "InterfaceXGT EndpointMetadata.base가 잘못되었습니다: %s" ex.Message)
 
+    /// MICREX-SX endpoint 의 base 파서. XGT 와 같은 검증을 하되 스킴은 `sx+tcp` 이고
+    /// 포트 기본값은 509(로더 인터페이스 서버)다. 로더 프로토콜은 TCP 만 쓴다.
+    let private parseSxEndpoint (value: string) =
+        try
+            if isNull value || value.Length > 2048 then
+                invalidArg (nameof value) "EndpointMetadata.base exceeds 2048 characters."
+            let uri = Uri(value, UriKind.Absolute)
+            if String.IsNullOrWhiteSpace uri.Host then Error "InterfaceMicrexSx EndpointMetadata.base에 host가 없습니다."
+            elif not (uri.Scheme.Equals("sx+tcp", StringComparison.OrdinalIgnoreCase)) then
+                Error "InterfaceMicrexSx EndpointMetadata.base scheme은 'sx+tcp'여야 합니다."
+            elif not (String.IsNullOrWhiteSpace uri.UserInfo) then
+                Error "InterfaceMicrexSx EndpointMetadata.base에 inline credential을 넣을 수 없습니다."
+            elif not (String.IsNullOrEmpty uri.Fragment) then
+                Error "InterfaceMicrexSx EndpointMetadata.base에 URI fragment를 넣을 수 없습니다."
+            else
+                let port = if uri.Port > 0 then uri.Port else 509
+                Ok(uri.Host, port)
+        with ex -> Error(sprintf "InterfaceMicrexSx EndpointMetadata.base가 잘못되었습니다: %s" ex.Message)
+
     let private buildCore
         (samplingBySignalId: IReadOnlyDictionary<string, int>)
         (aid: AssetInterfacesDescription) : AidXgtConfigResult =
@@ -75,74 +94,85 @@ module AidXgtGatewayConfig =
         let connections = ResizeArray<PlcConnectionConfig>()
         let signals = ResizeArray<AidXgtSignalDescriptor>()
         let seenSignalIds = HashSet<string>(StringComparer.Ordinal)
-        let mutable index = 0
+        let mutable bindingCount = 0
+        let mutable xgtIndex = 0
+        let mutable sxIndex = 0
+
+        /// 두 벤더 확장(InterfaceXGT·InterfaceMicrexSx)이 공유하는 interaction 검증·태그 조립.
+        /// `label` 은 오류 메시지에 쓰이는 인터페이스 이름이다. 이 검증을 분기별로 복제하면
+        /// 한쪽만 고쳐진 채 빌드가 통과한다 — 이 프로젝트에서 반복된 실패 방식이다.
+        let tagsOf
+            (label: string) (connectionName: string) (systemId: Guid option)
+            (vendor: PlcVendor) (interactions: OpcUaInteraction list) =
+            let seen = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            interactions
+            |> List.choose (fun interaction ->
+                let address = if isNull interaction.Href then "" else interaction.Href.Trim()
+                if String.IsNullOrWhiteSpace address then
+                    errors.Add(sprintf "%s/%s href가 비어 있습니다." label interaction.IdShort)
+                    None
+                elif String.IsNullOrWhiteSpace interaction.SignalId.Value then
+                    errors.Add(sprintf "%s/%s signalId가 비어 있습니다." label interaction.IdShort)
+                    None
+                elif interaction.SignalId.Value.Length > 512 || address.Length > 4096
+                     || String.IsNullOrWhiteSpace interaction.IdShort || interaction.IdShort.Length > 256 then
+                    errors.Add(sprintf "%s/%s metadata가 허용 길이를 초과했습니다." label interaction.IdShort)
+                    None
+                elif not (seenSignalIds.Add interaction.SignalId.Value) then
+                    errors.Add(sprintf "%s/%s signalId '%s'가 중복되었습니다." label interaction.IdShort interaction.SignalId.Value)
+                    None
+                else
+                    signals.Add(
+                        AidXgtSignalDescriptor(
+                            connectionName,
+                            systemId,
+                            address,
+                            interaction.SignalId.Value,
+                            valueTypeName interaction.ValueType))
+                    if not (seen.Add address) then None
+                    else
+                        Some {
+                            HubAddress = address
+                            PlcAddress = address
+                            DataType = PlcAddressInfer.dataType vendor address
+                        }
+                )
+
+        /// Endpoint scanInterval은 장치 기본값이고, 신호별 CollectionPolicy가 더 빠른
+        /// sampling을 요구하면 connection scan도 그 요구를 만족하도록 당긴다.
+        /// 느린 신호의 최종 감산/deadband는 Collector MonitoredItem에서 수행한다.
+        let scanIntervalOf (endpointScanMs: int) (interactions: OpcUaInteraction list) =
+            let policySampling =
+                interactions
+                |> List.choose (fun interaction ->
+                    match samplingBySignalId.TryGetValue interaction.SignalId.Value with
+                    | true, interval when interval > 0 -> Some interval
+                    | _ -> None)
+            match policySampling with
+            | [] -> endpointScanMs
+            | values -> min endpointScanMs (List.min values)
 
         for binding in aid.Interfaces do
             match binding with
             | Xgt (endpoint, interactions) ->
-                index <- index + 1
-                let connectionName = sprintf "AID-XGT#%d" index
+                bindingCount <- bindingCount + 1
+                xgtIndex <- xgtIndex + 1
+                let connectionName = sprintf "AID-XGT#%d" xgtIndex
                 if endpoint.AuthReferenceVault.IsSome then
-                    errors.Add(sprintf "InterfaceXGT #%d는 프로토콜 인증 필드가 없으므로 authReferenceVault를 사용할 수 없습니다." index)
+                    errors.Add(sprintf "InterfaceXGT #%d는 프로토콜 인증 필드가 없으므로 authReferenceVault를 사용할 수 없습니다." xgtIndex)
                 match parseEndpoint endpoint.Transport endpoint.Base with
                 | Error message -> errors.Add message
                 | Ok (host, port) ->
                     if interactions.IsEmpty then
-                        errors.Add(sprintf "InterfaceXGT #%d에 InteractionMetadata가 없습니다." index)
+                        errors.Add(sprintf "InterfaceXGT #%d에 InteractionMetadata가 없습니다." xgtIndex)
                     else
                         let vendor =
                             match endpoint.CpuModel with
                             | Xgi -> PlcVendor.LsXgi
                             | Xgk -> PlcVendor.LsXgk
                             | Xgb -> PlcVendor.LsXgb
-                        let seen = HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                        let tags =
-                            interactions
-                            |> List.choose (fun interaction ->
-                                let address = if isNull interaction.Href then "" else interaction.Href.Trim()
-                                if String.IsNullOrWhiteSpace address then
-                                    errors.Add(sprintf "InterfaceXGT/%s href가 비어 있습니다." interaction.IdShort)
-                                    None
-                                elif String.IsNullOrWhiteSpace interaction.SignalId.Value then
-                                    errors.Add(sprintf "InterfaceXGT/%s signalId가 비어 있습니다." interaction.IdShort)
-                                    None
-                                elif interaction.SignalId.Value.Length > 512 || address.Length > 4096
-                                     || String.IsNullOrWhiteSpace interaction.IdShort || interaction.IdShort.Length > 256 then
-                                    errors.Add(sprintf "InterfaceXGT/%s metadata가 허용 길이를 초과했습니다." interaction.IdShort)
-                                    None
-                                elif not (seenSignalIds.Add interaction.SignalId.Value) then
-                                    errors.Add(sprintf "InterfaceXGT/%s signalId '%s'가 중복되었습니다." interaction.IdShort interaction.SignalId.Value)
-                                    None
-                                else
-                                    signals.Add(
-                                        AidXgtSignalDescriptor(
-                                            connectionName,
-                                            endpoint.SystemId,
-                                            address,
-                                            interaction.SignalId.Value,
-                                            valueTypeName interaction.ValueType))
-                                    if not (seen.Add address) then None
-                                    else
-                                        Some {
-                                            HubAddress = address
-                                            PlcAddress = address
-                                            DataType = PlcAddressInfer.dataType vendor address
-                                        }
-                                )
+                        let tags = tagsOf "InterfaceXGT" connectionName endpoint.SystemId vendor interactions
                         if not tags.IsEmpty then
-                            // Endpoint scanInterval은 장치 기본값이고, 신호별 CollectionPolicy가 더 빠른
-                            // sampling을 요구하면 connection scan도 그 요구를 만족하도록 당긴다.
-                            // 느린 신호의 최종 감산/deadband는 Collector MonitoredItem에서 수행한다.
-                            let policySampling =
-                                interactions
-                                |> List.choose (fun interaction ->
-                                    match samplingBySignalId.TryGetValue interaction.SignalId.Value with
-                                    | true, interval when interval > 0 -> Some interval
-                                    | _ -> None)
-                            let scanIntervalMs =
-                                match policySampling with
-                                | [] -> endpoint.ScanIntervalMs
-                                | values -> min endpoint.ScanIntervalMs (List.min values)
                             connections.Add {
                                 Name = connectionName
                                 SystemId = endpoint.SystemId
@@ -154,13 +184,52 @@ module AidXgtGatewayConfig =
                                 StationNumber = endpoint.StationNumber
                                 Transport = match endpoint.Transport with XgtTcp -> PlcTransport.Tcp | XgtUdp -> PlcTransport.Udp
                                 TimeoutMs = max 100 endpoint.TimeoutMs
-                                ScanInterval = Some(TimeSpan.FromMilliseconds(float (max 10 scanIntervalMs)))
+                                ScanInterval =
+                                    Some(TimeSpan.FromMilliseconds(
+                                        float (max 10 (scanIntervalOf endpoint.ScanIntervalMs interactions))))
+                                // XGT(LS) 경로다. SX 전용 값은 쓰이지 않으므로 잠긴 기본값을 둔다.
+                                SxIoMapPath = ""
+                                SxWritableAreas = []
+                                Tags = tags
+                            }
+            | MicrexSx (endpoint, interactions) ->
+                bindingCount <- bindingCount + 1
+                sxIndex <- sxIndex + 1
+                let connectionName = sprintf "AID-SX#%d" sxIndex
+                match parseSxEndpoint endpoint.Base with
+                | Error message -> errors.Add message
+                | Ok (host, port) ->
+                    if interactions.IsEmpty then
+                        errors.Add(sprintf "InterfaceMicrexSx #%d에 InteractionMetadata가 없습니다." sxIndex)
+                    else
+                        let tags =
+                            tagsOf "InterfaceMicrexSx" connectionName endpoint.SystemId
+                                   PlcVendor.MicrexSx interactions
+                        if not tags.IsEmpty then
+                            connections.Add {
+                                Name = connectionName
+                                SystemId = endpoint.SystemId
+                                Vendor = PlcVendor.MicrexSx
+                                IpAddress = host
+                                Port = port
+                                // 로더 프로토콜에 없는 개념들 — SX 커넥터가 무시한다.
+                                LocalEthernet = true
+                                NetworkNumber = 0uy
+                                StationNumber = 0uy
+                                Transport = PlcTransport.Tcp
+                                TimeoutMs = max 100 endpoint.TimeoutMs
+                                ScanInterval =
+                                    Some(TimeSpan.FromMilliseconds(
+                                        float (max 10 (scanIntervalOf endpoint.ScanIntervalMs interactions))))
+                                SxIoMapPath = defaultArg endpoint.IoMapPath ""
+                                // 빈 목록이면 SX 커넥터가 쓰기 권한 발급을 거부한다 = 읽기 전용.
+                                SxWritableAreas = endpoint.WritableAreas
                                 Tags = tags
                             }
             | _ -> ()
 
         if connections.Count = 0 && errors.Count = 0 then
-            errors.Add "AASX에 InterfaceXGT 바인딩이 없습니다."
+            errors.Add "AASX에 InterfaceXGT 또는 InterfaceMicrexSx 바인딩이 없습니다."
 
         // 연결(=PLC) 간 주소 중복 진단. 주소는 System 마다 독립적으로 쓸 수 있게 설계돼 있고
         // 하위 계층이 (SystemId, 주소) 복합키를 쓰므로 System 간 중복은 **에러도 경고도 아니다**(정보).
@@ -196,7 +265,7 @@ module AidXgtGatewayConfig =
             else { Connections = List.ofSeq connections }
         AidXgtConfigResult(
             config, errors.ToArray(), List.toArray warnings, List.toArray notices,
-            index > 0, signals.ToArray())
+            bindingCount > 0, signals.ToArray())
 
     let build (aid: AssetInterfacesDescription) : AidXgtConfigResult =
         let empty = Dictionary<string, int>() :> IReadOnlyDictionary<string, int>
@@ -232,6 +301,13 @@ module AidXgtGatewayConfig =
                       yield "Project에 active System이 여러 개인 경우 모든 InterfaceXGT EndpointMetadata.systemRef가 필요합니다."
                   | Some systemId when not (activeIds.Contains systemId) ->
                       yield $"InterfaceXGT EndpointMetadata.systemRef '{systemId}'가 이 Project의 active System이 아닙니다."
+                  | _ -> ()
+              | MicrexSx (endpoint, _) ->
+                  match endpoint.SystemId with
+                  | None when systems.Length > 1 ->
+                      yield "Project에 active System이 여러 개인 경우 모든 InterfaceMicrexSx EndpointMetadata.systemRef가 필요합니다."
+                  | Some systemId when not (activeIds.Contains systemId) ->
+                      yield $"InterfaceMicrexSx EndpointMetadata.systemRef '{systemId}'가 이 Project의 active System이 아닙니다."
                   | _ -> ()
               | _ -> () ]
 

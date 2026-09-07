@@ -21,6 +21,14 @@ public partial class PropertyPanelState : ObservableObject
     public PropertyPanelState(MainViewModel.PropertyPanelHost host)
     {
         _host = host;
+        // 런타임 모드가 바뀌면 PLC 섹션의 쓰기 허용 선택 가능 여부가 달라진다 —
+        // 모니터링으로 들어가면 자동으로 해제한다. 모드 다이얼로그는 모달이라 패널이
+        // 스스로 다시 그려지지 않으므로 여기서 구독한다.
+        _host.Simulation.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SimulationPanelState.SelectedRuntimeMode))
+                OnRuntimeModeChangedForPlc();
+        };
         CallApiCalls.CollectionChanged += (_, _) => OnPropertyChanged(nameof(CallApiCallsHeader));
         SystemApiDefs.CollectionChanged += (_, _) => OnPropertyChanged(nameof(SystemApiDefsHeader));
         EnsureConditionSectionsInitialized();

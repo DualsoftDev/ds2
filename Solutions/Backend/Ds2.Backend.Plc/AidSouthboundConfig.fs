@@ -225,7 +225,10 @@ module AidSouthboundConfig =
 
         for binding in aid.Interfaces do
             match binding with
+            // XGT·MICREX-SX 는 표준 southbound(OPC UA·Modbus·MQTT·HTTP) 가 아니라
+            // 벤더 프로토콜 확장이다 — 각자의 게이트웨이 빌더가 담당한다.
             | Xgt _ -> ()
+            | MicrexSx _ -> ()
             | OpcUa (endpoint, interactions, events) ->
                 standardBindingCount <- standardBindingCount + 1
                 index <- index + 1

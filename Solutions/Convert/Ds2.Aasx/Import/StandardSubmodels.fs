@@ -302,6 +302,27 @@ module AasxImportStandardSubmodels =
             AuthReferenceVault = propOpt smc "authReferenceVault"
         }
 
+    let private micrexSxEndpointFromSmc (smc: SubmodelElementCollection) : MicrexSxEndpointMetadata =
+        {
+            Base = propStr smc "base"
+            SystemId = propOpt smc "systemRef" |> Option.bind (fun value ->
+                match Guid.TryParse value with
+                | true, systemId -> Some systemId
+                | _ -> None)
+            // 빈 문자열/속성 부재는 모두 "매핑표 없음" 이다 — 네이티브 주소만 쓴다.
+            IoMapPath = propOpt smc "ioMapPath" |> Option.filter (fun p -> not (String.IsNullOrWhiteSpace p))
+            // 빈 문자열이면 빈 목록 = 읽기 전용. 속성이 없는 파일(구버전)도 같은 결론이어야 한다 —
+            // 없던 쓰기 권한이 import 로 생기면 안 된다.
+            WritableAreas =
+                propStr smc "writableAreas"
+                |> fun raw -> raw.Split(',')
+                |> Array.map (fun a -> a.Trim())
+                |> Array.filter (fun a -> a <> "")
+                |> List.ofArray
+            TimeoutMs = propInt smc "timeoutMs" |> Option.defaultValue 3000
+            ScanIntervalMs = propInt smc "scanIntervalMs" |> Option.defaultValue 100
+        }
+
     let private autoIdFromSmc (smc: SubmodelElementCollection) : AutoIdEventBinding =
         {
             IdShort = smc.IdShort
@@ -346,6 +367,13 @@ module AasxImportStandardSubmodels =
                 |> Option.map xgtEndpointFromSmc
                 |> Option.defaultValue XgtEndpointMetadata.empty
             Some (Xgt (xgtEndpoint, interactionSmcs |> List.map xgtInteractionFromSmc))
+        | "InterfaceMicrexSx" ->
+            // interaction 모양은 XGT 와 동일하므로 같은 파서를 쓴다(Href 가 SX 주소를 담을 뿐).
+            let sxEndpoint =
+                findSmc bindingSmc "EndpointMetadata"
+                |> Option.map micrexSxEndpointFromSmc
+                |> Option.defaultValue MicrexSxEndpointMetadata.empty
+            Some (MicrexSx (sxEndpoint, interactionSmcs |> List.map xgtInteractionFromSmc))
         | _ -> None
 
     /// Submodel → AssetInterfacesDescription 도메인 값.

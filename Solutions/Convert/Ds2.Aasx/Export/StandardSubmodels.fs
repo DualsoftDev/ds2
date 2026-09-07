@@ -221,6 +221,23 @@ module AasxExportStandardSubmodels =
         | None -> ()
         mkSmc "EndpointMetadata" elems
 
+    let private micrexSxEndpointMetadataSmc (ep: MicrexSxEndpointMetadata) : ISubmodelElement =
+        // 쓰기 허용 영역은 쉼표 구분 문자열로 직렬화한다 — 빈 문자열이 곧 "읽기 전용" 이고,
+        // AID 의 다른 스칼라 속성들과 같은 모양이라 읽는 쪽이 특별 취급을 하지 않아도 된다.
+        let mutable elems : ISubmodelElement list = [
+            mkProp "base" ep.Base
+            mkProp "writableAreas" (String.Join(",", ep.WritableAreas))
+            mkIntProp "timeoutMs" ep.TimeoutMs
+            mkIntProp "scanIntervalMs" ep.ScanIntervalMs
+        ]
+        match ep.IoMapPath with
+        | Some path -> elems <- elems @ [ mkProp "ioMapPath" path ]
+        | None -> ()
+        match ep.SystemId with
+        | Some systemId -> elems <- elems @ [ mkProp "systemRef" (string systemId) ]
+        | None -> ()
+        mkSmc "EndpointMetadata" elems
+
     let private bindingSmc (autos: System.Collections.Generic.HashSet<string>) (binding: AidBinding) : ISubmodelElement =
         let tag = tagIfAuto autos
         match binding with
@@ -250,6 +267,11 @@ module AasxExportStandardSubmodels =
             let interSmc = mkSmc "InteractionMetadata" (interactions |> List.map (xgtInteractionSmc >> tag))
             mkSmc "InterfaceXGT" [ epSmc; interSmc ]
             |> withSemId (Some XgtInterfaceSemanticId)
+        | MicrexSx (ep, interactions) ->
+            let epSmc = micrexSxEndpointMetadataSmc ep
+            let interSmc = mkSmc "InteractionMetadata" (interactions |> List.map (xgtInteractionSmc >> tag))
+            mkSmc "InterfaceMicrexSx" [ epSmc; interSmc ]
+            |> withSemId (Some MicrexSxInterfaceSemanticId)
 
     /// AAS Submodel "AssetInterfacesDescription" 생성 (IDTA 02017 v1.1).
     let aidToSubmodel (aid: AssetInterfacesDescription) (assetId: string) : Submodel =
@@ -347,7 +369,8 @@ module AasxExportStandardSubmodels =
         for binding in aid.Interfaces do
             match binding with
             | OpcUa (_, interactions, _)
-            | Xgt (_, interactions) ->
+            | Xgt (_, interactions)
+            | MicrexSx (_, interactions) ->
                 for interaction in interactions do
                     yield {
                         IdShort = interaction.IdShort

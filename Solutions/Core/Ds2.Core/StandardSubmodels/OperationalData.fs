@@ -71,7 +71,8 @@ module OperationalDataBuilder =
                 for i in interactions do add i.SignalId i.ValueType i.Unit
             | Http(_, interactions) ->
                 for i in interactions do add i.SignalId i.ValueType i.Unit
-            | Xgt(_, interactions) ->
+            | Xgt(_, interactions)
+            | MicrexSx(_, interactions) ->
                 for i in interactions do add i.SignalId i.ValueType i.Unit
         m
 

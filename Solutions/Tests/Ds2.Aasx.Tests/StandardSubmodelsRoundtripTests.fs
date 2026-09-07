@@ -444,6 +444,142 @@ let ``InterfaceXGT XGB roundtrip selects the XGT compact PLC driver`` () =
     Assert.True(plan.Success, String.Join(" / ", plan.Errors))
     Assert.Equal(PlcVendor.LsXgb, plan.Config.Connections.Head.Vendor)
 
+/// InterfaceMicrexSx 는 Promaker.Agent 가 SX PLC 에 닿는 유일한 경로다 — Agent 는 게이트웨이를
+/// AID 에서만 조립하므로(MonitoringSupervisor → AidXgtGatewayConfig.buildForProject) 이 왕복이
+/// 깨지면 모니터링이 PLC 에 붙지 못한다. 전역 PlcConnection.json 에만 저장했을 때 실제로 그랬다.
+[<Fact>]
+let ``InterfaceMicrexSx roundtrip builds a MICREX-SX connection on the loader port`` () =
+    let systemId = Guid.NewGuid()
+    let aid = AssetInterfacesDescription()
+    let endpoint =
+        { MicrexSxEndpointMetadata.empty with
+            Base = "sx+tcp://192.168.250.101:509"
+            SystemId = Some systemId
+            IoMapPath = Some @"C:\plc\io_map.json"
+            WritableAreas = [ "M1" ]
+            TimeoutMs = 4000
+            ScanIntervalMs = 120 }
+    let interaction : OpcUaInteraction = {
+        IdShort = "Sx_ABCDEF"
+        SemanticId = SemanticId "urn:dualsoft:cd:micrexsx:io:abcdef:1:0"
+        ValueType = XsBoolean
+        Unit = None
+        // 실제 모델이 쓰는 4단계 IEC 원격 주소.
+        Href = "%IX3.30.0.00"
+        SignalId = SignalId "%IX3.30.0.00"
+    }
+    aid.Interfaces.Add(MicrexSx(endpoint, [ interaction ]))
+
+    let sm = AasxExportStandardSubmodels.aidToSubmodel aid "sx01"
+    let restored = AasxImportStandardSubmodels.submodelToAid sm
+    match restored.Interfaces.[0] with
+    | MicrexSx (ep, [ restoredInteraction ]) ->
+        Assert.Equal("sx+tcp://192.168.250.101:509", ep.Base)
+        Assert.Equal(Some systemId, ep.SystemId)
+        Assert.Equal(Some @"C:\plc\io_map.json", ep.IoMapPath)
+        Assert.Equal<string list>([ "M1" ], ep.WritableAreas)
+        Assert.Equal(4000, ep.TimeoutMs)
+        Assert.Equal(120, ep.ScanIntervalMs)
+        Assert.Equal("%IX3.30.0.00", restoredInteraction.Href)
+    | _ -> Assert.Fail "expected a MICREX-SX binding"
+
+    let plan = AidXgtGatewayConfig.build restored
+    Assert.True(plan.Success, String.Join(" / ", plan.Errors))
+    let connection = Assert.Single plan.Config.Connections
+    Assert.Equal(PlcVendor.MicrexSx, connection.Vendor)
+    Assert.Equal("192.168.250.101", connection.IpAddress)
+    Assert.Equal(509, connection.Port)
+    Assert.Equal(@"C:\plc\io_map.json", connection.SxIoMapPath)
+    Assert.Equal<string list>([ "M1" ], connection.SxWritableAreas)
+    Assert.Equal("%IX3.30.0.00", connection.Tags.Head.PlcAddress)
+
+/// 쓰기 허용은 **없던 권한이 import 로 생기면 안 된다**. writableAreas 속성이 없는 파일과
+/// 빈 문자열인 파일은 모두 읽기 전용으로 복원되어야 한다 — 그 상태에서만 SX 커넥터가
+/// 쓰기 권한 발급을 거부한다.
+[<Fact>]
+let ``InterfaceMicrexSx defaults to read-only when writableAreas is absent`` () =
+    let aid = AssetInterfacesDescription()
+    let interaction : OpcUaInteraction = {
+        IdShort = "Sx_1"; SemanticId = SemanticId "urn:t:1"; ValueType = XsBoolean
+        Unit = None; Href = "M1.2000.0"; SignalId = SignalId "M1.2000.0" }
+    aid.Interfaces.Add(MicrexSx({ MicrexSxEndpointMetadata.empty with WritableAreas = [] }, [ interaction ]))
+
+    let restored =
+        AasxExportStandardSubmodels.aidToSubmodel aid "sx02"
+        |> AasxImportStandardSubmodels.submodelToAid
+    match restored.Interfaces.[0] with
+    | MicrexSx (ep, _) ->
+        Assert.Empty ep.WritableAreas
+        Assert.Equal(None, ep.IoMapPath)
+    | _ -> Assert.Fail "expected a MICREX-SX binding"
+
+    let plan = AidXgtGatewayConfig.build restored
+    Assert.True(plan.Success, String.Join(" / ", plan.Errors))
+    Assert.Empty plan.Config.Connections.Head.SxWritableAreas
+
+/// 한 System 이 XGT·SX 바인딩을 동시에 가지면 Agent 가 AID 에서 연결을 **두 개** 만든다.
+/// 현장에서 "1대만 설정했는데 2대 끊김" 으로 나타난 그 상황이다. 벤더를 바꿀 때 상대
+/// 바인딩을 지우는 것이 해법이고, 이 시험이 그 제거를 지킨다.
+[<Fact>]
+let ``switching a System to MICREX-SX leaves exactly one AID connection`` () =
+    let systemId = Guid.NewGuid()
+    let aid = AssetInterfacesDescription()
+
+    // ① 예전에 LS 로 저장해 둔 endpoint.
+    let created =
+        AidXgtEndpointSettings.ensureBindingForSystem(
+            aid, systemId, "LsXgi", "192.168.250.101", 2004, false, true,
+            0uy, 255uy, 3000, 100, [ "%IX3.30.0.00" ])
+    Assert.True(created > 0)
+
+    // ② 같은 System 을 SX 로 다시 저장 — endpoint 를 만들고 옛 XGT 바인딩을 지운다.
+    let written =
+        AidMicrexSxEndpointSettings.ensureBindingForSystem(
+            aid, systemId, "192.168.250.101", 509, "", [ "M1" ], 3000, 100, [ "%IX3.30.0.00" ])
+    Assert.True(written > 0)
+    AidXgtEndpointSettings.removeForSystem(aid, systemId) |> ignore
+
+    let plan = AidXgtGatewayConfig.build aid
+    Assert.True(plan.Success, String.Join(" / ", plan.Errors))
+    let connection = Assert.Single plan.Config.Connections
+    Assert.Equal(PlcVendor.MicrexSx, connection.Vendor)
+    Assert.Equal(509, connection.Port)
+
+    // 되돌리기도 대칭이어야 한다 — SX 바인딩을 지우면 다시 하나도 남지 않는다.
+    Assert.Equal(1, AidMicrexSxEndpointSettings.removeForSystem(aid, systemId))
+    Assert.Empty aid.Interfaces
+
+/// signalId 는 AID **전체**에서 유일해야 한다(OPC UA NodeId·수집 시계열의 영속 키).
+/// 두 바인딩 종류가 공존하므로 점유 집합도 둘을 함께 세야 한다 — 한쪽만 세면 같은 주소를
+/// 쓰는 다른 System 의 signalId 를 그대로 재발급해 게이트웨이 조립이 중복으로 실패한다.
+[<Fact>]
+let ``signalId minting sees both XGT and MICREX-SX bindings`` () =
+    let systemA = Guid.NewGuid()
+    let systemB = Guid.NewGuid()
+    let shared = "%IX3.30.0.00"
+    let aid = AssetInterfacesDescription()
+
+    AidXgtEndpointSettings.ensureBindingForSystem(
+        aid, systemA, "LsXgi", "10.0.0.1", 2004, false, true, 0uy, 255uy, 3000, 100, [ shared ])
+    |> ignore
+    AidMicrexSxEndpointSettings.ensureBindingForSystem(
+        aid, systemB, "10.0.0.2", 509, "", [], 3000, 100, [ shared ])
+    |> ignore
+
+    let ids =
+        [ for binding in aid.Interfaces do
+            match binding with
+            | Xgt (_, interactions) | MicrexSx (_, interactions) ->
+                for i in interactions -> i.SignalId.Value
+            | _ -> () ]
+    Assert.Equal(2, List.length ids)
+    Assert.Equal(2, ids |> List.distinct |> List.length)
+
+    // 게이트웨이 조립이 중복 signalId 로 실패하지 않아야 한다.
+    let plan = AidXgtGatewayConfig.build aid
+    Assert.True(plan.Success, String.Join(" / ", plan.Errors))
+    Assert.Equal(2, plan.Config.Connections.Length)
+
 [<Fact>]
 let ``HTTP webhook AID requires Vault auth and builds an ingress signal`` () =
     let aid = AssetInterfacesDescription()

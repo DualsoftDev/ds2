@@ -79,7 +79,11 @@ let toVendor (s: string) =
     match (if isNull s then "" else s.Trim()) with
     | "LsXgi"             -> PlcVendor.LsXgi
     | "LsXgk"             -> PlcVendor.LsXgk
+    | "LsXgb"             -> PlcVendor.LsXgb
     | "Mitsubishi" | "Mx" -> PlcVendor.Mitsubishi
+    // 문자열은 Ds2.Backend.Plc 의 vendorStr 이 내보내는 값과 짝을 맞춘다.
+    // 이 줄이 없으면 SX 설정이 조용히 LsXgk 로 떨어져 509 포트에 LS 프로토콜로 붙는다.
+    | "MicrexSx" | "Sx"   -> PlcVendor.MicrexSx
     | _                   -> PlcVendor.LsXgk
 
 let private toPlcConfig (conns: ConnDto[]) : PlcGatewayConfig =
@@ -107,6 +111,12 @@ let private toPlcConfig (conns: ConnDto[]) : PlcGatewayConfig =
               Transport = PlcTransport.Tcp
               TimeoutMs = c.timeoutMs
               ScanInterval = Some (TimeSpan.FromMilliseconds(float c.scanMs))
+              // SX 전용 두 값. 수집기는 읽기만 하므로 쓰기 허용 영역을 비워 둔다 —
+              // 빈 목록이면 SX 커넥터가 쓰기 권한 발급 자체를 거부한다.
+              // 매핑표 경로는 Agent 의 CollectorConfig 계약에 없어 네이티브 주소
+              // (M1.2000.0 · IO.42.4) 만 쓴다. IEC 원격 주소는 매핑표가 있어야 한다.
+              SxIoMapPath = ""
+              SxWritableAreas = []
               Tags =
                 c.tags
                 |> Array.toList
