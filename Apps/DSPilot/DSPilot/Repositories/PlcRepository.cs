@@ -672,8 +672,11 @@ ORDER BY DateTime ASC, Id ASC";
 
     public async Task<List<DateTime>> FindActiveEdgesAsync(
         string address, string? activeValue, bool falling,
-        DateTime startTime, DateTime endTime, Guid? systemId = null)
+        DateTime startTime, DateTime endTime, Guid? systemId = null, int minStableMs = 0)
     {
+        if (minStableMs > 0)
+            return await FindDebouncedEdgesAsync(address, activeValue, falling, startTime, endTime, systemId, minStableMs);
+
         // bool 관용(activeValue null) → 기존 rising/falling 쿼리 그대로.
         // "false"(반전 bool: 활성=false) → 활성 진입 = bool 하강 ⇔ 기존 쿼리의 rising/falling 스왑.
         if (activeValue is null)
@@ -732,6 +735,87 @@ ORDER BY DateTime ASC, Id ASC";
         });
 
         return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
+    }
+
+    /// <summary>
+    /// 채터링 필터 적용 엣지(<see cref="Services.SignalDebounce"/>). 조회 창을 앞뒤로 minStableMs 만큼 넓혀
+    /// 창 경계의 글리치도 올바르게 판정한 뒤, [startTime, endTime] 안의 안정 전이만 방향(falling) 필터해 반환.
+    /// 활성 정의는 <see cref="FindActiveEdgesAsync"/> 와 동일(null=bool 관용, "false"=반전 bool, 그 외=값 일치).
+    /// </summary>
+    private async Task<List<DateTime>> FindDebouncedEdgesAsync(
+        string address, string? activeValue, bool falling,
+        DateTime startTime, DateTime endTime, Guid? systemId, int minStableMs)
+    {
+        var pad = TimeSpan.FromMilliseconds(minStableMs);
+        var transitions = await FindTransitionsAsync(address, activeValue, startTime - pad, endTime + pad, systemId);
+        var stable = Services.SignalDebounce.Filter(transitions, minStableMs);
+        var result = new List<DateTime>(stable.Count);
+        foreach (var t in stable)
+        {
+            if (t.At < startTime || t.At > endTime) continue;
+            if (t.Active != falling) result.Add(t.At); // falling=false → 활성 진입(Active=true)
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// 정규화 값의 모든 전이(비활성↔활성) 시각 — LAG 기준으로 값이 바뀐 행만. 첫 행은 직전값 '0' 가정
+    /// (기존 rising 쿼리의 coalesce 규약과 동일). 값형 activeValue 는 값 일치, bool 류는 '1'/'true'/'on' 관용.
+    /// "false"(반전 bool)는 bool 정규화 뒤 C# 에서 활성을 뒤집는다.
+    /// </summary>
+    private async Task<List<Services.SignalDebounce.Transition>> FindTransitionsAsync(
+        string address, string? activeValue, DateTime startTime, DateTime endTime, Guid? systemId)
+    {
+        using var connection = CreateConnection();
+        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
+        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
+
+        bool invert = string.Equals(activeValue, "false", StringComparison.OrdinalIgnoreCase);
+        bool valueMatch = activeValue is not null && !invert;
+        string normalize = valueMatch
+            ? "CASE WHEN lower(trim(coalesce(l.Value, ''))) = lower(trim(@ActiveValue)) THEN '1' ELSE '0' END"
+            : "CASE WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1' ELSE '0' END";
+
+        var sql = $@"
+WITH ordered_logs AS (
+    SELECT
+        l.Id AS Id,
+        l.DateTime AS DateTime,
+        {normalize} AS NormalizedValue,
+        LAG({normalize}) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM plcTagLog l
+    INNER JOIN plcTag t ON l.PlcTagId = t.Id
+    LEFT JOIN plc p ON p.id = t.plcId
+    WHERE t.Address = @Address
+      AND (@SystemId IS NULL OR p.systemId = @SystemId)
+      AND l.DateTime >= @StartTime
+      AND l.DateTime <= @EndTime
+)
+SELECT
+    Id,
+    DateTime,
+    NormalizedValue
+FROM ordered_logs
+WHERE coalesce(PreviousNormalizedValue, '0') <> NormalizedValue
+ORDER BY DateTime ASC, Id ASC";
+
+        var rows = await connection.QueryAsync<PlcTagTransitionRow>(sql, new
+        {
+            Address = address,
+            ActiveValue = activeValue ?? string.Empty,
+            StartTime = startStr,
+            EndTime = endStr,
+            SystemId = SystemKeyConvention.Scope(systemId)
+        });
+
+        var result = new List<Services.SignalDebounce.Transition>();
+        foreach (var row in rows)
+        {
+            bool active = row.NormalizedValue == "1";
+            if (invert) active = !active;
+            result.Add(new Services.SignalDebounce.Transition(ParseSqliteDateTime(row.DateTime), active));
+        }
+        return result;
     }
 
     public async Task<List<PlcEdge>> FindRisingEdgesWithLogIdAsync(
@@ -861,6 +945,13 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
     {
         public int Id { get; set; }
         public string DateTime { get; set; } = string.Empty;
+    }
+
+    private sealed class PlcTagTransitionRow
+    {
+        public int Id { get; set; }
+        public string DateTime { get; set; } = string.Empty;
+        public string NormalizedValue { get; set; } = string.Empty;
     }
 
     /// <inheritdoc />

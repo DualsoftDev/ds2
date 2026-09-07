@@ -18,13 +18,16 @@ namespace DSPilot.Services;
 /// </list>
 /// 활성 판정은 <see cref="CallTagPair"/> 의 ActiveValue(모델 ValueSpec, 엔진 RuntimeSemantics 공유 정의)를 쓴다.
 /// 화면(CallTestController)·재도출(CycleRecomputeService)·기본 경계(CycleAnalysisService)가 이 한 곳을 공유한다.
+/// <para><c>minStableMs</c> = 신호 채터링 필터(<see cref="SignalDebounce"/>, 2026-09-07): 그 시간 미만 유지된 상태
+/// 변화는 없었던 것으로 보고 안정 전이의 엣지만 경계로 쓴다. 0 = 필터 없음. 값은 호출자가
+/// <c>AppSettingsService.GetEffectiveChatterFilterMs(flow)</c>(글로벌 ▸ flow override) 로 해석해 넘긴다.</para>
 /// </summary>
 public static class CycleBoundaryEdges
 {
     /// <summary>시작 경계 = 전체 쌍 OUT 활성 진입 엣지의 union(오름차순, 동시각 dedup). OUT 없는 쌍은 제외.</summary>
     public static async Task<List<DateTime>> HeadStartsAsync(
         IPlcRepository plc, IReadOnlyList<CallTagPair> pairs,
-        DateTime from, DateTime to, Guid? systemId)
+        DateTime from, DateTime to, Guid? systemId, int minStableMs = 0)
     {
         // 공유 OUT(같은 주소 여러 쌍)은 중복 조회를 피한다 — (주소, 활성값) 단위 dedup.
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -33,7 +36,7 @@ public static class CycleBoundaryEdges
         {
             if (string.IsNullOrWhiteSpace(p.OutTag)) continue;
             if (!seen.Add($"{p.OutActiveValue ?? "~"}|{p.OutTag}")) continue;
-            foreach (var t in await plc.FindActiveEdgesAsync(p.OutTag!, p.OutActiveValue, falling: false, from, to, systemId))
+            foreach (var t in await plc.FindActiveEdgesAsync(p.OutTag!, p.OutActiveValue, falling: false, from, to, systemId, minStableMs))
                 merged.Add(t);
         }
         return merged.ToList();
@@ -46,7 +49,7 @@ public static class CycleBoundaryEdges
     /// </summary>
     public static async Task<(List<List<DateTime>> Streams, string? SourceLabel)> TailStreamsAsync(
         IPlcRepository plc, IReadOnlyList<CallTagPair> pairs,
-        DateTime from, DateTime to, Guid? systemId)
+        DateTime from, DateTime to, Guid? systemId, int minStableMs = 0)
     {
         var streams = new List<List<DateTime>>(pairs.Count);
         bool anyIn = false, anyOut = false;
@@ -54,12 +57,12 @@ public static class CycleBoundaryEdges
         {
             if (!string.IsNullOrWhiteSpace(p.InTag))
             {
-                streams.Add(await plc.FindActiveEdgesAsync(p.InTag!, p.InActiveValue, falling: false, from, to, systemId));
+                streams.Add(await plc.FindActiveEdgesAsync(p.InTag!, p.InActiveValue, falling: false, from, to, systemId, minStableMs));
                 anyIn = true;
             }
             else if (!string.IsNullOrWhiteSpace(p.OutTag))
             {
-                streams.Add(await plc.FindActiveEdgesAsync(p.OutTag!, p.OutActiveValue, falling: true, from, to, systemId));
+                streams.Add(await plc.FindActiveEdgesAsync(p.OutTag!, p.OutActiveValue, falling: true, from, to, systemId, minStableMs));
                 anyOut = true;
             }
             // 둘 다 없는 쌍 = 관측 불가 — AND 에 넣으면 모든 사이클이 영구 미완료가 되므로 제외.

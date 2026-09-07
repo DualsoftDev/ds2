@@ -51,6 +51,7 @@ public class SettingsController : ControllerBase
     private readonly ILogger<SettingsController> _logger;
 
     private readonly HubSubscriberService _hubSubscriber;
+    private readonly CycleRecomputeService _recompute;
 
     public SettingsController(
         AppSettingsService settings,
@@ -67,12 +68,14 @@ public class SettingsController : ControllerBase
         OeeCtStatsService ctStats,
         ExternalAccessService externalAccess,
         HubSubscriberService hubSubscriber,
+        CycleRecomputeService recompute,
         IServer server,
         IHostEnvironment env,
         IConfiguration config,
         ILogger<SettingsController> logger)
     {
         _settings = settings;
+        _recompute = recompute;
         _ctStats = ctStats;
         _lifecycle = lifecycle;
         _flowMetrics = flowMetrics;
@@ -208,10 +211,15 @@ public class SettingsController : ControllerBase
         try
         {
             // 동작편차 통계 캡 변경 여부 — 변경 시 저장 후 매트릭스 통계를 새 캡으로 즉시 재청소(재시작 불요).
-            var prevHv = _settings.LoadSettings().HistoryView;
+            var prevModel = _settings.LoadSettings();
+            var prevHv = prevModel.HistoryView;
             bool goingCapsChanged =
                 prevHv.MaxCallGoingTimeMs != req.MaxCallGoingTimeMs ||
                 prevHv.MinCallGoingTimeMs != req.MinCallGoingTimeMs;
+            // 신호 채터링 필터 글로벌 기본(ms) — null(구 클라이언트)이면 보존. 값이 바뀌면 사이클 경계 정의가 바뀐 것이라
+            // 전체 이력을 새 필터로 재도출한다(flow 별 저장과 동일한 후속 — 백그라운드, 한 번에 한 잡).
+            int? newChatter = req.ChatterFilterMs is int cfm ? Math.Max(0, cfm) : null;
+            bool chatterChanged = newChatter is int nc && nc != Math.Max(0, prevModel.FlowCycle.ChatterFilterMs);
 
             // 외부 접속 주소 검증(스킴 생략 시 http:// 보정, http(s) 절대 URL 만). null=구 클라이언트 → 기존 값 보존.
             var normalizedExternalUrl = req.ExternalUrl is null ? null : ExternalAccessService.Normalize(req.ExternalUrl);
@@ -231,6 +239,7 @@ public class SettingsController : ControllerBase
                 m.HistoryView.MaxCallGoingTimeMs = req.MaxCallGoingTimeMs;
                 m.HistoryView.MinCallGoingTimeMs = req.MinCallGoingTimeMs;
                 m.HistoryView.CycleAverageWindow = req.CycleAverageWindow;
+                if (newChatter is int chatterMs) m.FlowCycle.ChatterFilterMs = chatterMs;
 
                 // 동작편차 색상 임계(편차 %) — 주의 < 위험 보장(역전·동일 시 위험=주의+1 로 보정), 0 이상.
                 var caution = Math.Max(0, req.HeatmapCautionPct);
@@ -291,11 +300,22 @@ public class SettingsController : ControllerBase
                 catch (Exception ex) { _logger.LogWarning(ex, "[Settings] 동작편차 통계 캡 재청소 실패(비치명적)"); }
             }
 
+            // 채터링 필터 글로벌 변경 → 전 flow 과거 이력 전체 재도출(백그라운드). 라이브는 설정을 매 사이클 읽어 즉시 반영.
+            if (chatterChanged)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try { await _recompute.RecomputeAllTrackedFlowsAsync(sinceLocal: null, CancellationToken.None); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "[Settings] 채터링 필터 변경 후 전체 이력 재계산 실패(비치명적)"); }
+                });
+            }
+
             // 임계값 소급 적용 → 대시보드/히트맵 미러 새로고침.
             try { await _hub.Clients.All.SendAsync("DatabaseRebuilt", ct); }
             catch (Exception ex) { _logger.LogDebug(ex, "[Settings] SignalR broadcast failed (non-critical)"); }
 
             var capMsg = goingCapsChanged ? $" 동작편차 캡 재적용: {healedCalls}개 Call 재계산." : "";
+            if (chatterChanged) capMsg += " 채터링 필터 변경 → 전체 이력 재계산 시작(백그라운드).";
             return new SaveResultDto(
                 true,
                 $"설정이 저장되었습니다. 비가동 판정 소급 적용: 히스토리 {restamped}건 재평가, Flow {flows}개 평균 재집계.{capMsg}");
@@ -875,7 +895,8 @@ public class SettingsController : ControllerBase
                 m.AutoCalibration.IsActionOverJudgeDsPilot() ? "dspilot" : "agent"),
             m.AbnormalAlarm.DisplayLevels.ToArray(),
             m.ExternalAccess.Url ?? "",
-            _externalAccess.SeedUrlRaw);
+            _externalAccess.SeedUrlRaw,
+            Math.Max(0, m.FlowCycle.ChatterFilterMs));
     }
 
     // 배너 표시 레벨 정규화 — 유효값(Info/Warning/Error)만, 표준 표기·순서로, 중복 제거. 빈 결과 허용(=전체 표시).
@@ -1002,7 +1023,9 @@ public record SettingsDto(
     string[]? AbnormalAlarmDisplayLevels = null,
     // 외부 접속 주소 — ExternalUrl=사용자 설정값(편집 대상), ExternalUrlSeed=설치 시 주입값(비어 있을 때 폴백 안내용).
     string ExternalUrl = "",
-    string ExternalUrlSeed = "");
+    string ExternalUrlSeed = "",
+    // 신호 채터링 필터 글로벌 기본(ms, 0=사용 안 함). flow 별 override 는 가동시간 분석 페이지에서.
+    int ChatterFilterMs = 0);
 
 // ── 디바이스별 이상감지 차단 (uptime 페이지 차단 관리 모달용) ──
 
@@ -1158,7 +1181,9 @@ public record SaveRequestDto(
     // 배너 표시 레벨(Info/Warning/Error). null 이면 기존 값 보존 — 기존 호출부 무손상.
     string[]? AbnormalAlarmDisplayLevels = null,
     // 외부 접속 주소(ExternalAccess.Url). null 이면 기존 값 보존 — 기존(캐시) 클라이언트 무손상.
-    string? ExternalUrl = null);
+    string? ExternalUrl = null,
+    // 신호 채터링 필터 글로벌 기본(ms). null 이면 기존 값 보존.
+    int? ChatterFilterMs = null);
 
 public record SaveResultDto(bool Ok, string Message);
 

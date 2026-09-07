@@ -35,9 +35,10 @@ public sealed class CallLaneBuilderService
     /// 시각은 호출자가 이미 Local(DB-local tz) 로 마킹한 값이어야 한다(CallTestController.Load 의 AsLocal 경로와 동일).
     /// 데이터 없는 Call 도 빈 인터벌 lane 으로 채워 정렬 후 반환(화면에서 누락 없이 표시).
     /// </summary>
-    public async Task<List<CtLaneDto>> BuildLanesAsync(string flowName, DateTime start, DateTime end)
+    /// <param name="chatterFilterMs">신호 채터링 필터(ms). null = 설정 유효값. 화면 미리보기용 override 전달 경로.</param>
+    public async Task<List<CtLaneDto>> BuildLanesAsync(string flowName, DateTime start, DateTime end, int? chatterFilterMs = null)
     {
-        var data = await _cycleAnalysis.GetActualIoSignalSegmentsInTimeRangeAsync(flowName, start, end);
+        var data = await _cycleAnalysis.GetActualIoSignalSegmentsInTimeRangeAsync(flowName, start, end, chatterFilterMs);
 
         // lane 단위 grouping + interval merge (CallTestController.Load 와 동일).
         var lanes = data.Items

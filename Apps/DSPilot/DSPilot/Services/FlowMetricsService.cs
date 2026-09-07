@@ -346,6 +346,22 @@ public class FlowMetricsService : IFlowMetricsService
             // Head Call이 Going 시작한 경우
             if (state.HeadCallName == callName)
             {
+                // 라이브 채터링 필터 — head OUT 이 방금(필터 ms 미만 전) 꺼졌다 다시 켜진 재상승이면 새 사이클 시작이
+                // 아니다(재도출 SignalDebounce 와 같은 정의). 진행 중 래치·MT 소비·FiredCalls 전부 그대로 둔다.
+                var chatterMs = _appSettingsService.GetEffectiveChatterFilterMs(flowName);
+                if (chatterMs > 0)
+                {
+                    DateTime? lastFall;
+                    lock (state.LatchLock) lastFall = state.HeadOutLastFallAt;
+                    if (lastFall.HasValue && (timestamp - lastFall.Value).TotalMilliseconds < chatterMs)
+                    {
+                        _logger.LogDebug(
+                            "Flow '{FlowName}' head '{Call}' Going start {Gap:F0}ms after OUT fall < chatter filter {Filter}ms — 재시작으로 보지 않음",
+                            flowName, callName, (timestamp - lastFall.Value).TotalMilliseconds, chatterMs);
+                        return;
+                    }
+                }
+
                 // 래치 필드(PreviousCycleFinish)는 워치독/교차검증과 공유 — 락으로 캡처.
                 // 완료 1회 = 기록 1회(consume-once, 2026-08-19): CurrentMT 는 캡처 즉시 비운다. 종전엔 tail 을
                 // 놓친 채 다음 head 가 오면 직전 완료의 stale MT + 정지 전체를 머금은 WT 로 오염 행이 나갔고
@@ -404,6 +420,61 @@ public class FlowMetricsService : IFlowMetricsService
         {
             _logger.LogError(ex, "Error processing Going start for Call '{CallName}'", callName);
         }
+    }
+
+    /// <inheritdoc />
+    public void OnTagChanged(string address, string value, DateTime timestamp)
+    {
+        if (string.IsNullOrEmpty(address) || _flowCycleStates.IsEmpty) return;
+        bool? active = NormalizeBoolOrNull(value);
+        if (active is null) return; // 값형 OUT(Int/Float 등)은 라이브 채터 판정 대상 아님(재도출만 적용)
+        foreach (var kv in _flowCycleStates)
+        {
+            var state = kv.Value;
+            if (state.HeadOutAddresses.Count == 0 || !state.HeadOutAddresses.Contains(address)) continue;
+            lock (state.LatchLock)
+            {
+                if (state.HeadOutLastActive == true && active == false)
+                    state.HeadOutLastFallAt = timestamp;
+                state.HeadOutLastActive = active;
+            }
+        }
+    }
+
+    /// <summary>PLC bool 로그 관용값 정규화 — '1'/'true'/'on' = true, '0'/'false'/'off' = false, 그 외 null.</summary>
+    private static bool? NormalizeBoolOrNull(string? value)
+    {
+        var v = value?.Trim().ToLowerInvariant();
+        return v switch
+        {
+            "1" or "true" or "on" => true,
+            "0" or "false" or "off" or "" or null => false,
+            _ => null,
+        };
+    }
+
+    /// <summary>head Call 의 OUT 주소 집합(복수 ApiCall 전 쌍). 미로드/미해석이면 빈 집합 = 라이브 채터 필터 비활성.</summary>
+    private HashSet<string> ResolveHeadOutAddresses(string flowName, string? headCallName)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(headCallName)) return set;
+        try
+        {
+            var flow = _projectService.GetFlowByName(flowName);
+            if (flow is null) return set;
+            foreach (var work in _projectService.GetWorks(flow.Id))
+                foreach (var call in _projectService.GetCalls(work.Id))
+                {
+                    if (!string.Equals(call.Name, headCallName, StringComparison.Ordinal)) continue;
+                    foreach (var d in _projectService.GetCallApiCallDetails(call.Id))
+                        if (!string.IsNullOrWhiteSpace(d.OutTag)) set.Add(d.OutTag!);
+                }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Flow '{FlowName}' head OUT 주소 해석 실패 — 라이브 채터링 필터 비활성", flowName);
+        }
+        return set;
     }
 
     /// <summary>
@@ -685,7 +756,8 @@ public class FlowMetricsService : IFlowMetricsService
             PreviousCycleFinish = null,
             CurrentMT = null,
             CurrentWT = null,
-            CurrentCT = null
+            CurrentCT = null,
+            HeadOutAddresses = ResolveHeadOutAddresses(flowName, startCallName),
         };
 
         // DB 히스토리에서 마지막 사이클 데이터로 부트스트래핑
@@ -962,6 +1034,15 @@ public class FlowCycleState
     public bool IsCycleActive { get; set; }
     public DateTime? CurrentCycleStart { get; set; }
     public DateTime? PreviousCycleFinish { get; set; }
+
+    /// <summary>
+    /// 라이브 채터링 필터(2026-09-07) — head Call 의 OUT 주소 집합(대소문자 무시)과 마지막 관측 활성 상태·활성 이탈 시각.
+    /// head Going 시작이 <see cref="HeadOutLastFallAt"/> 로부터 채터링 필터(ms) 안이면 "짧은 OFF 뒤 재상승"이라
+    /// 새 사이클 시작으로 세지 않는다(재도출 <see cref="SignalDebounce"/> 정의의 라이브 근사). <see cref="LatchLock"/> 보호.
+    /// </summary>
+    internal HashSet<string> HeadOutAddresses { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public bool? HeadOutLastActive { get; set; }
+    public DateTime? HeadOutLastFallAt { get; set; }
 
     /// <summary>
     /// 마지막 워치독 abandon 의 (사이클 시작, abandon 시각) — 자세(midCycle) 판정용 증거 메모(2026-08-30).

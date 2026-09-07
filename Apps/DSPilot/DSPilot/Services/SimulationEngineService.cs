@@ -570,6 +570,10 @@ public sealed class SimulationEngineService : IDisposable
         // ActionOver 완료대기 시계 — 엔진 상태와 무관하게 OUT↑~IN 도달 경과를 잰다(TickAbnormalWatchdog 가 판정).
         ObserveActionOverEdges(address, value, systemId);
 
+        // 라이브 채터링 필터 근거 — head OUT 의 활성 이탈 시각(도착시각 기준: Going 시작 hook 의 DateTime.Now 와 같은 시계).
+        if (_flowMetricsService.IsInitialized)
+            _flowMetricsService.OnTagChanged(address, value, DateTime.Now);
+
         RuntimeHubEffect[] effects;
         try
         {

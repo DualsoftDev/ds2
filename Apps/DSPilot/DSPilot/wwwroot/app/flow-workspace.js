@@ -105,6 +105,10 @@
                 //   목적 = 격사이클 Tail 오지정 방지(실측 xgk103: head 978 vs tail 440 → 가동시간 2배 계상).
                 tailSuggested: false, tailSuggestReason: '',
                 isOverride: false,
+                // 신호 채터링 필터(2026-09-07) — 입력칸은 문자열(''=글로벌 상속), 서버 응답으로 적용값/글로벌/flow 저장값 동기화.
+                //   userOverrodeChatter = 입력 변경 후 미저장(미리보기 중). Head/Tail 스테이징과 같은 dirty 규약.
+                chatterInput: '', chatterGlobalMs: 0, chatterFlowMs: null, chatterAppliedMs: 0,
+                userOverrodeChatter: false,
                 exporting: false,
                 avgCycleMs: null, avgActiveMs: null,
                 tailCompletionSource: null,
@@ -164,7 +168,7 @@
                     this.allMode = (this.view === 'trend' && !this.flowName);
                     // 더티 가드 등록 — 가동시간 분석(cycle)에서 Head/Tail 미저장 이탈 방지
                     if (this.view === 'cycle') {
-                        window.dspDirtyRegister(() => this.userOverrodeHeadTail || this.branchesDirty);
+                        window.dspDirtyRegister(() => this.userOverrodeHeadTail || this.userOverrodeChatter || this.branchesDirty);
                         // 앵커 지연 문구는 시간이 지나면 커진다 — 30초마다 재계산(숨긴 탭에서는 정지).
                         setInterval(() => { if (!document.hidden) this.refreshAnchorHint(); }, 30000);
                     }
@@ -974,6 +978,24 @@
                         this.tailSuggestReason = r.reason || '';
                     } catch { this.tailSuggested = false; this.tailSuggestReason = ''; }
                 },
+                // ── 신호 채터링 필터 ──
+                chatterValueOrNull() {
+                    const s = String(this.chatterInput ?? '').replace(/[^\d]/g, '');
+                    return s === '' ? null : Math.max(0, parseInt(s, 10) || 0);
+                },
+                get chatterTitle() {
+                    const v = this.chatterValueOrNull();
+                    const eff = v == null ? this.chatterGlobalMs : v;
+                    return '신호 채터링 필터: ' + eff + 'ms 미만으로 유지된 ON/OFF 변화는 무시합니다(짧은 끊김 뒤 재상승은 가동 시작이 아님). '
+                        + (v == null ? '빈칸 = 설정 기본값(' + this.chatterGlobalMs + 'ms) 상속. ' : '이 Flow 전용 값. ')
+                        + '0 = 사용 안 함. 바꾸면 즉시 미리보기, 적용(저장) 시 이 Flow 에 저장됩니다.';
+                },
+                async onChatterChanged() {
+                    const v = this.chatterValueOrNull();
+                    this.chatterInput = v == null ? '' : String(v);
+                    this.userOverrodeChatter = true;
+                    await this.load();   // 파형·경계·분기 미리보기 전부 새 필터로 재조회(서버 단일 정의)
+                },
                 async applyHeadTail() {
                     if (!this.selectedFlow) return;
                     const headName = this.headName, tailName = this.tailName;
@@ -986,8 +1008,10 @@
                     this.recomputeMsg = '전체 이력 재계산 준비…';
                     try {
                         await this.apiPost('/api/flow/' + encodeURIComponent(this.selectedFlow) + '/cycle-override',
-                            { startCallName: headName, endCallName: tailName });
+                            { startCallName: headName, endCallName: tailName,
+                              chatterFilterMs: this.chatterValueOrNull(), chatterSpecified: true });
                         this.userOverrodeHeadTail = false;
+                        this.userOverrodeChatter = false;
                         this.tailSuggested = false; this.tailSuggestReason = '';   // 저장 완료 = 확정값
                         await this.pollRecomputeStatus();
                         await this.load();
@@ -1146,12 +1170,18 @@
                 flowSlice() {
                     const base = this._sliceBase();
                     base.selectedRange = (this.selectedRange && this.selectedRange.gantt === 'flow') ? this.selectedRange : null;
+                    // 분기 사용 중이면 flow 자체 Head/Tail 은 경계로 쓰이지 않는다(경계 = 분기별 head/tail) —
+                    // 상단 간트에서 시작/끝 배지·행 강조·lane 배경·정렬 우선을 전부 숨겨 분기 경계와 헷갈리지 않게 한다.
+                    // (저장값 this.headCallId/tailCallId 자체는 유지 — 분기 해제 시 그대로 복귀.)
+                    const branched = this.branches.length > 0;
+                    const flowHead = branched ? null : this.headCallId;
+                    const flowTail = branched ? null : this.tailCallId;
                     const s = Object.assign(base, {
                         kind: 'flow', bi: -1, branch: null,
-                        callLanes: this._orderedLanes(this.headCallId, this.tailCallId),
-                        headCallId: this.headCallId, tailCallId: this.tailCallId,
+                        callLanes: this._orderedLanes(flowHead, flowTail),
+                        headCallId: flowHead, tailCallId: flowTail,
                         cycleBoundaries: this.cycleBoundaries, tailEdges: this.tailEdges,
-                        editable: this.branches.length === 0,
+                        editable: !branched,
                         avgCycleMs: this.avgCycleMs, avgActiveMs: this.avgActiveMs,
                         tailCompletionSource: this.tailCompletionSource, unionMode: false,
                     });
@@ -1569,6 +1599,7 @@
                     if (!this.selectedFlow || this.isLoading) return;
                     this.headCallId = null; this.tailCallId = null;
                     this.userOverrodeHeadTail = false;
+                    this.userOverrodeChatter = false;   // 채터링 필터 입력도 서버 저장값으로 복귀
                     this.errorMessage = null;
                     await this.load();
                 },
@@ -1587,7 +1618,9 @@
                             flowName: this.selectedFlow,
                             start: this.startTime, end: this.endTime,
                             headCallId: this.headCallId, tailCallId: this.tailCallId,
-                            headSpecified: this.userOverrodeHeadTail, tailSpecified: this.userOverrodeHeadTail
+                            headSpecified: this.userOverrodeHeadTail, tailSpecified: this.userOverrodeHeadTail,
+                            chatterFilterMs: this.userOverrodeChatter ? this.chatterValueOrNull() : null,
+                            chatterSpecified: this.userOverrodeChatter
                         };
                         const d = await this.apiPost('/api/call-test/load', body);
                         this.applyLoadResult(d);
@@ -1617,6 +1650,11 @@
                     this.avgCycleMs = d.avgCycleMs ?? null;
                     this.avgActiveMs = d.avgActiveMs ?? null;
                     this.isOverride = !!d.isOverride;
+                    // 채터링 필터 — 적용값/글로벌/flow 저장값 동기화. 편집 중(미저장)이면 입력칸은 사용자 값 유지.
+                    this.chatterAppliedMs = d.chatterFilterMs | 0;
+                    this.chatterGlobalMs = d.globalChatterFilterMs | 0;
+                    this.chatterFlowMs = (d.flowChatterFilterMs ?? null);
+                    if (!this.userOverrodeChatter) this.chatterInput = this.chatterFlowMs == null ? '' : String(this.chatterFlowMs);
                     this.selectedRange = null;
                     this.applySort();
                     this.recomputeTopGaps();
@@ -1944,7 +1982,9 @@
                             headCallId: this.headCallId, tailCallId: this.tailCallId,
                             headStartTag: headLane ? headLane.outTag : null,
                             tailFinishTag: tailLane ? tailLane.inTag : null,
-                            tailOutTag: tailLane ? tailLane.outTag : null
+                            tailOutTag: tailLane ? tailLane.outTag : null,
+                            chatterFilterMs: this.userOverrodeChatter ? this.chatterValueOrNull() : null,
+                            chatterSpecified: this.userOverrodeChatter
                         };
                         const d = await this.apiPost('/api/call-test/resolve-overlays', body);
                         this.cycleBoundaries = (d.cycleBoundaries || []).map(s => new Date(s));

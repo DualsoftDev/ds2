@@ -23,6 +23,7 @@ public class CycleAnalysisService
     private readonly IPlcRepository _plcRepository;
     private readonly PlcToCallMapperService _mapperService;
     private readonly DsProjectService _projectService;
+    private readonly AppSettingsService _settings;
     private readonly ILogger<CycleAnalysisService> _logger;
 
     public CycleAnalysisService(
@@ -30,12 +31,14 @@ public class CycleAnalysisService
         IPlcRepository plcRepository,
         PlcToCallMapperService mapperService,
         DsProjectService projectService,
+        AppSettingsService settings,
         ILogger<CycleAnalysisService> logger)
     {
         _dspRepository = dspRepository;
         _plcRepository = plcRepository;
         _mapperService = mapperService;
         _projectService = projectService;
+        _settings = settings;
         _logger = logger;
     }
 
@@ -156,18 +159,26 @@ public class CycleAnalysisService
 
         // 진영 B: Head OutTag↑(PLC 명령) = 사이클 시작 경계. 복수 I/O 쌍이면 전 쌍 OUT union(OR — 엔진 Going 규칙).
         // 멀티 PLC: 이 Flow 의 PLC 로 한정 — 안 하면 같은 주소를 쓰는 다른 PLC 의 엣지가 경계로 섞인다.
+        // 채터링 필터(글로벌 ▸ flow override) — 짧은 OFF 끊김의 재상승을 시작으로 세지 않는다.
         return await CycleBoundaryEdges.HeadStartsAsync(
-            _plcRepository, pairs, startTime, endTime, flow.ParentId);
+            _plcRepository, pairs, startTime, endTime, flow.ParentId,
+            _settings.GetEffectiveChatterFilterMs(flowName));
     }
 
     /// <summary>
     /// 시간 범위 기준 실제 PLC 태그 상태를 읽어 In/Out의 ON~OFF 구간을 Gantt segment로 변환한다.
     /// cycle-time-analysis 페이지 전용 실제 IO 타임라인.
     /// </summary>
+    /// <param name="chatterFilterMs">
+    /// 신호 채터링 필터(ms). null = 설정의 유효값(글로벌 ▸ flow override), 0 = 필터 없음(원신호), &gt;0 = 그 값으로
+    /// 미리보기. 그 시간 미만 유지된 ON/OFF 는 구간에서 사라진다(<see cref="SignalDebounce.FilterIntervals"/>) —
+    /// 사이클 경계(<see cref="CycleBoundaryEdges"/>)와 같은 정의라 간트 파형·경계·분기 미리보기가 일치한다.
+    /// </param>
     public async Task<GanttChartData> GetActualIoSignalSegmentsInTimeRangeAsync(
         string flowName,
         DateTime startTime,
-        DateTime endTime)
+        DateTime endTime,
+        int? chatterFilterMs = null)
     {
         var flow = GetFlowByName(flowName);
         if (flow == null)
@@ -175,6 +186,8 @@ public class CycleAnalysisService
             _logger.LogWarning("Flow '{FlowName}' not found", flowName);
             return new GanttChartData { FlowName = flowName };
         }
+
+        int debounceMs = chatterFilterMs ?? _settings.GetEffectiveChatterFilterMs(flowName);
 
         var laneDefinitions = BuildSignalLaneDefinitions(flow);
         if (laneDefinitions.Count == 0)
@@ -246,6 +259,8 @@ public class CycleAnalysisService
             var currentState = initialStateByAddress.TryGetValue(lane.Address, out var initialState) && initialState;
             DateTime? segmentStart = currentState ? startTime : null;
             var resolvedTagName = tagNameByAddress.GetValueOrDefault(lane.Address, lane.Address);
+            // 원신호 ON 구간을 먼저 모은 뒤 채터링 필터를 거쳐 세그먼트로 만든다(필터 0 이면 그대로).
+            var rawIntervals = new List<(DateTime Start, DateTime End)>();
 
             foreach (var log in signalLogs)
             {
@@ -275,15 +290,7 @@ public class CycleAnalysisService
                 {
                     var segmentEnd = log.DateTime > endTime ? endTime : log.DateTime;
                     if (segmentEnd > segmentStart.Value)
-                    {
-                        items.Add(BuildSignalSegmentItem(
-                            lane,
-                            flowName,
-                            resolvedTagName,
-                            segmentStart.Value,
-                            segmentEnd,
-                            startTime));
-                    }
+                        rawIntervals.Add((segmentStart.Value, segmentEnd));
                 }
 
                 currentState = false;
@@ -291,13 +298,19 @@ public class CycleAnalysisService
             }
 
             if (currentState && segmentStart.HasValue && endTime > segmentStart.Value)
+                rawIntervals.Add((segmentStart.Value, endTime));
+
+            var laneIntervals = debounceMs > 0
+                ? SignalDebounce.FilterIntervals(rawIntervals, debounceMs, endTime)
+                : rawIntervals;
+            foreach (var (segStart, segEnd) in laneIntervals)
             {
                 items.Add(BuildSignalSegmentItem(
                     lane,
                     flowName,
                     resolvedTagName,
-                    segmentStart.Value,
-                    endTime,
+                    segStart,
+                    segEnd,
                     startTime));
             }
         }

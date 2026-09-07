@@ -161,13 +161,26 @@
                         <span class="material-icons">auto_fix_high</span>Tail 자동 제안
                     </span>
                     <!-- 분기 사용 중이면 flow 경계 편집 잠김(분기 탭에서 정의·저장) -->
-                    <button class="btn btn-sm" :class="userOverrodeHeadTail ? 'btn-primary' : 'btn-outlined color-default'" @click="applyHeadTail()"
-                            :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId || branches.length > 0"
-                            :title="branches.length > 0
+                    <!-- 신호 채터링 필터(2026-09-07) — N ms 미만으로 유지된 ON/OFF 변화 무시(짧은 끊김의 재상승 = 시작 아님).
+                         빈칸 = 설정 기본값 상속, 0 = 이 Flow 만 끔. 바꾸면 간트 파형·가동 경계가 즉시 미리보기되고 '적용(저장)' 으로 확정
+                         (분기 사용 중에도 저장 가능 — 분기 판정도 같은 필터를 쓴다). type=number 는 로케일 입력 소거 문제로 text+inputmode. -->
+                    <label class="ct-chatter" :class="{ 'is-on': chatterAppliedMs > 0, 'is-dirty': userOverrodeChatter }" :title="chatterTitle">
+                        <span class="material-icons">filter_alt</span>
+                        <span>채터링 필터</span>
+                        <input type="text" inputmode="numeric" class="ct-chatter-in" x-model="chatterInput"
+                               @change="onChatterChanged()" @keydown.enter.prevent="$event.target.blur()"
+                               :placeholder="'기본 ' + chatterGlobalMs" aria-label="신호 채터링 필터(ms)" />
+                        <span>ms</span>
+                    </label>
+                    <button class="btn btn-sm" :class="(userOverrodeHeadTail || userOverrodeChatter) ? 'btn-primary' : 'btn-outlined color-default'" @click="applyHeadTail()"
+                            :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId || (branches.length > 0 && !userOverrodeChatter)"
+                            :title="(branches.length > 0 && userOverrodeChatter)
+                                ? '채터링 필터를 이 Flow 에 저장하고 과거 이력 전체를 재계산합니다(분기 판정 포함).'
+                                : branches.length > 0
                                 ? '분기 사용 중 — flow 자체 시작/끝은 잠깁니다. 경계는 각 분기 탭에서 정의하고 \'분기 저장\' 으로 반영하세요.'
                                 : '현재 Head/Tail 을 이 Flow 의 가동 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 가동시간·대시보드에 과거 포함 반영'">
                         <span class="material-icons" style="font-size:15px;">save</span>
-                        <span x-text="userOverrodeHeadTail ? '적용(저장)*' : '적용(저장)'"></span>
+                        <span x-text="(userOverrodeHeadTail || userOverrodeChatter) ? '적용(저장)*' : '적용(저장)'"></span>
                     </button>
                 </div>
             </div>
@@ -389,7 +402,7 @@
                                             <div class="ct-ribbon-side" x-show="flowAct.hasRibbon" :style="`height:${RIBBON_H}px;`">
                                                 <span class="rs-t">가동</span>
                                                 <span class="rs-sub" x-text="flowAct.unionMode ? '어느 분기의 CT · 중복 · 정상 CT 없음' : '동작시간 · 대기시간 · 동작률'"></span>
-                                                <span x-show="flowAct.tailCompletionSource === 'OutTag'" class="rs-sub" style="margin-top:2px;color:#b26a00;background:#fff3e0;border:1px solid #ffcc80;border-radius:3px;padding:0 4px;font-size:9px;" title="끝(Tail) Call 에 응답(InTag)이 없어 명령 종료(OutTag↓)로 동작시간을 추정합니다.">명령 ON 추정</span>
+                                                <span x-show="flowAct.editable && flowAct.tailCompletionSource === 'OutTag'" class="rs-sub" style="margin-top:2px;color:#b26a00;background:#fff3e0;border:1px solid #ffcc80;border-radius:3px;padding:0 4px;font-size:9px;" title="끝(Tail) Call 에 응답(InTag)이 없어 명령 종료(OutTag↓)로 동작시간을 추정합니다.">명령 ON 추정</span>
                                             </div>
                                             <div class="fg-empty-filter" x-show="laneFilter && flowAct.visibleLanes === 0" x-cloak>
                                                 '<span x-text="laneFilter"></span>' 에 맞는 call 이 없습니다 — <a href="#" @click.prevent="clearLaneFilter()">필터 해제</a>
@@ -424,7 +437,8 @@
                                                             </div>
                                                         </div>
                                                     </template>
-                                                    <template x-if="row.kind === 'call'">
+                                                    <!-- 분기 사용 중(flowAct.editable=false)이면 시작/끝 버튼 자체를 숨긴다 — 경계는 아래 분기 간트에서 정의 -->
+                                                    <template x-if="row.kind === 'call' && flowAct.editable">
                                                         <div class="ct-lane-tags">
                                                             <button :class="'ct-tag-btn head ' + (flowAct.headCallId === row.lane.callId ? 'active' : '')"
                                                                     @click="toggleHead(row.lane.callId)"

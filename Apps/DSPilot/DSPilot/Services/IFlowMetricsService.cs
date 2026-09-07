@@ -99,6 +99,13 @@ public interface IFlowMetricsService
     void OnCallFinished(string flowName, string callName, DateTime timestamp);
 
     /// <summary>
+    /// 라이브 PLC 태그 값 관측(Hub 신호마다). head OUT 주소의 활성 이탈 시각을 기억해, 그 직후
+    /// 채터링 필터(ms) 안에 다시 오는 head Going 시작을 "재시작 아님"으로 억제하는 근거로 쓴다.
+    /// 매핑되지 않은 주소는 즉시 무시(비용 = 소수 flow 의 HashSet 조회).
+    /// </summary>
+    void OnTagChanged(string address, string value, DateTime timestamp);
+
+    /// <summary>
     /// 현재 유효 비가동 범위(글로벌 HistoryView 기본 + per-flow CycleExclusion override)를 기존 히스토리/평균에
     /// 소급 적용. 글로벌 설정 저장 또는 per-flow 이상치 제외 변경 직후 호출하여, 변경이 대시보드·히스토리·평균·
     /// 시프트·OEE 에 즉시 일관 반영되게 한다(IsIdle 단일 소스 박제).

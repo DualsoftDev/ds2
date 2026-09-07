@@ -129,10 +129,13 @@ public interface IPlcRepository
     /// 활성값 일반화 엣지 조회 — 모델 ValueSpec(엔진 RuntimeSemantics)과 같은 활성 정의를 SQL 로 옮긴 것.
     /// activeValue: null = bool 관용('1'/'true'/'on', 기존 rising/falling 과 동일), "false" = 반전 bool(활성=false),
     /// 그 외 = 값 일치(lower/trim 비교). falling=false 는 활성 진입(비활성→활성), true 는 활성 이탈.
+    /// <paramref name="minStableMs"/> &gt; 0 이면 채터링 필터(<see cref="Services.SignalDebounce"/>) — 그 시간 미만
+    /// 유지된 상태 변화는 없었던 것으로 보고 안정 전이의 엣지만 반환(창 경계는 앞뒤 minStableMs 여유로 조회해 판정).
+    /// 0 = 필터 없음(기존 rising/falling 과 동일).
     /// </summary>
     Task<List<DateTime>> FindActiveEdgesAsync(
         string address, string? activeValue, bool falling,
-        DateTime startTime, DateTime endTime, Guid? systemId = null);
+        DateTime startTime, DateTime endTime, Guid? systemId = null, int minStableMs = 0);
 
     /// <summary>
     /// 특정 태그의 Rising Edge (0→1) 를 발생 로그의 plcTagLog.id 와 함께 조회.

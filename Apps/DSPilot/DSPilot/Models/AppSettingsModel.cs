@@ -629,6 +629,14 @@ public class FlowCycleSettings
     public List<FlowCycleOverride> Overrides { get; set; } = [];
 
     /// <summary>
+    /// 신호 채터링 필터 글로벌 기본값(ms). 이 시간 미만으로 유지된 태그 상태 변화(짧은 OFF 끊김·짧은 ON 펄스)는
+    /// 사이클 경계(시작/완료/제외 call 발화)·간트 신호 구간·라이브 head 재시작 판정에서 없었던 것으로 본다
+    /// (<see cref="Services.SignalDebounce"/>). 0 = 사용 안 함(기존 동작). flow 별 <see cref="FlowCycleOverride.ChatterFilterMs"/>
+    /// 가 있으면 그 값이 우선. 2026-09-07 현장 #121(head OUT 0.3초 드롭아웃 → 매 사이클 50초 가짜 CT) 대응.
+    /// </summary>
+    public int ChatterFilterMs { get; set; } = 0;
+
+    /// <summary>
     /// flow 사이클 분기(branch) 정의 — flow 당 최대 1개 항목(FlowName 유니크).
     /// AASX 에는 기록하지 않는다(SequenceLabel 은 Head/Tail 1쌍만 표현 가능 — 분기는 DSPilot 설정 전용).
     /// </summary>
@@ -694,6 +702,12 @@ public class FlowCycleOverride
     /// 값을 비우면 자동기입이 다음 주기에 다시 채울 수 있다(재보정 경로).
     /// </summary>
     public string? IdealCycleTimeSource { get; set; }
+
+    /// <summary>
+    /// 이 flow 의 신호 채터링 필터(ms). null = 글로벌 <see cref="FlowCycleSettings.ChatterFilterMs"/> 상속,
+    /// 0 = 이 flow 만 끔, &gt;0 = 이 flow 전용 값. 가동시간 분석 페이지에서 Head/Tail 과 함께 저장.
+    /// </summary>
+    public int? ChatterFilterMs { get; set; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

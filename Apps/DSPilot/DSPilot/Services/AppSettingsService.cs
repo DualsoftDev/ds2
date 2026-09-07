@@ -223,6 +223,15 @@ public class AppSettingsService
     }
 
     public void SaveFlowCycleOverride(string flowName, string? startCallName, string? endCallName)
+        => SaveFlowCycleOverride(flowName, startCallName, endCallName, chatterFilterMs: null, chatterSpecified: false);
+
+    /// <summary>
+    /// Head/Tail override 저장 + (선택) flow 별 채터링 필터. <paramref name="chatterSpecified"/>=false 면 기존
+    /// <see cref="FlowCycleOverride.ChatterFilterMs"/> 를 보존(구 클라이언트/벌크 편집기 호환), true 면 값으로 교체
+    /// (null = 글로벌 상속으로 되돌림, 0 = 이 flow 만 끔). 모든 override 필드(Head/Tail/idealCT/채터)가 비면 항목 제거.
+    /// </summary>
+    public void SaveFlowCycleOverride(
+        string flowName, string? startCallName, string? endCallName, int? chatterFilterMs, bool chatterSpecified)
     {
         if (string.IsNullOrWhiteSpace(flowName))
         {
@@ -236,27 +245,37 @@ public class AppSettingsService
 
         var normalizedStart = NormalizeOptional(startCallName);
         var normalizedEnd = NormalizeOptional(endCallName);
+        int? normalizedChatter = chatterSpecified
+            ? (chatterFilterMs is int c ? Math.Max(0, c) : null)
+            : existing?.ChatterFilterMs;
 
-        if (string.IsNullOrWhiteSpace(normalizedStart) && string.IsNullOrWhiteSpace(normalizedEnd))
+        if (existing is null)
         {
-            if (existing is not null)
+            if (!string.IsNullOrWhiteSpace(normalizedStart) || !string.IsNullOrWhiteSpace(normalizedEnd) || normalizedChatter is not null)
             {
-                overrides.Remove(existing);
+                overrides.Add(new FlowCycleOverride
+                {
+                    FlowName = flowName,
+                    StartCallName = normalizedStart,
+                    EndCallName = normalizedEnd,
+                    ChatterFilterMs = normalizedChatter,
+                });
             }
-        }
-        else if (existing is null)
-        {
-            overrides.Add(new FlowCycleOverride
-            {
-                FlowName = flowName,
-                StartCallName = normalizedStart,
-                EndCallName = normalizedEnd
-            });
         }
         else
         {
             existing.StartCallName = normalizedStart;
             existing.EndCallName = normalizedEnd;
+            existing.ChatterFilterMs = normalizedChatter;
+            // 종전엔 Head/Tail 이 기본값으로 돌아가면 항목을 통째로 지워 IdealCycleTimeMs 까지 유실됐다 —
+            // 이제 모든 override 필드가 비었을 때만 제거(SaveFlowIdealCycleTime 과 동일 원칙).
+            if (string.IsNullOrWhiteSpace(existing.StartCallName)
+                && string.IsNullOrWhiteSpace(existing.EndCallName)
+                && existing.IdealCycleTimeMs is null
+                && existing.ChatterFilterMs is null)
+            {
+                overrides.Remove(existing);
+            }
         }
 
         settings.FlowCycle.Overrides = overrides
@@ -445,7 +464,8 @@ public class AppSettingsService
             // 모든 override 필드가 비면 항목 자체 제거 (SaveFlowCycleOverride 의 빈 항목 정리와 동일 원칙)
             if (normalized is null
                 && string.IsNullOrWhiteSpace(existing.StartCallName)
-                && string.IsNullOrWhiteSpace(existing.EndCallName))
+                && string.IsNullOrWhiteSpace(existing.EndCallName)
+                && existing.ChatterFilterMs is null)
             {
                 overrides.Remove(existing);
             }
@@ -666,6 +686,24 @@ public class AppSettingsService
     /// </summary>
     public (int MaxMs, int MinMs) GetEffectiveCycleRangeMs(string flowName)
         => ResolveEffectiveCycleRangeMs(LoadSettings(), flowName);
+
+    /// <summary>
+    /// Flow 의 "유효" 신호 채터링 필터(ms) — flow override(<see cref="FlowCycleOverride.ChatterFilterMs"/>, 0 포함) 가
+    /// 있으면 그 값, 없으면 글로벌 <see cref="FlowCycleSettings.ChatterFilterMs"/>. 0 = 필터 없음.
+    /// 사이클 경계 재도출·간트 신호 구간·라이브 head 재시작 억제가 같은 값을 보도록 하는 단일 소스.
+    /// </summary>
+    public int GetEffectiveChatterFilterMs(string flowName)
+        => ResolveEffectiveChatterFilterMs(LoadSettings(), flowName);
+
+    /// <summary>이미 로드한 모델로 유효 채터링 필터 계산(반복 호출 시 디스크 재로드 방지).</summary>
+    public static int ResolveEffectiveChatterFilterMs(AppSettingsModel settings, string flowName)
+    {
+        int global = Math.Max(0, settings.FlowCycle.ChatterFilterMs);
+        if (string.IsNullOrWhiteSpace(flowName)) return global;
+        var ov = settings.FlowCycle.Overrides
+            .FirstOrDefault(o => string.Equals(o.FlowName, flowName, StringComparison.OrdinalIgnoreCase));
+        return ov?.ChatterFilterMs is int c ? Math.Max(0, c) : global;
+    }
 
     /// <summary>
     /// Flow 평균(AvgMT/WT/CT) 롤링 윈도우 크기 = 최근 비가동-제외 사이클 수. 0/음수 = 전체 이력(윈도우 비활성).

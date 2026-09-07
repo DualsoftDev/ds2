@@ -238,8 +238,10 @@ public sealed class CycleRecomputeService
         // 멀티 PLC: 이 Flow 의 PLC 로 한정. ★이 경로는 재도출 결과를 dspFlowHistory 에 **덮어쓰므로**,
         // 다른 PLC 의 엣지가 섞이면 잘못된 이력이 영구 저장된다(다른 조회는 화면만 틀리고 끝).
         var systemId = _project.TryGetSystemIdByFlowName(flowName);
+        // 채터링 필터(글로벌 ▸ flow override) — 화면(CallTestController)과 같은 값이라 미리보기=재도출.
+        var chatterMs = _settings.GetEffectiveChatterFilterMs(flowName);
 
-        var starts = await CycleBoundaryEdges.HeadStartsAsync(_plc, headPairs, fromLocal, toLocal, systemId);
+        var starts = await CycleBoundaryEdges.HeadStartsAsync(_plc, headPairs, fromLocal, toLocal, systemId, chatterMs);
 
         // 시작 엣지가 0건이면(태그는 해석됐으나 구간에 데이터 없음 / 오매핑 / 부분기록 공백) 파괴적 삭제를 피하고
         // 기존 history 를 보존한다 — re-derive 가 충실해야만 "파생 캐시" 전제가 성립하므로.
@@ -253,7 +255,7 @@ public sealed class CycleRecomputeService
             return new RecomputeOutcome(true, 0, 0, 0);
         }
 
-        var (tailStreams, _) = await CycleBoundaryEdges.TailStreamsAsync(_plc, tailPairs, fromLocal, toLocal, systemId);
+        var (tailStreams, _) = await CycleBoundaryEdges.TailStreamsAsync(_plc, tailPairs, fromLocal, toLocal, systemId, chatterMs);
 
         var cycles = CycleDerivation.BuildCycles(starts, tailStreams, toLocal);
 
@@ -347,6 +349,8 @@ public sealed class CycleRecomputeService
         string flowName, FlowBranchSet set, DateTime fromLocal, DateTime toLocal)
     {
         var systemId = _project.TryGetSystemIdByFlowName(flowName);
+        // 채터링 필터 — 시작/완료/제외 call 발화 엣지 모두 같은 값(분기 판정도 글리치에 흔들리지 않게).
+        var chatterMs = _settings.GetEffectiveChatterFilterMs(flowName);
 
         // (태그, 활성값, 방향) → 엣지 목록 캐시 — Head/제외 call 이 분기 간에 겹칠 때 재조회 방지.
         var edgeCache = new Dictionary<string, List<DateTime>>(StringComparer.OrdinalIgnoreCase);
@@ -354,7 +358,7 @@ public sealed class CycleRecomputeService
         {
             var key = $"{(falling ? "F" : "R")}|{activeValue ?? "~"}|{tag}";
             if (edgeCache.TryGetValue(key, out var hit)) return hit;
-            var edges = await _plc.FindActiveEdgesAsync(tag, activeValue, falling, fromLocal, toLocal, systemId);
+            var edges = await _plc.FindActiveEdgesAsync(tag, activeValue, falling, fromLocal, toLocal, systemId, chatterMs);
             edgeCache[key] = edges; // FindActiveEdges 는 이미 오름차순
             return edges;
         }

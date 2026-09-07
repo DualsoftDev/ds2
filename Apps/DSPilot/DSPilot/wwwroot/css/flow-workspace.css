@@ -109,6 +109,19 @@
                       color: var(--color-primary); border: 1px dashed color-mix(in srgb, var(--color-primary) 55%, transparent);
                       border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
         .ct-tailsug .material-icons { font-size: 13px; }
+        /* 신호 채터링 필터 컨트롤(툴바) — is-on: 필터 적용 중(>0), is-dirty: 입력 변경 후 미저장(대시 테두리) */
+        .ct-chatter { display: inline-flex; align-items: center; gap: 4px; font-size: 0.66rem; font-weight: 700;
+                      border: 1px solid var(--color-lines); border-radius: 999px; padding: 1px 8px 1px 6px;
+                      white-space: nowrap; background: var(--color-surface); opacity: .85; cursor: text; }
+        .ct-chatter .material-icons { font-size: 13px; }
+        .ct-chatter.is-on { opacity: 1; color: var(--color-primary);
+                            border-color: color-mix(in srgb, var(--color-primary) 55%, transparent); }
+        .ct-chatter.is-dirty { border-style: dashed; opacity: 1; }
+        .ct-chatter-in { width: 54px; font: inherit; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+                         text-align: right; border: none; border-bottom: 1px solid var(--color-lines);
+                         background: transparent; color: inherit; padding: 0 2px; outline: none; }
+        .ct-chatter-in:focus { border-bottom-color: var(--color-primary); }
+        .ct-chatter-in::placeholder { opacity: .6; font-weight: 500; }
         .ct-mono { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
 
         /* 간트 layout (헤어라인 박스, 그림자 없음)

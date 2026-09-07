@@ -770,6 +770,16 @@
                                         <small class="settings-hint">오감지·노이즈로 인한 짧은 가동을 제외합니다. 모두 0이면 비활성화됩니다.</small>
                                     </div>
 
+                                    <!-- 신호 채터링 필터(2026-09-07) — 태그가 N ms 미만으로 잠깐 꺼지거나 켜진 변화를 무시.
+                                         현장 #121: head OUT 이 사이클 인계마다 0.3초 꺼졌다 켜져 매 사이클 가짜 시작(50초 CT)이 생겼다.
+                                         type=number 는 로케일 입력 소거 문제로 text+inputmode 사용. -->
+                                    <div class="form-group">
+                                        <label class="form-label">신호 채터링 필터 (ms)</label>
+                                        <input type="text" inputmode="numeric" class="form-field mono" x-model="s.chatterFilterMs"
+                                               placeholder="0 (사용 안 함)" style="max-width:180px;" />
+                                        <small class="settings-hint">이 시간 미만으로 유지된 태그 ON/OFF 변화는 없었던 것으로 봅니다(0 = 사용 안 함). 가동시간 분석에서 Flow 별로 따로 지정할 수 있습니다.</small>
+                                    </div>
+
                                     <div class="form-group" style="margin-bottom:0;">
                                         <label class="form-label">대시보드 평균 윈도우 (최근 N회 가동)</label>
                                         <input type="number" class="form-field mono" x-model.number="s.historyView.cycleAverageWindow" min="0" max="1000" placeholder="20 (기본값)" />
@@ -2369,6 +2379,7 @@
                             maxCallGoingTimeMs: hv.maxCallGoingTimeMs | 0,
                             minCallGoingTimeMs: hv.minCallGoingTimeMs | 0,
                             cycleAverageWindow: (hv.cycleAverageWindow ?? 20) | 0,
+                            chatterFilterMs: Math.max(0, parseInt(this.s.chatterFilterMs, 10) || 0),
                             heatmapCautionPct: +(hv.heatmapCautionPct ?? 10),
                             heatmapDangerPct: +(hv.heatmapDangerPct ?? 30),
                             alarmTickerIntervalSec: (this.s.alarmTickerIntervalSec ?? 3) | 0,
