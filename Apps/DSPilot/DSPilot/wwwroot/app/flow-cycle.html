@@ -564,6 +564,12 @@
                                                     </span>
                                                     <span class="fb-hint fg-bhint">lane 의 <b>시작 / 끝 / 제외</b> 클릭으로 정의 · <b>Work 그룹</b> 정렬에서 Work 헤더 클릭 = 그 Work 통째 · 리본 상단 색 바 = 이 분기 분류(회색=다른 분기/제외, 빨강=중복)</span>
                                                     <span style="flex:1;"></span>
+                                                    <button class="btn btn-sm fg-hide-excl" :class="hideExcl ? 'btn-filled' : 'btn-outlined color-default'" @click="toggleHideExcl()"
+                                                            :disabled="!hideExcl && !brAct.excluded.length"
+                                                            :title="hideExcl ? '제외 call 행을 다시 표시(접힌 띠)' : (brAct.excluded.length ? '이 분기의 제외 call 행을 숨겨 간트를 간결하게 봅니다 — 분기 판정·리본은 그대로' : '제외 call 이 없습니다')">
+                                                        <span class="material-icons" style="font-size:16px;" x-text="hideExcl ? 'visibility_off' : 'visibility'"></span>
+                                                        <span x-text="hideExcl ? '제외 ' + brAct.hiddenLanes + '개 접힘' : '제외 call 접기'"></span>
+                                                    </button>
                                                     <button class="btn btn-sm" :class="selMode ? 'btn-filled' : 'btn-outlined color-default'" @click="toggleSelMode()"
                                                             title="복수 선택 모드 — 행 체크(Shift+클릭 = 범위) · Work 헤더 = 그 Work 전체 · 표시된 행 전체/반전 후 '선택 제외 / 제외 해제' 로 한 번에 적용">
                                                         <span class="material-icons" style="font-size:16px;" x-text="selMode ? 'check_box' : 'checklist'"></span>
@@ -583,8 +589,8 @@
                                                 <span class="fg-sel-count"><b x-text="selCount"></b> 개 선택</span>
                                                 <span class="fg-sel-sep"></span>
                                                 <button class="btn btn-sm btn-outlined color-default" @click="selAll()" title="이 flow 의 모든 call 선택">전체 선택</button>
-                                                <button class="btn btn-sm btn-outlined color-default" @click="selVisible()" :disabled="!laneFilter"
-                                                        :title="laneFilter ? '검색 필터를 통과한(현재 표시된) 행만 선택' : '검색으로 행을 좁힌 뒤 사용'">표시된 행 선택</button>
+                                                <button class="btn btn-sm btn-outlined color-default" @click="selVisible()" :disabled="!laneFilter && !(hideExcl && brAct.hiddenLanes)"
+                                                        :title="(laneFilter || (hideExcl && brAct.hiddenLanes)) ? '현재 표시된 행만 선택(검색 필터 통과 · 접힌 제외 call 은 빼고)' : '검색으로 행을 좁히거나 제외 call 을 접은 뒤 사용'">표시된 행 선택</button>
                                                 <button class="btn btn-sm btn-outlined color-default" @click="selInvert()" title="선택 반전">반전</button>
                                                 <button class="btn btn-sm btn-outlined color-default" @click="selClear()" :disabled="!selCount" title="선택 해제">선택 해제</button>
                                                 <span class="fb-hint">행 클릭 = 체크 · Shift+클릭 = 범위 · Work 헤더 체크 = 그 Work 전체</span>
@@ -710,6 +716,12 @@
                                                             </template>
                                                         </div>
                                                     </template>
+                                                    <!-- 제외 call 접힘 띠(2026-09-07) — 숨긴 행이 있을 때만. 클릭 = 펼치기(사이드바 전용, 본체 높이 무관) -->
+                                                    <div class="fg-hidden-strip" x-show="hideExcl && brAct.hiddenLanes > 0" x-cloak
+                                                         @click="toggleHideExcl()" title="접힌 제외 call 행을 다시 표시">
+                                                        <span class="material-icons">unfold_more</span>
+                                                        <span>제외 call <b x-text="brAct.hiddenLanes"></b>개 접힘 · 펼치기</span>
+                                                    </div>
                                                 </div>
                                                 <div class="ct-side-resizer" title="드래그로 CALL 목록 폭 조절 · 더블클릭=기본 폭"></div>
                                                 <div class="ct-gantt-chart-area">

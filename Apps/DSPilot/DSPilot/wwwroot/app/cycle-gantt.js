@@ -87,10 +87,18 @@
         for (var i = 0; i < terms.length; i++) if (joined.indexOf(terms[i]) === -1) return false;
         return true;
     }
+    // 표시 lane — 검색 필터(s.laneFilter) 통과분에서 s.hiddenCallNames[callName]=true 인 lane 을 뺀다(2026-09-07).
+    //   hiddenCallNames = 분기 간트 '제외 call 접기' 전용(제외 call 을 얇은 띠 대신 행 자체를 숨김). 표시만 줄이며
+    //   사이클/분기 계산은 호출자가 전체 lane 으로 한다. Work 헤더는 남은 lane 기준으로 다시 묶이므로 Work 의 call
+    //   전부가 숨겨지면 그 Work 헤더도 함께 사라진다.
     function visibleLanes(s) {
         var q = (s.laneFilter || '').trim();
-        if (!q) return s.callLanes;
-        return s.callLanes.filter(function (l) { return laneMatches(l, q); });
+        var hidden = s.hiddenCallNames || null;
+        if (!q && !hidden) return s.callLanes;
+        return s.callLanes.filter(function (l) {
+            if (hidden && hidden[l.callName]) return false;
+            return !q || laneMatches(l, q);
+        });
     }
 
     function laneLayout(s) {

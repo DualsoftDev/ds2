@@ -545,6 +545,13 @@
 .ct-search-x:hover { color: var(--color-text-primary); }
 .fg-empty-filter { padding: 16px 12px; font-size: 0.74rem; color: var(--color-text-secondary); text-align: center; border-bottom: 1px solid var(--color-lines); }
 .fg-empty-filter a { color: var(--color-primary); font-weight: 700; }
+/* 제외 call 접힘 띠(2026-09-07) — 분기 간트 사이드바 맨 아래, 숨긴 행 수 + 펼치기. 본체 SVG 높이엔 포함되지 않는다 */
+.fg-hidden-strip { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 10px; font-size: 0.72rem; font-weight: 700;
+                   color: var(--color-text-secondary); background: color-mix(in srgb, var(--fg-c, var(--color-primary)) 6%, var(--color-surface));
+                   border-top: 1px dashed var(--color-lines); cursor: pointer; user-select: none; }
+.fg-hidden-strip:hover { color: var(--fg-c, var(--color-primary)); }
+.fg-hidden-strip .material-icons { font-size: 15px; }
+.fg-hidden-strip b { font-family: var(--font-mono); color: var(--fg-c, var(--color-primary)); }
 .dark-theme .ct-search { background: var(--color-surface-variant); }
 
 @media (max-width: 480px) {

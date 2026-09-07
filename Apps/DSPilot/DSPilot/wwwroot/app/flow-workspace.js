@@ -51,7 +51,10 @@
                 flowAct: { headCallId: null, tailCallId: null, editable: true, unionMode: false, hasRibbon: false,
                            avgCycleMs: null, avgActiveMs: null, tailCompletionSource: null, visibleLanes: 0, totalLanes: 0 },
                 brAct: { bi: -1, headCallId: null, tailCallId: null, hasRibbon: false,
-                         avgCycleMs: null, avgActiveMs: null, tailCompletionSource: null, excluded: [], visibleLanes: 0, totalLanes: 0 },
+                         avgCycleMs: null, avgActiveMs: null, tailCompletionSource: null, excluded: [], visibleLanes: 0, totalLanes: 0, hiddenLanes: 0 },
+                // 분기 간트 '제외 call 접기'(2026-09-07) — ON 이면 제외 call 을 얇은 띠 대신 행 자체를 숨긴다(사이드바+SVG).
+                //   표시만 줄이며 분기 판정·리본은 불변. localStorage 보존(브라우저별). 기본 OFF = 종전 접힌 띠 표시.
+                hideExcl: false,
                 // CALL 정렬 모드 — 'signal'(시작 맨 위·끝 맨 아래·사이는 첫 신호 시각 순, Work 헤더 없음)
                 //                 | 'work'(Work 그룹 고정 순서 = 모델 순, 시작/끝을 바꿔도 행이 안 움직임). localStorage 보존.
                 sortMode: 'signal',
@@ -150,6 +153,8 @@
                     this.excludeIncomplete = localStorage.getItem('dspilot-flow-exclude-incomplete') !== '0';
                     // 간트 CALL 정렬 모드 복원(기본 = 시작·끝 정렬)
                     try { this.sortMode = localStorage.getItem('dspilot-gantt-sort') === 'work' ? 'work' : 'signal'; } catch (_) { }
+                    // 분기 간트 제외 call 접기 복원(기본 OFF)
+                    try { this.hideExcl = localStorage.getItem('dspilot-gantt-hide-excl') === '1'; } catch (_) { }
                     this.flowName = new URLSearchParams(location.search).get('name');
                     // 뷰 모드 확정 — 전용 페이지(window.DSP_FLOW_VIEW) ▸ ?view= ▸ 기본 'both'(구 flow.html).
                     this.view = window.DSP_FLOW_VIEW || new URLSearchParams(location.search).get('view') || 'both';
@@ -1202,6 +1207,8 @@
                         headCallId: head ? head.callId : null, tailCallId: tail ? tail.callId : null,
                         cycleBoundaries: [], tailEdges: [], cycleSpans: spans,
                         collapsedCallNames: collapsed, editable: true, unionMode: false,
+                        // 제외 call 접기 ON — 같은 목록을 hiddenCallNames 로도 넘겨 CycleGantt.visibleLanes 가 행을 통째 뺀다.
+                        hiddenCallNames: this.hideExcl ? collapsed : null,
                         avgCycleMs: ctN ? ctSum / ctN : null, avgActiveMs: atN ? atSum / atN : null,
                         tailCompletionSource: tail ? ((tail.inIntervals || []).length ? 'InTag' : ((tail.outIntervals || []).length ? 'OutTag' : null)) : null,
                         branchPreview: { spans: bar },
@@ -1214,7 +1221,15 @@
                         avgCycleMs: s.avgCycleMs, avgActiveMs: s.avgActiveMs, tailCompletionSource: s.tailCompletionSource,
                         excluded: s.kind === 'branch' ? (s.branch.excludedCallNames || []).slice() : [],
                         visibleLanes: rows.filter(r => r.kind === 'call').length, totalLanes: s.callLanes.length,
+                        // 접기로 숨겨진 행 수 — 모델에 실제 존재하는 제외 call 만 센다(모델 교체로 사라진 이름은 제외).
+                        hiddenLanes: s.hiddenCallNames ? s.callLanes.filter(l => s.hiddenCallNames[l.callName]).length : 0,
                     };
+                },
+                // 제외 call 접기 토글(분기 간트) — 행 숨김/복원. 숨긴 상태에서 제외 버튼을 누르면 그 행은 바로 사라진다.
+                toggleHideExcl() {
+                    this.hideExcl = !this.hideExcl;
+                    try { localStorage.setItem('dspilot-gantt-hide-excl', this.hideExcl ? '1' : '0'); } catch (_) { }
+                    this.render();
                 },
                 // 두 간트를 한 번에 갱신(SVG + 사이드바 행 + 요약 + geo). buildSvg() 대체 — 모든 재빌드 지점이 이걸 부른다.
                 render() {

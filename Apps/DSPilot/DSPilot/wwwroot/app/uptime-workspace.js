@@ -171,9 +171,10 @@
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') { this.dark = e.newValue === 'dark'; this.redrawForTheme(); } });
                     // 사이드바 이상코드 피드에서 진입 시 필터 시드(/uptime?utSystem=&category=&utSearch=).
                     const qp = new URLSearchParams(location.search);
-                    // 설비(Flow) 필터는 URL(?flow=)에서만 온다(좌측 메뉴 '가동시간·이상' 트리). 없으면 라인 전체.
+                    // 설비(Flow) 필터는 URL(?flow=)에서만 온다(좌측 나브 '이상·알람' 트리의 FLOW 행 / OEE·TEEP 시스템 그룹). 없으면 라인 전체.
                     if (qp.has('flow')) this.curFlow = qp.get('flow') || '';
-                    // 시스템 스코프(?system=) — 좌측 나브 시스템 그룹 헤더 진입. 설비(?flow=)가 있으면 무시(설비 우선).
+                    // 시스템 스코프(?system=) — 좌측 나브 시스템 그룹 헤더(OEE/TEEP) 또는 '이상·알람' 트리 시스템 행 진입.
+                    // 설비(?flow=)가 있으면 무시(설비 우선). 알람 스냅샷은 utQs() 가 이 값을 system 파라미터로 보낸다.
                     if (!this.curFlow && qp.has('system')) this.curSystem = qp.get('system') || '';
                     if (qp.has('utSystem')) this.utSystem = qp.get('utSystem') || '';
                     if (qp.has('category')) this.utCategory = qp.get('category') || '';
@@ -672,7 +673,11 @@
                     // (서버에서 flow+usertag 는 0건이 되는 모순 방지 — flow 가 곧 abnormal-only 를 함의).
                     if (this.curFlow) p.set('flow', this.curFlow);
                     else if (this.utCategory) p.set('category', this.utCategory);
-                    if (this.utSystem) p.set('system', this.utSystem);
+                    // 시스템 필터 = 알람 행 systemName 등식(서버). utSystem(대시보드 이상코드 피드 시드)이 우선,
+                    // 없으면 나브 시스템 스코프(?system=, curSystem). 설비(?flow=)가 있으면 curSystem 은 init 에서
+                    // 이미 비어 있다(설비 우선). 자동감지 행도 flow→System 해석으로 systemName 이 채워져 둘 다 걸린다.
+                    const sysFilter = this.utSystem || this.curSystem;
+                    if (sysFilter) p.set('system', sysFilter);
                     return p.toString();
                 },
 

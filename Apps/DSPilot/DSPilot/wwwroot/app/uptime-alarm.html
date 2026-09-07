@@ -56,14 +56,18 @@
                     </template>
                 </div>
 
-                <!-- 오른쪽: 설비 필터 상태(설비별 보기 시) + Excel 다운로드 + 디바이스 알람 차단.
-                     설비(Flow) 선택은 좌측 메뉴 '이상·알람' 트리에서 수행(/uptime-alarm?flow=이름). 설비별 보기는 그 Flow 의
-                     자동감지(이상감지)만 조회하고, UserTag 는 Flow 에 속하지 않아 제외된다('전체 보기'로 라인 전체 복귀). -->
+                <!-- 오른쪽: 스코프 상태(시스템/설비별 보기 시) + Excel 다운로드 + 디바이스 알람 차단.
+                     스코프는 좌측 최상위 '이상·알람' 트리에서 고른다(2026-09-07): 링크 본문=라인 전체, 시스템 행=?system=이름
+                     (자동감지+수동등록TAG 모두, systemName 등식), FLOW 행=?flow=이름(자동감지만 — UserTag 는 Flow 에 속하지 않아
+                     제외). '전체 보기'로 라인 전체 복귀. -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end; flex-wrap:wrap;">
                     <template x-if="curFlow">
                         <span class="chip chip-info">설비: <b x-text="curFlow"></b> · 자동감지만</span>
                     </template>
-                    <template x-if="curFlow">
+                    <template x-if="!curFlow && curSystem">
+                        <span class="chip chip-info">시스템: <b x-text="curSystem"></b></span>
+                    </template>
+                    <template x-if="curFlow || curSystem">
                         <a class="btn btn-sm btn-outlined color-default" href="/uptime-alarm">
                             <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
                         </a>
@@ -86,7 +90,7 @@
                 <!-- ════ 사용자정의 알람 (UserTag) — 실데이터 동작 (보존) ════ -->
                 <section id="ut-section" class="card up-section">
                     <div class="ds-card-h">
-                        <h4>알람 조회<span x-show="curFlow" style="font-weight:600;color:var(--color-text-secondary);"> · 설비 <span x-text="curFlow"></span></span></h4>
+                        <h4>알람 조회<span x-show="curFlow" style="font-weight:600;color:var(--color-text-secondary);"> · 설비 <span x-text="curFlow"></span></span><span x-show="!curFlow && curSystem" style="font-weight:600;color:var(--color-text-secondary);"> · 시스템 <span x-text="curSystem"></span></span></h4>
                         <span class="ds-card-h-sub" x-show="!curFlow">자동 감지: DSPilot이 실시간으로 탐지한 이벤트</span>
                         <span class="ds-card-h-sub" x-show="curFlow">수동등록TAG: PLC 데이터를 기준으로 사용자가 등록한 이벤트</span>
                     </div>
@@ -112,7 +116,7 @@
                                      :title="utCatFilterOn ? '클릭: 구분 필터 해제(전체 보기)' : '설비별 보기는 자동감지만 조회합니다'">
                                     <div class="up-utkpi-label">총 발생</div>
                                     <div class="up-utkpi-value" x-text="categoryTotal.toLocaleString() + '건'"></div>
-                                    <div class="up-utkpi-sub" x-text="(curFlow ? ('설비 ' + curFlow + ' · 자동감지') : '자동감지 + 수동등록TAG 합산 · 라인 전체')"></div>
+                                    <div class="up-utkpi-sub" x-text="(curFlow ? ('설비 ' + curFlow + ' · 자동감지') : ('자동감지 + 수동등록TAG 합산 · ' + (curSystem ? ('시스템 ' + curSystem) : '라인 전체')))"></div>
                                 </div>
                                 <div class="up-utkpi" :class="utCatFilterOn ? 'clickable' + (utCategory === 'abnormal' ? ' is-active' : '') : ''"
                                      @click="utCatFilterOn && setUtCategory('abnormal')"
