@@ -477,9 +477,10 @@ window.dspFmt = {
         var curFlowName = onFlowPage ? (qs.get('name') || '') : '';
         // 현재 페이지의 분석 유형: 'trend'(추이 분석) | 'cycle'(사이클 분석) | ''(구 /flow — 특정 분석 아님).
         var curFlowView = path === '/flow-trend' ? 'trend' : (path === '/flow-cycle' ? 'cycle' : '');
-        // 사이클 분석 '전체'(= /flow-cycle 에 ?name= 없이 진입) — 모든 Flow 사이클 간트 일괄 편집(bulkCycleApp).
-        //   사이클 분석.설정 그룹의 '전체' 버튼이 진입점: /flow-cycle?system=<시스템명>(그 시스템 Flow만).
-        //   매개변수 없음 = 전 시스템 모든 Flow. 어느 쪽이든 그 시스템 행/그룹을 강조·자동펼침.
+        // 가동시간 분석 '전체'(= /flow-cycle 에 ?name= 없이 진입) — 시스템 개요(overviewCycleApp, 조회 전용,
+        //   2026-09-07. 구 일괄 편집 bulkCycleApp 폐기). 시스템의 '가동시간 분석' 그룹 헤더가 진입점:
+        //   /flow-cycle?system=<시스템명>(그 시스템 Flow만). 매개변수 없음 = 전 시스템 모든 Flow.
+        //   어느 쪽이든 그 시스템 행/그룹을 강조·자동펼침.
         var onFlowCycleBulk = path === '/flow-cycle' && !qs.get('name');
         var flowCycleSystem = onFlowCycleBulk ? (qs.get('system') || '') : '';
 
@@ -802,14 +803,13 @@ window.dspFmt = {
                 // 공통 구조(2026-07-02): 모든 그룹에서 별도 '전체' 항목 제거(withAll=false). header 클릭이 곧 '전체' 페이지
                 //   이동(headerHref)이며, 이동한 페이지에서 isActivePage=true 로 자동 펼쳐져 FLOW 를 바로 선택한다.
                 var gTrend = buildAnalysisGroup(flows, '추이 분석',  'timeline',      '/flow-trend',   'name', onFlowPage && curFlowView === 'trend', curFlowName, false, '/flow-trend');
-                // 가동시간 분석: base(/flow-cycle?name=) 는 단일 Flow. '전체'(일괄 편집, /flow-cycle?system=) 는
-                //   임시 비활성(2026-08-27, 분기 기능 포함 개편까지 보류) — headerHref 미지정 → 헤더 클릭 = 토글만.
-                //   해제 = headerHref 에 '/flow-cycle?system=' + encodeURIComponent(sys.name) 복원.
+                // 가동시간 분석: base(/flow-cycle?name=) 는 단일 Flow(편집). 헤더 클릭 = 시스템 개요(/flow-cycle?system=,
+                //   조회 전용 — 카드 = 시작/끝 call + CT 리본, 클릭 → 단일 Flow 페이지. 2026-09-07 개편으로 8/27 보류 해제).
                 //   분기 행 치환은 설비효율(OEE)만 — 가동시간 분석은 flow 단일 페이지 유지(2026-08-28 사용자 결정,
-                //   분기 편집은 그 페이지 안의 분기별 간트 카드에서).
+                //   분기 편집은 그 페이지 안의 분기별 간트 카드에서). 개요는 분기를 리본 3상태(분기색/중복/정상 CT 없음)로 표시.
                 var cycleActive = (onFlowPage && curFlowView === 'cycle') || (onFlowCycleBulk && flowCycleSystem === sys.name);
                 var gCycle = buildAnalysisGroup(flows, '가동시간 분석', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false,
-                    '');
+                    '/flow-cycle?system=' + encodeURIComponent(sys.name));
                 var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatFlowEff, false, '/heatmap');
                 // 종합효율 현황 → 설비효율(OEE)/생산효율(TEEP) 물리 분리(2026-07-03) — 구 내부 탭(?section=) 폐지.
                 // 헤더 클릭 = 이 시스템 스코프(?system=) — 전 시스템 합산은 최상위 NAV_ITEMS 링크가 담당(2026-08-25).

@@ -167,7 +167,7 @@ public class CycleAnalysisController : ControllerBase
     }
 
     /// <summary>
-    /// 전체 편집(bulkCycleApp) Excel — 여러 Flow 의 화면 상태(<see cref="CycleExcelModel"/> 배열)를 받아
+    /// 시스템 개요(overviewCycleApp, 구 전체 편집 bulkCycleApp) Excel — 여러 Flow 의 화면 상태(<see cref="CycleExcelModel"/> 배열)를 받아
     /// 한 시트에 Flow 간트 블록을 세로로 쌓은 xlsx 를 반환한다(<see cref="CycleTimeChartExporter.BuildBulkCycleAnalysisExcel"/>).
     /// 화면 '전체 Excel 다운로드' 가 로드된 모든 Flow 의 buildSliceExportModel 을 배열로 POST 한다.
     /// 파일명 = CycleTime_ALL_&lt;yyyyMMdd_HHmmss&gt;.xlsx.

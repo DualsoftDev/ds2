@@ -1,8 +1,7 @@
         function flowApp() {
             // ── BuildSvg 레이아웃 상수 (cycle-time-analysis 와 동일) ──
             const TOP_MARGIN = 50, LANE_HEIGHT = 44, RIBBON_H = 48, LEFT_PAD = 12, RIGHT_PAD = 40, MIN_PLOT_WIDTH = 640, MAX_ZOOM = 24;   // 렌더 상수 본체는 cycle-gantt.js — 여기선 드래그/툴팁 좌표·템플릿 높이만 사용
-            // 사이클 분기 팔레트 — 미리보기 스트립/통계 칩 공용(미분류 = 회색 #9e9e9e 고정).
-            const BR_COLORS = ['#2e7d32', '#7b1fa2', '#0277bd', '#ef6c00', '#c2185b', '#5d4037', '#00695c', '#455a64'];
+            // 사이클 분기 팔레트/판별기는 cycle-gantt.js(CycleGantt.brColor/classifyBranches) 가 SSOT — 시스템 개요와 공용(2026-09-07).
             // 모바일(≤480px) 에서는 최소 플롯 폭을 줄여 좁은 화면에 맞춤(불필요한 가로 overflow 방지).
             const minPlotW = () => (typeof window !== 'undefined' && window.innerWidth < 480) ? 280 : MIN_PLOT_WIDTH;
             const histCache = {};   // flowName → rows: 전환 시 즉시 표시(서버 왕복 대기 없이)
@@ -1028,7 +1027,7 @@
                 //     설비효율(OEE)은 "부모_분기" 단위로 표시. 미리보기 = 현재 조회 창 신호로 분류한 근사이며
                 //     별도 화면이 아니라 <b>본 간트</b>(리본 상단 분기 색 바 + lane 제외 토글)에 그려진다. ═══
                 get branchesDirty() { return JSON.stringify(this.branches) !== this.branchesSaved; },
-                brColor(i) { return BR_COLORS[i % BR_COLORS.length]; },
+                brColor(i) { return window.CycleGantt.brColor(i); },
                 // 편집 변경 → 활성 탭 간트 즉시 재빌드(수동 — svgMarkup/ganttRows 는 반응형이 아님).
                 _brRefresh() {
                     if (this.callLanes.length) this.render();
@@ -1186,12 +1185,8 @@
                         tailCompletionSource: this.tailCompletionSource, unionMode: false,
                     });
                     if (this.branches.length) {
-                        const pv = this.branchPreview;
                         s.unionMode = true; s.avgCycleMs = null; s.avgActiveMs = null;
-                        s.cycleSpans = pv.spans.map((sp, i) => ({
-                            start: sp.sMs, end: sp.eMs, number: i + 1, isOpen: sp.isOpen, tailIn: sp.tailIn,
-                            union: { win: sp.win, dup: sp.dup, color: sp.color, label: sp.label, title: sp.title },
-                        }));
+                        s.cycleSpans = window.CycleGantt.unionSpansOf(this.branchPreview);
                     }
                     return s;
                 },
@@ -1365,98 +1360,15 @@
                     }
                     this._brRefresh();
                 },
-                // 라이브 미리보기 — 서버 재도출과 같은 규칙의 근사: 분기 head OutTag↑ 병합 스트림으로 스팬을
-                // 만들고, 스팬 안 제외 call 발화 = 그 분기 기각, 복수 통과 = 정의 순서 첫 매칭, 전멸 = 미분류.
-                // 스팬별로 "통과한 분기 전부(passing)" 를 남긴다(2026-09-06) — 서버는 우선순위 첫 통과(win)만 쓰지만, 화면은
-                // 둘 이상 통과 = CT 중복(dup) 을 빨간 해치로 드러내 사용자가 제외 call 로 갈라주게 한다. 통과 0 = 정상 CT 없음.
+                // 라이브 미리보기 — 서버 재도출과 같은 규칙의 근사. 판별 본체는 CycleGantt.classifyBranches(순수 함수,
+                // 2026-09-07 추출) — 시스템 개요(flow-cycle-overview.js)와 같은 함수를 써 분기/CT 중복/정상 CT 없음 판별이
+                // 화면 간 일치한다. 이름/포맷만 이 컴포넌트 규약(brName/formatMs)으로 끼운다.
                 get branchPreview() {
-                    const empty = { spans: [], stats: [], un: 0, unPct: 0, dup: 0, total: 0 };
-                    if (!this.branches.length || !this.callLanes.length || !this.chartStart) return empty;
-                    const cs = this.chartStart.getTime();
-                    const ce = this.chartEnd ? this.chartEnd.getTime() : cs;
-                    if (ce <= cs) return empty;
-                    const laneByName = {};
-                    this.callLanes.forEach(l => { laneByName[l.callName] = l; });
-                    const risesOf = (name) => {
-                        const l = laneByName[name];
-                        return l ? (l.outIntervals || []).map(iv => new Date(iv.start).getTime()).sort((a, b) => a - b) : [];
-                    };
-                    // 완료 마커 = 끝 call InTag↑, 없으면 OutTag↓ (서버 CycleCompletionResolver 규칙의 클라이언트 근사)
-                    const tailsOf = (name) => {
-                        const l = laneByName[name];
-                        if (!l) return [];
-                        const ins = (l.inIntervals || []).map(iv => new Date(iv.start).getTime());
-                        return (ins.length ? ins : (l.outIntervals || []).map(iv => new Date(iv.end).getTime())).sort((a, b) => a - b);
-                    };
-                    const startMap = new Map();   // startMs → [분기 index...] (정의 순서)
-                    this.branches.forEach((b, bi) => {
-                        risesOf(b.startCallName).forEach(t => {
-                            if (!startMap.has(t)) startMap.set(t, []);
-                            const arr = startMap.get(t);
-                            if (arr.indexOf(bi) === -1) arr.push(bi);
-                        });
-                    });
-                    const starts = Array.from(startMap.keys()).sort((a, b) => a - b);
-                    if (!starts.length) return empty;
-                    // 분기별 제외 call 의 OutTag↑ 목록(call 이름 보존 — 기각 사유 툴팁용)
-                    const exclOf = this.branches.map(b => (b.excludedCallNames || [])
-                        .filter(n => n !== b.startCallName && n !== b.endCallName)
-                        .map(n => ({ name: n, edges: risesOf(n) })));
-                    const tailsBy = this.branches.map(b => tailsOf(b.endCallName));
-                    const lowerBound = (arr, v) => { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; } return lo; };
-                    const hasIn = (arr, s, e) => { const lo = lowerBound(arr, s); return lo < arr.length && arr[lo] < e; };
-                    const firstAfter = (arr, s, e) => { const lo = lowerBound(arr, s + 1); return (lo < arr.length && arr[lo] < e) ? arr[lo] : null; };
-                    const spans = [];
-                    const counts = this.branches.map(() => 0);
-                    const dupCounts = this.branches.map(() => 0);
-                    let un = 0, dupTotal = 0;
-                    for (let i = 0; i < starts.length; i++) {
-                        const s = starts[i], e = i + 1 < starts.length ? starts[i + 1] : ce;
-                        if (e <= s) continue;
-                        const cands = startMap.get(s).slice().sort((a, b) => a - b);
-                        const byBranch = {};   // bi → { pass, reason(기각시킨 제외 call) }
-                        const passing = [];
-                        for (const bi of cands) {
-                            let fired = null;
-                            for (const ex of exclOf[bi]) { if (hasIn(ex.edges, s, e)) { fired = ex.name; break; } }
-                            byBranch[bi] = { pass: !fired, reason: fired };
-                            if (!fired) passing.push(bi);
-                        }
-                        const win = passing.length ? passing[0] : -1;   // 서버 규칙 = 정의 순서 첫 통과
-                        const dup = passing.length > 1;
-                        if (win === -1) un++; else counts[win]++;
-                        if (dup) { dupTotal++; passing.forEach(bi => { dupCounts[bi]++; }); }
-                        const tailInBy = {};
-                        passing.forEach(bi => { tailInBy[bi] = firstAfter(tailsBy[bi], s, e); });
-                        const isOpen = i === starts.length - 1;   // 마지막 스팬 끝 = 조회 창 끝(진행중)
-                        const ctTxt = this.formatMs(e - s);
-                        let label, title, color;
-                        if (win === -1) {
-                            color = '#9e9e9e'; label = '정상 CT 없음';
-                            title = '정상 CT 없음(미분류) — ' + cands.map(bi => this.brName(bi) + (byBranch[bi].reason ? ': 제외 \'' + byBranch[bi].reason + '\' 발화' : '')).join(' · ') + ' · 가동시간 ' + ctTxt;
-                        } else if (dup) {
-                            color = this.brColor(win); label = 'CT 중복 ' + passing.map(bi => this.brName(bi)).join('+');
-                            title = 'CT 중복 — ' + passing.map(bi => this.brName(bi)).join(', ') + ' 모두 정상 판별(우선순위 승자 ' + this.brName(win) + '). 제외 call 을 지정해 갈라주세요 · 가동시간 ' + ctTxt;
-                        } else {
-                            color = this.brColor(win); label = this.brName(win);
-                            title = this.brName(win) + ' · 가동시간 ' + ctTxt;
-                        }
-                        spans.push({
-                            // ms 좌표 — 간트 SVG(합산 리본/분기 색 바)가 같은 xScale 로 그린다.
-                            sMs: s, eMs: e, isOpen, win, dup, passing, byBranch,
-                            tailIn: win === -1 ? null : tailInBy[win], tailInBy,
-                            color, label, title,
-                        });
-                    }
-                    const total = starts.length;
-                    return {
-                        spans,
-                        stats: this.branches.map((b, bi) => ({
-                            name: this.brName(bi), color: this.brColor(bi),
-                            count: counts[bi], pct: Math.round(counts[bi] / total * 100), dup: dupCounts[bi],
-                        })),
-                        un, unPct: Math.round(un / total * 100), dup: dupTotal, total,
-                    };
+                    if (!this.chartStart) return window.CycleGantt.emptyBranchPreview();
+                    return window.CycleGantt.classifyBranches(
+                        this.callLanes, this.branches,
+                        this.chartStart.getTime(), this.chartEnd ? this.chartEnd.getTime() : 0,
+                        { brName: (bi) => this.brName(bi), formatMs: (ms) => this.formatMs(ms) });
                 },
                 async saveBranches(disable) {
                     if (!this.flowName || this.branchBusy) return;

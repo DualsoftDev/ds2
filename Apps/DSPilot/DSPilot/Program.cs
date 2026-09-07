@@ -457,7 +457,7 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/settings-email"] = "settings-email.html",   // 일일 브리핑 메일 설정(설정 페이지에서 링크, 데모 게이트 연동)
     ["/settings-cloud"] = "settings-cloud.html",   // CloudWorks 클라우드 계정 연동(회원가입/로그인, 설정 페이지에서 링크)
     ["/flow-trend"] = "flow-trend.html",
-    ["/flow-cycle"] = "flow-cycle.html",   // ?name= 단일 · 매개변수 없음/?system= 전체 편집(bulkCycleApp)
+    ["/flow-cycle"] = "flow-cycle.html",   // ?name= 단일(편집) · 매개변수 없음/?system= 시스템 개요(overviewCycleApp, 조회 전용)
     // 관리자 게이트(2026-07-09): 나브에 노출하지 않는 직접 URL 전용 페이지 2종.
     ["/admin-login"] = "admin-login.html", // 계정 활성화 시 진입 관문 (위 계정 게이트 미들웨어가 302)
     ["/demo/admin"] = "demo-admin.html",   // admin 로그인 → 데모 전환·바로가기 관리 패널 (계정/비밀번호는 설정 ▸ 고급으로 이관)
@@ -483,8 +483,8 @@ app.Use(async (context, next) =>
         && legacyRedirects.TryGetValue(context.Request.Path.Value ?? string.Empty, out var redirectTarget))
     {
         var redirectQs = context.Request.QueryString;
-        // /flow-cycle 는 ?name= 만 단일 Flow 로 읽는다(?flow= 는 무시 → ?name= 없음 = 전체 게이트 "개편 준비 중").
-        //   구 cycle-time-analysis?flow=X / flow-all?flow=X 북마크가 게이트로 떨어지지 않게 flow→name 으로 치환(2026-09-07).
+        // /flow-cycle 는 ?name= 만 단일 Flow 로 읽는다(?flow= 는 무시 → ?name= 없음 = 시스템 개요).
+        //   구 cycle-time-analysis?flow=X / flow-all?flow=X 북마크가 개요로 떨어지지 않게 flow→name 으로 치환(2026-09-07).
         if (string.Equals(redirectTarget, "/flow-cycle", StringComparison.OrdinalIgnoreCase)
             && context.Request.Query.ContainsKey("flow") && !context.Request.Query.ContainsKey("name"))
         {

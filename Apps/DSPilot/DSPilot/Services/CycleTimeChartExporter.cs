@@ -38,7 +38,7 @@ public static class CycleTimeChartExporter
     }
 
     /// <summary>
-    /// 전체 편집(bulkCycleApp) Excel — 여러 Flow 의 화면 간트를 한 시트("간트차트")에 위→아래로 이어 쌓는다.
+    /// 시스템 개요(overviewCycleApp, 구 전체 편집 bulkCycleApp) Excel — 여러 Flow 의 화면 간트를 한 시트("간트차트")에 위→아래로 이어 쌓는다.
     /// 각 Flow 블록은 <see cref="BuildGanttSheet"/> 를 baseRow 를 누적하며 호출해 렌더(제목행이 Flow명 헤더 역할).
     /// 블록마다 자체 시간축을 가지므로 열 의미는 블록마다 다르다(세로 나열 = 화면 카드 나열과 1:1).
     /// Sheet2 "데이터" 는 단일 내보내기와 동일 테이블에 Flow 열을 더해 모든 Flow 를 세로로 쌓는다.

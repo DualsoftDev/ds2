@@ -2,7 +2,7 @@
  * cycle-gantt.js — 사이클 분석 간트(신호 SVG) + 사이클 파생 순수 함수 모듈.
  * ------------------------------------------------------------------------------
  * 구 flow.html(flowApp) 의 단일 Flow 사이클 분석 렌더링/파생 로직을 "그대로" 추출한 것.
- * 전체 편집(flow-cycle.html ?system=, bulkCycleApp)이 N개 Flow 를 한 화면에 그리기 위해 Flow 별 상태
+ * 시스템 개요(flow-cycle.html ?system=, overviewCycleApp — 구 전체 편집 bulkCycleApp)가 N개 Flow 를 한 화면에 그리기 위해 Flow 별 상태
  * 슬라이스(s)를 인자로 받는 순수 함수로 재구성했다. 원본의 this.X 는 모두 s.X 로, this.method() 는
  * 모듈 함수 method(s, ...) 로 치환됐을 뿐 계산 로직은 1:1 동일.
  *
@@ -783,8 +783,127 @@
         return Math.round(top);
     }
 
+    // ════════════════════════════════════════════════════════════════════════
+    //  사이클 분기(branch) 판별 — 순수 함수(2026-09-07)
+    //  단일 flow 페이지(flowApp.branchPreview)와 시스템 개요(flow-cycle-overview.js)가 같은 함수를 호출해
+    //  판별 결과(분기/CT 중복/정상 CT 없음)가 화면 간에 항상 일치한다.
+    //  규칙 = 서버 재도출(CycleRecomputeService 병합 스트림)의 클라이언트 근사:
+    //    · 분기 head OutTag↑ 를 전 분기 병합·정렬한 시각들이 스팬 경계(마지막 스팬 끝 = 조회 창 끝 = 진행중).
+    //    · 스팬 안에서 그 분기의 제외 call OutTag↑ 가 발화하면 그 분기 기각.
+    //    · 통과 분기 전부 = passing. 복수 통과 = CT 중복(dup, 승자 win = 정의 순서 첫 통과 = 서버 규칙). 전멸 = 정상 CT 없음(win=-1).
+    //    · 완료 마커 = 끝 call InTag↑, 없으면 OutTag↓ (CycleCompletionResolver 규칙의 근사).
+    //  반환 = { spans[{sMs,eMs,isOpen,win,dup,passing,byBranch,tailIn,tailInBy,color,label,title}],
+    //           stats[{name,color,count,pct,dup}], un, unPct, dup, total }  — 빈 입력이면 전부 0/[] 인 새 객체.
+    //  opts(선택): brName(bi) / formatMs(ms) 를 호출자 규약으로 바꿔 끼울 수 있다(기본 = 아래 brNameOf / formatMs).
+    var BRANCH_COLORS = ['#2e7d32', '#7b1fa2', '#0277bd', '#ef6c00', '#c2185b', '#5d4037', '#00695c', '#455a64'];
+    var BRANCH_NONE_COLOR = '#9e9e9e';   // 정상 CT 없음(미분류) 고정 회색
+    function brColor(i) { return BRANCH_COLORS[i % BRANCH_COLORS.length]; }
+    function brNameOf(branches, bi) { var b = branches[bi]; return b ? (b.name || ('분기' + (bi + 1))) : ''; }
+    function emptyBranchPreview() { return { spans: [], stats: [], un: 0, unPct: 0, dup: 0, total: 0 }; }
+
+    function classifyBranches(callLanes, branches, cs, ce, opts) {
+        branches = branches || [];
+        callLanes = callLanes || [];
+        if (!branches.length || !callLanes.length || !isFinite(cs) || !isFinite(ce) || ce <= cs) return emptyBranchPreview();
+        var nameOf = (opts && opts.brName) ? opts.brName : function (bi) { return brNameOf(branches, bi); };
+        var fmtMs = (opts && opts.formatMs) ? opts.formatMs : formatMs;
+        var laneByName = {};
+        callLanes.forEach(function (l) { laneByName[l.callName] = l; });
+        var risesOf = function (name) {
+            var l = laneByName[name];
+            return l ? (l.outIntervals || []).map(function (iv) { return new Date(iv.start).getTime(); }).sort(function (a, b) { return a - b; }) : [];
+        };
+        var tailsOf = function (name) {
+            var l = laneByName[name];
+            if (!l) return [];
+            var ins = (l.inIntervals || []).map(function (iv) { return new Date(iv.start).getTime(); });
+            return (ins.length ? ins : (l.outIntervals || []).map(function (iv) { return new Date(iv.end).getTime(); })).sort(function (a, b) { return a - b; });
+        };
+        var startMap = new Map();   // startMs → [분기 index...] (정의 순서)
+        branches.forEach(function (b, bi) {
+            risesOf(b.startCallName).forEach(function (t) {
+                if (!startMap.has(t)) startMap.set(t, []);
+                var arr = startMap.get(t);
+                if (arr.indexOf(bi) === -1) arr.push(bi);
+            });
+        });
+        var starts = Array.from(startMap.keys()).sort(function (a, b) { return a - b; });
+        if (!starts.length) return emptyBranchPreview();
+        var exclOf = branches.map(function (b) {
+            return (b.excludedCallNames || [])
+                .filter(function (n) { return n !== b.startCallName && n !== b.endCallName; })
+                .map(function (n) { return { name: n, edges: risesOf(n) }; });
+        });
+        var tailsBy = branches.map(function (b) { return tailsOf(b.endCallName); });
+        var lowerBound = function (arr, v) { var lo = 0, hi = arr.length; while (lo < hi) { var m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; } return lo; };
+        var hasIn = function (arr, s, e) { var lo = lowerBound(arr, s); return lo < arr.length && arr[lo] < e; };
+        var firstAfter = function (arr, s, e) { var lo = lowerBound(arr, s + 1); return (lo < arr.length && arr[lo] < e) ? arr[lo] : null; };
+        var spans = [];
+        var counts = branches.map(function () { return 0; });
+        var dupCounts = branches.map(function () { return 0; });
+        var un = 0, dupTotal = 0;
+        for (var i = 0; i < starts.length; i++) {
+            var s = starts[i], e = i + 1 < starts.length ? starts[i + 1] : ce;
+            if (e <= s) continue;
+            var cands = startMap.get(s).slice().sort(function (a, b) { return a - b; });
+            var byBranch = {};
+            var passing = [];
+            for (var ci = 0; ci < cands.length; ci++) {
+                var bi = cands[ci];
+                var fired = null;
+                for (var xi = 0; xi < exclOf[bi].length; xi++) { var ex = exclOf[bi][xi]; if (hasIn(ex.edges, s, e)) { fired = ex.name; break; } }
+                byBranch[bi] = { pass: !fired, reason: fired };
+                if (!fired) passing.push(bi);
+            }
+            var win = passing.length ? passing[0] : -1;
+            var dup = passing.length > 1;
+            if (win === -1) un++; else counts[win]++;
+            if (dup) { dupTotal++; passing.forEach(function (b2) { dupCounts[b2]++; }); }
+            var tailInBy = {};
+            passing.forEach(function (b3) { tailInBy[b3] = firstAfter(tailsBy[b3], s, e); });
+            var isOpen = i === starts.length - 1;
+            var ctTxt = fmtMs(e - s);
+            var label, title, color;
+            if (win === -1) {
+                color = BRANCH_NONE_COLOR; label = '정상 CT 없음';
+                title = '정상 CT 없음(미분류) — ' + cands.map(function (b4) { return nameOf(b4) + (byBranch[b4].reason ? ': 제외 \'' + byBranch[b4].reason + '\' 발화' : ''); }).join(' · ') + ' · 가동시간 ' + ctTxt;
+            } else if (dup) {
+                color = brColor(win); label = 'CT 중복 ' + passing.map(nameOf).join('+');
+                title = 'CT 중복 — ' + passing.map(nameOf).join(', ') + ' 모두 정상 판별(우선순위 승자 ' + nameOf(win) + '). 제외 call 을 지정해 갈라주세요 · 가동시간 ' + ctTxt;
+            } else {
+                color = brColor(win); label = nameOf(win);
+                title = nameOf(win) + ' · 가동시간 ' + ctTxt;
+            }
+            spans.push({
+                sMs: s, eMs: e, isOpen: isOpen, win: win, dup: dup, passing: passing, byBranch: byBranch,
+                tailIn: win === -1 ? null : tailInBy[win], tailInBy: tailInBy,
+                color: color, label: label, title: title,
+            });
+        }
+        var total = starts.length;
+        return {
+            spans: spans,
+            stats: branches.map(function (b, bi) {
+                return { name: nameOf(bi), color: brColor(bi), count: counts[bi], pct: Math.round(counts[bi] / total * 100), dup: dupCounts[bi] };
+            }),
+            un: un, unPct: Math.round(un / total * 100), dup: dupTotal, total: total,
+        };
+    }
+    // 판별 결과(spans) → 리본 cycleSpans(union 메타 포함) — flow 합산 뷰(단일 페이지 flowSlice / 개요 카드) 공용 변환.
+    function unionSpansOf(preview) {
+        return (preview && preview.spans ? preview.spans : []).map(function (sp, i) {
+            return {
+                start: sp.sMs, end: sp.eMs, number: i + 1, isOpen: sp.isOpen, tailIn: sp.tailIn,
+                union: { win: sp.win, dup: sp.dup, color: sp.color, label: sp.label, title: sp.title },
+            };
+        });
+    }
+
     // ── 공개 API ──
     window.CycleGantt = {
+        // 분기 판별(순수)
+        BRANCH_COLORS: BRANCH_COLORS, brColor: brColor, brNameOf: brNameOf,
+        classifyBranches: classifyBranches, emptyBranchPreview: emptyBranchPreview, unionSpansOf: unionSpansOf,
         selTipTop: selTipTop,
         // 상수
         TOP_MARGIN: TOP_MARGIN, LANE_HEIGHT: LANE_HEIGHT, BAR_HEIGHT: BAR_HEIGHT, RIBBON_H: RIBBON_H,
