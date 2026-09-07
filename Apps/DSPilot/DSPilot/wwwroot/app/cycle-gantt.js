@@ -824,7 +824,10 @@
     //  판별 결과(분기/CT 중복/정상 CT 없음)가 화면 간에 항상 일치한다.
     //  규칙 = 서버 재도출(CycleRecomputeService 병합 스트림)의 클라이언트 근사:
     //    · 분기 head OutTag↑ 를 전 분기 병합·정렬한 시각들이 스팬 경계(마지막 스팬 끝 = 조회 창 끝 = 진행중).
-    //    · 스팬 안에서 그 분기의 제외 call OutTag↑ 가 발화하면 그 분기 기각.
+    //    · 그 분기의 제외 call OutTag↑ 가 발화하면 그 분기 기각 — 단 반증 창은 스팬 전체가 아니라
+    //      [시작, 끝 call 동작 종료) = 끝 call 완료(InTag↑) 직후 그 OutTag↓ 까지(2026-09-07). MT 뒤 WT 구간에
+    //      들어온 다음 차종 준비 동작(분기 전환 시 다음 head 8~9s 전 UNIT up 등)은 다음 사이클 몫이라 반증 아님.
+    //      끝 call 완료가 없으면(MT 미확정) 종전처럼 스팬 전체가 반증 창(근거 없을 때 관대해지지 않음).
     //    · 통과 분기 전부 = passing. 복수 통과 = CT 중복(dup, 승자 win = 정의 순서 첫 통과 = 서버 규칙). 전멸 = 정상 CT 없음(win=-1).
     //    · 완료 마커 = 끝 call InTag↑, 없으면 OutTag↓ (CycleCompletionResolver 규칙의 근사).
     //  반환 = { spans[{sMs,eMs,isOpen,win,dup,passing,byBranch,tailIn,tailInBy,color,label,title}],
@@ -870,9 +873,22 @@
                 .map(function (n) { return { name: n, edges: risesOf(n) }; });
         });
         var tailsBy = branches.map(function (b) { return tailsOf(b.endCallName); });
+        // 끝 call OutTag↓(동작 종료) — 반증 창 상한. 완료 마커(InTag↑)보다 0.4~0.5s 늦어 완료와 거의 동시에 움직이는
+        // 차종별 call(공유 head/tail 분기의 유일한 구분 근거)이 스캔 순서로 창 밖에 밀리는 일을 막는다.
+        var tailFallsBy = branches.map(function (b) {
+            var l = laneByName[b.endCallName];
+            return l ? (l.outIntervals || []).map(function (iv) { return new Date(iv.end).getTime(); }).sort(function (a, b2) { return a - b2; }) : [];
+        });
         var lowerBound = function (arr, v) { var lo = 0, hi = arr.length; while (lo < hi) { var m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; } return lo; };
         var hasIn = function (arr, s, e) { var lo = lowerBound(arr, s); return lo < arr.length && arr[lo] < e; };
         var firstAfter = function (arr, s, e) { var lo = lowerBound(arr, s + 1); return (lo < arr.length && arr[lo] < e) ? arr[lo] : null; };
+        var firstAtOrAfter = function (arr, s, e) { var lo = lowerBound(arr, s); return (lo < arr.length && arr[lo] < e) ? arr[lo] : null; };
+        // 반증 창 상한 — 끝 call 완료(tailIn)가 있으면 그 뒤 첫 OutTag↓, 그것도 스팬 안에 없으면(OUT 유지) 스팬 끝.
+        var refuteEndOf = function (bi, tailIn, e) {
+            if (tailIn === null) return e;
+            var fall = firstAtOrAfter(tailFallsBy[bi], tailIn, e);
+            return fall !== null ? fall : e;
+        };
         var spans = [];
         var counts = branches.map(function () { return 0; });
         var dupCounts = branches.map(function () { return 0; });
@@ -883,10 +899,14 @@
             var cands = startMap.get(s).slice().sort(function (a, b) { return a - b; });
             var byBranch = {};
             var passing = [];
+            var tailInBy = {};
             for (var ci = 0; ci < cands.length; ci++) {
                 var bi = cands[ci];
+                var tailIn = firstAfter(tailsBy[bi], s, e);
+                tailInBy[bi] = tailIn;
+                var rEnd = refuteEndOf(bi, tailIn, e);
                 var fired = null;
-                for (var xi = 0; xi < exclOf[bi].length; xi++) { var ex = exclOf[bi][xi]; if (hasIn(ex.edges, s, e)) { fired = ex.name; break; } }
+                for (var xi = 0; xi < exclOf[bi].length; xi++) { var ex = exclOf[bi][xi]; if (hasIn(ex.edges, s, rEnd)) { fired = ex.name; break; } }
                 byBranch[bi] = { pass: !fired, reason: fired };
                 if (!fired) passing.push(bi);
             }
@@ -901,8 +921,6 @@
                 if (win === -1) un++; else counts[win]++;
                 if (dup) { dupTotal++; passing.forEach(function (b2) { dupCounts[b2]++; }); }
             }
-            var tailInBy = {};
-            passing.forEach(function (b3) { tailInBy[b3] = firstAfter(tailsBy[b3], s, e); });
             var ctTxt = fmtMs(e - s);
             var label, title, color;
             if (isOpen) {

@@ -379,6 +379,7 @@ public class FlowMetricsService : IFlowMetricsService
                     firedInPrevCycle = state.FiredCalls.Count > 0 ? state.FiredCalls.ToList() : null;
                     state.FiredCalls.Clear();
                     state.FiredCalls.Add(callName);
+                    state.FiredCallsFrozen = false;
                 }
 
                 // 이전 사이클이 완료되었고 MT가 계산된 경우 WT/CT 계산 및 DB 업데이트.
@@ -408,11 +409,12 @@ public class FlowMetricsService : IFlowMetricsService
             }
             else
             {
-                // 비-head call 발화 추적 — 분기(branch) 라이브 분류의 근거 집합. 사이클 경계와 무관하게
-                // 집합에만 쌓고, head start 때 스냅샷/리셋된다. 분기 미사용 flow 도 집합 유지 비용은 무시 수준.
+                // 비-head call 발화 추적 — 분기(branch) 라이브 분류의 근거 집합. head start 때 스냅샷/리셋된다.
+                // tail 완료 뒤(WT)는 집합을 고정 — 그 구간의 발화는 다음 차종 준비 동작(분기 전환)이라 이 사이클의
+                // 반증 근거가 아니다(재도출 반증 창 [시작, 끝 call 동작 종료) 의 라이브 근사, 2026-09-07).
                 lock (state.LatchLock)
                 {
-                    state.FiredCalls.Add(callName);
+                    if (!state.FiredCallsFrozen) state.FiredCalls.Add(callName);
                 }
             }
         }
@@ -505,6 +507,7 @@ public class FlowMetricsService : IFlowMetricsService
                         state.CurrentMT = mt;
                         state.PreviousCycleFinish = timestamp;
                         state.IsCycleActive = false;
+                        state.FiredCallsFrozen = true; // MT 확정 — 이후 WT 발화는 분기 분류 근거에서 제외
                         recorded = true;
                     }
                 }
@@ -1059,6 +1062,8 @@ public class FlowCycleState
     /// head start 때 스냅샷 후 리셋. <see cref="LatchLock"/> 으로 보호.
     /// </summary>
     internal readonly HashSet<string> FiredCalls = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>tail 완료(MT 확정) 이후 true — WT 구간 발화는 <see cref="FiredCalls"/> 에 넣지 않는다. head start 때 해제.</summary>
+    internal bool FiredCallsFrozen;
 
     // 평균 계산용 필드
     // CycleCount = 비가동-제외 사이클의 누적 카운트(주로 history CycleNo 표시·로그용).
