@@ -678,6 +678,17 @@ public class FlowBranchDef
     /// <summary>이 분기 사이클에서 돌지 않는 call 이름 목록(부모 flow 소속 call).</summary>
     public List<string> ExcludedCallNames { get; set; } = [];
 
+    /// <summary>
+    /// 이름 스냅샷의 정본 키 — Call GUID(문자열, null=구 데이터). 런타임(재도출·라이브·화면)은 계속 이름을 읽고,
+    /// GUID 는 AASX 재로드 시 이름을 따라잡는 용도(<see cref="Services.CallRefReconciler"/>).
+    /// 2026-09-07 현장에서 사용자가 Call 이름만 바꿔 재업로드 → 이름 스냅샷 48종이 유령이 되어 전 flow 분기 저장이
+    /// 막히고 재계산이 건너뛰어진 사고의 재발 방지. <see cref="ExcludedCallIds"/> 는 <see cref="ExcludedCallNames"/>
+    /// 와 같은 길이·같은 순서(서버만 기록; 길이가 어긋나면 이름으로 재해석).
+    /// </summary>
+    public string? StartCallId { get; set; }
+    public string? EndCallId { get; set; }
+    public List<string?>? ExcludedCallIds { get; set; }
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
@@ -687,6 +698,10 @@ public class FlowCycleOverride
     public string FlowName { get; set; } = "";
     public string? StartCallName { get; set; }
     public string? EndCallName { get; set; }
+
+    /// <summary>Head/Tail 이름 스냅샷의 Call GUID(null=구 데이터) — <see cref="FlowBranchDef.StartCallId"/> 와 같은 규약.</summary>
+    public string? StartCallId { get; set; }
+    public string? EndCallId { get; set; }
 
     /// <summary>
     /// 표준(ideal) 사이클 시간(ms). P5 OEE Performance = (idealCT × totalCount) / runtime 의 단일 소스.

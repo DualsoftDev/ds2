@@ -462,6 +462,10 @@
 
 /* ════ 사이클 분기(branch) 편집기 (2026-08-27) ════ */
 .fb-chip { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 0.7rem; font-weight: 800; color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-primary) 35%, transparent); white-space: nowrap; }
+/* 모델(AASX)에 없는 call 참조 경고 칩 — 이름이 바뀌었거나 삭제된 call 이 분기 정의에 남은 상태(저장 거절 원인) */
+.fb-chip.fb-ghost { color: #9a5b00; background: color-mix(in srgb, #f59e0b 16%, transparent); border-color: color-mix(in srgb, #f59e0b 45%, transparent); }
+.fb-ghost-btn { cursor: pointer; font: inherit; font-size: 0.7rem; font-weight: 800; line-height: 1.2; }
+.fb-ghost-btn:hover { background: color-mix(in srgb, #f59e0b 28%, transparent); }
 .fb-branch { border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--color-surface); }
 .fb-branch.is-url { border-color: color-mix(in srgb, var(--color-primary) 55%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent); }
 .fb-brow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

@@ -425,6 +425,13 @@ public class DsProjectService
         return [.. Queries.callsOf(workId, _store)];
     }
 
+    /// <summary>
+    /// flow 1개의 Call 조회표(GUID ↔ 이름) — 분기 정의·경계 override 의 (GUID, 이름) 이중 키 재해석 전용
+    /// (<see cref="CallRefReconciler"/>). 이름은 <see cref="Call.Name"/> 그대로(화면 lane·BuildCallOptions 와 동일 소스).
+    /// </summary>
+    public FlowCallLookup GetFlowCallLookup(Guid flowId)
+        => FlowCallLookup.From(GetWorks(flowId).SelectMany(w => GetCalls(w.Id)).Select(c => (c.Id, c.Name)));
+
     public List<Call> GetAllCalls()
     {
         var allCalls = new List<Call>();

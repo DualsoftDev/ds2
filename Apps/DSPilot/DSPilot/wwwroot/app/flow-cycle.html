@@ -560,7 +560,10 @@
                                                         title="분기 추가 (최대 8개) — 저장하면 설비효율 현황이 flow이름_분기이름 단위로 표시됩니다(생산효율 합산)">
                                                     <span class="material-icons">add</span> 분기 추가
                                                 </button>
-                                                <span class="fb-chip" style="margin-left:auto;" x-show="branchSavedCount > 0" x-cloak
+                                                <span class="fb-chip fb-ghost" style="margin-left:auto;" x-show="brUnknownTotal() > 0" x-cloak
+                                                      title="현재 모델(AASX)에 없는 call 참조가 남은 분기가 있습니다 — 해당 분기 탭의 경고 칩에서 정리"
+                                                      x-text="'모델에 없는 call ' + brUnknownTotal() + '개'"></span>
+                                                <span class="fb-chip" :style="brUnknownTotal() > 0 ? '' : 'margin-left:auto;'" x-show="branchSavedCount > 0" x-cloak
                                                       :title="'서버에 저장된 분기 ' + branchSavedCount + '개'" x-text="'저장된 분기 ' + branchSavedCount + '개'"></span>
                                             </div>
 
@@ -574,6 +577,10 @@
                                                         이 분기 사이클 <b x-text="curStat.count + '회 (' + curStat.pct + '%)'"></b>
                                                         <span class="fg-dupwarn" x-show="curStat.dup > 0" x-cloak>· CT 중복 <b x-text="curStat.dup + '회'"></b></span>
                                                     </span>
+                                                    <button type="button" class="fb-chip fb-ghost fb-ghost-btn" x-show="brUnknown(branchTab).length" x-cloak
+                                                            @click="brDropUnknown()" :title="brUnknownTitle(branchTab)">
+                                                        ⚠ 모델에 없는 call <b x-text="brUnknown(branchTab).length"></b> · 제외 정리
+                                                    </button>
                                                     <span class="fb-hint fg-bhint">lane 의 <b>시작 / 끝 / 제외</b> 클릭으로 정의 · <b>Work 그룹</b> 정렬에서 Work 헤더 클릭 = 그 Work 통째 · 리본 상단 색 바 = 이 분기 분류(회색=다른 분기/제외, 빨강=중복)</span>
                                                     <span style="flex:1;"></span>
                                                     <button class="btn btn-sm fg-hide-excl" :class="hideExcl ? 'btn-filled' : 'btn-outlined color-default'" @click="toggleHideExcl()"

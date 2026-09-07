@@ -25,6 +25,7 @@ public class DspDatabaseServiceAdapter : BackgroundService
     private readonly PlcToCallMapperService _mapper;
     private readonly IFlowMetricsService _flowMetricsService;
     private readonly IDspRepository _dspRepository;
+    private readonly AppSettingsService _settings;
 
     public DspDatabaseServiceAdapter(
         ILogger<DspDatabaseServiceAdapter> logger,
@@ -32,7 +33,8 @@ public class DspDatabaseServiceAdapter : BackgroundService
         DsProjectService projectService,
         PlcToCallMapperService mapper,
         IFlowMetricsService flowMetricsService,
-        IDspRepository dspRepository)
+        IDspRepository dspRepository,
+        AppSettingsService settings)
     {
         _logger = logger;
         _paths = pathResolver.GetDatabasePaths();
@@ -40,6 +42,7 @@ public class DspDatabaseServiceAdapter : BackgroundService
         _mapper = mapper;
         _flowMetricsService = flowMetricsService;
         _dspRepository = dspRepository;
+        _settings = settings;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -100,6 +103,9 @@ public class DspDatabaseServiceAdapter : BackgroundService
                 if (flowCount > 0 || callCount > 0)
                 {
                     _logger.LogInformation("Successfully loaded {FlowCount} flows and {CallCount} calls from AASX", flowCount, callCount);
+                    // 부팅 경로에도 참조 재해석 — 서비스 정지 중 AASX 가 교체되면 워처 경로(ReloadAndResync)를 안 거친다.
+                    // (LastLoadedSha256 이 인메모리라 재시작 후엔 "변경 없음" 으로 보이는 것과 같은 사각지대.)
+                    _settings.ReconcileCallReferences(_projectService);
                     return true;
                 }
 

@@ -1332,12 +1332,59 @@
                         this.branches = (r.branches || []).map(b => ({
                             name: b.name || '', startCallName: b.startCallName || '', endCallName: b.endCallName || '',
                             excludedCallNames: (b.excludedCallNames || []).slice(),
+                            // 서버 판정 유령(모델에 없는 참조) — lane 이 아직 없을 때의 폴백. lane 로드 후엔 brUnknown 이 lane 집합으로 재판정.
+                            unknown: (b.unknownCallNames || []).slice(),
                         }));
                         this.branchesSaved = JSON.stringify(this.branches);
                         this.branchSavedCount = this.branches.length;
                         // 분기가 있으면 flow 전체 탭 = 분기별 CT 합산 뷰(편집 잠김) — 탭 자체는 'flow' 유지.
                         this._brRefresh();
                     } catch (_) { /* 분기 API 실패 — 편집기만 비활성(가동 분석 자체는 무관) */ }
+                },
+                // ── 모델에 없는 call(유령) 참조 ──────────────────────────────────────────
+                // AASX 교체로 이름이 바뀌거나 삭제된 call 이 분기 정의에 남으면 서버가 저장을 거절하고(전 분기 한 요청),
+                // 화면엔 lane 이 없어 보이지도 않는다(2026-09-07 현장 사고). 여기서 세어 헤더 칩으로 드러내고 한 번에 정리한다.
+                // 판정 소스 = 현재 lane 집합(= 모델의 이 flow call 전체). lane 이 아직 없으면 서버 응답(unknown) 폴백.
+                _laneNameSet() {
+                    if (!this.callLanesRaw || !this.callLanesRaw.length) return null;
+                    const set = new Set(); this.callLanesRaw.forEach(l => set.add(l.callName)); return set;
+                },
+                brUnknown(bi) {
+                    const b = this.branches[bi]; if (!b) return [];
+                    const set = this._laneNameSet();
+                    if (!set) return (b.unknown || []).slice();
+                    const out = [];
+                    [b.startCallName, b.endCallName].concat(b.excludedCallNames || []).forEach(n => {
+                        if (n && !set.has(n) && out.indexOf(n) === -1) out.push(n);
+                    });
+                    return out;
+                },
+                brUnknownTotal() {
+                    let n = 0; this.branches.forEach((_, i) => { n += this.brUnknown(i).length; }); return n;
+                },
+                brUnknownTitle(bi) {
+                    const b = this.branches[bi]; if (!b) return '';
+                    const list = this.brUnknown(bi);
+                    const ht = list.filter(n => n === b.startCallName || n === b.endCallName);
+                    const ex = list.filter(n => ht.indexOf(n) === -1);
+                    let t = '현재 모델(AASX)에 없는 call 이 이 분기 정의에 남아 있습니다 — 이름이 바뀌었거나 삭제된 call. 이 상태로는 저장이 거절됩니다.';
+                    if (ht.length) t += '\n\n시작/끝(재지정 필요): ' + ht.join(', ');
+                    if (ex.length) t += '\n\n제외(클릭 = 전 분기에서 제거): ' + ex.join(', ');
+                    return t;
+                },
+                // 전 분기의 유령 제외 call 을 제거(저장 전 로컬 편집 — dirty 표시 후 '분기 저장'). 시작/끝 유령은 lane 클릭으로 재지정.
+                brDropUnknown() {
+                    const set = this._laneNameSet(); if (!set) return;
+                    let removed = 0, headTail = 0;
+                    this.branches.forEach(b => {
+                        const before = (b.excludedCallNames || []).length;
+                        b.excludedCallNames = (b.excludedCallNames || []).filter(c => set.has(c));
+                        removed += before - b.excludedCallNames.length;
+                        if (!set.has(b.startCallName) || !set.has(b.endCallName)) headTail++;
+                    });
+                    this._brRefresh();
+                    this.branchError = '';
+                    this.branchMsg = '모델에 없는 제외 call ' + removed + '개 제거(미저장)' + (headTail ? ' — 시작/끝이 없는 분기 ' + headTail + '개는 lane 의 시작/끝 버튼으로 다시 지정하세요' : ' — 분기 저장을 눌러 반영');
                 },
                 brAdd() {
                     if (this.branches.length >= 8) return;
@@ -1346,7 +1393,7 @@
                         name: '분기' + (this.branches.length + 1),
                         startCallName: this.callNameOf(this.headCallId) || '',
                         endCallName: this.callNameOf(this.tailCallId) || '',
-                        excludedCallNames: [],
+                        excludedCallNames: [], unknown: [],
                     });
                     this.setBranchTab(this.branches.length - 1);   // 새 분기를 하단 간트 활성 탭으로
                 },
@@ -1433,6 +1480,7 @@
                         this.branches = (r.branches || []).map(b => ({
                             name: b.name || '', startCallName: b.startCallName || '', endCallName: b.endCallName || '',
                             excludedCallNames: (b.excludedCallNames || []).slice(),
+                            unknown: (b.unknownCallNames || []).slice(),
                         }));
                         this.branchesSaved = JSON.stringify(this.branches);
                         this.branchSavedCount = this.branches.length;

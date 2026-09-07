@@ -107,7 +107,8 @@ public class FlowController : ControllerBase
             // 채터링 필터는 요청이 명시했을 때만 교체(구 클라이언트/벌크 편집기는 기존 값 보존). 저장 후 아래
             // 전체 이력 재계산이 새 필터 값으로 과거를 재도출하고, 라이브는 설정을 매 사이클 읽어 즉시 반영된다.
             _settings.SaveFlowCycleOverride(flow.Name, overrideStart, overrideEnd,
-                req?.ChatterFilterMs, req?.ChatterSpecified ?? false);
+                req?.ChatterFilterMs, req?.ChatterSpecified ?? false,
+                _project.GetFlowCallLookup(flow.Id));   // GUID 동봉(이중 키 — CallRefReconciler)
             await _flowMetrics.ApplyCycleBoundaryOverrideAsync(flow.Name, effectiveStart, effectiveEnd);
         }
         catch (Exception ex)
@@ -156,10 +157,17 @@ public class FlowController : ControllerBase
     public ActionResult<FlowBranchesDto> GetBranches(string name)
     {
         var set = _settings.GetFlowBranchSet(name);
+        // 유령 참조(현재 모델에 없는 call 이름) — 화면이 "모델에 없는 call n개" 로 보여주고 사용자가 제거/재지정한다.
+        // 모델 미로드/빈 flow 면 판단 근거가 없으므로 null(표시 안 함) — 빈 배열로 내리면 "정상" 으로 읽힌다.
+        var flow = _project.IsLoaded ? _project.GetFlowByName(name) : null;
+        var lookup = flow is null ? null : _project.GetFlowCallLookup(flow.Id);
+        if (lookup is { Count: 0 }) lookup = null;
         return new FlowBranchesDto(
             name,
             (set?.Branches ?? [])
-                .Select(b => new FlowBranchDefDto(b.Name, b.StartCallName, b.EndCallName, b.ExcludedCallNames.ToArray()))
+                .Select(b => new FlowBranchDefDto(
+                    b.Name, b.StartCallName, b.EndCallName, b.ExcludedCallNames.ToArray(),
+                    lookup is null ? null : CallRefReconciler.UnknownNames(b, lookup).ToArray()))
                 .ToArray());
     }
 
@@ -179,23 +187,41 @@ public class FlowController : ControllerBase
 
         var options = BuildCallOptions(flow);
         var optionSet = new HashSet<string>(options, StringComparer.OrdinalIgnoreCase);
+        var lookup = _project.GetFlowCallLookup(flow.Id);
         var branches = new List<Models.FlowBranchDef>();
+        var unknownRefs = new List<UnknownCallRefDto>();
         foreach (var b in req?.Branches ?? [])
         {
             // call 이름 실존 검증 — 오타/모델 변경 잔재가 조용히 전 사이클을 미분류로 만드는 것을 저장 시점에 차단.
-            foreach (var call in new[] { b.StartCallName, b.EndCallName })
+            // 첫 건에서 끊지 않고 전 분기의 유령을 모아 응답에 실어 준다(2026-09-08) — 화면이 목록으로 보여주고
+            // "모델에 없는 제외 call 제거" 로 한 번에 정리할 수 있게. 시작/끝 유령은 재지정이 필요하므로 제거 대상이 아니다.
+            foreach (var (call, role) in new[] { (b.StartCallName, "start"), (b.EndCallName, "end") })
                 if (string.IsNullOrWhiteSpace(call) || !optionSet.Contains(call.Trim()))
-                    return BadRequest(new { message = $"분기 '{b.Name}' 의 시작/끝 call '{call}' 이 이 flow 에 없습니다." });
-            var unknown = (b.ExcludedCallNames ?? []).FirstOrDefault(c => !string.IsNullOrWhiteSpace(c) && !optionSet.Contains(c.Trim()));
-            if (unknown is not null)
-                return BadRequest(new { message = $"분기 '{b.Name}' 의 제외 call '{unknown}' 이 이 flow 에 없습니다." });
+                    unknownRefs.Add(new UnknownCallRefDto(b.Name, call ?? "", role));
+            foreach (var c in (b.ExcludedCallNames ?? []).Where(c => !string.IsNullOrWhiteSpace(c) && !optionSet.Contains(c.Trim())))
+                unknownRefs.Add(new UnknownCallRefDto(b.Name, c, "excluded"));
 
-            branches.Add(new Models.FlowBranchDef
+            var def = new Models.FlowBranchDef
             {
                 Name = (b.Name ?? "").Trim(),
-                StartCallName = b.StartCallName!.Trim(),
-                EndCallName = b.EndCallName!.Trim(),
-                ExcludedCallNames = (b.ExcludedCallNames ?? []).ToList(),
+                StartCallName = (b.StartCallName ?? "").Trim(),
+                EndCallName = (b.EndCallName ?? "").Trim(),
+                ExcludedCallNames = (b.ExcludedCallNames ?? [])
+                    .Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).ToList(),
+            };
+            CallRefReconciler.StampIds(def, lookup);   // 이중 키 — 이후 AASX 재로드 때 이름이 바뀌어도 GUID 로 추종
+            branches.Add(def);
+        }
+        if (unknownRefs.Count > 0)
+        {
+            var first = unknownRefs[0];
+            var roleText = first.Role == "excluded" ? "제외" : "시작/끝";
+            var more = unknownRefs.Count > 1 ? $" (외 {unknownRefs.Count - 1}건)" : "";
+            return BadRequest(new
+            {
+                message = $"분기 '{first.Branch}' 의 {roleText} call '{first.CallName}' 이 이 flow 에 없습니다{more}. "
+                        + "AASX 에서 이름이 바뀌었거나 삭제된 call 입니다 — 분기 헤더의 '모델에 없는 call' 로 제거/재지정하세요.",
+                unknownCalls = unknownRefs,
             });
         }
 
@@ -403,7 +429,12 @@ public record FlowBranchDefDto(
     string Name,
     string? StartCallName,
     string? EndCallName,
-    string[]? ExcludedCallNames);
+    string[]? ExcludedCallNames,
+    // 응답 전용(2026-09-08): 현재 모델에 없는 참조 이름(시작·끝·제외). null = 판단 근거 없음(모델 미로드).
+    string[]? UnknownCallNames = null);
+
+/// <summary>분기 저장 거절 응답의 유령 참조 1건 — Role = start | end | excluded.</summary>
+public record UnknownCallRefDto(string Branch, string CallName, string Role);
 
 public record SaveFlowBranchesRequestDto(
     FlowBranchDefDto[]? Branches);
