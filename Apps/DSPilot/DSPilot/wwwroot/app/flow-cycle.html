@@ -181,6 +181,8 @@
                             <button :class="timePreset === 'm30' ? 'is-active' : ''" @click="setRecentMinutes(30)">30분</button>
                             <button :class="timePreset === 'h1' ? 'is-active' : ''" @click="setRecentHours(1)">1시간</button>
                             <button :class="timePreset === 'h24' ? 'is-active' : ''" @click="setRecentHours(24)">24시간</button>
+                            <button :class="timePreset === 'today' ? 'is-active' : ''" @click="setToday()"
+                                    title="오늘 00:00 ~ 지금(현재 시각) — 다른 프리셋과 달리 끝점이 마지막 신호 시각이 아닌 벽시계">오늘</button>
                             <button :class="rangePopupOpen ? 'is-active' : ''" @click="rangePopupOpen = !rangePopupOpen"
                                     title="분석할 시작·종료 시각을 직접 지정">
                                 <span class="material-icons">calendar_today</span>기간
@@ -1001,6 +1003,8 @@
                             <button :class="timePreset === 'h1' ? 'is-active' : ''" @click="setRecentHours(1)" :disabled="loadingAny">1시간</button>
                             <button :class="timePreset === 'h8' ? 'is-active' : ''" @click="setRecentHours(8)" :disabled="loadingAny">8시간</button>
                             <button :class="timePreset === 'h24' ? 'is-active' : ''" @click="setRecentHours(24)" :disabled="loadingAny">24시간</button>
+                            <button :class="timePreset === 'today' ? 'is-active' : ''" @click="setToday()" :disabled="loadingAny"
+                                    title="오늘 00:00 ~ 지금(현재 시각) — 다른 프리셋과 달리 끝점이 마지막 신호 시각이 아닌 벽시계">오늘</button>
                             <button :class="rangePopupOpen ? 'is-active' : ''" @click="rangePopupOpen = !rangePopupOpen"
                                     title="분석할 시작·종료 시각을 직접 지정 (모든 Flow 공통)">
                                 <span class="material-icons">calendar_today</span>기간
@@ -1016,6 +1020,13 @@
                                 <input type="datetime-local" step="1" class="form-field" x-model="endTime" @change="onTimeChanged()" />
                             </div>
                         </div>
+                    </div>
+                    <!-- 카드 간트 표시 방식 (단일 페이지 간트 툴바의 막대/InOut 라인과 동일 의미, 모든 카드 일괄 · 브라우저 기억) -->
+                    <div class="ct-seg" title="카드 간트 표시 방식 — 모든 Flow 카드에 일괄 적용">
+                        <button :class="viewMode === 'bar' ? 'active' : ''" @click="setView('bar')"
+                                title="실행(InTag ∪ OutTag 합집합) 막대그래프">막대</button>
+                        <button :class="viewMode === 'line' ? 'active' : ''" @click="setView('line')"
+                                title="OutTag(명령=시작)·InTag(응답=완료) 신호 라인 그래프">InOut 라인</button>
                     </div>
                     <span class="ct-anchor-hint" x-show="dataAnchorHint" x-cloak x-text="dataAnchorHint"
                           title="프리셋 기간의 끝점 = 신호가 마지막으로 들어온 시각. 공백 구간을 보려면 '기간'으로 직접 지정하세요."></span>

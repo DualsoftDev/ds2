@@ -113,7 +113,7 @@
                 tailCompletionSource: null,
                 cycleView: 'chart',   // 사이클 목록: 'table' | 'chart' (기본=차트)
                 cyclePreset: null,    // 활성 사이클-기준 프리셋(최근 N 사이클) — 시간 프리셋/수동 변경 시 해제
-                timePreset: null,     // 활성 시간 프리셋('m1'|'m5'|'m30'|'h1'|'h24') — 사이클/수동 변경 시 해제
+                timePreset: null,     // 활성 시간 프리셋('m1'|'m5'|'m30'|'h1'|'h24'|'today') — 사이클/수동 변경 시 해제
                 rangePopupOpen: false, // 시작·종료 직접 지정 팝업 표시
                 dataLatestAt: null,   // 프리셋 앵커 = DB 최신 로그 시각(벽시계 now 아님) — effectiveLatest() 가 채움
                 dataAnchorHint: '',   // 그 앵커의 지연 안내 문구(1분 미만이면 빈 문자열 = 표시 안 함)
@@ -848,6 +848,18 @@
                     this.startTime = this.dateToInput(new Date(end.getTime() - hours * 3600000));
                     if (this.selectedFlow) await this.load();
                 },
+                // '오늘' = 오늘 00:00 ~ 지금(벽시계). 다른 프리셋과 달리 마지막 신호 시각에 앵커하지 않는다 —
+                // 신호가 끊긴 뒤 "오늘 얼마나 돌았나"를 볼 때 끝점이 밀리면 공백이 숨는다. 앵커 힌트도 의미 없어 지운다.
+                async setToday() {
+                    this.cyclePreset = null;
+                    this.timePreset = 'today';
+                    const now = new Date();
+                    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+                    this.endTime = this.dateToInput(now);
+                    this.startTime = this.dateToInput(start);
+                    this.dataLatestAt = null; this.dataAnchorHint = '';
+                    if (this.selectedFlow) await this.load();
+                },
                 // 프리셋("최근 N분") 의 끝점 = 벽시계 now 가 아니라 *DB 최신 로그 시각*이다(신호 없는 창에
                 // 앵커하면 빈 화면이 되는 것을 피하는 기존 설계). 그 사실을 화면에 안 알려주면, 신호가 끊긴
                 // 뒤에도 간트가 꽉 차 보여 "실시간인데 헤더는 데이터 대기"로 오해된다 → dataAnchorHint 로 노출.
@@ -930,6 +942,7 @@
                     if ((m = per.match(/^m(\d+)$/))) return await this.setRecentMinutes(+m[1]);
                     if ((m = per.match(/^h(\d+)$/))) return await this.setRecentHours(+m[1]);
                     if ((m = per.match(/^c(\d+)$/))) return await this.setRecentCycles(+m[1]);
+                    if (per === 'today') return await this.setToday();
                     const from = qp.get('from'), to = qp.get('to');
                     if (from && to && this.inputToDate(to) > this.inputToDate(from)) {
                         this.startTime = from; this.endTime = to;
