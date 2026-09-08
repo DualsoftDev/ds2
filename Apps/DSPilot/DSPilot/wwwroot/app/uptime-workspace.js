@@ -78,7 +78,7 @@
                 view: (window.DSP_UPTIME_VIEW || 'both'),
                 period: 'today',
                 curFlow: '', // '' = 라인 전체, 그 외 = 특정 Flow (OEE/정지/도넛/계획시간을 그 설비로 필터)
-                curSystem: '', // '' = 스코프 없음, 그 외 = 시스템 단위 묶음(?system=, 좌측 나브 '○○ 관리' 헤더). curFlow 가 우선.
+                curSystem: '', // '' = 스코프 없음, 그 외 = 시스템 단위 묶음(?system=, 좌측 나브 기능 트리의 시스템 행). curFlow 가 우선.
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
                 // stale 응답 가드 — 폴링/기간변경/페이지이동 응답이 뒤늦게 도착해 최신 상태를 덮어쓰는 경합 방지

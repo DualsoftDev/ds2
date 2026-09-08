@@ -84,6 +84,9 @@
                 //   nav 트리(/api/nav)로 Flow 이름을 모아 각 Flow 히스토리를 병렬 조회 후 병합. 추이 페이지 전용.
                 allMode: false,
                 allFlowNames: [],
+                // 전체 추이의 시스템 스코프(2026-09-08) — /flow-trend?system=이름(좌측 메뉴 추이 분석 트리의 시스템 행).
+                //   그 시스템 flow 히스토리만 합산. ?name= 이 있으면 무관(설비 우선). '' = 라인 전체.
+                systemParam: '',
 
                 // ── 사이클 분석 (구 cycle-time-analysis, 이 Flow 스코프) ──
                 selectedFlow: '',
@@ -165,6 +168,7 @@
                     else if (this.view === 'cycle') this.tab = 'cycle';
                     // 추이 페이지에 ?name= 없이 진입 → 전체 추이(라인 전체 합산) 모드.
                     this.allMode = (this.view === 'trend' && !this.flowName);
+                    this.systemParam = this.allMode ? (new URLSearchParams(location.search).get('system') || '') : '';
                     // 더티 가드 등록 — 가동시간 분석(cycle)에서 Head/Tail 미저장 이탈 방지
                     if (this.view === 'cycle') {
                         window.dspDirtyRegister(() => this.userOverrodeHeadTail || this.userOverrodeChatter || this.branchesDirty);
@@ -254,13 +258,16 @@
                     } finally { this.loading = false; }
                 },
 
-                // 전체 추이 모드: nav 트리에서 모든 시스템의 Flow 이름을 모은다(설비 필터 없이 라인 전체).
+                // 전체 추이 모드: nav 트리에서 Flow 이름을 모은다 — 라인 전체(모든 시스템) 또는 ?system= 의 그 시스템만.
+                //   시스템 이름이 nav 에 없으면(모델 교체 등) 전체로 폴백하지 않고 0개(라인 수치를 그 시스템 것으로 오해 방지).
                 async loadAllFlowNames() {
                     this.loading = true;
                     try {
                         const nav = await this.apiGet('/api/nav');
                         const names = [];
-                        (nav && nav.systems || []).forEach(s => (s.flows || []).forEach(n => { if (n && names.indexOf(n) === -1) names.push(n); }));
+                        (nav && nav.systems || [])
+                            .filter(s => !this.systemParam || (s.name || '') === this.systemParam)
+                            .forEach(s => (s.flows || []).forEach(n => { if (n && names.indexOf(n) === -1) names.push(n); }));
                         this.allFlowNames = names;
                         this.error = null;
                     } catch (e) {
@@ -370,7 +377,7 @@
                 },
 
                 // ── 내보내기 (기간별 추이) ─────────────────────────────────────────────
-                trendName() { return this.allMode ? '전체추이' : (this.flow ? this.flow.flowName : (this.flowName || 'Flow')); },
+                trendName() { return this.allMode ? (this.systemParam ? this.systemParam + '_추이' : '전체추이') : (this.flow ? this.flow.flowName : (this.flowName || 'Flow')); },
                 _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
                 _downloadBlob(filename, blob) {
                     const url = URL.createObjectURL(blob);
@@ -398,7 +405,7 @@
                         ].filter(Boolean);
                         const model = {
                             title: this.trendName(),
-                            systemName: (this.flow && this.flow.systemName) ? this.flow.systemName : (this.allMode ? '라인 전체' : null),
+                            systemName: (this.flow && this.flow.systemName) ? this.flow.systemName : (this.allMode ? (this.systemParam || '라인 전체') : null),
                             periodStart: this.periodStart ? this.dateToInput(this.periodStart) : '',
                             periodEnd: this.periodEnd ? this.dateToInput(this.periodEnd) : '',
                             granularity: this.granularity,

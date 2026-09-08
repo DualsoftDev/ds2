@@ -237,7 +237,10 @@
                             <template x-if="flowScope.branch"><span> · 분기 <b x-text="flowScope.branch"></b></span></template>
                         </span>
                     </template>
-                    <template x-if="flowParam">
+                    <template x-if="!flowParam && systemParam">
+                        <span class="chip chip-info" title="이 시스템 소속 flow 의 call 만 표시합니다(좌측 메뉴 동작편차 트리의 시스템 행).">시스템: <b x-text="systemParam"></b></span>
+                    </template>
+                    <template x-if="flowParam || systemParam">
                         <a class="btn btn-sm btn-outlined color-default" href="/heatmap">
                             <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
                         </a>
@@ -527,6 +530,10 @@
                 error: null,
                 // 설비(Flow) 필터 — 좌측 메뉴 '동작편차' 트리에서 /heatmap?flow=이름 으로 진입. '' = 전체.
                 flowParam: '',
+                // 시스템 필터(2026-09-08) — 트리 시스템 행 /heatmap?system=이름. 설비(?flow=)가 있으면 무시(설비 우선).
+                //   서버 API 는 그대로(전 flow) — /api/nav 의 그 시스템 flow 집합으로 클라이언트에서 좁힌다.
+                systemParam: '',
+                systemFlows: null,   // Set<flowName> | null(시스템 미지정 또는 nav 에 없는 시스템 → 빈 Set 으로 0건)
                 // 사이클 분기 가상이름 → 부모 flow 맵("#133_Q300" → {parent:'#133', branch:'Q300'}). /api/nav systems[].flowBranches 로 채움.
                 //   설비효율(OEE) 표에서 분기 단위 이름으로 진입할 때 동작편차는 flow(부모) 단위 집계라 부모로 번역해 필터한다.
                 branchMap: {},
@@ -552,7 +559,9 @@
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     this.showMs = localStorage.getItem('dspilot-heatmap-ms') === '1';
                     // 설비 필터는 URL(?flow=)에서만 온다(좌측 메뉴 트리). 없으면 전체.
-                    this.flowParam = new URLSearchParams(location.search).get('flow') || '';
+                    const qp = new URLSearchParams(location.search);
+                    this.flowParam = qp.get('flow') || '';
+                    this.systemParam = this.flowParam ? '' : (qp.get('system') || '');
                     await this.loadBranchMap();
                     window.addEventListener('storage', (e) => {
                         if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark';
@@ -634,13 +643,17 @@
                     try {
                         const nav = await this.apiGet('/api/nav');
                         const map = {};
+                        let sysFlows = null;
                         for (const sys of (nav && nav.systems) || []) {
                             const fb = sys.flowBranches || {};
                             for (const parent of Object.keys(fb))
                                 for (const br of (fb[parent] || [])) map[parent + '_' + br] = { parent, branch: br };
+                            // 시스템 스코프 — 그 시스템 flow 집합. 이름이 없으면(모델 교체 등) 전체로 폴백하지 않고 0건(오해 방지).
+                            if (this.systemParam && (sys.name || '') === this.systemParam) sysFlows = new Set(sys.flows || []);
                         }
                         this.branchMap = map;
-                    } catch (e) { this.branchMap = {}; }
+                        this.systemFlows = this.systemParam ? (sysFlows || new Set()) : null;
+                    } catch (e) { this.branchMap = {}; this.systemFlows = this.systemParam ? new Set() : null; }
                 },
                 // 설비 필터 해석 — {flow: 실제 필터할 flow 이름, branch: 분기명|null}. 분기 가상이름이면 부모로 번역.
                 get flowScope() {
@@ -651,8 +664,10 @@
                 get filteredGroups() {
                     // 설비 필터(URL ?flow=)가 있으면 그 Flow 만(분기 이름은 부모 flow 로 번역), 없으면 전체.
                     const sc = this.flowScope;
-                    if (!sc) return this.allGroups;
-                    return this.allGroups.filter(g => (g.flowName || '') === sc.flow);
+                    if (sc) return this.allGroups.filter(g => (g.flowName || '') === sc.flow);
+                    // 시스템 필터(?system=) — nav 의 그 시스템 flow 집합으로 좁힌다.
+                    if (this.systemFlows) return this.allGroups.filter(g => this.systemFlows.has(g.flowName || ''));
+                    return this.allGroups;
                 },
 
                 // FormatMetricValueShort(AverageTime/StdDeviation). 기본 초 단위, "ms로 보기" 시 정수 ms.
@@ -935,14 +950,14 @@
                                 robustCv: c.robustCv, delayCount: c.delayCount || 0, tier: this.tierLabel(this.blockTier(c))
                             });
                         }
-                        const model = { title: this.flowParam || '전체', cautionCv: this.cautionCv, dangerCv: this.dangerCv, rows };
+                        const model = { title: this.flowParam || this.systemParam || '전체', cautionCv: this.cautionCv, dangerCv: this.dangerCv, rows };
                         const res = await fetch('/api/heatmap/export-excel', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(model)
                         });
                         if (!res.ok) throw new Error('HTTP ' + res.status);
-                        let fn = `Heatmap_${this.flowParam || '전체'}_${this._stamp()}.xlsx`;
+                        let fn = `Heatmap_${this.flowParam || this.systemParam || '전체'}_${this._stamp()}.xlsx`;
                         const cd = res.headers.get('Content-Disposition');
                         if (cd) {
                             const star = cd.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
