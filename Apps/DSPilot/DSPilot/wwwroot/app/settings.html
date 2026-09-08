@@ -97,6 +97,16 @@
         .theme-swatch-dark { background: #1c2333; color: #9fb4ff; border-color: #2c3550; }
         .theme-check { position: absolute; top: 8px; right: 8px; font-size: 18px; color: var(--color-primary); opacity: 0; transition: opacity .15s; }
         .theme-opt.is-active .theme-check { opacity: 1; }
+        /* 화면 폭 선택(자동/기본/넓게) — 테마 카드와 같은 톤, 3열. 스와치는 '사이드바+본문' 미니 도식 */
+        .theme-choice.is-3 { grid-template-columns: 1fr 1fr 1fr; }
+        .theme-swatch-width { background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); color: var(--color-primary); }
+        .width-mini { display: flex; gap: 2px; width: 28px; height: 18px; padding: 2px; border: 1px solid currentColor; border-radius: 3px; box-sizing: border-box; }
+        .width-mini i { display: block; height: 100%; background: currentColor; opacity: .35; border-radius: 1px; }
+        .width-mini .wm-side { width: 5px; opacity: .8; }
+        .width-mini .wm-body { flex: 1; }
+        .width-mini.wm-fixed .wm-body { flex: 0 0 9px; margin: 0 auto; }
+        .width-mini.wm-auto .wm-body { flex: 0 0 13px; margin: 0 auto; background: repeating-linear-gradient(90deg, currentColor 0 2px, transparent 2px 4px); }
+        .theme-opt-sub { font-size: 0.7rem; color: var(--color-text-secondary); margin-top: -4px; }
         .settings-page code { background: color-mix(in srgb, var(--color-text-primary) 7%, transparent); padding: 1px 6px; border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 0.8rem; }
         .set-subhead { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--color-text-secondary); }
         .set-subhead .material-icons { font-size: 16px; color: var(--color-primary); }
@@ -918,8 +928,39 @@
                                             <span class="material-icons theme-check">check_circle</span>
                                         </button>
                                     </div>
+                                    <label class="form-label" style="margin-top:14px;">화면 폭</label>
+                                    <div class="theme-choice is-3">
+                                        <button type="button" class="theme-opt" :class="{ 'is-active': contentWidth === 'auto' }"
+                                                @click="setContentWidth('auto')" :aria-pressed="contentWidth === 'auto'">
+                                            <span class="theme-swatch theme-swatch-width">
+                                                <span class="width-mini wm-auto"><i class="wm-side"></i><i class="wm-body"></i></span>
+                                            </span>
+                                            <span class="theme-opt-label">자동</span>
+                                            <span class="theme-opt-sub">창 2200px 이상이면 넓게</span>
+                                            <span class="material-icons theme-check">check_circle</span>
+                                        </button>
+                                        <button type="button" class="theme-opt" :class="{ 'is-active': contentWidth === 'fixed' }"
+                                                @click="setContentWidth('fixed')" :aria-pressed="contentWidth === 'fixed'">
+                                            <span class="theme-swatch theme-swatch-width">
+                                                <span class="width-mini wm-fixed"><i class="wm-side"></i><i class="wm-body"></i></span>
+                                            </span>
+                                            <span class="theme-opt-label">기본</span>
+                                            <span class="theme-opt-sub">최대 1400px, 가운데 정렬</span>
+                                            <span class="material-icons theme-check">check_circle</span>
+                                        </button>
+                                        <button type="button" class="theme-opt" :class="{ 'is-active': contentWidth === 'wide' }"
+                                                @click="setContentWidth('wide')" :aria-pressed="contentWidth === 'wide'">
+                                            <span class="theme-swatch theme-swatch-width">
+                                                <span class="width-mini wm-wide"><i class="wm-side"></i><i class="wm-body"></i></span>
+                                            </span>
+                                            <span class="theme-opt-label">넓게</span>
+                                            <span class="theme-opt-sub">화면 전체 폭 사용</span>
+                                            <span class="material-icons theme-check">check_circle</span>
+                                        </button>
+                                    </div>
                                     <small class="settings-hint">
                                         선택은 이 브라우저에 저장되어 모든 페이지에 즉시 적용됩니다.
+                                        화면 폭은 분석 페이지(생산·설비효율, 추이, 가동시간, 동작편차, 이상·알람)에 적용되며, 각 페이지 헤더의 폭 아이콘으로도 바꿀 수 있습니다.
                                     </small>
                                 </div>
                             </div>
@@ -1593,7 +1634,7 @@
     <script>
         function settingsApp() {
             return {
-                s: null, aasx: {}, loading: true, busy: false, dark: false,
+                s: null, aasx: {}, loading: true, busy: false, dark: false, contentWidth: 'auto',
                 settingsDirty: false,
                 _baseline: null, // 로드 직후 s 스냅샷(JSON) — 내용 비교식 dirty 판정 기준
                 toast: { show: false, msg: '', type: 'success' },
@@ -1638,6 +1679,8 @@
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
+                    this.contentWidth = this.readContentWidth();
+                    window.addEventListener('storage', (e) => { if (e.key === 'dspilot-content-width') this.contentWidth = this.readContentWidth(); });
                     await this.load();
                     // Max 권장값은 14일 통계라 설정 로드와 분리(실패해도 페이지는 정상 동작).
                     this.loadRecommendedMax();
@@ -2167,6 +2210,16 @@
                     localStorage.setItem('dspilot-theme', val);
                     document.documentElement.classList.toggle('dark-theme', this.dark);
                     window.dispatchEvent(new StorageEvent('storage', { key: 'dspilot-theme', newValue: val }));
+                },
+                // 화면 폭(auto|fixed|wide): shell.js 가 storage 이벤트로 <html>.dsp-wide 를 갱신(설정 페이지 자체는 제외 대상).
+                readContentWidth() {
+                    const v = localStorage.getItem('dspilot-content-width');
+                    return (v === 'fixed' || v === 'wide') ? v : 'auto';
+                },
+                setContentWidth(v) {
+                    this.contentWidth = v;
+                    localStorage.setItem('dspilot-content-width', v);
+                    window.dispatchEvent(new StorageEvent('storage', { key: 'dspilot-content-width', newValue: v }));
                 },
 
                 async apiGet(url) {
