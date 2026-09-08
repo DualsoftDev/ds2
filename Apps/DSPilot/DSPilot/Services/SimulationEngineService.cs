@@ -756,6 +756,13 @@ public sealed class SimulationEngineService : IDisposable
     /// 조회·식별 키는 <c>systemId</c> 컬럼이다 — plc.name 에는 UNIQUE 가 걸려 있어 이름을 키로 쓰면
     /// System 이름 변경이나 이름 중복에서 깨진다(이름은 표시용).
     /// id=1('DSPilot', systemId NULL) 기본 행은 귀속 미상 태그의 버킷으로 그대로 남는다.
+    /// <para>
+    /// (GUID, 이름) 이중 키(<see cref="PlcOwnerReconciler"/>): GUID 행이 없고 같은 이름의 고아 행(현재 모델의
+    /// 어느 System 도 아닌 systemId)이 정확히 하나면 새 행을 만들지 않고 그 행의 systemId 를 새 GUID 로
+    /// 재키잉한다. 2026-09-08 현장 — AASX 재업로드가 GUID 를 전부 새로 발급해 새 행+plcTag 4,983행이 생기고
+    /// 옛 GUID 행의 이력이 systemId 필터에서 전부 걸러진 사고의 재발 방지. 재키잉은 plcTag id 를 건드리지
+    /// 않으므로 plcTagLog 이력이 그대로 따라온다.
+    /// </para>
     /// </summary>
     private Dictionary<Guid, int> EnsurePlcRowsForSystems(
         SqliteConnection conn, Dictionary<string, HashSet<Guid>> ownersByAddress)
@@ -773,6 +780,32 @@ public sealed class SimulationEngineService : IDisposable
         {
             _logger.LogWarning(ex, "[Engine] System 이름 조회 실패 — plc 행 이름은 systemId 로 대체");
         }
+
+        // 재해석 입력: 모델 System 은 활성 전체(이름 있는 것) ∪ 주소 소유자로 등장한 것. 고아 판정의
+        // 기준 집합이 좁으면 살아 있는 다른 System 의 행을 고아로 오판할 수 있으므로 활성 전체를 넣는다.
+        var modelSystems = new Dictionary<Guid, PlcOwnerReconciler.ModelSystem>();
+        foreach (var kv in nameById)
+            modelSystems[kv.Key] = new PlcOwnerReconciler.ModelSystem(kv.Key, kv.Value);
+        foreach (var sid in systemIds)
+            if (!modelSystems.ContainsKey(sid))
+                modelSystems[sid] = new PlcOwnerReconciler.ModelSystem(sid, SystemKeyConvention.Key(sid));
+
+        PlcOwnerReconciler.Report? report = null;
+        try
+        {
+            var rows = conn.Query<(int Id, string? SystemId, string? Name)>("SELECT id, systemId, name FROM plc")
+                .Select(r => new PlcOwnerReconciler.PlcRow(r.Id, r.SystemId, r.Name ?? string.Empty))
+                .ToList();
+            report = PlcOwnerReconciler.Reconcile(modelSystems.Values.ToList(), rows);
+            foreach (var w in report.Warnings)
+                _logger.LogWarning("[Engine] plc 행 귀속 재해석: {Warning}", w);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Engine] plc 행 귀속 재해석 실패 — GUID 단일 키로 진행");
+        }
+        var decisionBySystem = report?.Decisions.ToDictionary(d => d.SystemId, d => d)
+            ?? new Dictionary<Guid, PlcOwnerReconciler.Decision>();
 
         foreach (var sid in systemIds)
         {
@@ -792,6 +825,28 @@ public sealed class SimulationEngineService : IDisposable
                 if (existing.HasValue) { result[sid] = existing.Value; continue; }
 
                 var name = nameById.TryGetValue(sid, out var n) && !string.IsNullOrWhiteSpace(n) ? n : key;
+
+                // 이중 키: 같은 이름의 고아 행이 유일하면 재키잉(이력 유지). 새 행 INSERT 는 이 경로가 아닐 때만.
+                if (decisionBySystem.TryGetValue(sid, out var decision)
+                    && decision.Kind == PlcOwnerReconciler.DecisionKind.Rekey
+                    && decision.PlcId is int rekeyId)
+                {
+                    var updated = conn.Execute(
+                        "UPDATE plc SET systemId = @Key WHERE id = @Id AND systemId = @OldKey",
+                        new { Key = key, Id = rekeyId, OldKey = decision.OldSystemKey });
+                    if (updated == 1)
+                    {
+                        result[sid] = rekeyId;
+                        _logger.LogWarning(
+                            "[Engine] System '{Name}' 의 GUID 가 {Old} → {New} 로 바뀜(AASX 재업로드) — 기존 plc 행 id={Id} 를 " +
+                            "새 GUID 로 재키잉(plcTag/plcTagLog 이력 유지). 새 행을 만들지 않았습니다.",
+                            name, decision.OldSystemKey, key, rekeyId);
+                        continue;
+                    }
+                    _logger.LogWarning(
+                        "[Engine] plc 행 id={Id} 재키잉이 적용되지 않음(동시 변경?) — 새 행 생성으로 진행", rekeyId);
+                }
+
                 // name UNIQUE 회피 — 같은 이름이 이미 있으면(다른 System 이거나 기본 행) systemId 앞자리를 덧붙인다.
                 if (conn.ExecuteScalar<long>("SELECT COUNT(*) FROM plc WHERE name = @Name", new { Name = name }) > 0)
                     name = $"{name}#{key[..8]}";
