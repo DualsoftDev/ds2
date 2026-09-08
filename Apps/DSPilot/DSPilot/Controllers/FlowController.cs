@@ -132,11 +132,17 @@ public class FlowController : ControllerBase
         //   대시보드/평균이 "과거 포함" 새 경계 기준으로 갱신되도록(수용기준). 화면은 응답 후 load() 로 즉시 미리보기,
         //   대시보드는 잡 완료(수초~) 시 갱신. 윈도우-부분 재계산은 대시보드 전체평균을 붕괴시켜 폐기했다.
         //   트리거 실패(다른 잡 진행 중)는 저장 성공을 무효화하지 않는다.
+        //   SkipRecompute = 통합 적용(저장)이 바로 이어서 분기를 저장하며 재계산을 한 번만 돌릴 때(그쪽 엔드포인트가 트리거).
         try
         {
-            var started = _recompute.TryStartFullHistoryRecompute(flow.Name, effectiveStart, effectiveEnd);
-            if (!started)
-                _logger.LogWarning("[Flow] 전체 이력 재계산 시작 실패(다른 잡 진행 중): {Flow}", flow.Name);
+            if (req?.SkipRecompute ?? false)
+                _logger.LogInformation("[Flow] cycle-override 저장 — 재계산 생략(요청, 후속 분기 저장이 트리거): {Flow}", flow.Name);
+            else
+            {
+                var started = _recompute.TryStartFullHistoryRecompute(flow.Name, effectiveStart, effectiveEnd);
+                if (!started)
+                    _logger.LogWarning("[Flow] 전체 이력 재계산 시작 실패(다른 잡 진행 중): {Flow}", flow.Name);
+            }
         }
         catch (Exception ex)
         {
@@ -419,7 +425,10 @@ public record CycleOverrideRequestDto(
     string? EndCallName,
     // 신호 채터링 필터(ms). ChatterSpecified=true 일 때만 반영 — null=글로벌 상속, 0=이 flow 끔, >0=전용값.
     int? ChatterFilterMs = null,
-    bool ChatterSpecified = false);
+    bool ChatterSpecified = false,
+    // true = 저장만 하고 전체 이력 재계산은 띄우지 않음. 화면의 통합 적용(저장)이 경계/채터링과 분기를 연달아 저장할 때
+    // 재계산 잡(flow 당 1개)을 마지막 분기 저장에서 한 번만 돌리기 위한 것(2026-09-08). 구 클라이언트는 기본 false.
+    bool SkipRecompute = false);
 
 public record FlowBranchesDto(
     string FlowName,

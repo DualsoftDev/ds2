@@ -1008,23 +1008,33 @@
                     this.userOverrodeChatter = true;
                     await this.load();   // 파형·경계·분기 미리보기 전부 새 필터로 재조회(서버 단일 정의)
                 },
+                // ✕ — Flow 전용 값을 지워 설정 기본값(빈칸 상속)으로. 이미 저장값도 빈칸이면 dirty 없이 원복만(미저장 타이핑 취소).
+                async resetChatterToDefault() {
+                    if (this.chatterInput === '') return;
+                    this.chatterInput = '';
+                    this.userOverrodeChatter = this.chatterFlowMs != null;
+                    await this.load();
+                },
                 async applyHeadTail() {
                     if (!this.selectedFlow) return;
                     const headName = this.headName, tailName = this.tailName;
                     if (!headName || !tailName) { this.errorMessage = '적용하려면 Head 와 Tail 을 모두 지정하세요.'; return; }
                     await this.saveBoundaryAndRecompute(headName, tailName, '적용(저장) 실패');
                 },
-                async saveBoundaryAndRecompute(headName, tailName, failLabel) {
+                // opts.skipRecompute = 저장만(서버 재계산 생략, 후속 분기 저장이 한 번에 돌림) — 통합 적용(저장) 전용. 실패는 throw.
+                async saveBoundaryAndRecompute(headName, tailName, failLabel, opts) {
+                    const skip = !!(opts && opts.skipRecompute);
                     this.overlayBusy = true; this.errorMessage = null;
                     this.recomputeError = false;
-                    this.recomputeMsg = '전체 이력 재계산 준비…';
+                    this.recomputeMsg = skip ? '경계·채터링 저장 중…' : '전체 이력 재계산 준비…';
                     try {
                         await this.apiPost('/api/flow/' + encodeURIComponent(this.selectedFlow) + '/cycle-override',
                             { startCallName: headName, endCallName: tailName,
-                              chatterFilterMs: this.chatterValueOrNull(), chatterSpecified: true });
+                              chatterFilterMs: this.chatterValueOrNull(), chatterSpecified: true, skipRecompute: skip });
                         this.userOverrodeHeadTail = false;
                         this.userOverrodeChatter = false;
                         this.tailSuggested = false; this.tailSuggestReason = '';   // 저장 완료 = 확정값
+                        if (skip) return;
                         await this.pollRecomputeStatus();
                         await this.load();
                         // 사이클 경계 변경 → 라이브 KPI/추이/히스토리도 새 기준 반영
@@ -1033,8 +1043,78 @@
                         this.syncHistory();
                     } catch (e) {
                         this.errorMessage = failLabel + ': ' + e.message;
-                        this.recomputeMsg = '';
+                        this.recomputeMsg = failLabel + ': ' + e.message; this.recomputeError = true;
+                        if (skip) throw e;
                     } finally { this.overlayBusy = false; }
+                },
+
+                // ═══ 통합 적용(저장) — 시작/끝·채터링·분기 정의를 한 버튼으로(2026-09-08). 종전엔 상단 적용(저장)과
+                //     분기 간트 하단 '분기 저장' 이 따로 있어 헷갈렸다. 셋 중 dirty 인 것만 저장하고 전체 이력 재계산은 1회.
+                //     · 분기 없음: 종전 적용(저장) 그대로(dirty 아니어도 재저장 = 재계산 강제).
+                //     · 분기 있음: 채터링 dirty 면 cycle-override(재계산 생략) → 분기 저장(재계산). 분기만 dirty 면 분기 저장만.
+                //       분기를 전부 지운 상태(저장본은 있음) = 분기 해제 경로. 분기 해제 버튼(별도, 파괴적)은 그대로 둔다.
+                get anyDirty() { return this.userOverrodeHeadTail || this.userOverrodeChatter || this.branchesDirty; },
+                get applyBusy() { return this.overlayBusy || this.recomputeBusy || this.branchBusy || this.isLoading; },
+                get applyDisabled() {
+                    if (this.applyBusy || !this.selectedFlow) return true;
+                    // 분기 없음 = 경계 저장 → Head/Tail 필수. 분기 있음 = 분기 정의가 저장 대상(경계는 잠김).
+                    if (this.branches.length === 0 && this.branchSavedCount === 0) return !this.headCallId || !this.tailCallId;
+                    return false;
+                },
+                // 버튼 옆/툴팁 요약 — 무엇이 저장될지 미리 알린다.
+                get applySummary() {
+                    const parts = [];
+                    if (this.userOverrodeHeadTail) parts.push('시작/끝 경계');
+                    if (this.userOverrodeChatter) parts.push('채터링 필터');
+                    if (this.branchesDirty) parts.push(this.branches.length === 0 && this.branchSavedCount > 0 ? '분기 해제' : '분기 ' + this.branches.length + '개');
+                    return parts.join(' · ');
+                },
+                get applyTitle() {
+                    const s = this.applySummary;
+                    if (s) return '저장: ' + s + ' — 이 Flow 의 과거 이력 전체를 새 기준으로 재계산합니다(백그라운드, 진행률 표시). 라이브 가동시간·대시보드에 과거 포함 반영';
+                    if (this.branches.length > 0) return '변경 없음 — 다시 누르면 분기 정의를 재저장하고 과거 이력 전체를 재분류합니다';
+                    return '변경 없음 — 다시 누르면 현재 시작/끝·채터링으로 과거 이력 전체를 재계산합니다';
+                },
+                // 분기 정의 사전 검증(서버 400 을 기다리지 않고) — 시작/끝 미지정·이름 중복.
+                branchesPrecheck() {
+                    const names = new Set();
+                    for (let i = 0; i < this.branches.length; i++) {
+                        const b = this.branches[i], label = b.name || ('분기' + (i + 1));
+                        if (!b.startCallName || !b.endCallName) return '분기 ‘' + label + '’ 의 시작/끝 call 을 lane 의 시작/끝 버튼으로 지정하세요.';
+                        const key = (b.name || '').trim().toLowerCase();
+                        if (!key) return (i + 1) + '번째 분기의 이름을 입력하세요.';
+                        if (names.has(key)) return '분기 이름 ‘' + b.name + '’ 이 중복됩니다.';
+                        names.add(key);
+                    }
+                    return null;
+                },
+                async applyAll() {
+                    if (this.applyDisabled) return;
+                    const wantBoundary = this.userOverrodeHeadTail || this.userOverrodeChatter;
+                    const branchMode = this.branches.length > 0 || this.branchSavedCount > 0;
+                    // 분기 없는 flow = 종전 적용(저장) 그대로.
+                    if (!branchMode) { await this.applyHeadTail(); return; }
+
+                    const disable = this.branches.length === 0;               // 저장본은 있는데 전부 지움 = 해제
+                    if (!disable) {
+                        const pre = this.branchesPrecheck();
+                        if (pre) { this.recomputeMsg = pre; this.recomputeError = true; this.errorMessage = pre; return; }
+                    }
+                    const wantBranches = this.branchesDirty || !wantBoundary;  // 분기만 있고 dirty 없음 = 재저장(재계산 강제)
+                    const lines = [];
+                    if (wantBoundary) lines.push('· 채터링 필터' + (this.userOverrodeHeadTail ? '·시작/끝 경계' : ''));
+                    if (wantBranches) lines.push(disable
+                        ? '· 분기 해제 → 단일 시작/끝 분석으로 복귀(과거 이력의 분기 라벨 제거)'
+                        : '· 분기 ' + this.branches.length + '개 → 설비효율 현황에 "' + this.flowName + '_분기이름" 단위로 표시');
+                    if (!window.confirm('저장합니다.\n' + lines.join('\n') + '\n\n이 Flow 의 과거 이력 전체가 새 기준으로 재계산됩니다(백그라운드). 계속할까요?')) return;
+
+                    if (wantBoundary) {
+                        const headName = this.headName, tailName = this.tailName;
+                        try { await this.saveBoundaryAndRecompute(headName, tailName, '경계·채터링 저장 실패', { skipRecompute: wantBranches }); }
+                        catch (_) { return; }   // 메시지는 saveBoundaryAndRecompute 가 채움. 분기 저장은 진행하지 않는다.
+                        if (!wantBranches) return;
+                    }
+                    await this.saveBranches(disable, { skipConfirm: true });
                 },
                 // ═══ 사이클 분기(branch) — 분기별 Head/Tail + 제외 call. 저장 = 서버 전체 이력 재분류,
                 //     설비효율(OEE)은 "부모_분기" 단위로 표시. 미리보기 = 현재 조회 창 신호로 분류한 근사이며
@@ -1397,7 +1477,7 @@
                     });
                     this._brRefresh();
                     this.branchError = '';
-                    this.branchMsg = '모델에 없는 제외 call ' + removed + '개 제거(미저장)' + (headTail ? ' — 시작/끝이 없는 분기 ' + headTail + '개는 lane 의 시작/끝 버튼으로 다시 지정하세요' : ' — 분기 저장을 눌러 반영');
+                    this.branchMsg = '모델에 없는 제외 call ' + removed + '개 제거(미저장)' + (headTail ? ' — 시작/끝이 없는 분기 ' + headTail + '개는 lane 의 시작/끝 버튼으로 다시 지정하세요' : ' — 적용(저장)을 눌러 반영');
                 },
                 brAdd() {
                     if (this.branches.length >= 8) return;
@@ -1462,14 +1542,18 @@
                         this.chartStart.getTime(), this.chartEnd ? this.chartEnd.getTime() : 0,
                         { brName: (bi) => this.brName(bi), formatMs: (ms) => this.formatMs(ms) });
                 },
-                async saveBranches(disable) {
+                // opts.skipConfirm = 통합 적용(저장)이 이미 확인을 받았을 때. 직접 호출은 '분기 해제(단일 복귀)' 버튼만 남았다.
+                async saveBranches(disable, opts) {
                     if (!this.flowName || this.branchBusy) return;
+                    const skipConfirm = !!(opts && opts.skipConfirm);
                     if (disable) {
-                        if (!window.confirm('분기를 해제하고 단일 Head/Tail 분석으로 되돌립니다.\n과거 이력의 분기 라벨이 제거되도록 전체 재계산이 실행됩니다. 계속할까요?')) return;
+                        if (!skipConfirm && !window.confirm('분기를 해제하고 단일 Head/Tail 분석으로 되돌립니다.\n과거 이력의 분기 라벨이 제거되도록 전체 재계산이 실행됩니다. 계속할까요?')) return;
                     } else {
                         if (!this.branches.length) return;
-                        if (!window.confirm('분기 정의를 저장합니다.\n이 Flow 의 과거 이력 전체가 새 분기 기준으로 재분류됩니다(백그라운드).\n설비효율 현황에는 "' + this.flowName + '_분기이름" 단위로 표시됩니다. 계속할까요?')) return;
+                        if (!skipConfirm && !window.confirm('분기 정의를 저장합니다.\n이 Flow 의 과거 이력 전체가 새 분기 기준으로 재분류됩니다(백그라운드).\n설비효율 현황에는 "' + this.flowName + '_분기이름" 단위로 표시됩니다. 계속할까요?')) return;
                     }
+                    this.recomputeError = false; this.errorMessage = null;
+                    this.recomputeMsg = disable ? '분기 해제 저장 중…' : '분기 저장 중…';
                     const list = disable ? [] : this.branches.map(b => ({
                         name: (b.name || '').trim(),
                         startCallName: b.startCallName,
@@ -1505,6 +1589,8 @@
                     } catch (e) {
                         this.branchError = (disable ? '해제' : '저장') + ' 실패: ' + e.message;
                         this.branchMsg = '';
+                        // 적용(저장) 버튼은 sticky 툴바에 있으므로 오류도 그 옆(재계산 메시지 자리)에 같이 띄운다.
+                        this.recomputeMsg = '분기 ' + this.branchError; this.recomputeError = true;
                     } finally { this.branchBusy = false; }
                 },
 
@@ -1605,7 +1691,13 @@
                     this.headCallId = null; this.tailCallId = null;
                     this.userOverrodeHeadTail = false;
                     this.userOverrodeChatter = false;   // 채터링 필터 입력도 서버 저장값으로 복귀
-                    this.errorMessage = null;
+                    // 분기 정의도 저장 스냅샷으로 복귀(통합 적용(저장)의 되돌리기 = 세 dirty 전부, 2026-09-08)
+                    if (this.branchesDirty) {
+                        try { this.branches = JSON.parse(this.branchesSaved || '[]'); } catch (_) { this.branches = []; }
+                        if (this.branchTab >= this.branches.length) this.branchTab = Math.max(0, this.branches.length - 1);
+                        this.selClear(); this.selMsg = ''; this.branchMsg = ''; this.branchError = '';
+                    }
+                    this.errorMessage = null; this.recomputeMsg = ''; this.recomputeError = false;
                     await this.load();
                 },
                 async load() {

@@ -127,11 +127,9 @@
                     </label>
                 </div>
 
-                <!-- 오른쪽: 사이클 분석 전용 액션 (적용(저장) · Excel) -->
+                <!-- 오른쪽: 사이클 분석 전용 설정 (Tail 제안 · 채터링 필터). 적용(저장)·재계산 메시지는 sticky 간트 툴바로, Excel 은 헤더 액션 슬롯으로 이동. -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end; flex-wrap:wrap;"
                      x-show="tab === 'cycle' && callLanes.length > 0" x-cloak>
-                    <span x-show="recomputeBusy || recomputeMsg" class="ct-recompute"
-                          :class="recomputeError ? 'is-err' : ''" x-text="recomputeMsg"></span>
                     <!-- Tail 1차 제안 표시 — Head 를 찍으면 서버가 Tail 후보를 골라준다. 직접 찍으면 사라진다. -->
                     <span class="ct-tailsug" x-show="tailSuggested" x-cloak
                           :title="'Tail 자동 제안: ' + tailSuggestReason + ' — 다른 Call 을 Tail 로 찍으면 해제됩니다.'">
@@ -148,17 +146,11 @@
                                @change="onChatterChanged()" @keydown.enter.prevent="$event.target.blur()"
                                :placeholder="'기본 ' + chatterGlobalMs" aria-label="신호 채터링 필터(ms)" />
                         <span>ms</span>
+                        <!-- ✕ = Flow 전용 값 지우고 설정 기본값으로 되돌림(빈칸 상속). 미리보기 즉시, 확정은 적용(저장). label 안 버튼이라 기본 동작(입력 포커스) 차단. -->
+                        <button type="button" class="ct-chatter-x" x-show="chatterInput !== ''" x-cloak
+                                @click.prevent.stop="resetChatterToDefault()"
+                                :title="'Flow 전용 값 지우고 설정 기본값(' + chatterGlobalMs + 'ms) 적용'" aria-label="채터링 필터 기본값으로">✕</button>
                     </label>
-                    <button class="btn btn-sm" :class="(userOverrodeHeadTail || userOverrodeChatter) ? 'btn-primary' : 'btn-outlined color-default'" @click="applyHeadTail()"
-                            :disabled="overlayBusy || recomputeBusy || !headCallId || !tailCallId || (branches.length > 0 && !userOverrodeChatter)"
-                            :title="(branches.length > 0 && userOverrodeChatter)
-                                ? '채터링 필터를 이 Flow 에 저장하고 과거 이력 전체를 재계산합니다(분기 판정 포함).'
-                                : branches.length > 0
-                                ? '분기 사용 중 — flow 자체 시작/끝은 잠깁니다. 경계는 각 분기 탭에서 정의하고 \'분기 저장\' 으로 반영하세요.'
-                                : '현재 Head/Tail 을 이 Flow 의 가동 경계로 저장하고, 이 Flow 의 과거 이력 전체를 새 경계로 재계산합니다(백그라운드, 진행률 표시) — 라이브 가동시간·대시보드에 과거 포함 반영'">
-                        <span class="material-icons" style="font-size:15px;">save</span>
-                        <span x-text="(userOverrodeHeadTail || userOverrodeChatter) ? '적용(저장)*' : '적용(저장)'"></span>
-                    </button>
                 </div>
             </div>
             <template x-teleport="#dsp-header-actions">
@@ -169,53 +161,6 @@
                     <span x-text="exporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
                 </button>
             </template>
-
-            <!-- ════ 기간/가동횟수 선택 — 카드 바깥 상단으로 분리(공용). 사이클 탭 + Flow 있을 때만 노출. ════ -->
-            <div class="ds-cycle-presets-bar" x-show="flow && tab === 'cycle'" x-cloak style="margin-bottom:12px;">
-                <div class="call-test-controls">
-                    <!-- 시간 프리셋 + 직접 지정(기간) -->
-                    <div class="ct-range-field">
-                        <div class="segmented">
-                            <button :class="timePreset === 'm1' ? 'is-active' : ''" @click="setRecentMinutes(1)">1분</button>
-                            <button :class="timePreset === 'm5' ? 'is-active' : ''" @click="setRecentMinutes(5)">5분</button>
-                            <button :class="timePreset === 'm30' ? 'is-active' : ''" @click="setRecentMinutes(30)">30분</button>
-                            <button :class="timePreset === 'h1' ? 'is-active' : ''" @click="setRecentHours(1)">1시간</button>
-                            <button :class="timePreset === 'h24' ? 'is-active' : ''" @click="setRecentHours(24)">24시간</button>
-                            <button :class="timePreset === 'today' ? 'is-active' : ''" @click="setToday()"
-                                    title="오늘 00:00 ~ 지금(현재 시각) — 다른 프리셋과 달리 끝점이 마지막 신호 시각이 아닌 벽시계">오늘</button>
-                            <button :class="rangePopupOpen ? 'is-active' : ''" @click="rangePopupOpen = !rangePopupOpen"
-                                    title="분석할 시작·종료 시각을 직접 지정">
-                                <span class="material-icons">calendar_today</span>기간
-                            </button>
-                        </div>
-                        <div class="ct-range-popup" x-show="rangePopupOpen" x-transition
-                             @click.outside="rangePopupOpen = false">
-                            <div class="ct-field">
-                                <label>시작</label>
-                                <input type="datetime-local" step="1" class="form-field" x-model="startTime" @change="onTimeChanged()" />
-                            </div>
-                            <div class="ct-field">
-                                <label>종료</label>
-                                <input type="datetime-local" step="1" class="form-field" x-model="endTime" @change="onTimeChanged()" />
-                            </div>
-                        </div>
-                    </div>
-                    <!-- 프리셋 기준 시각 안내 — 프리셋("최근 N분")의 끝점은 현재 시각이 아니라 *신호가 마지막으로
-                         들어온 시각*이다. 이 표시가 없으면 신호가 끊긴 뒤에도 화면이 꽉 차 보여 "실시간인데 왜
-                         헤더는 데이터 대기냐"는 오해가 생긴다(2026-07-29 현장 문의). -->
-                    <span class="ct-anchor-hint" x-show="dataAnchorHint" x-cloak x-text="dataAnchorHint"
-                          title="프리셋 기간의 끝점 = 신호가 마지막으로 들어온 시각. 공백 구간을 보려면 '기간'으로 직접 지정하세요."></span>
-                    <!-- 가동 횟수 프리셋 -->
-                    <div class="ct-cycle-presets">
-                        <span class="ct-preset-sep" title="가동 횟수 기준 — 최근 발생한 N회 가동이 들어오도록 시간 범위를 자동 설정">가동</span>
-                        <div class="segmented">
-                            <button :class="cyclePreset === 20 ? 'is-active' : ''" @click="setRecentCycles(20)" :disabled="isLoading || !selectedFlow">최근 20</button>
-                            <button :class="cyclePreset === 50 ? 'is-active' : ''" @click="setRecentCycles(50)" :disabled="isLoading || !selectedFlow">최근 50</button>
-                            <button :class="cyclePreset === 100 ? 'is-active' : ''" @click="setRecentCycles(100)" :disabled="isLoading || !selectedFlow">최근 100</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
 
             <!-- 로딩/오류 -->
             <div x-show="loading && !flow" class="progress-bar progress-bar-indeterminate" style="margin-bottom:12px;"><div class="progress-bar-fill"></div></div>
@@ -235,46 +180,104 @@
             <template x-if="flow">
                 <div class="fw-grid">
 
-                    <!-- ════ 간트 툴바 (보기 · 정렬 · 검색 · 이동/확대) — 카드 밖 sticky (2026-09-01) ════
-                         모든 탭(flow 전체·분기)이 한 간트를 공유하므로 여기 설정은 탭을 바꿔도 그대로 적용된다.
-                         Ctrl+휠 = 커서 앵커 줌(onGanttWheel). -->
-                    <div class="ct-gantt-toolbar fw-toolbar-sticky" x-show="tab === 'cycle' && callLanes.length > 0" x-cloak>
-                        <div class="ct-seg">
-                            <button :class="viewMode === 'bar' ? 'active' : ''" @click="setView('bar')"
-                                    title="실행(InTag ∪ OutTag 합집합) 막대그래프">막대</button>
-                            <button :class="viewMode === 'line' ? 'active' : ''" @click="setView('line')"
-                                    title="OutTag(명령=시작)·InTag(응답=완료) 신호 라인 그래프">InOut 라인</button>
+                    <!-- ════ 사이클 분석 메뉴바 (2줄, sticky) — 1줄: 기간/막대·라인/정렬/가동 프리셋 · 2줄: 검색/이동/확대/적용(저장).
+                         종전 카드 밖 프리셋 바(.ds-cycle-presets-bar) + sticky 간트 툴바를 한 덩어리로 합쳐 셸 헤더 아래 고정(2026-09-08).
+                         모든 탭(flow 전체·분기)이 한 간트를 공유하므로 여기 설정은 탭을 바꿔도 그대로 적용된다. Ctrl+휠 = 커서 앵커 줌(onGanttWheel). -->
+                    <div class="ct-toolbar-stack fw-toolbar-sticky" x-show="tab === 'cycle'" x-cloak>
+                        <div class="call-test-controls">
+                            <!-- 시간 프리셋 + 직접 지정(기간) -->
+                            <div class="ct-range-field">
+                                <div class="segmented">
+                                    <button :class="timePreset === 'm1' ? 'is-active' : ''" @click="setRecentMinutes(1)">1분</button>
+                                    <button :class="timePreset === 'm5' ? 'is-active' : ''" @click="setRecentMinutes(5)">5분</button>
+                                    <button :class="timePreset === 'm30' ? 'is-active' : ''" @click="setRecentMinutes(30)">30분</button>
+                                    <button :class="timePreset === 'h1' ? 'is-active' : ''" @click="setRecentHours(1)">1시간</button>
+                                    <button :class="timePreset === 'h24' ? 'is-active' : ''" @click="setRecentHours(24)">24시간</button>
+                                    <button :class="rangePopupOpen ? 'is-active' : ''" @click="rangePopupOpen = !rangePopupOpen"
+                                            title="분석할 시작·종료 시각을 직접 지정">
+                                        <span class="material-icons">calendar_today</span>기간
+                                    </button>
+                                </div>
+                                <div class="ct-range-popup" x-show="rangePopupOpen" x-transition
+                                     @click.outside="rangePopupOpen = false">
+                                    <div class="ct-field">
+                                        <label>시작</label>
+                                        <input type="datetime-local" step="1" class="form-field" x-model="startTime" @change="onTimeChanged()" />
+                                    </div>
+                                    <div class="ct-field">
+                                        <label>종료</label>
+                                        <input type="datetime-local" step="1" class="form-field" x-model="endTime" @change="onTimeChanged()" />
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- 간트 표시 방식 (막대 / InOut 라인) — 시스템 개요와 같은 자리(기간 선택 오른쪽). 모든 탭(flow 전체·분기)이 한 간트를 공유하므로 탭을 바꿔도 유지. -->
+                            <div class="ct-seg" title="간트 표시 방식">
+                                <button :class="viewMode === 'bar' ? 'active' : ''" @click="setView('bar')"
+                                        title="실행(InTag ∪ OutTag 합집합) 막대그래프">막대</button>
+                                <button :class="viewMode === 'line' ? 'active' : ''" @click="setView('line')"
+                                        title="OutTag(명령=시작)·InTag(응답=완료) 신호 라인 그래프">InOut 라인</button>
+                            </div>
+                            <!-- CALL 정렬 — '시작·끝 정렬'(시작 맨 위·끝 맨 아래·사이는 첫 신호 시각 순, Work 헤더 없음)
+                                 | 'Work 그룹'(Work 별 고정 순서 = 모델 순, 시작/끝을 바꿔도 행이 움직이지 않음). 종전엔 둘이 섞여
+                                 신호 순 정렬 사이사이에 Work 헤더가 끼어드는 충돌이 있었다(2026-09-06 분리). sticky 간트 툴바에서 여기로 이동(2026-09-08). -->
+                            <div class="ct-seg" title="CALL 행 정렬">
+                                <button :class="sortMode === 'signal' ? 'active' : ''" @click="setSortMode('signal')"
+                                        title="시작(Head) 맨 위 · 끝(Tail) 맨 아래 · 그 사이는 첫 신호 시각 순 — Work 묶음 없음">시작·끝 정렬</button>
+                                <button :class="sortMode === 'work' ? 'active' : ''" @click="setSortMode('work')"
+                                        title="Work 별로 묶은 고정 순서(모델 순) — 시작/끝을 바꿔도 행이 움직이지 않음. 분기 탭에서는 Work 헤더 클릭 = 그 Work 통째 제외/해제">Work 그룹</button>
+                            </div>
+                            <!-- 프리셋 기준 시각 안내 — 프리셋("최근 N분")의 끝점은 현재 시각이 아니라 *신호가 마지막으로
+                                 들어온 시각*이다. 이 표시가 없으면 신호가 끊긴 뒤에도 화면이 꽉 차 보여 "실시간인데 왜
+                                 헤더는 데이터 대기냐"는 오해가 생긴다(2026-07-29 현장 문의). -->
+                            <span class="ct-anchor-hint" x-show="dataAnchorHint" x-cloak x-text="dataAnchorHint"
+                                  title="프리셋 기간의 끝점 = 신호가 마지막으로 들어온 시각. 공백 구간을 보려면 '기간'으로 직접 지정하세요."></span>
+                            <!-- 가동 횟수 프리셋 -->
+                            <div class="ct-cycle-presets">
+                                <span class="ct-preset-sep" title="가동 횟수 기준 — 최근 발생한 N회 가동이 들어오도록 시간 범위를 자동 설정">가동</span>
+                                <div class="segmented">
+                                    <button :class="cyclePreset === 20 ? 'is-active' : ''" @click="setRecentCycles(20)" :disabled="isLoading || !selectedFlow">최근 20</button>
+                                    <button :class="cyclePreset === 50 ? 'is-active' : ''" @click="setRecentCycles(50)" :disabled="isLoading || !selectedFlow">최근 50</button>
+                                    <button :class="cyclePreset === 100 ? 'is-active' : ''" @click="setRecentCycles(100)" :disabled="isLoading || !selectedFlow">최근 100</button>
+                                    <button :class="timePreset === 'today' ? 'is-active' : ''" @click="setToday()">오늘</button>
+                                </div>
+                            </div>
                         </div>
-                        <!-- CALL 정렬 — '시작·끝 정렬'(시작 맨 위·끝 맨 아래·사이는 첫 신호 시각 순, Work 헤더 없음)
-                             | 'Work 그룹'(Work 별 고정 순서 = 모델 순, 시작/끝을 바꿔도 행이 움직이지 않음). 종전엔 둘이 섞여
-                             신호 순 정렬 사이사이에 Work 헤더가 끼어드는 충돌이 있었다(2026-09-06 분리). -->
-                        <div class="ct-seg" title="CALL 행 정렬">
-                            <button :class="sortMode === 'signal' ? 'active' : ''" @click="setSortMode('signal')"
-                                    title="시작(Head) 맨 위 · 끝(Tail) 맨 아래 · 그 사이는 첫 신호 시각 순 — Work 묶음 없음">시작·끝 정렬</button>
-                            <button :class="sortMode === 'work' ? 'active' : ''" @click="setSortMode('work')"
-                                    title="Work 별로 묶은 고정 순서(모델 순) — 시작/끝을 바꿔도 행이 움직이지 않음. 분기 탭에서는 Work 헤더 클릭 = 그 Work 통째 제외/해제">Work 그룹</button>
-                        </div>
-                        <!-- 간트 내부 검색 — call 이름 · Work · IN/OUT 태그 주소 · I/O 쌍 이름 부분 일치(공백 = AND). 표시만 줄이고 사이클 계산은 전체 lane. -->
-                        <label class="ct-search" title="call 이름으로 행 필터 (공백으로 나누면 모두 일치해야 표시). 다른 필드는 접두어로: work:이름 · tag:주소 · api:이름">
-                            <span class="material-icons">search</span>
-                            <input type="text" x-model="laneFilter" @input.debounce.150ms="onLaneFilter()" placeholder="call 이름 검색" />
-                            <span class="ct-search-n" x-show="laneFilter" x-cloak x-text="flowAct.visibleLanes + '/' + flowAct.totalLanes"></span>
-                            <button type="button" class="ct-search-x" x-show="laneFilter" x-cloak @click="clearLaneFilter()" title="필터 해제">✕</button>
-                        </label>
-                        <span class="ct-tb-hint">간트 드래그 = 구간 선택 · Ctrl+휠 = 확대</span>
-                        <div class="ct-pan">
-                            <span class="ct-slider-lbl">이동</span>
-                            <input type="range" class="ct-range" min="0" max="1000" step="1"
-                                   :value="panPct" :disabled="!canPan" @input="onPanSlider($event.target.value)"
-                                   title="간트를 좌우로 이동 (확대했을 때 활성)">
-                        </div>
-                        <div class="ct-zoom">
-                            <span class="ct-slider-lbl">확대</span>
-                            <input type="range" class="ct-range" min="0" max="1000" step="1"
-                                   :value="zoomPct" @input="onZoomSlider($event.target.value)"
-                                   title="간트 확대/축소 (100% ~ 2400%) — 간트 위 Ctrl+휠로도 확대">
-                            <span class="ct-zoom-val" x-text="Math.round(zoom * 100) + '%'"></span>
-                            <button class="ct-zoom-reset" @click="resetZoom()" :disabled="zoom <= 1" title="전체 보기로 리셋">전체</button>
+                        <div class="ct-gantt-toolbar" x-show="callLanes.length > 0">
+                            <!-- 막대/InOut 라인 보기 토글 + CALL 정렬 토글은 상단 기간 선택 오른쪽으로 이동(시스템 개요와 위치 통일, 2026-09-08).
+                                 이 sticky 툴바 = 검색 · 이동/확대 · 적용(저장)(오른쪽 끝 — 분기 간트까지 스크롤해도 항상 보이게). -->
+                            <!-- 간트 내부 검색 — call 이름 · Work · IN/OUT 태그 주소 · I/O 쌍 이름 부분 일치(공백 = AND). 표시만 줄이고 사이클 계산은 전체 lane. -->
+                            <label class="ct-search" title="call 이름으로 행 필터 (공백으로 나누면 모두 일치해야 표시). 다른 필드는 접두어로: work:이름 · tag:주소 · api:이름">
+                                <span class="material-icons">search</span>
+                                <input type="text" x-model="laneFilter" @input.debounce.150ms="onLaneFilter()" placeholder="call 이름 검색" />
+                                <span class="ct-search-n" x-show="laneFilter" x-cloak x-text="flowAct.visibleLanes + '/' + flowAct.totalLanes"></span>
+                                <button type="button" class="ct-search-x" x-show="laneFilter" x-cloak @click="clearLaneFilter()" title="필터 해제">✕</button>
+                            </label>
+                            <span class="ct-tb-hint">간트 드래그 = 구간 선택 · Ctrl+휠 = 확대</span>
+                            <div class="ct-pan">
+                                <span class="ct-slider-lbl">이동</span>
+                                <input type="range" class="ct-range" min="0" max="1000" step="1"
+                                       :value="panPct" :disabled="!canPan" @input="onPanSlider($event.target.value)"
+                                       title="간트를 좌우로 이동 (확대했을 때 활성)">
+                            </div>
+                            <div class="ct-zoom">
+                                <span class="ct-slider-lbl">확대</span>
+                                <input type="range" class="ct-range" min="0" max="1000" step="1"
+                                       :value="zoomPct" @input="onZoomSlider($event.target.value)"
+                                       title="간트 확대/축소 (100% ~ 2400%) — 간트 위 Ctrl+휠로도 확대">
+                                <span class="ct-zoom-val" x-text="Math.round(zoom * 100) + '%'"></span>
+                                <button class="ct-zoom-reset" @click="resetZoom()" :disabled="zoom <= 1" title="전체 보기로 리셋">전체</button>
+                            </div>
+                            <!-- 적용(저장) + 재계산 진행 메시지 — 상단 ds-topbar 에서 이 sticky 툴바 오른쪽 끝으로 이동(2026-09-08).
+                                 분기 추가 후 아래로 스크롤하면 상단 버튼이 사라져 하단 '분기 저장' 과 헷갈리던 문제. 동작·활성 조건은 종전 그대로. -->
+                            <span x-show="recomputeBusy || recomputeMsg" class="ct-recompute"
+                                  :class="recomputeError ? 'is-err' : ''" x-text="recomputeMsg"></span>
+                            <!-- 통합 적용(저장): 시작/끝 · 채터링 · 분기 정의 중 dirty 인 것을 한 번에 저장(applyAll, 재계산 1회). 분기 간트 하단 '분기 저장' 은 제거(2026-09-08). -->
+                            <span class="ct-apply-sum" x-show="applySummary && !recomputeBusy && !recomputeMsg" x-cloak x-text="applySummary" title="저장 대기 중인 변경"></span>
+                            <button class="btn btn-sm" :class="anyDirty ? 'btn-primary' : 'btn-outlined color-default'" @click="applyAll()"
+                                    :disabled="applyDisabled" :title="applyTitle">
+                                <span class="material-icons" style="font-size:15px;">save</span>
+                                <span x-text="anyDirty ? '적용(저장)*' : '적용(저장)'"></span>
+                            </button>
                         </div>
                     </div>
 
@@ -299,7 +302,7 @@
                         </div>
 
                         <div class="call-test-page">
-                            <!-- 기간/가동횟수 선택 UI 는 카드 바깥 상단(.ds-cycle-presets-bar)으로 분리됨 -->
+                            <!-- 기간/가동횟수 선택 UI 는 카드 위 sticky 메뉴바(.ct-toolbar-stack 1줄)로 분리됨 -->
 
                             <!-- 오류 -->
                             <div class="alert alert-error" x-show="errorMessage">
@@ -622,7 +625,7 @@
                                                     <span class="material-icons" style="font-size:15px;">undo</span> 선택 제외 해제
                                                 </button>
                                                 <button class="btn btn-sm" :class="selCount ? 'btn-primary' : 'btn-outlined color-default'" @click="applySelExcl(true)" :disabled="!selCount"
-                                                        title="선택한 call 을 이 분기에서 한 번에 제외 (시작/끝 call 은 건너뜀) — 분기 저장 전까지는 서버 미반영">
+                                                        title="선택한 call 을 이 분기에서 한 번에 제외 (시작/끝 call 은 건너뜀) — 적용(저장) 전까지는 서버 미반영">
                                                     <span class="material-icons" style="font-size:15px;">block</span> 선택 제외 적용
                                                 </button>
                                             </div>
@@ -791,19 +794,14 @@
                                                 <template x-if="selectedRange && selectedRange.gantt === 'branch'"><span><i class="ct-sw ct-sw-range"></i> 선택 구간</span></template>
                                             </div>
 
-                                            <!-- 분기 저장/해제 -->
+                                            <!-- 분기 안내/상태 + 해제. 저장은 상단 sticky 툴바의 적용(저장) 하나로 통일(2026-09-08) — 여기 '분기 저장' 버튼 제거. -->
                                             <div class="fb-actions">
-                                                <span class="fb-hint">정의 순서 = 분류 우선순위(양쪽 통과 시 위의 분기 승) · 최대 8개 · 저장 = 서버가 이 Flow 전체 이력을 분기 기준으로 재분류</span>
+                                                <span class="fb-hint">정의 순서 = 분류 우선순위(양쪽 통과 시 위의 분기 승) · 최대 8개 · 저장은 상단 <b>적용(저장)</b> — 서버가 이 Flow 전체 이력을 분기 기준으로 재분류</span>
                                                 <span class="fa-savemsg" :class="branchError ? 'is-err' : ''" x-show="branchMsg || branchError" x-cloak x-text="branchError || branchMsg"></span>
                                                 <span style="flex:1;"></span>
                                                 <button class="btn btn-sm btn-outlined color-default" x-show="branchSavedCount > 0" x-cloak
-                                                        @click="saveBranches(true)" :disabled="branchBusy"
+                                                        @click="saveBranches(true)" :disabled="applyBusy"
                                                         title="분기를 해제하고 단일 시작/끝 분석으로 복귀 — 과거 이력의 분기 라벨을 전체 재계산으로 제거">분기 해제(단일 복귀)</button>
-                                                <button class="btn btn-sm" :class="branchesDirty ? 'btn-primary' : 'btn-outlined color-default'"
-                                                        @click="saveBranches(false)" :disabled="branchBusy || branches.length === 0">
-                                                    <span class="material-icons" style="font-size:15px;">save</span>
-                                                    <span x-text="branchesDirty ? '분기 저장*' : '분기 저장'"></span>
-                                                </button>
                                             </div>
                                         </div>
                                     </template>
@@ -1003,8 +1001,6 @@
                             <button :class="timePreset === 'h1' ? 'is-active' : ''" @click="setRecentHours(1)" :disabled="loadingAny">1시간</button>
                             <button :class="timePreset === 'h8' ? 'is-active' : ''" @click="setRecentHours(8)" :disabled="loadingAny">8시간</button>
                             <button :class="timePreset === 'h24' ? 'is-active' : ''" @click="setRecentHours(24)" :disabled="loadingAny">24시간</button>
-                            <button :class="timePreset === 'today' ? 'is-active' : ''" @click="setToday()" :disabled="loadingAny"
-                                    title="오늘 00:00 ~ 지금(현재 시각) — 다른 프리셋과 달리 끝점이 마지막 신호 시각이 아닌 벽시계">오늘</button>
                             <button :class="rangePopupOpen ? 'is-active' : ''" @click="rangePopupOpen = !rangePopupOpen"
                                     title="분석할 시작·종료 시각을 직접 지정 (모든 Flow 공통)">
                                 <span class="material-icons">calendar_today</span>기간
@@ -1036,6 +1032,7 @@
                             <button :class="cyclePreset === 20 ? 'is-active' : ''" @click="setRecentCycles(20)" :disabled="loadingAny">최근 20</button>
                             <button :class="cyclePreset === 50 ? 'is-active' : ''" @click="setRecentCycles(50)" :disabled="loadingAny">최근 50</button>
                             <button :class="cyclePreset === 100 ? 'is-active' : ''" @click="setRecentCycles(100)" :disabled="loadingAny">최근 100</button>
+                            <button :class="timePreset === 'today' ? 'is-active' : ''" @click="setToday()" :disabled="loadingAny">오늘</button>
                         </div>
                     </div>
                 </div>

@@ -67,7 +67,10 @@
         .ct-preset-sep { padding-left: 10px; border-left: 1px solid var(--color-lines-strong); font-size: 0.68rem; font-weight: 800; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
         /* 프리셋 앵커(신호 마지막 시각) 지연 안내 — 프리셋 끝점이 벽시계 now 가 아님을 알린다.
            경고색(앰버)이지만 배지가 아니라 텍스트 — 상시 노출이 아니라 지연 1분 이상일 때만 뜬다. */
-        .ct-anchor-hint { font-size: 0.72rem; font-weight: 700; color: var(--color-warning, #b45309); white-space: nowrap; }
+        /* 앵커 힌트("기준: 신호 마지막 …")는 남는 폭만 쓰는 늘어나는 항목(flex-basis 0 + min-width 0) — 길어도 옆 그룹(가동 프리셋)을
+           다음 줄로 밀지 않고 자기만 말줄임된다(전문은 title). 2026-09-08 */
+        .ct-anchor-hint { font-size: 0.72rem; font-weight: 700; color: var(--color-warning, #b45309); white-space: nowrap;
+                          flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         /* 시작·종료 직접 지정 팝업 */
         .ct-range-field { position: relative; min-width: 0; }
         .ct-range-popup { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; display: flex; gap: 12px; padding: 14px 16px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16); }
@@ -104,6 +107,8 @@
         .ct-chip.is-custom { color: var(--color-primary); border-color: color-mix(in srgb, var(--color-primary) 50%, transparent); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
         .ct-recompute { font-size: 0.74rem; font-weight: 700; color: var(--color-primary); font-variant-numeric: tabular-nums; }
         .ct-recompute.is-err { color: var(--color-error, #d33); }
+        /* 적용(저장) 옆 저장 대기 요약("채터링 필터 · 분기 2개") — 재계산 메시지가 없을 때만 보인다. */
+        .ct-apply-sum { font-size: 0.7rem; font-weight: 700; color: var(--color-primary); white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
         /* Tail 1차 제안 칩 — 확정이 아니라 '입력 보조'라 중립 톤(테두리 점선). 직접 찍으면 사라진다. */
         .ct-tailsug { display: inline-flex; align-items: center; gap: 3px; font-size: 0.66rem; font-weight: 700;
                       color: var(--color-primary); border: 1px dashed color-mix(in srgb, var(--color-primary) 55%, transparent);
@@ -122,6 +127,9 @@
                          background: transparent; color: inherit; padding: 0 2px; outline: none; }
         .ct-chatter-in:focus { border-bottom-color: var(--color-primary); }
         .ct-chatter-in::placeholder { opacity: .6; font-weight: 500; }
+        .ct-chatter-x { border: none; background: transparent; cursor: pointer; font: inherit; font-size: 0.72rem; line-height: 1;
+                        color: var(--color-text-secondary); padding: 0 0 0 2px; margin-right: -3px; }
+        .ct-chatter-x:hover { color: var(--color-error, #d33); }
         .ct-mono { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
 
         /* 간트 layout (헤어라인 박스, 그림자 없음)
@@ -238,6 +246,11 @@
            분기별 간트 카드까지 스크롤해도 보기/이동/확대에 바로 손이 닿는다(2026-09-01).
            z-index 는 셸 헤더(40)보다 낮고 카드 내용물보다 높게. */
         .fw-toolbar-sticky { position: sticky; top: 64px; z-index: 30; box-shadow: 0 3px 12px rgba(15, 30, 50, 0.08); }
+        /* 단일 flow 사이클 분석 메뉴바(2줄) — 1줄 프리셋(.call-test-controls) + 2줄 간트 툴바(.ct-gantt-toolbar)를 한 카드로 묶어
+           통째로 sticky(2026-09-08). 안쪽 두 줄은 자기 테두리/그림자를 버리고 가운데 구분선 하나만 남긴다. */
+        .ct-toolbar-stack { display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+        .ct-toolbar-stack > .call-test-controls { border: none; border-radius: var(--radius-md) var(--radius-md) 0 0; padding: 8px 10px; }
+        .ct-toolbar-stack > .ct-gantt-toolbar { border: none; border-top: 1px solid var(--color-lines); border-radius: 0 0 var(--radius-md) var(--radius-md); box-shadow: none; }
         .ct-tb-hint { font-size: 0.66rem; color: var(--color-text-secondary); }
         /* ── 세그먼트 컨트롤(.segmented / .ct-seg): swiss.css 공용 규칙이 단일 소스.
            (ds.css 가 swiss.css 를 @import → 프리셋·막대/InOut 토글 모두 통일된 룩 상속)
