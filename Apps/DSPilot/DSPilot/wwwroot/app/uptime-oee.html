@@ -275,6 +275,9 @@
                                 <!-- 위의 '대기(고장 여파)'(분모 안, 정산 바에 그려지는 몫)와 다른 양 — 이쪽은 기준을
                                      넘겨 비생산으로 승격돼 분모에서 아예 빠진 대기다. 라벨로 구분한다. -->
                                 <span x-show="oee && oee.waitWallMs > 0" title="라인 내 다른 설비 고장으로 서 있던 시간 중 판정 기준을 넘겨 비생산으로 승격된 몫 — 생산가능시간(분모)에서 아예 빠지고 고장 건수에도 미반영">대기 · 분모 제외분 <b x-text="durSum(oee.waitWallMs)"></b> <span class="up-codeish">분모 밖·건수 제외</span></span>
+                                <!-- 진행 중(열린 사이클, doc/26) — 마지막 완료 사이클 이후 다음 시작 신호가 아직 없는 시간. 가동·비가동·비생산
+                                     어느 쪽도 아니라 분모 밖에 두고, 다음 사이클이 시작되면 그 사이클 행으로 확정된다(정지 중에 A 가 미리 내려가지 않음). -->
+                                <span x-show="oee && oee.inProgressWallMs > 0" title="마지막 완료 사이클 이후 다음 시작 신호가 아직 오지 않은 시간 — 아직 어떤 상태도 아닙니다. 가용성 분모 밖이며, 다음 사이클이 시작되면 그 사이클 행으로 확정·분류됩니다.">진행 중 <b x-text="durSum(oee.inProgressWallMs)"></b> <span class="up-codeish">분모 밖·미확정</span></span>
                                 <span>가동시간 이상치 <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 평균</span></span>
                             </div>
                         </div>
@@ -556,8 +559,9 @@
                                         <tr :class="selectedIds[d.id] ? 'ds-row-selected' : ''">
                                             <td class="cb-col" data-label="선택">
                                                 <input type="checkbox" class="up-dt-cb" :checked="!!selectedIds[d.id]"
+                                                       :disabled="isInProgressDt(d)"
                                                        @change="toggleSel(d.id, $event.target.checked)"
-                                                       :title="isSyntheticDt(d) ? '계산 유래(이상치 초과 사이클) — 일괄 처리 시 이벤트 행으로 확정 저장됩니다' : '일괄 작업 대상으로 선택'">
+                                                       :title="isInProgressDt(d) ? '진행 중 — 다음 사이클이 시작되면 완료 행으로 확정됩니다(지금은 분류·마감 대상 아님)' : (isSyntheticDt(d) ? '계산 유래(이상치 초과 사이클) — 일괄 처리 시 이벤트 행으로 확정 저장됩니다' : '일괄 작업 대상으로 선택')">
                                             </td>
                                             <td class="num" data-label="발생" x-text="dtTime(d.startAt)"></td>
                                             <td class="num" data-label="복구" x-text="d.endAt ? dtTime(d.endAt) : '—'"></td>
@@ -572,6 +576,10 @@
                                                 <template x-if="d.deviceName"><span class="up-rank-sub" x-text="' · ' + d.deviceName"></span></template>
                                             </td>
                                             <td data-label="구분" style="white-space:nowrap;">
+                                                <!-- 진행 중(열린 사이클, doc/26) — 아직 구분이 없다. 완료 행이 되면 고장/대기/비생산으로 분류된다. -->
+                                                <template x-if="isInProgressDt(d)">
+                                                    <span style="color:var(--color-text-secondary);font-weight:700;" :title="d.note || '진행 중 — 다음 사이클이 시작되면 완료 행으로 확정·분류됩니다(집계 미반영)'">진행 중</span>
+                                                </template>
                                                 <template x-if="d.isNonProd">
                                                     <span style="color:var(--nonprod);font-weight:700;" :title="d.isWait ? '대기(고장 여파) — 같은 시간 라인 내 다른 설비 고장으로 서 있던 시간. 가용성(A) 분모 밖 · 고장 건수 미반영' : ('비생산 — 가용성(A) 분모 밖 · ' + (d.classifySource === 'manual' ? '사용자 확정' : '당일 자동 판정(장시간 정지)'))" x-text="d.isWait ? '비생산 · 대기' : '비생산'"></span>
                                                 </template>
@@ -580,7 +588,7 @@
                                                 </template>
                                                 <!-- 고장/유지보수 체크 — 합성 행(이상치 초과 사이클)도 가능(2026-07-16, doc/25):
                                                      의도된 정지가 이상치로 잡혔을 때 체크 해제 시 서버가 실제 행으로 승격 후 유지보수 확정. -->
-                                                <template x-if="!d.isNonProd && !d.isWait">
+                                                <template x-if="!d.isNonProd && !d.isWait && !isInProgressDt(d)">
                                                     <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;" :title="(d.isFailure ? '고장 — 클릭하면 유지보수로 변경' : '유지보수 — 클릭하면 고장으로 변경') + (isSyntheticDt(d) ? ' (계산 유래 — 변경 시 이벤트 행으로 확정 저장)' : '')">
                                                         <input type="checkbox" class="up-dt-cb" :checked="d.isFailure" @change="setFault(d, $event.target.checked)">
                                                         <span x-text="d.isFailure ? '고장' : '유지보수'" :style="d.isFailure ? 'color:var(--oee-fault);font-weight:700;' : 'color:var(--oee-maint);font-weight:700;'"></span>
@@ -593,7 +601,9 @@
                                                 <span class="ds-status" :class="d.status === 'open' ? 'bad' : 'ok'" x-text="d.status === 'open' ? '진행중' : '복구'"></span>
                                             </td>
                                             <td data-label="구분 변경" style="white-space:nowrap;">
+                                                <span x-show="isInProgressDt(d)" class="up-codeish" title="열린 사이클은 아직 분류 대상이 아닙니다 — 다음 사이클 시작 시 완료 행이 되면 여기서 구분을 바꿀 수 있습니다.">완료 후 분류</span>
                                                 <button class="btn btn-sm btn-outlined" style="padding:3px 8px; font-size:0.68rem;"
+                                                        x-show="!isInProgressDt(d)"
                                                         :disabled="dtReclassBusy"
                                                         :title="d.isNonProd ? '이 구간을 비가동(고장)으로 확정 — 가용성(A)이 다시 깎입니다' : '이 구간을 비생산으로 확정 — 가용성(A) 분모에서 빠집니다'"
                                                         @click="reclassifyDt(d, !d.isNonProd)"
@@ -773,7 +783,7 @@
                             <div class="up-cm-head">
                                 <b>비가동(정지) 판정</b>
                                 <span>가동시간이 14일 평균의 <b x-text="cm.idle + '배'"></b>를 넘긴 사이클을 정지로 계상합니다. 그 미만의 느린 사이클은 정상 — 속도 저하는 성능(P)이 흡수합니다.
-                                    <b>가동이 멈춰 사이클이 아예 들어오지 않을 때도 이 시간이 지나면 정지로 감지합니다</b> — 감지와 계상 기준이 같습니다.</span>
+                                    <b>아직 끝나지 않은 사이클이 이 시간을 넘기면 정지 로그에 '진행 중'으로 표시되고</b>, 다음 사이클이 시작되는 순간 완료 행으로 확정·계상됩니다 — 표시와 계상 기준이 같습니다.</span>
                             </div>
                             <input class="up-cm-slider idle" type="range" min="1" max="5" step="0.1"
                                    :value="cm.idle" @input="cmSetIdle($event.target.value)" :disabled="cm.busy"
@@ -847,7 +857,7 @@
                         </button>
                     </div>
                     <div class="up-form-hint" style="margin-top:8px;">
-                        기준은 <b>14일 평균 가동시간(CT) × 배수</b>로 flow마다 자동 환산되고, <b>무사이클 정지 감지 시점</b>도 같은 값을 씁니다(2026-08-21 통일). 조회 시 재계산이라 과거 기간에도 즉시
+                        기준은 <b>14일 평균 가동시간(CT) × 배수</b>로 flow마다 자동 환산되고, 정지 로그의 <b>'진행 중' 표시 시점</b>도 같은 값을 씁니다. 조회 시 재계산이라 과거 기간에도 즉시
                         소급 적용되며, 정지 이벤트 로그의 <b>비생산↔비가동 보내기</b>(수동 확정)는 이 기준과 무관하게 항상 우선합니다.
                     </div>
                 </section>

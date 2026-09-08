@@ -138,6 +138,9 @@
         .hatch-wait { background-color: var(--oee-slack); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
         /* 미계측(수신 공백, doc/22 §3.4) — 회색 빗금: '모르는 시간' */
         .hatch-unmeas { background-color: color-mix(in srgb, var(--color-text-secondary) 55%, var(--color-surface)); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.5) 0 1.4px, transparent 1.4px 6px); }
+        /* 진행 중(열린 사이클, doc/26) — 옅은 회색 솔리드: 사이클이 도는 중이라는 사실은 알지만 결과(가동/정지/비생산)는
+           미확정. 빗금(정지 신호)도 가동색도 아니다. 다음 사이클 시작 시 그 사이클 행으로 확정된다. 스와치·바 공용 */
+        .seg-inprog { background-color: color-mix(in srgb, var(--color-text-secondary) 30%, var(--color-surface)); }
         /* 누적 막대(가용성 정산 / TEEP 시간 분해) 세그먼트 내부 % 라벨 — 폭이 넉넉한 구간에만 x-show 로 노출.
            .up-bar-seg 는 라벨을 중앙 정렬하고 좁을 때 clip. 어두운 구간=흰 글자+그림자 / 밝은 구간(미계측·잔여)=진한 글자. */
         .up-bar-seg { display: flex; align-items: center; justify-content: center; overflow: hidden; }

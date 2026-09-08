@@ -41,21 +41,34 @@ public class OeeDowntimeController : OeeControllerBase
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
         var flowSet = flowName is null ? ResolveSystemFlowSet(system) : null;
         var rows = await _repo.QueryDowntimeAsync(fromUtc, toUtc, status, reason, flowName, ct);
-        var merged = flowSet is null
-            ? rows.ToList()
-            : rows.Where(d => d.FlowName is null || flowSet.Contains(d.FlowName)).ToList();
+        // 구 무가동 상태머신(detectSource='nocycle') 자동 행은 정본이 아니다(2026-09-08, doc/26) — 정지 시간은 완료 사이클
+        //   행(이상치 초과 사이클)에 이미 들어 있고, 부팅 시 정리(OeeRepositoryAdapter)되지만 미러/경합 잔존에 대비해
+        //   읽기에서도 걸러낸다. 사용자가 손으로 확정한 것(classifySource='manual')은 사용자 의도라 보존.
+        static bool IsLegacyAutoNocycle(OeeDowntimeDto d)
+            => string.Equals(d.DetectSource, "nocycle", StringComparison.OrdinalIgnoreCase)
+               && !string.Equals(d.ClassifySource, "manual", StringComparison.OrdinalIgnoreCase);
+        var merged = (flowSet is null
+            ? rows
+            : rows.Where(d => d.FlowName is null || flowSet.Contains(d.FlowName)))
+            .Where(d => !IsLegacyAutoNocycle(d))
+            .ToList();
 
         // 이상치 초과 사이클(로그 테이블에 없는 failureCount 사이클 성분)을 합성해 병합 — 내역이 도넛/바 건수와 정합.
-        //   status 필터(진행중)엔 해당 없음(합성은 전부 복구됨), reason 필터가 걸리면 합성 행(고정 reason)은 제외.
+        //   진행 중(열린 사이클, doc/26) 행도 같은 집계에서 합성돼 온다(status=open) — status 필터는 합성 후 적용.
+        //   reason 필터가 걸리면 합성 행(고정 reason)은 제외.
         // 합성엔 KPI 와 동일한 집계의 flow 귀속 비생산/대기 구간이 딸려 온다 — DB 이벤트 행의 '구분' 판정에
         //   재사용해 팝업 표시와 KPI 카빙이 같은 판단을 공유한다(2026-07-08 당일 판정 모델 + doc/25 flow 스코프).
         var nonProdScoped = new List<(string? Flow, double S, double E)>();
         var waitScoped = new List<(string? Flow, double S, double E)>();
         var slackScoped = new List<(string? Flow, double S, double E)>();
-        if (!string.Equals(status, "open", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(reason))
+        if (string.IsNullOrWhiteSpace(reason))
         {
             var (overCycles, npScoped, wScoped, slScoped) =
                 await GetOverThresholdCycleDowntimeAsync(flowName, fromUtc, toUtc, ct, flowSet);
+            if (string.Equals(status, "open", StringComparison.OrdinalIgnoreCase))
+                overCycles = overCycles.Where(d => string.Equals(d.Status, "open", StringComparison.OrdinalIgnoreCase)).ToList();
+            else if (string.Equals(status, "recovered", StringComparison.OrdinalIgnoreCase))
+                overCycles = overCycles.Where(d => !string.Equals(d.Status, "open", StringComparison.OrdinalIgnoreCase)).ToList();
             nonProdScoped = npScoped;
             waitScoped = wScoped;
             slackScoped = slScoped;

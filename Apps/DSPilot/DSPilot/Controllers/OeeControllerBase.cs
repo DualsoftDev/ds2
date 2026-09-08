@@ -209,13 +209,11 @@ public abstract class OeeControllerBase : ControllerBase
         var nonProdScoped = agg.NonProdScoped ?? new List<(string? Flow, double S, double E)>();
         var waitScoped = agg.WaitScoped ?? new List<(string? Flow, double S, double E)>();
         var slackScoped = agg.SlackScoped ?? new List<(string? Flow, double S, double E)>();
-        var cycles = agg.DowntimeCycles;
-        if (cycles is null || cycles.Count == 0)
-            return (new List<OeeDowntimeDto>(), nonProdScoped, waitScoped, slackScoped);
+        var cycles = agg.DowntimeCycles ?? new List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd, bool Wait)>();
 
         var sysMap = BuildFlowSystemMap();       // flowName → systemName (AASX 미로드/미매칭이면 빈 문자열)
         var (idleMult, nonProdMult) = ResolveCtMultipliers();
-        var list = new List<OeeDowntimeDto>(cycles.Count);
+        var list = new List<OeeDowntimeDto>(cycles.Count + 8);
         var synthId = 0L;
         foreach (var c in cycles)
         {
@@ -250,6 +248,45 @@ public abstract class OeeControllerBase : ControllerBase
                 ClassifySource: c.Wait ? "auto-wait" : c.NonProd ? "auto-longstop" : "auto-cycle",
                 IsNonProd: c.NonProd,
                 IsWait: c.Wait));
+        }
+
+        // ── 진행 중(열린 사이클) 행 (2026-09-08, doc/26) — 정지 기준(평균CT × 비가동 배수)을 넘긴 것만, 물리 설비당 1행. ──
+        //   종전 무가동 상태머신의 '진행중' 이벤트 자리. 구분(고장/비생산)·건수·MTBF 어디에도 안 들어가고(분모 밖),
+        //   다음 head 가 오면 완료 행(이상치 초과 사이클)으로 바뀌어 그때 분류된다. 분기 소속은 완료 후에야 정해지므로
+        //   부모(물리 설비) 이름으로 한 줄만 낸다.
+        if (agg.InProgressScoped is { Count: > 0 } ipRows)
+        {
+            var branchMap = _settings.GetBranchVirtualMap();
+            var seenPhysical = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var (ipFlow, ipS, ipE) in ipRows)
+            {
+                if (ipFlow is null) continue;
+                var thrMs = thresholds.TryGetValue(ipFlow, out var t) ? t.AvgMs : 0;
+                if (thrMs <= 0) continue;
+                var boundary = thrMs * idleMult;
+                var elapsed = ipE - ipS;
+                if (elapsed < boundary) continue;
+                var physical = branchMap.TryGetValue(ipFlow, out var bm) ? bm.Parent : ipFlow;
+                if (!seenPhysical.Add(physical)) continue;
+                list.Add(new OeeDowntimeDto(
+                    Id: --synthId,
+                    SystemName: sysMap.TryGetValue(ipFlow, out var s2) ? s2 : "",
+                    FlowName: physical,
+                    DeviceName: null,
+                    StartAt: DateTimeOffset.FromUnixTimeMilliseconds((long)ipS).LocalDateTime,
+                    EndAt: null,
+                    DurationMs: (long)elapsed,
+                    ReasonCode: null,
+                    Category: null,
+                    IsFailure: false,
+                    DetectSource: "in-progress",
+                    SourceLogId: null,
+                    Note: $"진행 중 — 마지막 사이클 완료 후 {(elapsed / 1000.0):0}s 경과(정지 기준 {(boundary / 1000.0):0.0}s = 평균CT {(thrMs / 1000.0):0.0}s × {idleMult:0.#}배 초과). "
+                          + "다음 사이클이 시작되면 완료 행으로 확정·분류됩니다. 집계 미반영(분모 밖)."
+                          + (physical != ipFlow ? " 분기 소속은 완료 후 확정." : ""),
+                    Status: "open",
+                    ClassifySource: "pending"));
+            }
         }
         return (list, nonProdScoped, waitScoped, slackScoped);
     }
@@ -746,7 +783,8 @@ public abstract class OeeControllerBase : ControllerBase
             DownFaultWallMs: agg.DownFaultWallMs,
             WaitWallMs: agg.WaitWallMs,
             WaitSlackWallMs: agg.WaitSlackWallMs,
-            EventSlackWallMs: agg.EventSlackWallMs);
+            EventSlackWallMs: agg.EventSlackWallMs,
+            InProgressWallMs: agg.InProgressWallMs);
     }
 
     // ── 비생산 판정 모드 ─────────────────────────────────────────────────────
@@ -956,11 +994,15 @@ public abstract class OeeControllerBase : ControllerBase
         double EventSlackWallMs = 0,
         // ── 성능 P 손실 분해(2026-08-21) — 정상 사이클의 실측 MT/WT 합(클립 없음, ct=mt+wt 항등 유지) ──
         double NormalMtMs = 0,
-        double NormalWtMs = 0);
+        double NormalWtMs = 0,
+        // ── 진행 중(열린 사이클, 2026-09-08 doc/26) — flow 마지막 완료 사이클 이후 다음 head 가 없는 구간. ──
+        //   가동·비가동·비생산 어느 쪽도 주장하지 않는 네 번째 상태(미계측과 같은 자리 — 분모 밖). 과거 창엔 0.
+        double InProgressWallMs = 0,                                     // Σ_flow 진행 중 벽시계(기간·미계측·비생산 클립)
+        List<(double S, double E)>? InProgressIntervals = null,          // flow별 진행 중 구간 연결(concat, daily 슬롯용)
+        List<(string? Flow, double S, double E)>? InProgressScoped = null); // 로그용 — (flow, 마지막 사이클 끝, 지금) 클립 전
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } public long NonProdNormalCt { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
-    private sealed class NocycleRaw { public string? StartAt { get; set; } public string? EndAt { get; set; } public string? FlowName { get; set; } public int? MidCycle { get; set; } }
 
     // ── 사이클 집계 TTL 캐시 + single-flight ─────────────────────────────────
     // 폴링 엔드포인트 4종(summary/daily/actual/teep)과 ranking 의 flow별 루프가 같은 (기간,flow) 집계를
@@ -983,7 +1025,7 @@ public abstract class OeeControllerBase : ControllerBase
         IReadOnlySet<string>? flowFilter)
     {
         var sb = new System.Text.StringBuilder(256);
-        sb.Append("v29|");   // 분모/분류 모델 버전 — 모델 변경 배포 직후 L1 캐시 혼재 방지
+        sb.Append("v30|");   // 분모/분류 모델 버전 — 모델 변경 배포 직후 L1 캐시 혼재 방지
                              // v29(2026-08-27): 사이클 분기(branch) — 가상 flow("부모_분기") 스코프 집계 +
                              //                  형제가동 카빙(분모 사슬 미계측▸비생산▸형제가동▸비가동) +
                              //                  무사이클 이벤트 분기 복제
@@ -1277,7 +1319,11 @@ public abstract class OeeControllerBase : ControllerBase
         //   flow별 가동/비가동 벽시계는 분류가 끝난 뒤(패스 2, 아래 루프 이후)에 잰다 — 승격된 비생산이 A 분모에서도
         //   빠져 plannedCtMs(TEEP 축)와 벽시계 A 가 같은 파티션을 공유한다. 여기서는 flow별 정상 사이클 구간만 모아 둔다.
         double periodStartMs = ToMs(fromUtc), periodEndMs = ToMs(toUtc);
+        var nowMs = ToMs(DateTime.UtcNow);
         var flowRunByFlow = new Dictionary<string, List<(double S, double E)>>(StringComparer.Ordinal);
+        // 진행 중(열린 사이클, doc/26) — flow별 [마지막 완료 사이클 끝, 지금) ∩ 기간. 패스 2에서 분모 밖으로 카빙.
+        var inProgressByFlow = new Dictionary<string, (double S, double E)>(StringComparer.Ordinal);
+        var inProgressScoped = new List<(string? Flow, double S, double E)>();
         // 형제가동(분기 전용) — 같은 부모의 다른 분기/미분류 정상 사이클 스팬. 패스 2에서 그 분기의
         // 생산가능(availF)에서 통째로 카빙된다(카빙 사슬: 미계측 ▸ 비생산 ▸ 형제가동 ▸ 비가동).
         var siblingRunByFlow = new Dictionary<string, List<(double S, double E)>>(StringComparer.Ordinal);
@@ -1381,22 +1427,14 @@ public abstract class OeeControllerBase : ControllerBase
             double LookbackMsFor(string? f) => f is not null && thresholds.TryGetValue(f, out var thF) && thF.AvgMs > 0
                 ? Math.Max(60_000, thF.AvgMs * idleMult)
                 : maxLookbackMs;
-            // ── 무사이클 이벤트 선조회 (2026-08-30) ────────────────────────────────────────
-            //   갭 적립(아래 무사이클 패스)과 같은 소스지만, 자세(midCycle) 증거는 사이클 행 분류에도
-            //   필요해 본 루프보다 먼저 읽는다. 자세 시야는 <b>라인 전체</b>(전 flow 로드) — per-flow
-            //   조회에서 좁히면 형제 강등이 구조적으로 죽는다(MT 사전 수집과 같은 함정, 위 v28 주석).
-            //   갭 적립용 목록만 종전대로 조회 flow 로 좁힌다.
-            var nocycleAll = await GetNocycleIntervalsByFlowAsync(null, fromUtc, toUtc);
-            var nocycleRows = flowName is null
-                ? nocycleAll
-                : nocycleAll.Where(r => string.Equals(r.Flow, MapF(flowName).DbFlow, StringComparison.Ordinal)).ToList();
+            // ── 자세(tail 미완료) 증거 = 사이클 행 자체 (2026-09-08, doc/26) ─────────────────────
+            //   종전엔 무가동 상태머신이 라이브로 찍은 midCycle 도장(oeeDowntimeEvent)을 읽었다 — 행 밖의 시간 소스라
+            //   재도출로 복원되지 않고, 부모 이름 이벤트가 밤새 안 닫히면 그 도장이 분기 창 전부를 고장으로 잠갔다
+            //   (2026-09-08 #121 실측). 정본이 행이 된 뒤로는 "mt IS NULL 인 임계 초과 행" = tail 을 못 마친 채 멈춘
+            //   사이클 = 유발자 본인으로 읽는다. MT 기준(중앙 MT) 미보유 flow(tail 미정의 → mt 항상 NULL)는 증거로
+            //   쓰지 않는다 — 안 그러면 그 flow 의 모든 장기 정지가 무조건 고장이 돼 비생산 승격이 죽는다.
+            //   아래 MT 과주행 사전 수집 루프에서 같은 시야(라인 전체)로 채운다.
             var postureByFlow = new Dictionary<string, List<(double S, double E)>>(StringComparer.OrdinalIgnoreCase);
-            foreach (var pr in nocycleAll)
-            {
-                if (!pr.Mid || pr.Flow is null) continue;
-                if (!postureByFlow.TryGetValue(pr.Flow, out var pl)) postureByFlow[pr.Flow] = pl = new List<(double S, double E)>();
-                pl.Add((pr.S, pr.E));
-            }
             // ── 유발자 시야 시스템 스코프 (2026-08-30) ─────────────────────────────────────
             //   유발자/여파(대기 강등) 관계는 같은 라인(시스템) 안에서만 성립한다. 종전 Line* 판정은 전
             //   시스템을 훑어 <b>다른 PLC</b> 의 증거가 이 라인 정지의 유발자가 됐다(2026-08-28 실증:
@@ -1433,28 +1471,18 @@ public abstract class OeeControllerBase : ControllerBase
                 && kv.Value.Any(iv => iv.E > s && iv.S < e));
             // ── 자세(midCycle) 유발자 (2026-08-30) — 무사이클 이벤트에 영속된 "사이클 도중 멈춤" 증거. ──
             //   MT 과주행과 달리 <b>완료 사이클이 필요 없다</b> — Going 박제 유발자(2026-08-28 검사)도 잡는다.
-            //   구간·flow 는 상태머신이 부모(물리 설비) 이름으로 기록(분기 무관), 판정도 부모 축(dbFlow).
+            //   2026-09-08(doc/26)부터 증거 = 사이클 행(mt NULL·임계 초과, 부모 이름 키) — 판정도 부모 축(dbFlow).
             bool OwnMidCycleStall(string? f, double s, double e) => f is not null
                 && postureByFlow.TryGetValue(f, out var pv) && pv.Any(iv => iv.E > s && iv.S < e);
             bool LineHasMidCycleStall(string? self, double s, double e) => postureByFlow.Any(kv =>
                 (self is null || (!string.Equals(kv.Key, self, StringComparison.OrdinalIgnoreCase) && SameSystem(kv.Key, self)))
                 && kv.Value.Any(iv => iv.E > s && iv.S < e));
-            // <b>자기</b> flow 가 이 구간에 MT 과주행이었는가 = 이 정지의 유발자가 자신 — 무조건 고장.
-            //   과주행 사이클 행(over-cycle)은 루프 안에서 mtOverrun 지역변수로 이미 분류를 우회하는데,
-            //   무사이클 갭 경로엔 그 우회가 없었다. 갭은 정의상 사이클이 없는 구간이지만 유발자의 정지는
-            //   과주행 사이클 + 잔여 갭으로 쪼개져 잡히므로("nocycle+over-cycle 동시 감지"), 잔여 갭이
-            //   LineHasMtOverrun(self 제외)=false → usertag/폴백 분기로 떨어져 <b>유발자가 대기로 강등</b>될 수
-            //   있었다. 두 경로가 같은 규칙("going 중 걸린 flow만 고장")을 쓰도록 맞춘다.
-            bool OwnMtOverrun(string? self, double s, double e) => self is not null
-                && mtOverrunByFlow.TryGetValue(self, out var own)
-                && own.Any(iv => iv.E > s && iv.S < e);
-
             // MT 과주행 구간 사전 수집(2026-08-24) — 형제 flow 분류에 쓰이므로 본 루프보다 먼저 전 flow 를 알아야 한다.
             //   이 구간과 겹치는 다른 flow 의 정지는 "유발자가 특정된 여파"라 대기로 강등한다.
             //   signalFlows(=전 flow) 를 돈다 — targetFlows 로 좁히면 per-flow 조회에서 강등이 죽는다(위 주석).
             //   flow 당 인덱스 시크 1회(idx_dspFlowHistory_flow_recordedAt)라 라인 전체로 넓혀도 비용은 무시할 수준.
             // 분기: mtOverrunByFlow 는 <b>부모(물리 설비) 이름</b>으로 키를 잡는다 — 같은 설비의 과주행은
-            // 그 설비의 모든 분기에 "자기 유발"(OwnMtOverrun)이고, 형제 분기가 이를 외부 유발자로 오인해
+            // 그 설비의 모든 분기에 "자기 유발"(행 단위 mtOverrun)이고, 형제 분기가 이를 외부 유발자로 오인해
             // 자기 정지를 대기로 강등하면 안 된다(자기 설비가 늘어진 것). MT 임계도 부모 키(물리 축) 조회.
             var mtPreDone = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var fPre in signalFlows)
@@ -1485,6 +1513,28 @@ public abstract class OeeControllerBase : ControllerBase
                         }
                 }
                 catch (Exception ex) { _logger.LogDebug(ex, "[OEE] MT 과주행 사전 수집 실패: {Flow}", fPreDb); }
+                // tail 미완료(mt NULL) 임계 초과 행 — 자세 증거(postureByFlow 주석). CT 경계 = 그 flow 평균CT × 비가동 배수.
+                var ctThrPre = thresholds.TryGetValue(fPre, out var thPre) && thPre.AvgMs > 0 ? thPre.AvgMs * idleMult : 0;
+                if (ctThrPre > 0)
+                {
+                    var pStall = new DynamicParameters();
+                    pStall.Add("From", fromStr); pStall.Add("To", toStr); pStall.Add("Flow", fPreDb); pStall.Add("CtThr", ctThrPre);
+                    try
+                    {
+                        var stRows = await conn.QueryAsync<DtCycleRaw>(@"
+                            SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
+                            FROM dspFlowHistory
+                            WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow
+                              AND ct > @CtThr AND mt IS NULL", pStall);
+                        foreach (var r in stRows)
+                            if (r.Ct is long sc && sc > 0 && ParseUtcMs(r.RecordedAt) is double srec)
+                            {
+                                if (!postureByFlow.TryGetValue(fPreDb, out var pl)) postureByFlow[fPreDb] = pl = new List<(double S, double E)>();
+                                pl.Add((srec - sc, srec));
+                            }
+                    }
+                    catch (Exception ex) { _logger.LogDebug(ex, "[OEE] tail 미완료 행 사전 수집 실패: {Flow}", fPreDb); }
+                }
             }
 
             foreach (var f in targetFlows)
@@ -1563,6 +1613,33 @@ public abstract class OeeControllerBase : ControllerBase
                 }
                 // 벽시계 가동/비가동은 비생산 확정 후 패스 2(루프 아래)에서 — 여기선 flow별 정상 사이클 구간만 보관.
                 flowRunByFlow[f] = flowRun;
+
+                // ── 진행 중(열린 사이클) — 마지막 완료 사이클 이후 다음 head 가 아직 없는 구간(2026-09-08, doc/26). ──
+                //   창 끝(To) 이후 기록된 행이 하나라도 있으면 창 끝 시점의 사이클은 이미 완료된 것(경계 사이클) → 진행 중 아님.
+                //   없으면 [max(마지막 recordedAt, 창 시작), min(지금, 창 끝)) — 가동·비가동·비생산 어느 쪽도 주장하지 않는
+                //   네 번째 상태(분모 밖, 미계측과 같은 자리). 종전엔 무가동 상태머신이 이 구간을 정지 이벤트로 적어 넣었다.
+                //   부모(물리 설비) 축으로 잰다 — 열린 사이클의 분기 소속은 완료·반증 창이 지나야 정해진다.
+                try
+                {
+                    var nextRec = await conn.ExecuteScalarAsync<string?>(
+                        "SELECT MIN(recordedAt) FROM dspFlowHistory WHERE flowName = @Flow AND recordedAt >= @To", p);
+                    if (string.IsNullOrEmpty(nextRec))
+                    {
+                        var lastRec = await conn.ExecuteScalarAsync<string?>(
+                            "SELECT MAX(recordedAt) FROM dspFlowHistory WHERE flowName = @Flow AND recordedAt < @To", p);
+                        if (ParseUtcMs(lastRec) is double lastMs)
+                        {
+                            var ipS = Math.Max(lastMs, periodStartMs);
+                            var ipE = Math.Min(nowMs, periodEndMs);
+                            if (ipE > ipS)
+                            {
+                                inProgressByFlow[f] = (ipS, ipE);
+                                inProgressScoped.Add((f, lastMs, ipE));   // 로그용 — 시작은 실제 마지막 사이클 끝(기간 클립 전)
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex) { _logger.LogDebug(ex, "[OEE] 진행 중 구간 조회 실패: {Flow}", f); }
 
                 // 형제가동 수집(분기 전용) — 같은 부모의 다른 분기/미분류 정상 사이클 스팬. 형제 <b>정지</b>
                 // 사이클(dtCond)은 카빙에서 제외한다: 물리 정지는 이 분기에도 손실로 남아야 한다(양쪽 표시).
@@ -1655,9 +1732,12 @@ public abstract class OeeControllerBase : ControllerBase
                     // 유발자 판별 — 위 적립 범위 결정과 같은 경계를 재사용한다(두 곳이 어긋나면
                     // "적립은 초과분인데 분류는 정상" 같은 불일치가 난다).
                     var mtOverrun = r.Mt is long mtOv && mtOv > mtBoundaryMs && mtMedianMs > 0;
+                    // tail 미완료(mt NULL) 임계 초과 = 일감을 쥔 채 멈춤 — MT 과주행과 같은 강도의 유발자 증거(doc/26).
+                    //   MT 기준 미보유 flow 는 제외(tail 미정의라 mt 가 항상 NULL — 증거가 아니다).
+                    var ownStall = r.Mt is null && mtMedianMs > 0;
                     // 신호/유발자/오버라이드 세계는 부모 이름 축 — 분기 스코프는 dbFlow 로 판정한다.
                     //   부모의 abnormal 신호 = 그 부모의 모든 분기에 '자기 신호'(물리 정지는 전 분기 공통).
-                    if (applyLongStop && !mtOverrun && !OverlapsAny(toDownIv, dbFlow, startMs, rec))
+                    if (applyLongStop && !mtOverrun && !ownStall && !OverlapsAny(toDownIv, dbFlow, startMs, rec))
                     {
                         // 자세 증거 합류(2026-08-30) — own 자세=유발자 본인(무조건 고장), line 자세=같은 시스템에
                         // 유발자 특정됨(이 행은 여파 대기). MT 과주행과 동급이되 완료 사이클이 필요 없다.
@@ -1712,164 +1792,6 @@ public abstract class OeeControllerBase : ControllerBase
                 }
             }
 
-            var avgThr = thrCount > 0 ? thrSum / thrCount : 0;
-            // 무사이클 갭 — flow 스코프 처리(doc/25 §3.2): 갭은 이벤트의 flow 로 귀속하고, 차감(dedup)도 그 flow 의
-            // 감지정지 사이클만 쓴다. 종전 라인 조회의 flow-blind 차감(타 flow 사이클이 형제 갭을 지움)과 라인
-            // 공통 귀속(AddIdleFor(null))이 flow별/전체 분류 불일치의 원인이었다(2026-07-16 kit_test 실증).
-            // 부수 변화: 라인 failureCount 가 병합 세그먼트 수 → flow별 이벤트 수(Σ)로 바뀌어 정지 로그 건수와 정합.
-            // 무사이클 이벤트는 부모 이름으로 기록된다(상태머신은 분기 무관) — 스코프 조회도 부모 이름으로.
-            // 무사이클 이벤트는 위 선조회(nocycleRows — 조회 flow 스코프 적용본)를 그대로 쓴다(2026-08-30).
-            // 분기: 부모 귀속 무사이클 이벤트를 이 집계의 분기(가상) 대상으로 복제 — 물리 정지는 모든 분기의
-            // 정지다(설계: 양쪽 표시). 갭 안엔 정의상 부모 사이클이 없어 형제가동과 겹칠 수 없고, 라인/시스템
-            // 합산의 이중계상은 기존 구간 union(GetDowntimeAggregateForFlowsAsync)이 막는다.
-            if (branchMap.Count > 0 && nocycleRows.Count > 0)
-            {
-                var virtByParent = targetFlows
-                    .Where(t => branchMap.ContainsKey(t))
-                    .GroupBy(t => branchMap[t].Parent, StringComparer.OrdinalIgnoreCase)
-                    .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
-                if (virtByParent.Count > 0)
-                {
-                    var expanded = new List<(string? Flow, double S, double E, bool Mid)>(nocycleRows.Count);
-                    foreach (var r in nocycleRows)
-                    {
-                        if (r.Flow is not null && virtByParent.TryGetValue(r.Flow, out var virts))
-                            foreach (var v in virts) expanded.Add((v, r.S, r.E, r.Mid));
-                        else
-                            expanded.Add(r);
-                    }
-                    nocycleRows = expanded;
-                }
-            }
-            if (nocycleRows.Count > 0)
-            {
-                foreach (var byFlow in nocycleRows.GroupBy(r => r.Flow ?? "", StringComparer.Ordinal))
-                {
-                    var gapFlow = string.IsNullOrEmpty(byFlow.Key) ? null : byFlow.Key;
-                    var gapDb = gapFlow is null ? null : MapF(gapFlow).DbFlow;
-                    // 시스템 스코프 — 스코프 밖 flow 의 갭은 이 집계의 시간이 아니다(flow 미상 = 라인 귀속은 보존).
-                    if (gapFlow is not null && flowFilter is not null && !flowFilter.Contains(gapFlow)) continue;
-                    var thrGap = gapFlow is not null && thresholds.TryGetValue(gapFlow, out var tg) && tg.AvgMs > 0
-                        ? tg.AvgMs : avgThr;                        // 임계 미보유 flow 갭 — 라인 대표 평균 폴백(종전 동일)
-                    // 정지 이벤트 구간에서 "실제로 사이클이 돈 시간"을 차감한다 — 감지 정지 사이클(cycleIdle)
-                    // 뿐 아니라 **정상 사이클(flowRun)까지** 빼야 한다. 종전엔 cycleIdle 만 차감해, 무사이클
-                    // 이벤트가 잘못 열려 있으면(예: 사이클 재개에도 마감 실패) 정상 가동 구간이 갭으로 남아
-                    // 비생산으로 승격되고 생산가능시간이 0 이 되어 가동시간이 통째로 사라졌다
-                    // (2026-07-29 우진 현장: 사이클 1540건/1시간 구간이 가동 0·비생산 100%).
-                    // 모델 전제("가동 = 정상 사이클 ∩ 생산가능")와 같은 판단을 정지 쪽에도 적용하는 방어선 —
-                    // 이벤트 소스가 틀려도 실측 사이클이 있는 시간은 정지로 계상되지 않는다.
-                    // ★차감 대상은 "정상 길이" 사이클로 한정한다. 2026-08-19 dtCond 에 ct 기준이 들어가 정지 후
-                    //   재개 사이클(mt 정상·wt=정지 전체)은 이제 비가동 행으로 빠지지만(종전엔 '정상'으로 분류돼
-                    //   그 CT 스팬이 정지를 통째로 덮었다 — 실측: 20분 정지가 가동으로 계상), 경계 아래 잔여
-                    //   오차·recordedAt 정렬 오차 방어로 상한은 유지한다 — 한 사이클로 설명 가능한 스팬
-                    //   (thr×idleMult, 조각 버림 경계와 같은 값)만 "돈 시간"으로 인정한다.
-                    var maxNormalSpanMs = thrGap > 0 ? thrGap * idleMult : double.MaxValue;
-                    var gapDeduct = new List<(double S, double E)>();
-                    if (gapFlow is not null)
-                    {
-                        if (cycleIdleByFlow.TryGetValue(gapFlow, out var cig)) gapDeduct.AddRange(cig);
-                        if (flowRunByFlow.TryGetValue(gapFlow, out var frun))
-                            foreach (var r in frun)
-                                if (r.E - r.S <= maxNormalSpanMs) gapDeduct.Add(r);
-                    }
-                    // 정상 사이클을 빼면 갭이 사이클 사이 간격(WT)마다 잘게 쪼개진다 — 그 조각까지 정지로 세면
-                    // 1시간에 수백 건 고장이 잡혀 건수·MTBF·MTTR 이 무너진다. 그래서 비가동 판정 경계
-                    // (thr×idleMult — 사이클 행 판정의 @Thr 과 같은 값) 미만 조각은 버린다. 버린 시간은 어디에도
-                    // 적립되지 않아 패스 2 에서 자동으로 '가동간 공백'(슬랙)이 된다 — WaitSlack 과 동일 메커니즘.
-                    // 진짜 장기 정지(내부에 사이클 없음)는 차감 대상이 없어 종전과 완전히 동일하게 1건으로 남는다.
-                    var minGapMs = thrGap > 0 ? thrGap * idleMult : 0;
-                    var gaps = new List<(double S, double E)>();
-                    // 갭도 기간 클립 — 이벤트가 창 밖에서 시작/종료해도 이 기간에 속한 몫만 적립한다
-                    //   (사이클 CT 클립과 같은 이유, 2026-08-21).
-                    var gapSpans = byFlow
-                        .Select(r => (S: Math.Max(r.S, periodStartMs), E: Math.Min(r.E, periodEndMs)))
-                        .Where(r => r.E > r.S)
-                        .ToList();
-                    foreach (var g in Intervals.Subtract(gapSpans, gapDeduct))
-                    {
-                        if (g.E - g.S >= minGapMs) { gaps.Add(g); continue; }
-                        // 버린 조각 — 슬랙으로 흘려보내되 흔적을 남긴다. 종전엔 어떤 구간·스칼라에도 남지 않아
-                        // ① 정지 로그가 계속 '고장'으로 보였고(집계는 고장에서 뺐는데 화면만 고장) ② 사이클당
-                        // 공백 환산이 이벤트성 시간까지 미세 슬랙으로 세어 오염됐다.
-                        AddSlackFor(gapFlow, g);
-                    }
-                    foreach (var u0 in gaps)
-                    {
-                        var segList = new List<(double S, double E)> { u0 };
-                        if (plannedIvCommon.Count > 0)
-                        {
-                            plannedCtMs += Intervals.Total(Intervals.Intersect(segList, plannedIvCommon));
-                            segList = Intervals.Subtract(segList, plannedIvCommon);
-                        }
-                    foreach (var u in segList)
-                    {
-                        // 미계측 카빙(§3.4) — 판정·적립은 계측 잔여(uSegs)로만 하되, 이벤트(onset/repair/건수)는
-                        // 원 구간당 1건 유지: 수신 공백이 정지 하나를 N건 고장으로 쪼개 MTBF/MTTR 을 왜곡하지 않게.
-                        var uSegs = unmeasured.Count > 0
-                            ? Intervals.Subtract(new List<(double S, double E)> { u }, unmeasured)
-                            : new List<(double S, double E)> { u };
-                        var len = Intervals.Total(uSegs);
-                        if (len <= 0) continue;                     // 전 구간 미계측 — 비가동/비생산/onset 전부 미계상
-                        // 사용자 오버라이드 ① 비생산 강제 — 이벤트 flow 스코프로 겹침 카빙(부모 이름 축).
-                        var forcedNpU = Intervals.Intersect(uSegs, ScopedIv(toNonProdIv, gapDb));
-                        if (forcedNpU.Count > 0)
-                        {
-                            plannedCtMs += Intervals.Total(forcedNpU);
-                            if (gapFlow is not null)
-                                foreach (var seg2 in forcedNpU) AddNonProdFor(gapFlow, seg2, wait: false);
-                            uSegs = Intervals.Subtract(uSegs, forcedNpU);
-                            len = Intervals.Total(uSegs);
-                            if (len <= 0) continue;                 // 전 구간 비생산 확정 — 정지 미계상
-                        }
-                        // 신호 기반 분류(doc/25 §1) + 사용자 오버라이드 ② 비가동 확정 겹침 → 승격/강등 억제.
-                        //   자기 MT 과주행(=유발자 본인)은 over-cycle 경로와 동일하게 분류를 우회해 무조건 고장.
-                        if (applyLongStop && gapFlow is not null && !OwnMtOverrun(gapDb, u.S, u.E)
-                            && !OverlapsAny(toDownIv, gapDb, u.S, u.E))
-                        {
-                            // 자세 증거 합류(2026-08-30) — Going 박제 유발자의 갭은 own 자세로 무조건 고장,
-                            // 같은 시스템 형제 갭은 line 자세로 대기 강등(완료 사이클 증거 불필요).
-                            var cls = OeeMath.ClassifyStopWindow(signalRulesActive,
-                                HasOwnSignal(gapDb, u.S, u.E) || OwnMidCycleStall(gapDb, u.S, u.E),
-                                LineHasCulprit(gapDb, u.S, u.E),
-                                LineHasUnresolvedUsertag(u.S, u.E), len, thrGap, nonProdMult,
-                                lineHasMtOverrun: LineHasMtOverrun(gapDb, u.S, u.E)
-                                                  || LineHasMidCycleStall(gapDb, u.S, u.E));
-                            if (cls is OeeMath.StopClass.NonProduction or OeeMath.StopClass.WaitNonProd)
-                            {
-                                var wait = cls == OeeMath.StopClass.WaitNonProd;
-                                plannedCtMs += len;
-                                foreach (var us in uSegs)
-                                {
-                                    AddNonProdFor(gapFlow, us, wait);   // 무사이클 갭 → 비생산/대기(제외) 시각화
-                                    nonProdDetections.Add(NewNonProdDetection(
-                                        gapDb, us.S, us.E, thrGap, wait ? "wait-starve" : "nocycle-gap", nonProdMult));
-                                }
-                                continue;
-                            }
-                            if (cls == OeeMath.StopClass.WaitSlack)
-                            {
-                                waitSlackCtMs += len;               // 대기(기준 미만) — 공백 귀속, 건수·고장 미반영
-                                foreach (var us in uSegs) AddSlackFor(gapFlow, us);   // 로그 '대기(공백)' 표시 + 환산 제외
-                                continue;
-                            }
-                            // Fault(유발/usertag-only) / Down(무신호 기준 미만) → 아래 비가동 적립으로 폴스루.
-                        }
-                        idleCtMs += len;
-                        idleCalIntervals.AddRange(uSegs);
-                        AddIdleFor(gapFlow, uSegs);                 // 감지 정지(무사이클 갭) — 이벤트 flow 귀속
-                        // 무사이클 잔여의 유지보수 귀속 — 이벤트 flow 의 유지보수 구간과 겹침(미계측 오귀속 방지).
-                        var maintOverlapGapMs = Math.Min(len, uSegs.Sum(us => OverlapMs(
-                            gapDb is not null ? maintByFlow?.GetValueOrDefault(gapDb) : maintAll, us.S, us.E)));
-                        idleMaintCtMs += maintOverlapGapMs;
-                        if (OeeMath.IsMaintenanceCovered(len, maintOverlapGapMs))
-                            continue;                               // 유지보수 확정 — A 손실은 유지, 고장 통계만 제외
-                        onsets.Add(uSegs[0].S);                     // onset = 첫 계측 세그먼트 시작(공백 안 onset 금지)
-                        repairs.Add(len);
-                        dtEventCount++;
-                    }
-                    }
-                }
-            }
         }
         catch (Exception ex)
         {
@@ -1907,6 +1829,8 @@ public abstract class OeeControllerBase : ControllerBase
         var periodIv = new List<(double S, double E)> { (periodStartMs, periodEndMs) };
         double availableWallMs = 0, nonProdWallMs = 0, waitWallMs = 0, eventSlackWallMs = 0;
         double runWallMs = 0, downMaintWallMs = 0, downFaultWallMs = 0;
+        double inProgressWallMs = 0;                                    // Σ_flow 진행 중(분모 밖, doc/26)
+        var inProgressIntervals = new List<(double S, double E)>();     // flow별 진행 중 구간 연결(daily 슬롯용)
         var runWallIntervals = new List<(double S, double E)>();       // flow별 가동(생산가능 클립) 연결
         var downMaintWallIntervals = new List<(double S, double E)>(); // flow별 유지보수(비가동∩유지이벤트) 연결
         var downFaultWallIntervals = new List<(double S, double E)>(); // flow별 고장(비가동∩감지 정지) 연결
@@ -1924,6 +1848,20 @@ public abstract class OeeControllerBase : ControllerBase
             //   무너진다). 미분류 사이클 스팬도 같은 이유로 전 분기 분모에서 빠진다.
             if (siblingRunByFlow.TryGetValue(f, out var sib) && sib.Count > 0)
                 availF = Intervals.Subtract(availF, Intervals.Union(sib));
+            // 진행 중 카빙(2026-09-08, doc/26) — 카빙 사슬: 미계측 ▸ 비생산 ▸ 형제가동 ▸ <b>진행 중</b> ▸ 비가동.
+            //   열린 사이클의 시간은 아직 아무 상태도 아니다. 분모에 두면 "정지 중엔 A 가 내려가다 재가동 순간 확정"
+            //   이 아니라 "아직 모르는 시간을 비가동으로 단정"하게 된다. 지정 비생산 시각대·미계측이 덮은 부분은
+            //   그쪽 우선(스케줄로 아는 시간은 진행 중이 아니다).
+            if (inProgressByFlow.TryGetValue(f, out var ip))
+            {
+                var ipIv = Intervals.Subtract(new List<(double S, double E)> { ip }, npF.Concat(unmeasured).ToList());
+                if (ipIv.Count > 0)
+                {
+                    availF = Intervals.Subtract(availF, ipIv);
+                    inProgressWallMs += Intervals.Total(ipIv);
+                    inProgressIntervals.AddRange(ipIv);
+                }
+            }
             availableWallMs += Intervals.Total(availF);
             // 비생산 벽시계(도넛/표시) = 기간 클립 후 미계측 차감(미계측 우선 — daily 표시와 동일 규칙).
             var npClipped = Intervals.Subtract(Intervals.Intersect(npF, periodIv), unmeasured);
@@ -1995,7 +1933,9 @@ public abstract class OeeControllerBase : ControllerBase
             NonProdScoped: nonProdScoped, WaitScoped: waitScoped,
             NormalMtMs: normalMtMs, NormalWtMs: normalWtMs,
             WaitWallMs: waitWallMs, WaitSlackWallMs: waitSlackCtMs,
-            SlackScoped: slackScoped, EventSlackWallMs: eventSlackWallMs);
+            SlackScoped: slackScoped, EventSlackWallMs: eventSlackWallMs,
+            InProgressWallMs: inProgressWallMs, InProgressIntervals: inProgressIntervals,
+            InProgressScoped: inProgressScoped);
     }
 
     private static OeeNonProdDetectionLog NewNonProdDetection(
@@ -2012,52 +1952,6 @@ public abstract class OeeControllerBase : ControllerBase
             CtMultiplier = nonProdMult,
         };
 
-    /// <summary>무사이클 정지 구간 — 이벤트 flow 귀속 포함(doc/25 §3.2 flow 스코프 처리·차감의 전제).</summary>
-    private async Task<List<(string? Flow, double S, double E, bool Mid)>> GetNocycleIntervalsByFlowAsync(
-        string? flowName, DateTime fromUtc, DateTime toUtc)
-    {
-        var result = new List<(string? Flow, double S, double E, bool Mid)>();
-        var sharedDb = _pathResolver.GetSharedDbPath();
-        var dir = System.IO.Path.GetDirectoryName(sharedDb);
-        if (string.IsNullOrEmpty(dir)) return result;
-        var oeeDb = System.IO.Path.Combine(dir, "oee.db");
-        if (!System.IO.File.Exists(oeeDb)) return result;
-
-        var fromMs = ToMs(fromUtc);
-        var toMs = ToMs(toUtc);
-        try
-        {
-            await using var conn = await OpenOeeReadAsync(fromUtc, oeeDb);
-            var exists = await conn.ExecuteScalarAsync<long>(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='oeeDowntimeEvent'");
-            if (exists == 0) return result;
-
-            var flowClause = string.IsNullOrWhiteSpace(flowName) ? "" : " AND flowName = @Flow ";
-            // midCycle 컬럼은 마이그레이션(EnsureColumnAsync) 이후에만 존재 — 미러 스냅샷 등 구 스키마 방어.
-            var hasMid = (await conn.QueryAsync<string>("SELECT name FROM pragma_table_info('oeeDowntimeEvent')"))
-                .Any(n => string.Equals(n, "midCycle", StringComparison.OrdinalIgnoreCase));
-            var midCol = hasMid ? "midCycle" : "NULL";
-            var rows = await conn.QueryAsync<NocycleRaw>(
-                $@"SELECT startAt AS StartAt, endAt AS EndAt, flowName AS FlowName, {midCol} AS MidCycle
-                   FROM oeeDowntimeEvent
-                   WHERE detectSource = 'nocycle' {flowClause}",
-                new { Flow = flowName?.Trim() });
-            foreach (var r in rows)
-            {
-                var s = ParseUtcMs(r.StartAt);
-                if (s is not double sMs) continue;
-                var eMs = ParseUtcMs(r.EndAt) ?? Math.Min(toMs, ToMs(DateTime.UtcNow));
-                var clipS = Math.Max(sMs, fromMs);
-                var clipE = Math.Min(eMs, toMs);
-                if (clipE > clipS) result.Add((string.IsNullOrWhiteSpace(r.FlowName) ? null : r.FlowName, clipS, clipE, r.MidCycle == 1));
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[OEE] nocycle intervals query failed");
-        }
-        return result;
-    }
 
     protected static double? ParseUtcMs(string? s)
     {

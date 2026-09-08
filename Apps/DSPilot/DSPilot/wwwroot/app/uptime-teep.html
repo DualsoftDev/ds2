@@ -167,6 +167,10 @@
                                 <template x-if="(teep.unmeasuredMs || 0) > 0">
                                     <div class="up-bar-seg hatch-unmeas" :style="`width:${teepPct('unmeasuredMs')}%;`" :title="'미계측 ' + teepPct('unmeasuredMs') + '%'"><span class="up-bar-lbl up-bar-lbl-dark" x-show="parseFloat(teepPct('unmeasuredMs')) >= 6" x-text="teepPct('unmeasuredMs') + '%'"></span></div>
                                 </template>
+                                <!-- 진행 중(열린 사이클, doc/26) = 옅은 회색 솔리드 — 어느 상태도 아님(분모 밖). 다음 사이클 시작 시 확정. -->
+                                <template x-if="(teep.inProgressMs || 0) > 0">
+                                    <div class="up-bar-seg seg-inprog" :style="`width:${teepPct('inProgressMs')}%;`" :title="'진행 중 ' + teepPct('inProgressMs') + '% — 마지막 완료 사이클 이후 다음 시작 신호가 없는 시간(미확정)'"><span class="up-bar-lbl up-bar-lbl-dark" x-show="parseFloat(teepPct('inProgressMs')) >= 6" x-text="teepPct('inProgressMs') + '%'"></span></div>
+                                </template>
                             </div>
                             <!-- 범례 + 값 -->
                             <div class="up-teep-legend">
@@ -175,6 +179,9 @@
                                 <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 <b x-text="durSum(teep.nonProdMs || 0)" :title="sumFlowNote(teep.nonProdMs || 0)"></b> <em x-text="'(' + teepPct('nonProdMs') + '%)'"></em></div>
                                 <template x-if="(teep.unmeasuredMs || 0) > 0">
                                     <div class="up-teep-leg"><span class="sw hatch-unmeas"></span>미계측 <b x-text="durSum(teep.unmeasuredMs || 0)" :title="sumFlowNote(teep.unmeasuredMs || 0)"></b> <em x-text="'(' + teepPct('unmeasuredMs') + '%)'"></em></div>
+                                </template>
+                                <template x-if="(teep.inProgressMs || 0) > 0">
+                                    <div class="up-teep-leg" title="마지막 완료 사이클 이후 다음 시작 신호가 아직 없는 시간 — 가동·정지·비생산 어느 쪽도 아닙니다. 다음 사이클이 시작되면 그 사이클 행으로 확정됩니다."><span class="sw seg-inprog"></span>진행 중 <b x-text="durSum(teep.inProgressMs || 0)" :title="sumFlowNote(teep.inProgressMs || 0)"></b> <em x-text="'(' + teepPct('inProgressMs') + '%)'"></em></div>
                                 </template>
                             </div>
                             <div class="up-form-hint" style="margin-top:12px;">

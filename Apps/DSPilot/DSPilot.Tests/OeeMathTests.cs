@@ -178,69 +178,6 @@ public class OeeMathTests
         Assert.Null(src);
     }
 
-    // ── nocycle clear 분류 휴리스틱 (5분 임계 + MT 과주행 증거) ────────────
-
-    [Fact]
-    public void Classify_under_5min_stays_unclassified()
-    {
-        // 짧은 정지는 MT 과주행이 있어도 노이즈로 보아 도장을 찍지 않는다.
-        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(
-            4 * 60 * 1000, hasOwnMtOverrun: true, lineHasMtOverrun: true);
-        Assert.False(should);
-        Assert.Null(rc);
-        Assert.Null(cat);
-        Assert.False(isFail);
-    }
-
-    [Fact]
-    public void Classify_own_mt_overrun_is_failure()
-    {
-        // going 중 걸린 유발자 — 자기 flow 가 MT 과주행이면 고장.
-        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(
-            30 * 60 * 1000, hasOwnMtOverrun: true, lineHasMtOverrun: false);
-        Assert.True(should);
-        Assert.Equal("equipment_fault", rc);
-        Assert.Equal("unplanned", cat);
-        Assert.True(isFail);
-    }
-
-    [Fact]
-    public void Classify_sibling_mt_overrun_is_wait_not_failure()
-    {
-        // 유발자가 다른 flow 로 특정됨 → 이 flow 는 굶은 것. 고장 건수·MTBF 에서 빠진다.
-        //   종전엔 지속시간만 봐서 라인 정지 1회가 설비 수만큼 고장으로 부풀었다(2026-08-24 실측 6건).
-        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(
-            30 * 60 * 1000, hasOwnMtOverrun: false, lineHasMtOverrun: true);
-        Assert.True(should);
-        Assert.Equal("wait_starve", rc);
-        Assert.Equal("wait", cat);
-        Assert.False(isFail);
-    }
-
-    [Fact]
-    public void Classify_no_mt_evidence_stays_unclassified()
-    {
-        // 아무도 MT 과주행이 없으면 고장이라 볼 근거가 없다 — 도장을 찍지 않고 조회 시점
-        // 신호 판정(ClassifyStopWindow)에 맡긴다. DB 에 영구 박히는 오분류 방지.
-        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(
-            30 * 60 * 1000, hasOwnMtOverrun: false, lineHasMtOverrun: false);
-        Assert.False(should);
-        Assert.Null(rc);
-        Assert.Null(cat);
-        Assert.False(isFail);
-    }
-
-    [Fact]
-    public void Classify_own_mt_overrun_wins_over_sibling()
-    {
-        // 자기도 걸리고 형제도 걸린 경우 — 자기 고장이 우선(피해자로 강등되면 진짜 고장을 놓친다).
-        var (rc, _, isFail, should) = OeeMath.ClassifyByDuration(
-            30 * 60 * 1000, hasOwnMtOverrun: true, lineHasMtOverrun: true);
-        Assert.True(should);
-        Assert.Equal("equipment_fault", rc);
-        Assert.True(isFail);
-    }
-
     // ── 비생산 자동판정 (10×CT 장시간 무변화 정지) doc/22 §3.3 ─────────────
 
     [Fact]
@@ -354,66 +291,7 @@ public class OeeMathTests
     public void AutoAbandon_zero_median_is_treated_as_unlearned()
         => Assert.Equal(0, OeeMath.ResolveAutoAbandonBoundaryMs(0, 0, 1_000, floorMs: Floor));
 
-    // ── 무사이클 정지 마감/발생 판정 (2026-07-29 회귀) ──────────────────────
-    //   현장 사고: 사이클이 정상 유입(1540건/시간) 중인데 무사이클 정지가 하루 종일 open 으로 남아
-    //   그 구간이 비생산으로 승격 → 가동시간 0. 원인은 마감이 "idle < 임계" 분기 안에만 있어서,
-    //   tick 이 그 창을 놓치거나 마지막-사이클 조회가 stale 하면 영구히 닫히지 않는 것이었다.
-
-    static readonly DateTime T0 = new(2026, 7, 29, 0, 0, 0, DateTimeKind.Utc);
     const double Floor = 15_000;   // = StateReconcile tick 5s × 3 (기본 설정)
-
-    [Fact]
-    public void NoCycleActions_closes_on_resumed_cycle_even_while_idle_exceeds_threshold()
-    {
-        // ★핵심 회귀: 조회가 stale 해 idle(10분)이 임계를 넘어도, 정지 시작 이후 새 사이클이 있으면 마감한다.
-        var (close, open) = OeeMath.ResolveNoCycleActions(
-            hasOpen: true, openStartUtc: T0, lastCycleUtc: T0.AddMinutes(5),
-            idleMs: 600_000, thresholdMs: 30_000);
-        Assert.True(close);
-        Assert.True(open);   // 그 사이클 뒤로 또 임계를 넘겼으니 같은 tick 에서 재발생(startAt = 그 사이클)
-    }
-
-    [Fact]
-    public void NoCycleActions_closes_and_stays_closed_when_line_is_running()
-    {
-        // 가동 중(idle 1.5s < 임계) — 마감만 하고 새 정지는 열지 않는다.
-        var (close, open) = OeeMath.ResolveNoCycleActions(
-            hasOpen: true, openStartUtc: T0, lastCycleUtc: T0.AddMinutes(5),
-            idleMs: 1_500, thresholdMs: 30_000);
-        Assert.True(close);
-        Assert.False(open);
-    }
-
-    [Fact]
-    public void NoCycleActions_does_not_close_on_its_own_onset_cycle()
-    {
-        // startAt == lastCycle = 그 정지를 만든 사이클 자신 → 0 길이 마감 금지(종전 <= 비교의 부작용).
-        var (close, open) = OeeMath.ResolveNoCycleActions(
-            hasOpen: true, openStartUtc: T0, lastCycleUtc: T0,
-            idleMs: 600_000, thresholdMs: 30_000);
-        Assert.False(close);
-        Assert.False(open);   // 이미 열려 있으므로 중복 onset 금지
-    }
-
-    [Fact]
-    public void NoCycleActions_opens_when_threshold_exceeded_and_none_open()
-    {
-        var (close, open) = OeeMath.ResolveNoCycleActions(
-            hasOpen: false, openStartUtc: default, lastCycleUtc: T0,
-            idleMs: 45_000, thresholdMs: 30_000);
-        Assert.False(close);
-        Assert.True(open);
-    }
-
-    [Fact]
-    public void NoCycleActions_noop_when_running_and_none_open()
-    {
-        var (close, open) = OeeMath.ResolveNoCycleActions(
-            hasOpen: false, openStartUtc: default, lastCycleUtc: T0,
-            idleMs: 1_500, thresholdMs: 30_000);
-        Assert.False(close);
-        Assert.False(open);
-    }
 
     // ── 정지 로그 '구분' 판정 (2026-07-30 회귀) ─────────────────────────────
     //   현장 증상: 라인 정지 1건이 flow 13개 '고장'으로 표시. 집계는 이미 유발자만 고장으로 세고 형제는
@@ -540,18 +418,6 @@ public class OeeMathTests
         Assert.Equal(15 * 60_000.0, before!.Value, 6);
         Assert.Equal(30 * 60_000.0, after!.Value, 6);
         Assert.NotEqual(before.Value, after.Value);
-    }
-
-    [Fact]
-    public void Classify_over_8h_is_fault() // 8h↑ 도 고장(비생산 시간대 에디터가 planned 분리 — 단순 2-상태)
-    {
-        // 길이는 상한을 두지 않는다 — 단, 유발자 근거(자기 MT 과주행)는 여전히 필요하다(2026-08-24).
-        var (rc, cat, isFail, should) = OeeMath.ClassifyByDuration(
-            9L * 60 * 60 * 1000, hasOwnMtOverrun: true, lineHasMtOverrun: false);
-        Assert.True(should);
-        Assert.Equal("equipment_fault", rc);
-        Assert.Equal("unplanned", cat);
-        Assert.True(isFail);
     }
 
     // ── 사용자 직접 설정 전반 품질 (manual override) ───────────────────────

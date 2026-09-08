@@ -959,7 +959,7 @@ public class FlowMetricsService : IFlowMetricsService
         {
             if (!state.IsCycleActive) return false;
             // abandon 증거 보존(2026-08-30) — "일감을 쥔 채 멈췄던" 사실은 사이클 통계에선 폐기돼도
-            // 정지 유발자 판정(OeeDowntimeStateMachine 자세 스탬프)에는 남아야 한다. 통계 행을 쓰지
+            // 정지 유발자 판정(구 무사이클 상태머신 자세 스탬프 — 2026-09-08 이후 행의 mt NULL 증거)에는 남아야 한다. 통계 행을 쓰지
             // 않는 기존 규약(mt 오염 방지)은 그대로 — 시각 두 개만 메모한다.
             state.LastAbandonedCycleStart = state.CurrentCycleStart;
             state.LastAbandonedAt = DateTime.Now;

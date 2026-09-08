@@ -205,11 +205,12 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<UserTagAlertServic
 // userTagAlertDaily 일별 집계 backfill (purge 없음 — raw 는 영구 보존)
 builder.Services.AddHostedService<UserTagAlertAggregationService>();
 
-// OEE / 정지 이벤트 — 별도 oee.db(수동입력 자산 보존, plc.db rebuild 무관). repo scoped, 무사이클 상태머신 HostedService.
+// OEE / 정지 이벤트 — 별도 oee.db(수동입력 자산 보존, plc.db rebuild 무관). repo scoped.
+//   구 무사이클 상태머신(OeeDowntimeStateMachine)은 2026-09-08 폐기(doc/26) — 정지는 완료 사이클 행에서 조회 시 재도출하고,
+//   열린 사이클은 '진행 중'으로만 표시한다(행 밖의 시간 소스 제거).
 builder.Services.AddScoped<IOeeRepository, OeeRepositoryAdapter>();
-builder.Services.AddHostedService<OeeDowntimeStateMachine>();
 // UserTag 기반 OEE 자동수집(detectSource='usertag') — raw plcTagLog 를 직접 쿼리해 고장 onset/clear·정지원인
-// 자동분류·생산/불량을 채운다. 무사이클 상태머신과 소스 구분으로 공존. OeeSignals 설정 없으면 무동작.
+// 자동분류·생산/불량을 채운다. OeeSignals 설정 없으면 무동작.
 builder.Services.AddHostedService<OeeUserTagPollerService>();
 // Flow별 실측 CT 통계(이상치 제외) 단일 소스 — 표준CT 추천 테이블 + 자동기입이 같은 공식을 공유.
 builder.Services.AddSingleton<OeeCtStatsService>();

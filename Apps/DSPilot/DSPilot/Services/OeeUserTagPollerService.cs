@@ -23,7 +23,7 @@ namespace DSPilot.Services;
 ///   • 생산/불량 카운터(또는 펄스) → oeeProductionCount(source='plc') 주입(plc &gt; manual, 신호 없는
 ///     필드는 기존 manual 값 보존).
 ///
-/// 기존 <see cref="OeeDowntimeStateMachine"/>(detectSource='nocycle')과 소스 구분으로 충돌 없이 공존.
+/// 사이클 행 기반 정지(over-cycle 합성, doc/26)와 detectSource 로 구분돼 충돌 없이 공존.
 /// 신호 미설정 Flow(OeeSignals.Flows)는 자동수집 비활성(빈 채로 둠 — 가짜값 금지, doc/21 §10 정직성).
 ///
 /// 정밀도 한계(doc/21): 100ms 폴링·변경분만 기록 → 100ms 미만 펄스는 누락될 수 있어 고속라인은 counter
@@ -297,7 +297,7 @@ public sealed class OeeUserTagPollerService : BackgroundService
         return OeeCounterDelta.Accumulate(baseline, samples, cfg.Width);
     }
 
-    /// <summary>flow 이름 → 소속 system 이름. AASX 미로드 시 빈 맵. (OeeDowntimeStateMachine 과 동일.)</summary>
+    /// <summary>flow 이름 → 소속 system 이름. AASX 미로드 시 빈 맵. (구 무사이클 상태머신과 동일 규칙.)</summary>
     private Dictionary<string, string> BuildFlowSystemMap()
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
