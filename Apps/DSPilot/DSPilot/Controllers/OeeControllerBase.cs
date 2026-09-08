@@ -1025,7 +1025,7 @@ public abstract class OeeControllerBase : ControllerBase
         IReadOnlySet<string>? flowFilter)
     {
         var sb = new System.Text.StringBuilder(256);
-        sb.Append("v30|");   // 분모/분류 모델 버전 — 모델 변경 배포 직후 L1 캐시 혼재 방지
+        sb.Append("v31|");   // 분모/분류 모델 버전(v31 = 분기 최소 위반 판별 2026-09-08) — 모델 변경 배포 직후 L1 캐시 혼재 방지
                              // v29(2026-08-27): 사이클 분기(branch) — 가상 flow("부모_분기") 스코프 집계 +
                              //                  형제가동 카빙(분모 사슬 미계측▸비생산▸형제가동▸비가동) +
                              //                  무사이클 이벤트 분기 복제

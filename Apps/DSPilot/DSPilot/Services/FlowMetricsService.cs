@@ -624,7 +624,8 @@ public class FlowMetricsService : IFlowMetricsService
     }
 
     /// <summary>
-    /// 분기(branch) 라이브 분류 — 발화 call 집합에 대해 제외 필터만 판정(정의 순서 첫 통과 승).
+    /// 분기(branch) 라이브 분류 — 발화 call 집합에 대해 제외 필터 판정(위반 0 = 통과, 정의 순서 첫 통과 승).
+    /// 전멸이면 <b>최소 위반</b>(발화한 제외 call 종류 수가 가장 적은 분기, 유일할 때만) — 재도출 경로와 같은 규칙(2026-09-08).
     /// 라이브 사이클 경계는 flow 단일 Head/Tail 이라 분기별 Head 와 어긋날 수 있는 <b>근사</b>다 —
     /// 정본은 주기 재도출(<see cref="CycleRecomputeService"/> 병합 스트림)이 덮어쓰는 라벨.
     /// 분기 미사용 flow 는 null(비용 = 설정 조회 1회, GetEffectiveCycleRangeMs 와 동급).
@@ -639,20 +640,23 @@ public class FlowMetricsService : IFlowMetricsService
             var fired = firedCalls is null
                 ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 : new HashSet<string>(firedCalls, StringComparer.OrdinalIgnoreCase);
+            string? minName = null; var min = int.MaxValue; var minTies = 0;
             foreach (var b in set.Branches)
             {
-                var refuted = false;
+                var viol = 0;
                 foreach (var ex in b.ExcludedCallNames)
                 {
                     // 자기 Head/Tail 이 제외 목록에 있으면 무시(재도출 경로와 동일한 방어).
                     if (string.Equals(ex, b.StartCallName, StringComparison.OrdinalIgnoreCase)
                         || string.Equals(ex, b.EndCallName, StringComparison.OrdinalIgnoreCase))
                         continue;
-                    if (fired.Contains(ex)) { refuted = true; break; }
+                    if (fired.Contains(ex)) viol++;
                 }
-                if (!refuted) return b.Name;
+                if (viol == 0) return b.Name;
+                if (viol < min) { min = viol; minName = b.Name; minTies = 1; }
+                else if (viol == min) minTies++;
             }
-            return null; // 미분류
+            return minTies == 1 ? minName : null; // 최소 위반 유일 → 그 분기, 동률 → 미분류
         }
         catch
         {

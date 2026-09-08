@@ -353,6 +353,10 @@
                                                       title="어느 분기에도 정상 판별되지 않은 사이클 — 후보 분기의 제외 call 이 발화했거나 분기 시작이 없음">
                                                     <i style="background:#cfd8dc; border:1px solid #90a4ae;"></i>정상 CT 없음 <b x-text="branchPreview.un + '회 (' + branchPreview.unPct + '%)'"></b>
                                                 </span>
+                                                <span class="fb-stat is-mv" x-show="branchPreview.minViol > 0" x-cloak
+                                                      title="모든 분기가 제외 call 에 걸렸지만 발화한 제외 call 종류가 가장 적은 분기로 판별한 사이클(차종 전환 사이클 등) — 그 분기 횟수에 포함되며 리본에 촘촘한 점선 테두리로 표시. 위반 수가 동률이면 정상 CT 없음으로 남습니다">
+                                                    <i class="ct-sw-mv"></i>최소위반 판별 <b x-text="branchPreview.minViol + '회'"></b>
+                                                </span>
                                                 <span class="fb-stat" :class="branchPreview.dup > 0 ? 'is-warn' : ''"
                                                       title="둘 이상의 분기가 같은 사이클을 함께 정상 판별 — 서버는 우선순위(위의 분기)로 확정하지만, 의도한 분리라면 제외 call 을 지정해 갈라주세요">
                                                     <i class="fg-hatch"></i>CT 중복 <b x-text="branchPreview.dup + '회'"></b>
@@ -361,7 +365,7 @@
                                                       title="마지막 가동은 다음 시작이 아직 없어 진행 중 — 제외 call 이 발화하기 전이라 분기 간 중복이 구조적으로 생기므로 미완성으로 취급하고 횟수·중복·정상 CT 없음 집계에서 뺍니다">
                                                     <i style="background:#e0e5e9; border:1px dashed #78909c;"></i>진행 중 <b x-text="branchPreview.open + '회'"></b><span class="fb-hint">(미완성 · 집계 제외)</span>
                                                 </span>
-                                                <span class="fb-hint" style="flex-basis:100%;">리본의 회색(정상 CT 없음)·빨간 해치(중복) 구간을 보고 아래 분기 간트에서 제외 call 을 조정하세요.</span>
+                                                <span class="fb-hint" style="flex-basis:100%;">리본의 회색(정상 CT 없음)·빨간 해치(중복)·점선 테두리(최소위반 판별) 구간을 보고 아래 분기 간트에서 제외 call 을 조정하세요.</span>
                                             </div>
                                         </template>
                                         <template x-if="branchPreview.total === 0 && branchPreview.open === 0">
@@ -528,6 +532,7 @@
                                             </template>
                                         </template>
                                         <template x-if="flowAct.unionMode"><span><i class="ct-sw ct-sw-none"></i> 정상 CT 없음</span></template>
+                                        <template x-if="flowAct.unionMode"><span title="모든 분기가 제외 call 에 걸렸지만 발화 종류가 가장 적은 분기로 판별(분기색 + 촘촘한 점선 테두리)"><i class="ct-sw ct-sw-mv"></i> 최소위반</span></template>
                                         <template x-if="flowAct.unionMode"><span><i class="ct-sw ct-sw-hatch"></i> CT 중복</span></template>
                                         <template x-if="flowAct.unionMode"><span title="마지막 가동 — 다음 시작 전이라 판별 보류(미완성), 횟수·중복 집계 제외"><i class="ct-sw ct-sw-open"></i> 진행 중</span></template>
                                         <template x-if="selectedRange && selectedRange.gantt === 'flow'"><span><i class="ct-sw ct-sw-range"></i> 선택 구간</span></template>
@@ -559,6 +564,9 @@
                                                         <span class="fg-tab-dup" x-show="branchPreview.stats[bi] && branchPreview.stats[bi].dup > 0" x-cloak
                                                               :title="'CT 중복 ' + (branchPreview.stats[bi] ? branchPreview.stats[bi].dup : 0) + '회'"
                                                               x-text="'중복 ' + (branchPreview.stats[bi] ? branchPreview.stats[bi].dup : 0)"></span>
+                                                        <span class="fg-tab-mv" x-show="branchPreview.stats[bi] && branchPreview.stats[bi].minViol > 0" x-cloak
+                                                              :title="'최소 위반 판별 ' + (branchPreview.stats[bi] ? branchPreview.stats[bi].minViol : 0) + '회 — 제외 call 에 걸렸지만 다른 분기보다 덜 걸려 이 분기로 판별'"
+                                                              x-text="'최소위반 ' + (branchPreview.stats[bi] ? branchPreview.stats[bi].minViol : 0)"></span>
                                                     </button>
                                                 </template>
                                                 <button class="fg-tab fg-tab-add" @click="brAdd()" :disabled="branches.length >= 8"
@@ -581,6 +589,7 @@
                                                     <span class="fb-bstat">
                                                         이 분기 사이클 <b x-text="curStat.count + '회 (' + curStat.pct + '%)'"></b>
                                                         <span class="fg-dupwarn" x-show="curStat.dup > 0" x-cloak>· CT 중복 <b x-text="curStat.dup + '회'"></b></span>
+                                                        <span class="fg-mvnote" x-show="curStat.minViol > 0" x-cloak title="제외 call 에 걸렸지만 다른 분기보다 덜 걸려 이 분기로 판별된 사이클(횟수에 포함)">· 최소위반 <b x-text="curStat.minViol + '회'"></b></span>
                                                     </span>
                                                     <button type="button" class="fb-chip fb-ghost fb-ghost-btn" x-show="brUnknown(branchTab).length" x-cloak
                                                             @click="brDropUnknown()" :title="brUnknownTitle(branchTab)">
@@ -975,6 +984,7 @@
                         <span x-show="totals.branched > 0">분기 Flow <b x-text="totals.branched + '개'"></b></span>
                         <span :class="totals.dup > 0 ? 'is-warn' : ''" x-show="totals.branched > 0" title="둘 이상의 분기가 같은 가동을 정상 판별한 횟수 — 해당 Flow 에서 제외 call 로 갈라주세요">CT 중복 <b x-text="totals.dup + '회'"></b></span>
                         <span :class="totals.un > 0 ? 'is-warn' : ''" x-show="totals.branched > 0" title="어느 분기로도 판별되지 않은 가동(미분류) 횟수">정상 CT 없음 <b x-text="totals.un + '회'"></b></span>
+                        <span x-show="totals.branched > 0 && totals.minViol > 0" x-cloak title="모든 분기가 제외 call 에 걸렸지만 발화 종류가 가장 적은 분기로 판별한 가동(차종 전환 사이클 등) — 분기 횟수에 포함">최소위반 판별 <b x-text="totals.minViol + '회'"></b></span>
                     </span>
                     <span class="ov-msg" :class="msgError ? 'is-err' : ''" x-show="msg" x-cloak x-text="msg"></span>
                     <div class="fw-toolbar-actions">
@@ -1047,6 +1057,7 @@
                         <span title="분기 Flow: 리본 색 = 판별된 분기"><i class="ct-sw" style="background:linear-gradient(90deg,#2e7d32,#7b1fa2,#0277bd);"></i> 해당 분기</span>
                         <span title="둘 이상의 분기가 같은 가동을 정상 판별"><i class="ct-sw ct-sw-hatch"></i> CT 중복</span>
                         <span title="어느 분기로도 판별되지 않은 가동(미분류)"><i class="ct-sw ct-sw-none"></i> 정상 CT 없음</span>
+                        <span title="모든 분기가 제외 call 에 걸렸지만 발화 종류가 가장 적은 분기로 판별(분기색 + 촘촘한 점선 테두리)"><i class="ct-sw ct-sw-mv"></i> 최소위반</span>
                         <span title="마지막 가동 — 다음 시작 전이라 판별 보류(미완성), 횟수·중복 집계 제외"><i class="ct-sw ct-sw-open"></i> 진행 중</span>
                         <span title="PLC/수집기/DSPilot 정지로 신호를 받지 못한 구간"><i class="ct-sw" style="background:repeating-linear-gradient(135deg,#cfd8dc 0 3px,#eceff1 3px 6px); border:1px solid #b0bec5;"></i> 정보 없음</span>
                     </div>
@@ -1105,7 +1116,7 @@
                                 </template>
                                 <!-- 분기: 분기별 횟수 + 중복 + 정상 CT 없음 -->
                                 <template x-for="(st, sti) in ((slice.bp && slice.bp.stats) || [])" :key="slice.flowName + ':st' + sti">
-                                    <span class="ov-chip" :style="'--ov-c:' + st.color" :title="st.name + ' 으로 판별된 가동 ' + st.count + '회 (' + st.pct + '%)' + (st.dup ? ' · 그중 CT 중복 ' + st.dup + '회' : '')">
+                                    <span class="ov-chip" :style="'--ov-c:' + st.color" :title="st.name + ' 으로 판별된 가동 ' + st.count + '회 (' + st.pct + '%)' + (st.dup ? ' · 그중 CT 중복 ' + st.dup + '회' : '') + (st.minViol ? ' · 그중 최소위반 판별 ' + st.minViol + '회' : '')">
                                         <i class="ov-dot"></i><span x-text="st.name"></span><b x-text="st.count + '회'"></b>
                                     </span>
                                 </template>
@@ -1117,6 +1128,11 @@
                                 <template x-if="slice.bp && slice.bp.total > 0">
                                     <span class="ov-chip" :class="slice.bp.unPct >= 5 ? 'is-warn' : ''" title="어느 분기로도 판별되지 않은 가동(미분류)">
                                         <i class="ov-sw ct-sw-none"></i>정상 CT 없음 <b x-text="slice.bp.un + '회 (' + slice.bp.unPct + '%)'"></b>
+                                    </span>
+                                </template>
+                                <template x-if="slice.bp && slice.bp.minViol > 0">
+                                    <span class="ov-chip" title="모든 분기가 제외 call 에 걸렸지만 발화 종류가 가장 적은 분기로 판별한 가동(차종 전환 사이클 등) — 분기 횟수에 포함">
+                                        <i class="ov-sw ct-sw-mv"></i>최소위반 판별 <b x-text="slice.bp.minViol + '회'"></b>
                                     </span>
                                 </template>
                                 <template x-if="slice.bp && slice.bp.open > 0">

@@ -1327,7 +1327,7 @@
                     const spans = [];
                     let ctSum = 0, ctN = 0, atSum = 0, atN = 0;
                     pv.spans.forEach(sp => {
-                        if (sp.passing.indexOf(bi) === -1) return;   // 이 분기로 판별된 스팬만(중복 포함) — 사이 구간은 비어 보인다
+                        if (sp.passing.indexOf(bi) === -1 && !(sp.minViol && sp.win === bi)) return;   // 이 분기로 판별된 스팬만(중복·최소위반 승자 포함) — 사이 구간은 비어 보인다
                         const tailIn = sp.tailInBy[bi] === undefined ? null : sp.tailInBy[bi];
                         spans.push({ start: sp.sMs, end: sp.eMs, number: spans.length + 1, isOpen: sp.isOpen, tailIn });
                         if (!sp.isOpen) { ctSum += sp.eMs - sp.sMs; ctN++; }
@@ -1351,8 +1351,13 @@
                         } else if (me && me.pass) {
                             color = sp.dup ? '#e53935' : this.brColor(bi);
                             title = (sp.dup ? 'CT 중복 — ' + sp.passing.map(x => this.brName(x)).join(', ') + ' 모두 정상 판별 · ' : this.brName(bi) + ' · ') + ct(sp);
+                        } else if (me && sp.minViol && sp.win === bi) {
+                            // 최소 위반 승자 — 제외 call 에 걸렸지만(대개 옛 차종 뒷정리) 다른 분기보다 덜 걸려 이 분기로 판별.
+                            color = this.brColor(bi);
+                            title = '최소 위반 판별 — 제외 call ' + me.viol + '건 발화(' + me.fired.join(', ') + ')이지만 다른 분기는 더 많이 걸려 이 분기로 판별 · ' + ct(sp);
                         } else if (me) {
-                            color = '#d7dde3'; title = '이 분기 아님 — 제외 call \'' + me.reason + '\' 발화 · ' + ct(sp);
+                            color = '#d7dde3';
+                            title = '이 분기 아님 — 제외 call ' + me.viol + '건 발화(' + me.fired.join(', ') + ')' + (sp.minViol ? ' · 최소 위반 판별 → ' + this.brName(sp.win) : '') + ' · ' + ct(sp);
                         } else {
                             color = '#d7dde3'; title = '이 분기 시작 아님 — ' + (sp.win === -1 ? '미분류' : this.brName(sp.win)) + ' · ' + ct(sp);
                         }

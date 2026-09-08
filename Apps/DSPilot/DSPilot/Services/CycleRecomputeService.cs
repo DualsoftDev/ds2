@@ -344,6 +344,11 @@ public sealed class CycleRecomputeService
     /// 들어온 다음 차종 준비 동작(분기 전환 시 다음 head 8~9s 전 UNIT up 등)은 다음 사이클 몫이라 반증이 아니다.
     /// 완료가 없으면(MT 미확정) 종전처럼 스팬 전체가 반증 창. 화면 판별기(CycleGantt.classifyBranches)와 같은 규칙.
     /// 같은 시작 시각에 후보 분기가 여럿이고(공유 Head) 복수가 통과하면 정의 순서 첫 매칭 승.
+    /// <b>최소 위반(2026-09-08)</b>: 후보 전멸(모든 분기가 제외 call 에 걸림)이면 발화한 제외 call <b>종류 수</b>가 가장 적은 분기가
+    /// 유일할 때 그 분기로 판별한다. 차종 전환 사이클은 옛 차종 유닛 뒷정리(down 좌우 2개)만 새 차종 분기에 걸리고
+    /// 새 차종 작업(up·lock·unlock 6개)이 옛 차종 분기에 걸려, "가장 덜 틀린" 분기 = 실제 작업 차종이다(현장 #137 6/6 검증).
+    /// 통과(위반 0) 분기가 하나라도 있으면 종전과 완전히 같고, 최소가 동률이면 여전히 미분류. CT 중복(위반 0 복수)에는 적용하지
+    /// 않는다 — 증거 부재라 계산으로 가를 수 없고 사용자가 정의를 고쳐야 한다.
     /// 전멸 = 미분류(BranchName=null) — 행은 보존하되 무결성 카드 계수 대상.</para>
     /// <para>MT(tail 완료)도 <b>병합 스팬</b> 안에서만 찾는다 — 분기 자체 주기(다음 동일분기 시작)로
     /// 찾으면 형제 사이클 너머의 tail 을 집어 MT 가 형제 구동시간을 삼킨다.</para>
@@ -471,7 +476,7 @@ public sealed class CycleRecomputeService
         var fromUtc = fromLocal.ToUniversalTime();
         var toUtc = toLocal.ToUniversalTime();
         var rows = new List<DspFlowHistoryEntity>(mergedStarts.Count);
-        int cycleNo = 0, unclassified = 0;
+        int cycleNo = 0, unclassified = 0, minViolation = 0;
 
         for (int i = 0; i < mergedStarts.Count; i++)
         {
@@ -483,8 +488,11 @@ public sealed class CycleRecomputeService
             var candidates = byStart[s];
             BranchRuntime? winner = null;
             var completeBy = new Dictionary<BranchRuntime, DateTime?>(candidates.Count);
-            foreach (var cand in candidates)
+            // 후보별 위반 수 = 반증 창 안에서 발화한 제외 call 종류 수(같은 call 의 반복 발화는 1 — 채터링이 판정을 흔들지 않게).
+            var violations = new int[candidates.Count];
+            for (int ci = 0; ci < candidates.Count; ci++)
             {
+                var cand = candidates[ci];
                 // 후보별 완료 → 반증 창 [s, 끝 call OutTag↓) (완료 없으면 스팬 전체, OUT 이 다음 시작까지 유지되면 스팬 끝).
                 var candComplete = AndCompleteInRange(cand.TailStreams, s, end);
                 completeBy[cand] = candComplete;
@@ -494,10 +502,23 @@ public sealed class CycleRecomputeService
                     var fall = FirstEdgeAtOrAfter(cand.TailOutFalls, candComplete.Value, end);
                     if (fall.HasValue) refuteEnd = fall.Value;
                 }
-                var fired = false;
+                var viol = 0;
                 foreach (var edges in cand.ExclusionEdges)
-                    if (HasEdgeInRange(edges, s, refuteEnd)) { fired = true; break; }
-                if (!fired) { winner = cand; break; }
+                    if (HasEdgeInRange(edges, s, refuteEnd)) viol++;
+                violations[ci] = viol;
+                if (viol == 0 && winner is null) winner = cand;   // 위반 0 = 정상 통과, 정의 순서 첫 통과 승(종전 규칙)
+            }
+            if (winner is null && hasNext)
+            {
+                // 최소 위반 — 전멸(모두 위반 ≥1)이고 완결 스팬일 때만. 최소가 유일하면 그 분기, 동률이면 미분류 유지.
+                // 진행 중(마지막) 스팬은 다음 시작 전이라 증거가 덜 쌓였으므로 적용하지 않는다(화면 판별기와 동일).
+                var min = int.MaxValue; var minIdx = -1; var minTies = 0;
+                for (int ci = 0; ci < candidates.Count; ci++)
+                {
+                    if (violations[ci] < min) { min = violations[ci]; minIdx = ci; minTies = 1; }
+                    else if (violations[ci] == min) minTies++;
+                }
+                if (minIdx >= 0 && minTies == 1) { winner = candidates[minIdx]; minViolation++; }
             }
             var basis = winner ?? candidates[0]; // 미분류 행도 측정 경계(Head/Tail)는 첫 후보 것으로 박제
             if (winner is null) unclassified++;
@@ -546,8 +567,8 @@ public sealed class CycleRecomputeService
 
         var (deleted, inserted) = await _dsp.ReplaceFlowHistoryRangeAsync(flowName, fromUtc, toUtc, rows);
         _logger.LogInformation(
-            "[CycleRecompute] '{Flow}' 분기 재도출 [{From:o},{To:o}): cycles={Cycles} (미분류 {Un}), deleted={Del}, inserted={Ins}",
-            flowName, fromLocal, toLocal, rows.Count, unclassified, deleted, inserted);
+            "[CycleRecompute] '{Flow}' 분기 재도출 [{From:o},{To:o}): cycles={Cycles} (미분류 {Un}, 최소위반 판별 {Mv}), deleted={Del}, inserted={Ins}",
+            flowName, fromLocal, toLocal, rows.Count, unclassified, minViolation, deleted, inserted);
         return new RecomputeOutcome(true, rows.Count, deleted, inserted);
     }
 

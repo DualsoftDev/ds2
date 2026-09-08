@@ -657,7 +657,8 @@
                     ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="url(#ctDupHatch)"/>';
                     ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="none" stroke="#e53935" stroke-width="1.6"/>';
                 } else {
-                    ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="none" stroke="' + (none ? '#90a4ae' : base) + '" stroke-width="' + (u.open ? 1.2 : 0.9) + '"' + (u.open ? ' stroke-dasharray="4 2"' : '') + '/>';
+                    // 최소위반 판별 스팬 = 분기색은 그대로, 촘촘한 점선 테두리(진행 중의 긴 점선과 구분) — 규칙 확정과 섞이지 않게.
+                    ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="none" stroke="' + (none ? '#90a4ae' : (u.minViol ? '#263238' : base)) + '" stroke-width="' + ((u.open || u.minViol) ? 1.2 : 0.9) + '"' + (u.open ? ' stroke-dasharray="4 2"' : (u.minViol ? ' stroke-dasharray="2 2"' : '')) + '/>';
                 }
                 if (span.isOpen) ug += '<line x1="' + f(ex) + '" y1="' + barY + '" x2="' + f(ex) + '" y2="' + f(barY + barH) + '" stroke="#90a4ae" stroke-width="1" stroke-dasharray="3 2"/>';
                 if (bandW > 64) {
@@ -829,15 +830,18 @@
     //      들어온 다음 차종 준비 동작(분기 전환 시 다음 head 8~9s 전 UNIT up 등)은 다음 사이클 몫이라 반증 아님.
     //      끝 call 완료가 없으면(MT 미확정) 종전처럼 스팬 전체가 반증 창(근거 없을 때 관대해지지 않음).
     //    · 통과 분기 전부 = passing. 복수 통과 = CT 중복(dup, 승자 win = 정의 순서 첫 통과 = 서버 규칙). 전멸 = 정상 CT 없음(win=-1).
+    //    · 최소 위반(2026-09-08): 전멸(완결 스팬)이면 발화한 제외 call 종류 수가 가장 적은 분기가 유일할 때 그 분기(minViol=true,
+    //      passing 은 빈 채 win 만 세움). 차종 전환 사이클 = 옛 차종 뒷정리(down 2개)만 새 차종에 걸리고 새 차종 작업(6개)이 옛 차종에
+    //      걸리므로 "가장 덜 틀린" 분기 = 실제 작업 차종. 동률이면 미분류 유지. CT 중복(위반 0 복수)엔 적용 안 함(증거 부재).
     //    · 완료 마커 = 끝 call InTag↑, 없으면 OutTag↓ (CycleCompletionResolver 규칙의 근사).
-    //  반환 = { spans[{sMs,eMs,isOpen,win,dup,passing,byBranch,tailIn,tailInBy,color,label,title}],
-    //           stats[{name,color,count,pct,dup}], un, unPct, dup, total }  — 빈 입력이면 전부 0/[] 인 새 객체.
+    //  반환 = { spans[{sMs,eMs,isOpen,win,dup,minViol,passing,byBranch{pass,reason,fired[],viol},tailIn,tailInBy,color,label,title}],
+    //           stats[{name,color,count,pct,dup,minViol}], un, unPct, dup, minViol, total, open }  — 빈 입력이면 전부 0/[] 인 새 객체.
     //  opts(선택): brName(bi) / formatMs(ms) 를 호출자 규약으로 바꿔 끼울 수 있다(기본 = 아래 brNameOf / formatMs).
     var BRANCH_COLORS = ['#2e7d32', '#7b1fa2', '#0277bd', '#ef6c00', '#c2185b', '#5d4037', '#00695c', '#455a64'];
     var BRANCH_NONE_COLOR = '#9e9e9e';   // 정상 CT 없음(미분류) 고정 회색
     function brColor(i) { return BRANCH_COLORS[i % BRANCH_COLORS.length]; }
     function brNameOf(branches, bi) { var b = branches[bi]; return b ? (b.name || ('분기' + (bi + 1))) : ''; }
-    function emptyBranchPreview() { return { spans: [], stats: [], un: 0, unPct: 0, dup: 0, total: 0, open: 0 }; }
+    function emptyBranchPreview() { return { spans: [], stats: [], un: 0, unPct: 0, dup: 0, minViol: 0, total: 0, open: 0 }; }
 
     function classifyBranches(callLanes, branches, cs, ce, opts) {
         branches = branches || [];
@@ -892,7 +896,8 @@
         var spans = [];
         var counts = branches.map(function () { return 0; });
         var dupCounts = branches.map(function () { return 0; });
-        var un = 0, dupTotal = 0, openCount = 0;
+        var mvCounts = branches.map(function () { return 0; });
+        var un = 0, dupTotal = 0, mvTotal = 0, openCount = 0;
         for (var i = 0; i < starts.length; i++) {
             var s = starts[i], e = i + 1 < starts.length ? starts[i + 1] : ce;
             if (e <= s) continue;
@@ -905,10 +910,11 @@
                 var tailIn = firstAfter(tailsBy[bi], s, e);
                 tailInBy[bi] = tailIn;
                 var rEnd = refuteEndOf(bi, tailIn, e);
-                var fired = null;
-                for (var xi = 0; xi < exclOf[bi].length; xi++) { var ex = exclOf[bi][xi]; if (hasIn(ex.edges, s, rEnd)) { fired = ex.name; break; } }
-                byBranch[bi] = { pass: !fired, reason: fired };
-                if (!fired) passing.push(bi);
+                // 위반 = 반증 창 안에서 발화한 제외 call 전부(종류 수 = viol, 같은 call 반복 발화는 1 — 서버와 동일).
+                var firedNames = [];
+                for (var xi = 0; xi < exclOf[bi].length; xi++) { var ex = exclOf[bi][xi]; if (hasIn(ex.edges, s, rEnd)) firedNames.push(ex.name); }
+                byBranch[bi] = { pass: !firedNames.length, reason: firedNames.length ? firedNames[0] : null, fired: firedNames, viol: firedNames.length };
+                if (!firedNames.length) passing.push(bi);
             }
             var win = passing.length ? passing[0] : -1;
             var dup = passing.length > 1;
@@ -916,10 +922,21 @@
             // 분기끼리 '중복' 으로 보이는 게 구조적이라(2026-09-07 사용자 지적) 미완성으로 취급 — 횟수/중복/미분류 집계에서
             // 빼고 dup 도 세우지 않는다. passing/byBranch 는 그대로 넘겨 분기 간트가 후보를 보여줄 수 있게 한다.
             var isOpen = i === starts.length - 1;
+            // 최소 위반 — 전멸(모두 위반 ≥1)인 완결 스팬만. 최소가 유일하면 그 분기가 승자(passing 은 비움), 동률이면 미분류 유지.
+            var minViol = false;
+            if (win === -1 && !isOpen) {
+                var mn = Infinity, mnBi = -1, ties = 0;
+                for (var mi = 0; mi < cands.length; mi++) {
+                    var v = byBranch[cands[mi]].viol;
+                    if (v < mn) { mn = v; mnBi = cands[mi]; ties = 1; } else if (v === mn) ties++;
+                }
+                if (mnBi !== -1 && ties === 1) { win = mnBi; minViol = true; }
+            }
             if (isOpen) { dup = false; openCount++; }
             else {
                 if (win === -1) un++; else counts[win]++;
                 if (dup) { dupTotal++; passing.forEach(function (b2) { dupCounts[b2]++; }); }
+                if (minViol) { mvTotal++; mvCounts[win]++; }
             }
             var ctTxt = fmtMs(e - s);
             var label, title, color;
@@ -930,7 +947,11 @@
                     + ' · 경과 ' + ctTxt;
             } else if (win === -1) {
                 color = BRANCH_NONE_COLOR; label = '정상 CT 없음';
-                title = '정상 CT 없음(미분류) — ' + cands.map(function (b4) { return nameOf(b4) + (byBranch[b4].reason ? ': 제외 \'' + byBranch[b4].reason + '\' 발화' : ''); }).join(' · ') + ' · 가동시간 ' + ctTxt;
+                title = '정상 CT 없음(미분류) — ' + cands.map(function (b4) { return nameOf(b4) + (byBranch[b4].viol ? ': 제외 ' + byBranch[b4].viol + '건 발화(' + byBranch[b4].fired.join(', ') + ')' : ''); }).join(' · ') + (cands.length > 1 ? ' · 위반 수 동률이라 최소 위반 판별 불가' : '') + ' · 가동시간 ' + ctTxt;
+            } else if (minViol) {
+                color = brColor(win); label = nameOf(win) + ' · 최소위반';
+                title = '최소 위반 판별 — 모든 분기가 제외 call 에 걸려, 발화 종류가 가장 적은 ' + nameOf(win) + ' 으로 판별(차종 전환 사이클 등) · '
+                    + cands.map(function (b5) { return nameOf(b5) + ' ' + byBranch[b5].viol + '건'; }).join(' · ') + ' · 가동시간 ' + ctTxt;
             } else if (dup) {
                 color = brColor(win); label = 'CT 중복 ' + passing.map(nameOf).join('+');
                 title = 'CT 중복 — ' + passing.map(nameOf).join(', ') + ' 모두 정상 판별(우선순위 승자 ' + nameOf(win) + '). 제외 call 을 지정해 갈라주세요 · 가동시간 ' + ctTxt;
@@ -939,7 +960,7 @@
                 title = nameOf(win) + ' · 가동시간 ' + ctTxt;
             }
             spans.push({
-                sMs: s, eMs: e, isOpen: isOpen, open: isOpen, win: win, dup: dup, passing: passing, byBranch: byBranch,
+                sMs: s, eMs: e, isOpen: isOpen, open: isOpen, win: win, dup: dup, minViol: minViol, passing: passing, byBranch: byBranch,
                 tailIn: win === -1 ? null : tailInBy[win], tailInBy: tailInBy,
                 color: color, label: label, title: title,
             });
@@ -950,9 +971,9 @@
         return {
             spans: spans,
             stats: branches.map(function (b, bi) {
-                return { name: nameOf(bi), color: brColor(bi), count: counts[bi], pct: pctOf(counts[bi]), dup: dupCounts[bi] };
+                return { name: nameOf(bi), color: brColor(bi), count: counts[bi], pct: pctOf(counts[bi]), dup: dupCounts[bi], minViol: mvCounts[bi] };
             }),
-            un: un, unPct: pctOf(un), dup: dupTotal, total: total, open: openCount,
+            un: un, unPct: pctOf(un), dup: dupTotal, minViol: mvTotal, total: total, open: openCount,
         };
     }
     // 판별 결과(spans) → 리본 cycleSpans(union 메타 포함) — flow 합산 뷰(단일 페이지 flowSlice / 개요 카드) 공용 변환.
@@ -960,7 +981,7 @@
         return (preview && preview.spans ? preview.spans : []).map(function (sp, i) {
             return {
                 start: sp.sMs, end: sp.eMs, number: i + 1, isOpen: sp.isOpen, tailIn: sp.tailIn,
-                union: { win: sp.win, dup: sp.dup, open: !!sp.open, color: sp.color, label: sp.label, title: sp.title },
+                union: { win: sp.win, dup: sp.dup, open: !!sp.open, minViol: !!sp.minViol, color: sp.color, label: sp.label, title: sp.title },
             };
         });
     }
