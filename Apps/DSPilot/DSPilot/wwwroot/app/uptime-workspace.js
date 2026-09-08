@@ -78,7 +78,7 @@
                 view: (window.DSP_UPTIME_VIEW || 'both'),
                 period: 'today',
                 curFlow: '', // '' = 라인 전체, 그 외 = 특정 Flow (OEE/정지/도넛/계획시간을 그 설비로 필터)
-                curSystem: '', // '' = 스코프 없음, 그 외 = 시스템 단위 묶음(?system=, 좌측 나브 '○○ 관리' 헤더). curFlow 가 우선.
+                curSystem: '', // '' = 스코프 없음, 그 외 = 시스템 단위 묶음(?system=, 좌측 나브 기능 트리의 시스템 행). curFlow 가 우선.
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
                 // stale 응답 가드 — 폴링/기간변경/페이지이동 응답이 뒤늦게 도착해 최신 상태를 덮어쓰는 경합 방지
@@ -1401,6 +1401,10 @@
                     // 가동 = 서버 실측(정상 사이클 구간 ∩ 슬롯). 잔여 계산 금지 — 감지 실패가 가동으로 둔갑한다.
                     //   스택 합이 slotMs 에 못 미치는 만큼이 미수집이고, 그게 곧 데이터 무결성 카드의 수집률과 이어진다.
                     const runData = d.slots.map(s => Math.max(0, s.runMs || 0) / MS);
+                    // 진행 중(열린 사이클, doc/26) — 마지막 완료 사이클 이후 다음 head 가 없는 시간. 어느 상태도 아니라 분모 밖이지만
+                    //   미계측(여백)과 달리 "사이클이 진행 중"이라는 사실은 알기 때문에 옅은 회색 솔리드로 그린다(빗금=정지 신호 아님).
+                    //   현재 슬롯 끝부분에만 생기고 다음 사이클이 시작되면 그 사이클 행으로 확정돼 가동/정지/비생산으로 바뀐다.
+                    const inProgData = d.slots.map(s => Math.max(0, s.inProgressMs || 0) / MS);
 
                     // 평균 가동시간 선 (비생산 카빙 후 실가동 기준)
                     const avgRun = runData.length > 0 ? runData.reduce((a, b) => a + b, 0) / runData.length : 0;
@@ -1417,6 +1421,8 @@
                     const cFault = cs.getPropertyValue('--oee-fault').trim() || '#B22F22';
                     const cRun   = cs.getPropertyValue('--oee-run').trim()   || '#1E9BE8'; // 가동 = 밝은 애저
                     const cGray  = cs.getPropertyValue('--color-text-secondary').trim() || '#888';
+                    // 진행 중 = 회색을 표면색으로 옅게(솔리드). 캔버스는 color-mix 를 못 쓰므로 알파로 파생.
+                    const cInProg = /^#[0-9a-f]{6}$/i.test(cGray) ? cGray + '59' : 'rgba(136,136,136,0.35)';
                     const nightHatch = _nightHatchPattern(canvas); // 비생산: 밤하늘 어두운 파랑 빗금
                     const faultHatch = _stripePattern(canvas, cFault);   // 고장: 어두운 빨강 위 빗금
                     const maintHatch = _stripePattern(canvas, cMaint);   // 유지보수: 노란(앰버) 위 빗금
@@ -1430,6 +1436,7 @@
                         //   보고 싶으면 범례 클릭으로 켠다. hidden 은 생성 시에만 지정 — update-in-place 루프가
                         //   hidden 을 건드리지 않으므로 사용자의 범례 토글이 라이브 갱신에도 유지된다.
                         { label: '비생산(제외)', data: nonProdData, backgroundColor: nightHatch, stack: 's', order: 2, hidden: true },
+                        { label: '진행 중', data: inProgData, backgroundColor: cInProg, stack: 's', order: 2 },
                         {
                             label: `평균 ${avgRun.toFixed(1)}시간`,
                             type: 'line',
@@ -1897,14 +1904,15 @@
                 // 고장/유지보수 일괄 지정 대상 = 선택 행 중 비가동 실정지만.
                 // 대기(공백)·비생산 행은 '고장/유지보수' 개념 자체가 없어(건수·MTBF 미반영) 대상에서 뺀다 —
                 // 버튼에 이 수를 병기해 "6건 선택했는데 4건만 바뀜"이 사후 놀람이 되지 않게 한다.
-                get bulkFaultTargets() { return this.selectedVisibleRows.filter(d => !d.isNonProd && !d.isWait); },
+                get bulkFaultTargets() { return this.selectedVisibleRows.filter(d => !d.isNonProd && !d.isWait && !this.isInProgressDt(d)); },
                 get allFilteredSelected() {
                     const fd = this.filteredDowntime;
                     return fd.length > 0 && fd.every(d => this.selectedIds[d.id]);
                 },
                 get someFilteredSelected() { return this.filteredDowntime.some(d => this.selectedIds[d.id]); },
                 get anySelectedOpen() {
-                    return this.filteredDowntime.some(d => this.selectedIds[d.id] && d.status === 'open');
+                    // 진행 중 합성 행(id<0)은 DB 이벤트가 아니라 마감 대상이 아니다 — 다음 사이클 시작이 곧 마감.
+                    return this.filteredDowntime.some(d => this.selectedIds[d.id] && d.status === 'open' && d.id > 0);
                 },
                 toggleSel(id, checked) {
                     this.selectedIds = { ...this.selectedIds, [id]: checked };
@@ -1920,13 +1928,16 @@
                 esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); },
                 // 감지 출처 칩 (정지 구간 소스)
                 detectChipHtml(s) {
-                    const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동', 'over-cycle': '이상치초과' };
+                    const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동', 'over-cycle': '이상치초과', 'in-progress': '진행 중' };
                     if (typeof s === 'string' && s.includes('+'))   // 같은 정지 이중 감지 병합(무가동+이상치초과, doc/25)
                         return `<span class="src-chip detect" title="무가동 이벤트와 이상치 초과 사이클이 같은 정지를 동시 감지 — 한 줄로 병합">${s.split('+').map(x => m[x] || this.esc(x)).join('+')}</span>`;
                     return `<span class="src-chip detect">${m[s] || this.esc(s) || '—'}</span>`;
                 },
                 // 합성(사이클 유래) 행 = DB 이벤트가 아니라 분류/마감 불가. id 음수로 표식.
                 isSyntheticDt(d) { return !d || d.id <= 0 || d.detectSource === 'over-cycle'; },
+                // 진행 중(열린 사이클, doc/26) — 마지막 완료 사이클 이후 다음 head 가 없는 구간. 구분·마감·재분류 대상이 아니다
+                // (다음 사이클 시작 시 완료 행으로 바뀌어 그때 분류). 집계 미반영(분모 밖).
+                isInProgressDt(d) { return !!d && d.detectSource === 'in-progress'; },
                 // 단서 칩 (abnormal/usertag 시간겹침 — 표시 전용)
                 clueHtml(c) {
                     if (!c) return '<span class="clue-none">—</span>';
@@ -2107,7 +2118,7 @@
                     } finally { this.bulkBusy = false; this.bulkProgress = ''; }
                 },
                 async bulkClose() {
-                    const ids = this.filteredDowntime.filter(d => this.selectedIds[d.id] && d.status === 'open').map(d => d.id);
+                    const ids = this.filteredDowntime.filter(d => this.selectedIds[d.id] && d.status === 'open' && d.id > 0).map(d => d.id);
                     if (!ids.length) return;
                     if (!confirm(ids.length + '건의 진행중 정지를 마감 처리할까요?\n마감 후에는 화면에서 되돌릴 수 없습니다.')) return;
                     this.bulkBusy = true;

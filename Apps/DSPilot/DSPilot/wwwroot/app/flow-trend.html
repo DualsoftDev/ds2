@@ -12,6 +12,7 @@
       뷰 = 정적 HTML/CSS/JS(Alpine + Chart.js + vanilla SVG + SignalR). 디자인 시스템: /css/ds.css.
       진입: ?name=<flowName> (이 Flow 1개에 스코프됨 — Flow 선택 드롭다운 없음).
             ?name= 없이 진입하면 전체 추이(allMode) — nav 트리의 모든 Flow 히스토리를 합산해 라인 전체 추이를 본다.
+            ?system=<시스템명> 이면 그 시스템 Flow 만 합산(2026-09-08, 좌측 메뉴 추이 분석 트리의 시스템 행).
       구성: 헤더 카드 + KPI 6셀 + 기간별 추이(클라 집계)
             + 사이클 분석(구 cycle-time-analysis 전체 기능: 간트/Head·Tail 적용·저장/Excel/정렬/최대Gap/드래그 구간통계)
             + 최근 히스토리(구 대시보드 하단: 테이블↔차트 + 이상치 제외 범위 필터, 서버 공유).
@@ -73,7 +74,10 @@
                     <template x-if="!allMode && (flow || flowName)">
                         <span class="chip chip-info">설비: <b x-text="flow ? flow.flowName : flowName"></b></span>
                     </template>
-                    <template x-if="!allMode && (flow || flowName)">
+                    <template x-if="allMode && systemParam">
+                        <span class="chip chip-info" title="이 시스템 소속 flow 의 히스토리만 합산합니다(좌측 메뉴 추이 분석 트리의 시스템 행).">시스템: <b x-text="systemParam"></b></span>
+                    </template>
+                    <template x-if="(!allMode && (flow || flowName)) || (allMode && systemParam)">
                         <a class="btn btn-sm btn-outlined color-default" href="/flow-trend">
                             <span class="material-icons" style="font-size:15px;">clear</span> 전체 보기
                         </a>

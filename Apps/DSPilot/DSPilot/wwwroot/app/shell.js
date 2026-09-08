@@ -49,7 +49,8 @@ window.dspFmt = {
  *
  * 사이드바 구성(dashboard2 와 동일 — 축소판):
  *   · 브랜드 (DUAL 로고 이미지 /images/logo.png + Industrial Monitoring)
- *   · 페이지 링크 (대시보드/동작편차/사이클분석/가동시간·이상/CCTV [+PLC 디버그])
+ *   · 페이지 링크 (대시보드 + 기능별 3범위 트리[전체 → 시스템 → FLOW]: 생산효율/설비효율/추이/가동시간/동작편차/이상·알람 [+PLC 디버그])
+ *     트리 규약은 NAV_ITEMS 주석(2026-09-08 기능 축 단일화 — 구 시스템 '○○ 관리' 아코디언 제거) 참조.
  *   · Settings (푸터)
  *   ※ 구 shell.js 의 "시스템 flow 트리 · agent 통신 상태 · 마지막 갱신" 섹션은 제거됨.
  *   ※ 사이드바 "알람 이력" 피드와 헤더 "가동/대기" 위젯은 제거됨.
@@ -62,7 +63,7 @@ window.dspFmt = {
  *   - 테마: <html> 에 dark + dark-theme 동시 토글(Tailwind dark: 변형 + ds.css 다크).
  *     localStorage 'dspilot-theme'. 로드 시 적용 + 설정 페이지/다른 탭 storage 동기화(헤더 토글 버튼 제거됨).
  *   - .dsp-page(Alpine 루트) 를 main(ml-60) 안으로 이동, 슬림 헤더 제거.
- *   - /api/nav         : showPlcDebug (PLC 디버그 링크, 1회).
+ *   - /api/nav         : showPlcDebug (PLC 디버그 링크, 1회) + systems(기능별 트리 본문) + externalShortcuts.
  *   - /api/nav/summary : 이상발생 배지 · 연결 배지 · Agent 상태 (4초 폴링).
  *     이상발생 배지는 /uptime 방문 시 초기화 — serverTimeUtc 를 localStorage ack 로 박제,
  *     이후 폴링이 ?anomalyAck= 로 보내 ack 이전 Error 는 카운트에서 제외.
@@ -328,19 +329,37 @@ window.dspFmt = {
         function icon(name) { return el('span', 'material-icons', name); }
 
         // ── 3) 네비게이션 정의 (라우트/아이콘 — 라이브 대시보드는 '/'). ──
+        //   기능 축 트리(2026-09-08): 대시보드를 제외한 분석 기능은 모두 "전체 → 시스템 → FLOW" 3범위 트리.
+        //     · 링크 본문 클릭 = 전체(스코프 쿼리 없음, lineScope) / 우측 chevron = 시스템 목록 펼침·접힘(이동 없음)
+        //     · 시스템 행 본문 = ?system=<시스템명> / 시스템 chevron = FLOW 목록 펼침 / FLOW 행 = ?<flowParam>=<flow>
+        //     · 트리는 /api/nav systems 로 채운다(buildScopeTrees). 평소 접힘, 현재 페이지의 기능 트리만 자동 펼침.
+        //   (구: 시스템 '○○ 관리' 아코디언 안에 기능 그룹을 반복하는 "시스템 → 기능 → FLOW" 축. 진입점이 둘이던
+        //    생산효율/설비효율/이상·알람과 축을 맞추기 위해 기능 축으로 단일화·제거.)
+        //   tree 필드:
+        //     flowParam  : FLOW 행 쿼리 키 — 'flow'(생산·설비효율/동작편차/이상·알람) | 'name'(추이/가동시간 분석).
+        //     branchRows : 분기 활성 flow 를 "부모_분기" 행으로 치환(부모 행 소멸) — 설비효율만.
+        //                  생산효율/추이/가동시간/동작편차는 부모 그대로(2026-08-27 설계 규약).
+        //     parentAxis : "부모_분기" 이름으로 진입해도 부모 flow 행을 활성(동작편차 = 부모 flow 축 집계).
+        //     sysTitle / flowTitle : 행 툴팁(기능별 의미 안내).
         var NAV_ITEMS = [
             { label: '대시보드',    href: '/',                    icon: 'space_dashboard', match: 'all',    legacy: '/app/dashboard.html' },
-            // 전 시스템 합산(라인 전체) 생산효율/생산·설비효율 — 스코프 쿼리(?flow/?system) 없이 진입(2026-08-25).
-            //   시스템 단위는 아래 '○○ 관리' 그룹 헤더(?system=), 설비 단위는 그룹 안 FLOW(?flow=)가 담당.
-            //   lineScope: 스코프 쿼리가 붙어 있으면 이 전체 링크는 활성 표시하지 않는다(시스템/설비 쪽이 활성).
-            { label: '생산효율 현황', href: '/uptime-teep', icon: 'trending_up', match: 'all', lineScope: true },
-            { label: '설비효율 현황', href: '/uptime-oee',  icon: 'speed',       match: 'all', lineScope: true, legacy: ['/uptime', '/oee'] },
-            // 이상·알람(2026-09-07): 시스템 '○○ 관리' 아코디언에서 최상위로 승격. 링크 본문 = 라인 전체(/uptime-alarm),
-            //   우측 chevron = 접이식 트리(시스템 → FLOW) 펼침. 시스템 행 = ?system=, FLOW 행 = ?flow=(자동감지만).
-            //   트리는 /api/nav systems 로 채운다(buildAlarmTree). 평소엔 접힘, 이상·알람 페이지에서만 자동 펼침.
-            { label: '이상·알람',    href: '/uptime-alarm', icon: 'warning_amber', match: 'all', lineScope: true, alarmTree: true },
-            // 동작편차·가동시간·이상(설비효율/생산효율/이상·알람)은 최상위 링크에서 제거하고, 시스템 '○○ 관리'
-            // 아코디언 안의 분석 그룹(추이 분석/사이클 분석 옆)으로 이동 — buildSystemSubmenu 참조.
+            { label: '생산효율 현황', href: '/uptime-teep', icon: 'trending_up', match: 'all', lineScope: true,
+              tree: { flowParam: 'flow', sysTitle: '이 시스템 flow 합산 생산효율', flowTitle: '이 설비의 생산효율' } },
+            { label: '설비효율 현황', href: '/uptime-oee',  icon: 'speed',       match: 'all', lineScope: true, legacy: ['/uptime', '/oee'],
+              tree: { flowParam: 'flow', branchRows: true, sysTitle: '이 시스템 flow 합산 설비효율(OEE)', flowTitle: '이 설비의 설비효율(OEE)' } },
+            // 추이 분석 전체 = 전 flow 히스토리 합산(allMode), ?system= = 그 시스템 flow 만 합산(2026-09-08 추가).
+            { label: '추이 분석',   href: '/flow-trend',  icon: 'timeline',    match: 'all', lineScope: true,
+              tree: { flowParam: 'name', sysTitle: '이 시스템 flow 합산 추이', flowTitle: '이 설비의 기간별 추이' } },
+            // 가동시간 분석 전체/시스템 = 조회 전용 개요(카드 = 시작/끝 call + CT 리본), FLOW = 간트·분기 편집 페이지.
+            { label: '가동시간 분석', href: '/flow-cycle', icon: 'account_tree', match: 'all', lineScope: true,
+              tree: { flowParam: 'name', sysTitle: '이 시스템 flow 개요(조회 전용)', flowTitle: '이 설비의 가동시간 분석(간트·분기 편집)' } },
+            // 동작편차 전체 = 전 flow, ?system= = 그 시스템 flow 만(2026-09-08 추가), ?flow= = 설비(분기 이름은 부모로 번역).
+            { label: '동작편차',    href: '/heatmap',     icon: 'gradient',    match: 'all', lineScope: true,
+              tree: { flowParam: 'flow', parentAxis: true, sysTitle: '이 시스템 flow 의 동작편차', flowTitle: '이 설비의 동작편차' } },
+            // 이상·알람: 시스템 행 = 알람 행 systemName 등식(UserTag=AASX System, Abnormal=flow→System 해석) → 둘 다 포함,
+            //   FLOW 행 = 자동감지만(UserTag 는 Flow 소속이 아님 — uptime-workspace utQs 주석). badge = 최근 10분 Error 수.
+            { label: '이상·알람',    href: '/uptime-alarm', icon: 'warning_amber', match: 'all', lineScope: true, badge: true,
+              tree: { flowParam: 'flow', sysTitle: '이 시스템의 이상·알람(자동감지 + 수동등록TAG)', flowTitle: '이 설비의 자동감지 알람만' } },
             // OEE 메뉴 숨김 — 페이지(/oee)는 URL 로 접근 가능, 네비에서만 제외. 복구는 이 줄 주석 해제.
             // { label: 'OEE',         href: '/oee',                 icon: 'precision_manufacturing', match: 'prefix', legacy: '/app/oee.html' },
             // CCTV 메뉴 숨김 — 실시간 시청은 대시보드 레이아웃 카드의 'CCTV' 토글에서 사용. /cctv 는 설정(카메라·오버레이 편집) 페이지로 URL/[설정] 버튼 접근. 복구는 이 줄 주석 해제.
@@ -356,7 +375,7 @@ window.dspFmt = {
             // 전체(라인) 링크는 스코프 쿼리가 붙은 시스템/설비 화면에서 활성 표시하지 않는다.
             if (item.lineScope) {
                 var q = new URLSearchParams(location.search);
-                if (q.get('flow') || q.get('system')) return false;
+                if (q.get('flow') || q.get('system') || q.get('name')) return false;
             }
             var candidates = [item.href].concat(item.legacy || []).filter(Boolean).map(function (p) {
                 return p.replace(/\/+$/, '') || '/';
@@ -414,90 +433,65 @@ window.dspFmt = {
         // (물리 분리 2026-07-01: 알람은 /uptime-alarm 에만 표시되므로 ack 은 그 페이지에서만.)
         var ANOMALY_ACK_KEY = 'dspilot-anomaly-ack';
         var onAlarmPage = (path === '/uptime-alarm');
-        // NAV_ITEMS 는 단순 최상위 링크 + 이상·알람 트리 루트(alarmTree). 동작편차/가동시간/추이 등은 시스템
-        // '○○ 관리' 아코디언 안의 분석 그룹(아래 buildSystemSubmenu). 시스템 서브메뉴는 최상위 링크들 뒤에 삽입.
-        // 이상·알람 트리 컨테이너/펼침 상태 — 링크 바로 뒤에 두고 /api/nav 도착 후 buildAlarmTree 가 채운다.
-        var alarmTreeWrap = null, alarmTreeChev = null;
-        var alarmTreeOpen = onAlarmPage;   // 평소 접힘, 이상·알람 페이지에서만 자동 펼침(선택 시스템/FLOW 가 보이게)
-        function applyAlarmTreeOpen() {
-            if (!alarmTreeWrap) return;
-            alarmTreeWrap.style.display = alarmTreeOpen ? '' : 'none';
-            if (alarmTreeChev) {
-                alarmTreeChev.style.transform = alarmTreeOpen ? 'rotate(90deg)' : '';
-                alarmTreeChev.setAttribute('aria-expanded', alarmTreeOpen ? 'true' : 'false');
-            }
+
+        // ── 3.5) 스코프 컨텍스트 — 현재 페이지가 어느 기능 트리에 속하고 어떤 범위(전체/시스템/FLOW)인지. ──
+        //   FLOW(설비) 쿼리가 있으면 ?system= 은 무시한다(설비 우선 — 각 페이지 init 과 같은 규약).
+        var qs = new URLSearchParams(location.search);
+        function onItemPage(item) {
+            var cands = [item.href].concat(item.legacy || []).filter(Boolean).map(function (p) { return p.replace(/\/+$/, '') || '/'; });
+            return cands.indexOf(path) !== -1;
         }
+        var curItem = null;   // 현재 페이지의 기능 항목(트리 있는 것만). 대시보드/설정 등은 null.
+        NAV_ITEMS.forEach(function (it) { if (it.tree && !curItem && onItemPage(it)) curItem = it; });
+        var curFlow   = curItem ? (qs.get(curItem.tree.flowParam) || '') : '';
+        var curSystem = curItem && !curFlow ? (qs.get('system') || '') : '';
+
+        // ── 4) 최상위 링크 + 기능별 트리 컨테이너(링크 바로 뒤). 트리 본문은 /api/nav 도착 후 buildScopeTrees 가 채운다. ──
+        //   펼침 규칙: 평소 접힘, 현재 페이지의 기능 트리만 자동 펼침(선택 시스템/FLOW 가 보이게). 수동 토글은 비영속.
         NAV_ITEMS.forEach(function (item) {
             var link = buildNavLink(item, LINK_ACTIVE, LINK_IDLE);
             navMenu.appendChild(link);
-            if (!item.alarmTree) return;
-            // 라벨을 flex:1 로 늘려 배지·chevron 을 우측 끝에 정렬(다른 최상위 링크는 라벨만 있어 불필요).
+            if (!item.tree) return;
+            var isCurPage = (item === curItem);
+            // 라벨을 flex:1 로 늘려 배지·chevron 을 우측 끝에 정렬.
             if (link.children[1]) link.children[1].style.cssText += 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-            // 시스템/설비 스코프(?system=/?flow=)로 이상·알람 페이지에 있으면 전체 링크는 활성(lineScope)이 아니지만
-            // 트리 항목이 활성이므로, 루트 아이콘·라벨만 파랑으로 컨텍스트를 표시(분석 그룹 헤더 isActivePage 룩과 동일).
-            if (onAlarmPage && !isActive(item)) {
+            // 시스템/설비 스코프로 이 기능 페이지에 있으면 전체 링크는 활성(lineScope)이 아니지만 트리 항목이 활성이므로,
+            // 루트 아이콘·라벨만 파랑으로 컨텍스트를 표시한다.
+            if (isCurPage && !isActive(item)) {
                 if (link.children[0]) link.children[0].style.color = '#2170e4';
                 if (link.children[1]) { link.children[1].style.color = '#2170e4'; link.children[1].style.fontWeight = '600'; }
             }
-            // 배지(최근 10분 Error) — 라벨 뒤, chevron 앞. 0건이면 숨김(applySummary).
-            var badge = el('span', 'inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-error text-white text-[10px] font-bold');
-            badge.title = '최근 10분 내 Error 알림 (이상·알람 방문 시 초기화)';
-            badge.style.cssText = 'flex:0 0 auto;margin-right:4px;display:none;';
-            link.appendChild(badge);
-            anomalyBadges.push(badge);
-            // chevron = 트리 펼침/접힘만(이동 안 함 — <a> 기본 이동을 막는다). 링크 본문 클릭은 그대로 라인 전체 이동.
-            alarmTreeChev = icon('chevron_right');
-            alarmTreeChev.style.cssText = 'flex:0 0 auto;font-size:16px;transition:transform 0.12s;cursor:pointer;padding:2px;margin:-2px;border-radius:4px;';
-            alarmTreeChev.setAttribute('role', 'button');
-            alarmTreeChev.setAttribute('aria-label', '펼치기/접기');
-            alarmTreeChev.addEventListener('click', function (e) {
+            // 배지(이상·알람: 최근 10분 Error) — 라벨 뒤, chevron 앞. 0건이면 숨김(applySummary).
+            if (item.badge) {
+                var badge = el('span', 'inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-error text-white text-[10px] font-bold');
+                badge.title = '최근 10분 내 Error 알림 (이상·알람 방문 시 초기화)';
+                badge.style.cssText = 'flex:0 0 auto;margin-right:4px;display:none;';
+                link.appendChild(badge);
+                anomalyBadges.push(badge);
+            }
+            // chevron = 트리 펼침/접힘만(이동 안 함 — <a> 기본 이동을 막는다). 링크 본문 클릭은 그대로 전체 이동.
+            var chev = icon('chevron_right');
+            chev.style.cssText = 'flex:0 0 auto;font-size:16px;transition:transform 0.12s;cursor:pointer;padding:2px;margin:-2px;border-radius:4px;';
+            chev.setAttribute('role', 'button');
+            chev.setAttribute('aria-label', '펼치기/접기');
+            link.appendChild(chev);
+            var wrap = el('div', 'flex flex-col gap-0.5');
+            wrap.style.cssText = 'padding-left:18px;';
+            navMenu.appendChild(wrap);
+            var open = isCurPage;
+            function applyOpen() {
+                wrap.style.display = open ? '' : 'none';
+                chev.style.transform = open ? 'rotate(90deg)' : '';
+                chev.setAttribute('aria-expanded', open ? 'true' : 'false');
+            }
+            chev.addEventListener('click', function (e) {
                 e.preventDefault(); e.stopPropagation();
-                alarmTreeOpen = !alarmTreeOpen;
-                applyAlarmTreeOpen();
+                open = !open;
+                applyOpen();
             });
-            link.appendChild(alarmTreeChev);
-            alarmTreeWrap = el('div', 'flex flex-col gap-0.5');
-            alarmTreeWrap.style.cssText = 'padding-left:18px;';
-            navMenu.appendChild(alarmTreeWrap);
-            applyAlarmTreeOpen();
+            applyOpen();
+            item._treeWrap = wrap;
         });
-
-        // ── 4.5) 시스템별 Flow 분석 서브메뉴 컨테이너 ──
-        //   시스템 행("○○ 관리") 클릭 → 사이드바(NAVMENU) 내부 아코디언으로 펼침 → 그 아래 2개 분석 그룹:
-        //     · 추이 분석  → 시스템의 FLOW 리스트 → 클릭 시 /flow-trend?name= 이동
-        //     · 사이클 분석 → 시스템의 FLOW 리스트 → 클릭 시 /flow-cycle?name= 이동
-        //   (구: 시스템 행이 바로 Flow 목록을 펼치고 /flow?name= 로 이동 — 추이/사이클 페이지 분리로 2단계화.)
-        //   데이터는 아래 /api/nav fetch 의 systems 트리로 채운다(이미 PLC 디버그용으로 호출 중).
-        var cycleSubWrap = el('div', 'flex flex-col gap-0.5');
-        navMenu.appendChild(cycleSubWrap);   // 대시보드 링크 바로 뒤.
-
-        var qs = new URLSearchParams(location.search);
-        // Flow 분석 페이지(/flow-trend·/flow-cycle, 구 통합 /flow)에 있을 때: 해당 시스템/분석/Flow 행을 강조.
-        var onFlowPage = path === '/flow' || path === '/flow-trend' || path === '/flow-cycle';
-        var curFlowName = onFlowPage ? (qs.get('name') || '') : '';
-        // 현재 페이지의 분석 유형: 'trend'(추이 분석) | 'cycle'(사이클 분석) | ''(구 /flow — 특정 분석 아님).
-        var curFlowView = path === '/flow-trend' ? 'trend' : (path === '/flow-cycle' ? 'cycle' : '');
-        // 가동시간 분석 '전체'(= /flow-cycle 에 ?name= 없이 진입) — 시스템 개요(overviewCycleApp, 조회 전용,
-        //   2026-09-07. 구 일괄 편집 bulkCycleApp 폐기). 시스템의 '가동시간 분석' 그룹 헤더가 진입점:
-        //   /flow-cycle?system=<시스템명>(그 시스템 Flow만). 매개변수 없음 = 전 시스템 모든 Flow.
-        //   어느 쪽이든 그 시스템 행/그룹을 강조·자동펼침.
-        var onFlowCycleBulk = path === '/flow-cycle' && !qs.get('name');
-        var flowCycleSystem = onFlowCycleBulk ? (qs.get('system') || '') : '';
-
-        // 동작편차/설비효율/생산효율/이상·알람 페이지 — 그룹은 ?flow= 로 이동. 현재 페이지+선택 Flow 로 강조/자동펼침.
-        var onHeatmapPage = (path === '/heatmap');
-        var onOeePage     = (path === '/uptime-oee' || path === '/uptime' || path === '/oee');
-        var onTeepPage    = (path === '/uptime-teep');
-        // onAlarmPage 는 위(배지 로직)에서 이미 정의됨.
-        var heatmapFlow = onHeatmapPage ? (qs.get('flow') || '') : '';
-        var oeeFlow     = onOeePage     ? (qs.get('flow') || '') : '';
-        var teepFlow    = onTeepPage    ? (qs.get('flow') || '') : '';
-        var alarmFlow   = onAlarmPage   ? (qs.get('flow') || '') : '';
-        // 설비효율/생산효율 시스템 스코프(?system=) — 시스템 '○○ 관리' 그룹 헤더 진입(설비 ?flow= 가 우선).
-        var oeeSystem   = onOeePage  && !oeeFlow  ? (qs.get('system') || '') : '';
-        var teepSystem  = onTeepPage && !teepFlow ? (qs.get('system') || '') : '';
-        // 이상·알람 시스템 스코프(?system=) — 최상위 이상·알람 트리의 시스템 행 진입(설비 ?flow= 가 우선).
-        var alarmSystem = onAlarmPage && !alarmFlow ? (qs.get('system') || '') : '';
 
         // ── 더티 가드 내부 구현 ──
         // 페이지별 dirty 체크 함수(window._dspDirtyChecker)가 true 를 반환하면,
@@ -570,300 +564,73 @@ window.dspFmt = {
             }
         }
 
-        function buildSystemSubmenu(systems) {
-            cycleSubWrap.innerHTML = '';
-            if (!systems || !systems.length) return;
-
-            // 시스템 행은 접기 없이 항상 펼쳐진 섹션 헤더(정적) — 그 아래 그룹만 개별 토글.
+        // ── 4.5) 기능별 스코프 트리 본문(시스템 → FLOW) — /api/nav systems 로 채운다. ──
+        //   시스템 행 본문 클릭 = 그 시스템 스코프 이동(base?system=), 우측 chevron = FLOW 목록 펼침/접힘만.
+        //   FLOW 행 클릭 = base?<flowParam>=. 시스템은 현재 선택 FLOW 소속이거나 현재 시스템 스코프일 때만 자동 펼침.
+        function buildScopeTrees(systems) {
+            systems = systems || [];
             // preflight(전역 리셋) 꺼진 셸 빌드 → <button> 네이티브 테두리·배경 제거(nav 링크와 동일한 룩).
             var BTN_RESET = 'appearance:none;-webkit-appearance:none;background:transparent;border:0;cursor:pointer;font:inherit;';
+            var ROW_CLS = 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant';
+            var HOVER_CLS = ' hover:bg-surface-container-high dark:hover:bg-inverse-surface';
 
             function dot(color, op) {
                 var d = el('span');
                 d.style.cssText = 'flex:0 0 auto;width:5px;height:5px;border-radius:50%;background:' + color + ';opacity:' + op + ';';
                 return d;
             }
-
-            // ── 분석 그룹(추이 분석 / 사이클 분석) 빌더 — 시스템 sub 안의 2차 아코디언(그룹끼리 독립 토글). ──
-            //   header 클릭 → 이 그룹의 FLOW 목록만 펼침/접힘. Flow 클릭 → base?<queryParam>= 이동.
-            //   queryParam='name'(추이/사이클) | 'flow'(동작편차/OEE/이상·알람).
-            //   isActivePage=현재 페이지가 이 그룹의 페이지인지, activeFlowName=그 페이지에서 선택된 Flow('' 가능).
-            //   withBadge=true 면 header 우측에 이상 알람 배지를 붙여 anomalyBadges 에 등록.
-            //   headerHref = header 클릭 시 이동할 '전체' 페이지 주소(별도 '전체' 항목 없음). 이동 후 대상 페이지에서
-            //     isActivePage=true 로 자동 펼쳐져 FLOW 를 바로 선택하는 구조(2026-07-02 전 그룹 공통).
-            // 같은 페이지 안에서 전체/FLOW 만 바꿔 이동할 때 현재 URL 의 기간 선택(?period/from/to)을 같이
+            // 같은 페이지 안에서 전체/시스템/FLOW 만 바꿔 이동할 때 현재 URL 의 기간 선택(?period/from/to)을 같이
             // 실어 보낸다 — 대상 페이지 init 이 이 파라미터로 기간을 복원(uptime-workspace syncPeriodUrl 참조).
             // 다른 페이지로의 이동은 기간 의미가 달라질 수 있어 전파하지 않는다.
             function withPeriodCarry(href) {
                 var qIdx = href.indexOf('?');
-                var path = qIdx === -1 ? href : href.slice(0, qIdx);
-                if (location.pathname !== path) return href;
-                var qs = new URLSearchParams(qIdx === -1 ? '' : href.slice(qIdx + 1));
+                var p = qIdx === -1 ? href : href.slice(0, qIdx);
+                if (location.pathname !== p) return href;
+                var q = new URLSearchParams(qIdx === -1 ? '' : href.slice(qIdx + 1));
                 var cur = new URLSearchParams(location.search);
-                ['period', 'from', 'to'].forEach(function (k) { if (cur.has(k) && !qs.has(k)) qs.set(k, cur.get(k)); });
-                var s = qs.toString();
-                return path + (s ? '?' + s : '');
+                ['period', 'from', 'to'].forEach(function (k) { if (cur.has(k) && !q.has(k)) q.set(k, cur.get(k)); });
+                var s = q.toString();
+                return p + (s ? '?' + s : '');
+            }
+            // "부모_분기" 가상 이름 → 부모 flow(없으면 그대로). 시스템 1개 기준.
+            function parentFlowOf(name, flows, fbr) {
+                if (!name || flows.indexOf(name) !== -1) return name;
+                for (var i = 0; i < flows.length; i++) {
+                    var brs = fbr[flows[i]] || [];
+                    for (var j = 0; j < brs.length; j++)
+                        if (flows[i] + '_' + brs[j] === name) return flows[i];
+                }
+                return name;
             }
 
-            function buildAnalysisGroup(sysFlows, label, iconName, base, queryParam, isActivePage, activeFlowName, withBadge, headerHref) {
-                var wrap = el('div', 'flex flex-col gap-0.5');
+            NAV_ITEMS.forEach(function (item) {
+                var t = item.tree, wrap = item._treeWrap;
+                if (!t || !wrap) return;
+                wrap.innerHTML = '';
+                var onPage = (item === curItem);
+                var base = item.href;
 
-                var head = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
-                head.type = 'button';
-                head.style.cssText = 'text-align:left;' + BTN_RESET;
-                head.setAttribute('aria-expanded', 'false');
-                var hIcon = icon(iconName);
-                hIcon.style.cssText = 'flex:0 0 auto;font-size:17px;'
-                    + (isActivePage ? 'color:#2170e4;opacity:1;' : 'opacity:0.8;');
-                head.appendChild(hIcon);
-                var hLabel = el('span', 'font-label-sm text-label-sm', label);
-                hLabel.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
-                    + (isActivePage ? 'color:#2170e4;font-weight:600;' : '');
-                head.appendChild(hLabel);
-                // 현재 이 그룹의 페이지에 있으면 header 를 활성색(연한 파랑 바탕)으로 강조 — BTN_RESET 의
-                // background:transparent 를 인라인으로 덮는다.
-                if (isActivePage) head.style.backgroundColor = 'rgba(33,112,228,0.12)';
-                if (withBadge) {
-                    var badge = el('span', 'inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-error text-white text-[10px] font-bold');
-                    badge.title = '최근 10분 내 Error 알림 (이상·알람 방문 시 초기화)';
-                    badge.style.cssText = 'flex:0 0 auto;margin-right:4px;display:none;';
-                    head.appendChild(badge);
-                    anomalyBadges.push(badge);
-                }
-                // 펼치기 chevron — header 본문은 '전체' 이동이지만 이 chevron 만은 펼침/접힘 토글(이동 안 함).
-                var hChev = icon('chevron_right');
-                hChev.style.cssText = 'flex:0 0 auto;font-size:16px;transition:transform 0.12s;'
-                    + 'cursor:pointer;padding:2px;margin:-2px;border-radius:4px;';
-                hChev.setAttribute('role', 'button');
-                hChev.setAttribute('aria-label', '펼치기/접기');
-                head.appendChild(hChev);
-
-                var list = el('div', 'flex flex-col gap-0.5');
-                list.style.cssText = 'display:none;padding-left:16px;';
-
-                var groupHasCurrent = false;
-
-                // 항목 = 문자열(flow 이름) 또는 객체 {label, href, active} — 사이클 분기 행처럼 표시명과
-                // 이동 주소가 표준 규칙(base?queryParam=이름)과 다른 항목을 지원한다(2026-08-27).
-                (sysFlows || []).forEach(function (entry) {
-                    var isObj = entry !== null && typeof entry === 'object';
-                    var flowName = isObj ? entry.label : entry;
-                    var isCur = isActivePage && (isObj ? !!entry.active : flowName === activeFlowName);
-                    if (isCur) groupHasCurrent = true;
-                    var fb = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant'
-                        + (isCur ? '' : ' hover:bg-surface-container-high dark:hover:bg-inverse-surface'));
-                    fb.type = 'button';
-                    fb.style.cssText = 'text-align:left;' + BTN_RESET;
-                    // BTN_RESET 의 background:transparent 가 Tailwind 활성 bg 클래스를 덮으므로 활성 색은 인라인으로 지정.
-                    if (isCur) { fb.style.backgroundColor = '#2170e4'; fb.style.color = '#fff'; }
-                    fb.appendChild(dot(isCur ? '#fff' : 'currentColor', isCur ? '1' : '0.55'));
-                    var fl = el('span', 'font-label-sm text-label-sm', flowName);
-                    fl.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-                    fb.appendChild(fl);
-                    fb.addEventListener('click', function (ev) {
-                        ev.stopPropagation();
-                        var href = isObj && entry.href
-                            ? entry.href
-                            : base + '?' + queryParam + '=' + encodeURIComponent(flowName);
-                        navigateTo(withPeriodCarry(href));
-                    });
-                    list.appendChild(fb);
-                });
-
-                var expanded = false;
-                function toggle() {
-                    expanded = !expanded;
-                    list.style.display = expanded ? '' : 'none';
-                    hChev.style.transform = expanded ? 'rotate(90deg)' : '';
-                    head.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-                }
-                // 우측 chevron 클릭 = 펼침/접힘 토글만(이동 안 함). header 본문 클릭보다 먼저 가로채기.
-                hChev.addEventListener('click', function (e) { e.stopPropagation(); toggle(); });
-                head.addEventListener('click', function (e) {
-                    e.stopPropagation();
-                    // 모든 분석 그룹: header 본문 클릭 = 별도 '전체' 항목 없이 바로 전체 페이지로 이동.
-                    //   이동 후 대상 페이지에서 isActivePage=true → 아래 자동펼침으로 FLOW 선택 UI 노출.
-                    //   headerHref 미지정(방어적): 기존처럼 토글만.
-                    if (headerHref) { navigateTo(withPeriodCarry(headerHref)); return; }
-                    toggle();
-                });
-
-                // 현재 이 그룹의 페이지에 있으면(특정 Flow 선택 여부 무관) 자동 펼침.
-                if (isActivePage) toggle();
-
-                wrap.appendChild(head);
-                wrap.appendChild(list);
-                return { wrap: wrap, hasCurrent: groupHasCurrent, isActive: isActivePage };
-            }
-
-            // ── 헤더 컨텍스트 캡처용 — 루프 후 headTitle/crumb 업데이트에 사용 ──
-            var _hdrSys = null, _hdrFlow = '';
-
-            // ── 시스템 접기 상태(localStorage) — 시스템이 많은 현장에서 사이드바가 세로로 끝없이 길어지는
-            //    문제 완화. 이름 키 접힘 맵(값 1=접힘). 현재 페이지가 속한 시스템은 저장값과 무관하게 펼친다.
-            var SYS_COLLAPSE_KEY = 'dspilot-nav-sys-collapsed';
-            var sysCollapsed = {};
-            try { sysCollapsed = JSON.parse(localStorage.getItem(SYS_COLLAPSE_KEY) || '{}') || {}; } catch (e) { sysCollapsed = {}; }
-            function saveSysCollapsed() {
-                try { localStorage.setItem(SYS_COLLAPSE_KEY, JSON.stringify(sysCollapsed)); } catch (e) { /* ignore */ }
-            }
-
-            systems.forEach(function (sys) {
-                var flows = sys.flows || [];
-                // 사이클 분기 — flow → 분기 이름 목록(분기 활성 flow 만). 설비효율/가동시간 분석 그룹에서
-                // 부모 행을 "부모_분기" 행들로 치환한다(생산효율/추이/동작편차는 부모 그대로 = 설계 규약).
-                var fbr = sys.flowBranches || {};
-                function inSysFlows(name) {
-                    if (!name) return false;
-                    if (flows.indexOf(name) !== -1) return true;
-                    for (var i = 0; i < flows.length; i++) {
-                        var brs = fbr[flows[i]];
-                        if (!brs) continue;
-                        for (var j = 0; j < brs.length; j++)
-                            if (flows[i] + '_' + brs[j] === name) return true;
-                    }
-                    return false;
-                }
-                // "부모_분기" 가상이름 → 부모 flow (동작편차는 부모 축이라, 설비효율 표에서 분기 이름으로 진입해도 부모 행을 활성화)
-                function parentFlowOf(name) {
-                    if (!name || flows.indexOf(name) !== -1) return name;
-                    for (var i = 0; i < flows.length; i++) {
-                        var brs = fbr[flows[i]];
-                        if (!brs) continue;
-                        for (var j = 0; j < brs.length; j++)
-                            if (flows[i] + '_' + brs[j] === name) return flows[i];
-                    }
-                    return name;
-                }
-                var heatFlowEff = onHeatmapPage ? parentFlowOf(heatmapFlow) : '';
-                var sysHasCurrent =
-                       (onFlowPage      && flows.indexOf(curFlowName) !== -1)
-                    || (onFlowCycleBulk && flowCycleSystem === sys.name)
-                    || (onHeatmapPage   && flows.indexOf(heatFlowEff) !== -1)
-                    || (onOeePage     && (inSysFlows(oeeFlow) || oeeSystem  === sys.name))
-                    || (onTeepPage    && (flows.indexOf(teepFlow) !== -1 || teepSystem === sys.name));
-                // 이상·알람은 최상위 트리(buildAlarmTree)로 이관돼 시스템 아코디언을 활성/자동펼침하지 않는다(2026-09-07).
-
-                if (!_hdrSys) {
-                    var _isAnalysis = onFlowPage || onFlowCycleBulk || onHeatmapPage || onOeePage || onTeepPage || onAlarmPage;
-                    var _flowCtx = onFlowPage ? curFlowName : onHeatmapPage ? heatFlowEff : onOeePage ? oeeFlow : onTeepPage ? teepFlow : onAlarmPage ? alarmFlow : '';
-                    var _flowInSys = _flowCtx && flows.indexOf(_flowCtx) !== -1;
-                    var _bulkInSys = onFlowCycleBulk && flowCycleSystem === sys.name;
-                    // 설비효율/생산효율 시스템 스코프(?system=) — 헤더/크럼도 그 시스템 컨텍스트로.
-                    var _scopeInSys = (onOeePage && oeeSystem === sys.name) || (onTeepPage && teepSystem === sys.name)
-                        || (onAlarmPage && alarmSystem === sys.name);
-                    // 시스템 1개 + 분석 페이지면 전체보기도 해당 시스템으로 간주 — 단, 전체(라인) 링크가 별도로 있는
-                    // 설비효율/생산효율/이상·알람은 스코프 없는 진입을 시스템으로 오표기하지 않는다(?system= 이 있을 때만).
-                    var _allSingle = _isAnalysis && systems.length === 1
-                        && !(onOeePage && !oeeFlow && !oeeSystem) && !(onTeepPage && !teepFlow && !teepSystem)
-                        && !(onAlarmPage && !alarmFlow && !alarmSystem);
-                    if (_flowInSys || _bulkInSys || _scopeInSys || _allSingle) {
-                        _hdrSys = sys;
-                        _hdrFlow = _flowInSys ? _flowCtx : '';
-                    }
-                }
-
-                // 시스템 행 = 접기 토글 헤더(2026-09-01) — 클릭하면 아래 분석 그룹 전체를 접고 편다.
-                //   접힘 상태는 localStorage 보존, 단 현재 페이지가 속한 시스템은 항상 펼침.
-                var row = el('button', 'w-full flex items-center gap-3 px-4 py-3 rounded hover:bg-surface-container-high dark:hover:bg-inverse-surface transition-colors');
-                row.type = 'button';
-                row.style.cssText = 'text-align:left;' + BTN_RESET;
-                var sysIcon = icon('equalizer');
-                sysIcon.style.cssText = 'flex:0 0 auto;font-size:20px;' + (sysHasCurrent ? 'color:#2170e4;' : 'opacity:0.75;');
-                row.appendChild(sysIcon);
-                var sysLabel = el('span', 'font-label-sm text-label-sm', (sys.name || '(이름 없음)') + ' 관리');
-                sysLabel.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-                row.appendChild(sysLabel);
-                var sysChev = icon('expand_more');
-                sysChev.style.cssText = 'flex:0 0 auto;font-size:18px;opacity:0.7;transition:transform 0.12s;';
-                row.appendChild(sysChev);
-
-                // ── 그룹 컨테이너 — 시스템 행 아래, 시스템 접기 토글의 대상. ──
-                var sub = el('div', 'flex flex-col gap-0.5');
-                sub.style.cssText = 'padding-left:18px;';
-
-                var sysKey = sys.name || '';
-                var sysOpen = sysHasCurrent || !sysCollapsed[sysKey];
-                function applySysOpen() {
-                    sub.style.display = sysOpen ? '' : 'none';
-                    sysChev.style.transform = sysOpen ? '' : 'rotate(-90deg)';
-                    row.setAttribute('aria-expanded', sysOpen ? 'true' : 'false');
-                }
-                row.addEventListener('click', function () {
-                    sysOpen = !sysOpen;
-                    if (sysOpen) delete sysCollapsed[sysKey]; else sysCollapsed[sysKey] = 1;
-                    saveSysCollapsed();
-                    applySysOpen();
-                });
-                applySysOpen();
-
-                // 5개 분석/페이지 그룹 — 각각 이 시스템의 FLOW 리스트. Flow 클릭 → 해당 페이지?쿼리= 이동.
-                //   추이/사이클 = ?name= (/flow-trend·/flow-cycle), 동작편차/설비효율/생산효율 = ?flow= (해당 페이지가 설비 필터).
-                //   이상·알람은 최상위 트리(buildAlarmTree)로 이관(2026-09-07).
-                // 공통 구조(2026-07-02): 모든 그룹에서 별도 '전체' 항목 제거(withAll=false). header 클릭이 곧 '전체' 페이지
-                //   이동(headerHref)이며, 이동한 페이지에서 isActivePage=true 로 자동 펼쳐져 FLOW 를 바로 선택한다.
-                var gTrend = buildAnalysisGroup(flows, '추이 분석',  'timeline',      '/flow-trend',   'name', onFlowPage && curFlowView === 'trend', curFlowName, false, '/flow-trend');
-                // 가동시간 분석: base(/flow-cycle?name=) 는 단일 Flow(편집). 헤더 클릭 = 시스템 개요(/flow-cycle?system=,
-                //   조회 전용 — 카드 = 시작/끝 call + CT 리본, 클릭 → 단일 Flow 페이지. 2026-09-07 개편으로 8/27 보류 해제).
-                //   분기 행 치환은 설비효율(OEE)만 — 가동시간 분석은 flow 단일 페이지 유지(2026-08-28 사용자 결정,
-                //   분기 편집은 그 페이지 안의 분기별 간트 카드에서). 개요는 분기를 리본 3상태(분기색/중복/정상 CT 없음)로 표시.
-                var cycleActive = (onFlowPage && curFlowView === 'cycle') || (onFlowCycleBulk && flowCycleSystem === sys.name);
-                var gCycle = buildAnalysisGroup(flows, '가동시간 분석', 'account_tree',  '/flow-cycle',   'name', cycleActive, curFlowName, false,
-                    '/flow-cycle?system=' + encodeURIComponent(sys.name));
-                var gHeat  = buildAnalysisGroup(flows, '동작편차',    'gradient',      '/heatmap',      'flow', onHeatmapPage, heatFlowEff, false, '/heatmap');
-                // 종합효율 현황 → 설비효율(OEE)/생산효율(TEEP) 물리 분리(2026-07-03) — 구 내부 탭(?section=) 폐지.
-                // 헤더 클릭 = 이 시스템 스코프(?system=) — 전 시스템 합산은 최상위 NAV_ITEMS 링크가 담당(2026-08-25).
-                //   활성/자동펼침도 이 시스템 스코프(설비가 이 시스템 소속이거나 ?system= 일치)일 때만 — 종전엔
-                //   /uptime-oee 진입 시 모든 시스템 그룹이 활성이었다(전체/시스템 구분이 없던 시절의 잔재).
-                var oeeActive  = onOeePage  && (oeeFlow  ? inSysFlows(oeeFlow) : oeeSystem  === sys.name);
-                var teepActive = onTeepPage && (teepFlow ? flows.indexOf(teepFlow) !== -1 : teepSystem === sys.name);
-                // 설비효율: 분기 활성 flow 는 "부모_분기" 행으로 치환(부모 행 소멸) — ?flow=부모_분기 로 스코프.
-                var oeeItems = [];
-                flows.forEach(function (f) {
-                    var brs = fbr[f];
-                    if (brs && brs.length) brs.forEach(function (b) {
-                        var v = f + '_' + b;
-                        oeeItems.push({
-                            label: v,
-                            href: '/uptime-oee?flow=' + encodeURIComponent(v),
-                            active: oeeFlow === v,
-                        });
-                    });
-                    else oeeItems.push(f);
-                });
-                var gOee   = buildAnalysisGroup(oeeItems, '설비효율 현황', 'speed',       '/uptime-oee',   'flow', oeeActive,  oeeFlow,  false,
-                    '/uptime-oee?system=' + encodeURIComponent(sys.name));
-                var gTeep  = buildAnalysisGroup(flows, '생산효율 현황', 'trending_up', '/uptime-teep',  'flow', teepActive, teepFlow, false,
-                    '/uptime-teep?system=' + encodeURIComponent(sys.name));
-                sub.appendChild(gTeep.wrap);
-                sub.appendChild(gOee.wrap);
-                sub.appendChild(gTrend.wrap);
-                sub.appendChild(gCycle.wrap);
-                sub.appendChild(gHeat.wrap);
-
-                cycleSubWrap.appendChild(row);
-                cycleSubWrap.appendChild(sub);
-            });
-
-            // ── 이상·알람 최상위 트리(2026-09-07) — 루트(최상위 링크 본문)=라인 전체, 시스템 행=?system=, FLOW 행=?flow=.
-            //   시스템 아코디언의 '이상·알람' 그룹을 대체한다. 시스템 행 본문 클릭 = 그 시스템 스코프 이동, 우측 chevron =
-            //   FLOW 목록 펼침/접힘만. 평소 전부 접힘(루트는 alarmTreeOpen, 시스템은 현재 선택 FLOW 소속만 펼침).
-            //   FLOW 행은 자동감지만 남는 설비별 보기(UserTag 는 Flow 소속이 아님 — uptime-workspace utQs 주석).
-            //   시스템 행은 알람 행의 systemName(UserTag=AASX System, Abnormal=flow→System 해석) 등식 필터 → 둘 다 포함.
-            function buildAlarmTree(systemsArr) {
-                if (!alarmTreeWrap) return;
-                alarmTreeWrap.innerHTML = '';
-                (systemsArr || []).forEach(function (sys) {
+                systems.forEach(function (sys) {
                     var flows = sys.flows || [];
+                    var fbr = sys.flowBranches || {};
                     var sysName = sys.name || '';
-                    var sysCur = onAlarmPage && !!alarmSystem && alarmSystem === sysName;
-                    var flowInSys = onAlarmPage && !!alarmFlow && flows.indexOf(alarmFlow) !== -1;
 
-                    var row = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant'
-                        + (sysCur ? '' : ' hover:bg-surface-container-high dark:hover:bg-inverse-surface'));
+                    // FLOW 행 값 목록 — branchRows(설비효율)면 분기 활성 flow 를 "부모_분기" 로 치환.
+                    var rows = [];
+                    flows.forEach(function (f) {
+                        var brs = t.branchRows ? (fbr[f] || null) : null;
+                        if (brs && brs.length) brs.forEach(function (b) { rows.push(f + '_' + b); });
+                        else rows.push(f);
+                    });
+                    // 활성 FLOW — parentAxis(동작편차)면 "부모_분기" 진입도 부모 행 활성.
+                    var effFlow = (onPage && t.parentAxis) ? parentFlowOf(curFlow, flows, fbr) : curFlow;
+                    var flowInSys = onPage && !!effFlow && rows.indexOf(effFlow) !== -1;
+                    var sysCur = onPage && !!curSystem && curSystem === sysName;
+
+                    var row = el('button', ROW_CLS + (sysCur ? '' : HOVER_CLS));
                     row.type = 'button';
                     row.style.cssText = 'text-align:left;' + BTN_RESET;
-                    row.title = (sysName || '(이름 없음)') + ' — 이 시스템의 이상·알람(자동감지 + 수동등록TAG)';
+                    row.title = (sysName || '(이름 없음)') + ' — ' + t.sysTitle;
                     if (sysCur) { row.style.backgroundColor = '#2170e4'; row.style.color = '#fff'; }
                     var sIcon = icon('equalizer');
                     sIcon.style.cssText = 'flex:0 0 auto;font-size:17px;'
@@ -881,13 +648,12 @@ window.dspFmt = {
 
                     var list = el('div', 'flex flex-col gap-0.5');
                     list.style.cssText = 'display:none;padding-left:16px;';
-                    flows.forEach(function (flowName) {
-                        var isCur = onAlarmPage && alarmFlow === flowName;
-                        var fb = el('button', 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant'
-                            + (isCur ? '' : ' hover:bg-surface-container-high dark:hover:bg-inverse-surface'));
+                    rows.forEach(function (flowName) {
+                        var isCur = onPage && effFlow === flowName;
+                        var fb = el('button', ROW_CLS + (isCur ? '' : HOVER_CLS));
                         fb.type = 'button';
                         fb.style.cssText = 'text-align:left;' + BTN_RESET;
-                        fb.title = flowName + ' — 이 설비의 자동감지 알람만';
+                        fb.title = flowName + ' — ' + t.flowTitle;
                         if (isCur) { fb.style.backgroundColor = '#2170e4'; fb.style.color = '#fff'; }
                         fb.appendChild(dot(isCur ? '#fff' : 'currentColor', isCur ? '1' : '0.55'));
                         var fl = el('span', 'font-label-sm text-label-sm', flowName);
@@ -895,12 +661,12 @@ window.dspFmt = {
                         fb.appendChild(fl);
                         fb.addEventListener('click', function (ev) {
                             ev.stopPropagation();
-                            navigateTo(withPeriodCarry('/uptime-alarm?flow=' + encodeURIComponent(flowName)));
+                            navigateTo(withPeriodCarry(base + '?' + t.flowParam + '=' + encodeURIComponent(flowName)));
                         });
                         list.appendChild(fb);
                     });
 
-                    var open = flowInSys;
+                    var open = flowInSys || sysCur;
                     function applyOpen() {
                         list.style.display = open ? '' : 'none';
                         chev.style.transform = open ? 'rotate(90deg)' : '';
@@ -909,37 +675,42 @@ window.dspFmt = {
                     chev.addEventListener('click', function (e) { e.stopPropagation(); open = !open; applyOpen(); });
                     row.addEventListener('click', function (e) {
                         e.stopPropagation();
-                        navigateTo(withPeriodCarry('/uptime-alarm?system=' + encodeURIComponent(sysName)));
+                        navigateTo(withPeriodCarry(base + '?system=' + encodeURIComponent(sysName)));
                     });
                     applyOpen();
 
-                    alarmTreeWrap.appendChild(row);
-                    alarmTreeWrap.appendChild(list);
+                    wrap.appendChild(row);
+                    wrap.appendChild(list);
                 });
-            }
-            buildAlarmTree(systems);
+            });
 
-            // ── 헤더 제목에 시스템/Flow 컨텍스트 반영 ──
-            // headTitle·crumb 은 var 선언 후 async 전에 이미 할당 → 클로저로 접근 가능.
-            if (_hdrSys && pageTitle) {
-                var _prefix = _hdrFlow || (_hdrSys.name || '');
-                if (_prefix) {
-                    // "가동시간 분석 · 전체" → "가동시간 분석" (· 뒤 view 한정어 제거 — h2/크럼 기능명 단계용)
-                    var _funcName = pageTitle.replace(/\s*·\s*.+$/, '');
-                    headTitle.textContent = _prefix + ' ' + _funcName;
-                    // 브레드크럼: Home > [시스템] 관리 > [기능명] > [flow명](flow 있을 때만)
-                    crumb.innerHTML = '';
-                    crumb.appendChild(el('span', null, 'Home'));
-                    crumb.appendChild(el('span', 'material-icons text-[16px]', 'chevron_right'));
-                    crumb.appendChild(el('span', null, (_hdrSys.name || '') + ' 관리'));
-                    crumb.appendChild(el('span', 'material-icons text-[16px]', 'chevron_right'));
-                    if (_hdrFlow) {
-                        crumb.appendChild(el('span', null, _funcName));
-                        crumb.appendChild(el('span', 'material-icons text-[16px]', 'chevron_right'));
-                        crumb.appendChild(el('span', 'text-primary font-semibold', _hdrFlow));
-                    } else {
-                        crumb.appendChild(el('span', 'text-primary font-semibold', _funcName));
+            // ── 헤더 제목·브레드크럼에 스코프 반영: "<FLOW|시스템> <기능명>" / Home › 기능명 › 시스템 › FLOW ──
+            //   스코프 쿼리가 없는 전체 보기는 페이지 기본 제목 그대로(시스템 1개 현장이라도 시스템으로 오표기하지 않음).
+            //   headTitle·crumb 은 var 선언 후 async 전에 이미 할당 → 클로저로 접근 가능.
+            if (curItem && pageTitle && (curFlow || curSystem)) {
+                // "가동시간 분석 · 전체" → "가동시간 분석" (공백으로 둘러싼 ' · ' 뒤 view 한정어만 제거 —
+                //   '이상·알람 분석' 처럼 낱말 안의 '·' 는 보존. 구 정규식은 이걸 '이상' 으로 잘랐다.)
+                var funcName = pageTitle.replace(/\s+·\s+.+$/, '');
+                var sysName = curSystem;
+                if (curFlow) {
+                    // FLOW 의 소속 시스템(분기 가상 이름은 부모로 번역). 모델에 없는 flow(유령)면 시스템 단계 생략.
+                    for (var i = 0; i < systems.length && !sysName; i++) {
+                        var fl = systems[i].flows || [];
+                        if (fl.indexOf(parentFlowOf(curFlow, fl, systems[i].flowBranches || {})) !== -1) sysName = systems[i].name || '';
                     }
+                }
+                headTitle.textContent = (curFlow || sysName) + ' ' + funcName;
+                crumb.innerHTML = '';
+                crumb.appendChild(el('span', null, 'Home'));
+                crumb.appendChild(el('span', 'material-icons text-[16px]', 'chevron_right'));
+                crumb.appendChild(el('span', null, funcName));
+                if (sysName) {
+                    crumb.appendChild(el('span', 'material-icons text-[16px]', 'chevron_right'));
+                    crumb.appendChild(el('span', curFlow ? null : 'text-primary font-semibold', sysName));
+                }
+                if (curFlow) {
+                    crumb.appendChild(el('span', 'material-icons text-[16px]', 'chevron_right'));
+                    crumb.appendChild(el('span', 'text-primary font-semibold', curFlow));
                 }
             }
         }
@@ -1332,7 +1103,7 @@ window.dspFmt = {
                 }
                 // 외부 바로가기 — 서버가 내려준 목록(데모 전환 활성 + 개별 노출 체크)만 푸터에 삽입.
                 renderExternalShortcuts(data.externalShortcuts);
-                buildSystemSubmenu(data.systems);
+                buildScopeTrees(data.systems);
             })
             .catch(function () { /* ignore */ });
 

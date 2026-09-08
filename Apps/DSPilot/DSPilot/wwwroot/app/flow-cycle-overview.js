@@ -20,6 +20,12 @@ function overviewCycleApp() {
     const DEFAULT_PRESET = 'h1';
     // 사이클 프리셋용 히스토리 캐시 (closure, Alpine 반응형 밖 — 단순 캐시)
     const histCache = {};
+    // 카드 간트 표시 방식 기억(브라우저별). 저장 실패/비정상 값은 'bar'.
+    const VIEW_KEY = 'dsp.flowCycleOverview.viewMode';
+    function loadViewMode() {
+        try { const v = localStorage.getItem(VIEW_KEY); return v === 'line' ? 'line' : 'bar'; } catch (e) { return 'bar'; }
+    }
+    function saveViewMode(v) { try { localStorage.setItem(VIEW_KEY, v); } catch (e) { /* ignore */ } }
 
     return {
         TOP_MARGIN: CG.TOP_MARGIN,
@@ -30,6 +36,8 @@ function overviewCycleApp() {
         flowBranchNames: {},     // flow → 분기 이름 목록(/api/nav) — 있는 flow 만 분기 정의를 따로 조회
         startTime: '', endTime: '',
         timePreset: null, cyclePreset: null, rangePopupOpen: false,
+        // 카드 간트 표시 방식('bar'|'line') — 단일 페이지 간트 툴바의 막대/InOut 라인과 같은 의미. 모든 카드 일괄, 브라우저 기억.
+        viewMode: loadViewMode(),
         dataLatestAt: null,
         dataAnchorHint: '',
         msg: '', msgError: false,
@@ -118,7 +126,7 @@ function overviewCycleApp() {
                 chartStart: null, chartEnd: null, chartStartIso: '', chartEndIso: '',
                 headCallId: null, tailCallId: null,
                 isOverride: false, avgCycleMs: null, avgActiveMs: null,
-                plotWidth: 1200, baseWidth: 1200, zoom: this.zoom, viewMode: 'bar',
+                plotWidth: 1200, baseWidth: 1200, zoom: this.zoom, viewMode: this.viewMode,
                 expandedCalls: {}, topGaps: [], showMaxGap: false, selectedGapIndex: 0,
                 svgMarkup: '', selectedRange: null, _geo: null
             };
@@ -163,6 +171,7 @@ function overviewCycleApp() {
             if ((m = per.match(/^m(\d+)$/))) return await this.setRecentMinutes(+m[1]);
             if ((m = per.match(/^h(\d+)$/))) return await this.setRecentHours(+m[1]);
             if ((m = per.match(/^c(\d+)$/))) return await this.setRecentCycles(+m[1]);
+            if (per === 'today') return await this.setToday();
             const from = qp.get('from'), to = qp.get('to');
             if (from && to && this.inputToDate(to) > this.inputToDate(from)) {
                 this.startTime = from; this.endTime = to;
@@ -552,10 +561,34 @@ function overviewCycleApp() {
             this.startTime = this.dateToInput(new Date(end.getTime() - h * 3600000));
             await this.loadAll();
         },
+        // '오늘' = 오늘 00:00 ~ 지금(벽시계). 다른 프리셋과 달리 마지막 신호 시각에 앵커하지 않는다(단일 페이지와 동일 규약) —
+        // 신호가 끊긴 뒤 "오늘 얼마나 돌았나"를 볼 때 끝점이 밀리면 공백이 숨는다. 앵커 힌트도 의미 없어 지운다.
+        async setToday() {
+            this.timePreset = 'today'; this.cyclePreset = null; this.rangePopupOpen = false;
+            const now = new Date();
+            const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+            this.endTime = this.dateToInput(now);
+            this.startTime = this.dateToInput(start);
+            this.dataLatestAt = null; this.dataAnchorHint = '';
+            await this.loadAll();
+        },
+        // 카드 간트 표시 방식 전환 — 데이터 재조회 없이 모든 카드 SVG 만 다시 그린다.
+        setView(mode) {
+            mode = mode === 'line' ? 'line' : 'bar';
+            if (this.viewMode === mode) return;
+            this.viewMode = mode;
+            saveViewMode(mode);
+            for (const s of this.flows) {
+                s.viewMode = mode;
+                if (s.callLanes.length) s.svgMarkup = CG.buildSvg(s);
+            }
+            this.syncPanAllSoon();
+        },
         // 현재 기간을 그대로 다시 로드(프리셋이면 앵커(최신 신호 시각)도 새로 잡는다).
         async refreshAll() {
             if (this.loadingAny) return;
             let m;
+            if (this.timePreset === 'today') return await this.setToday();
             if (this.timePreset && (m = this.timePreset.match(/^m(\d+)$/))) return await this.setRecentMinutes(+m[1]);
             if (this.timePreset && (m = this.timePreset.match(/^h(\d+)$/))) return await this.setRecentHours(+m[1]);
             if (this.cyclePreset) return await this.setRecentCycles(this.cyclePreset);

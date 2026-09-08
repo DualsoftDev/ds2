@@ -339,7 +339,10 @@ public sealed class CycleRecomputeService
     /// 분기 정의(자기 Head/Tail + 제외 call)별 시작 엣지를 <b>시간순 병합 스트림</b>으로 합쳐 사이클을
     /// 만든다. ct = 다음 시작(분기 무관) — 분기 미사용과 동일한 부모 축이라 TEEP·평균·임계 소비자가
     /// 분기 도입 전후로 흔들리지 않는다(설계 규약: ct 부모 의미 불변).
-    /// <para>분류: 병합 스팬 [시작, 다음 시작) 안에서 제외 call OutTag↑ 발화 = 그 분기 아님(반증).
+    /// <para>분류: 제외 call OutTag↑ 발화 = 그 분기 아님(반증). 반증 창은 병합 스팬 전체가 아니라
+    /// <b>[시작, 끝 call 동작 종료)</b> = 완료(tail 마커) 직후 끝 call OutTag↓ 까지(2026-09-07). MT 뒤 WT 구간에
+    /// 들어온 다음 차종 준비 동작(분기 전환 시 다음 head 8~9s 전 UNIT up 등)은 다음 사이클 몫이라 반증이 아니다.
+    /// 완료가 없으면(MT 미확정) 종전처럼 스팬 전체가 반증 창. 화면 판별기(CycleGantt.classifyBranches)와 같은 규칙.
     /// 같은 시작 시각에 후보 분기가 여럿이고(공유 Head) 복수가 통과하면 정의 순서 첫 매칭 승.
     /// 전멸 = 미분류(BranchName=null) — 행은 보존하되 무결성 카드 계수 대상.</para>
     /// <para>MT(tail 완료)도 <b>병합 스팬</b> 안에서만 찾는다 — 분기 자체 주기(다음 동일분기 시작)로
@@ -373,6 +376,21 @@ public sealed class CycleRecomputeService
                 if (string.IsNullOrWhiteSpace(p.OutTag)) continue;
                 if (!seen.Add($"{p.OutActiveValue ?? "~"}|{p.OutTag}")) continue;
                 foreach (var t in await EdgesAsync(p.OutTag!, p.OutActiveValue, falling: false)) merged.Add(t);
+            }
+            return merged.ToList();
+        }
+
+        // 끝 call OutTag↓ union — 반증 창 상한(동작 종료). 완료 마커(InTag↑)보다 0.4~0.5s 늦어, 완료와 거의 동시에
+        // 움직이는 차종별 call(공유 head/tail 분기의 유일한 구분 근거)이 스캔 순서로 창 밖에 밀리는 일을 막는다.
+        async Task<List<DateTime>> UnionOutFallsAsync(IReadOnlyList<CallTagPair> callPairs)
+        {
+            var merged = new SortedSet<DateTime>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in callPairs)
+            {
+                if (string.IsNullOrWhiteSpace(p.OutTag)) continue;
+                if (!seen.Add($"{p.OutActiveValue ?? "~"}|{p.OutTag}")) continue;
+                foreach (var t in await EdgesAsync(p.OutTag!, p.OutActiveValue, falling: true)) merged.Add(t);
             }
             return merged.ToList();
         }
@@ -425,8 +443,10 @@ public sealed class CycleRecomputeService
             }
 
             var starts = await UnionOutEdgesAsync(headPairs);
-            var tailStreams = await TailStreamsCachedAsync(ResolvePairs(flowName, def.EndCallName));
-            resolved.Add(new BranchRuntime(def, starts, tailStreams, exclEdges));
+            var tailPairs = ResolvePairs(flowName, def.EndCallName);
+            var tailStreams = await TailStreamsCachedAsync(tailPairs);
+            var tailFalls = await UnionOutFallsAsync(tailPairs);
+            resolved.Add(new BranchRuntime(def, starts, tailStreams, tailFalls, exclEdges));
         }
 
         // 시작 시각 병합 — 같은 시각에 여러 분기(공유 Head)면 정의 순서대로 후보 적재.
@@ -462,17 +482,27 @@ public sealed class CycleRecomputeService
 
             var candidates = byStart[s];
             BranchRuntime? winner = null;
+            var completeBy = new Dictionary<BranchRuntime, DateTime?>(candidates.Count);
             foreach (var cand in candidates)
             {
+                // 후보별 완료 → 반증 창 [s, 끝 call OutTag↓) (완료 없으면 스팬 전체, OUT 이 다음 시작까지 유지되면 스팬 끝).
+                var candComplete = AndCompleteInRange(cand.TailStreams, s, end);
+                completeBy[cand] = candComplete;
+                var refuteEnd = end;
+                if (candComplete.HasValue)
+                {
+                    var fall = FirstEdgeAtOrAfter(cand.TailOutFalls, candComplete.Value, end);
+                    if (fall.HasValue) refuteEnd = fall.Value;
+                }
                 var fired = false;
                 foreach (var edges in cand.ExclusionEdges)
-                    if (HasEdgeInRange(edges, s, end)) { fired = true; break; }
+                    if (HasEdgeInRange(edges, s, refuteEnd)) { fired = true; break; }
                 if (!fired) { winner = cand; break; }
             }
             var basis = winner ?? candidates[0]; // 미분류 행도 측정 경계(Head/Tail)는 첫 후보 것으로 박제
             if (winner is null) unclassified++;
 
-            var complete = AndCompleteInRange(basis.TailStreams, s, end);
+            var complete = completeBy[basis];
             double? activeMs = complete.HasValue ? (complete.Value - s).TotalMilliseconds : (double?)null;
 
             if (!periodMs.HasValue && !activeMs.HasValue)
@@ -526,7 +556,17 @@ public sealed class CycleRecomputeService
         FlowBranchDef Def,
         List<DateTime> Starts,
         List<List<DateTime>> TailStreams,
+        List<DateTime> TailOutFalls,
         List<List<DateTime>> ExclusionEdges);
+
+    /// <summary>[from, to) 안의 첫 엣지 — from 포함(완료 시각과 동시각 OutTag↓ 도 동작 종료로 인정).</summary>
+    private static DateTime? FirstEdgeAtOrAfter(List<DateTime> edges, DateTime fromInclusive, DateTime toExclusive)
+    {
+        var i = edges.BinarySearch(fromInclusive);
+        if (i < 0) i = ~i;
+        else while (i > 0 && edges[i - 1] == fromInclusive) i--;
+        return i < edges.Count && edges[i] < toExclusive ? edges[i] : (DateTime?)null;
+    }
 
     /// <summary>[from, to) 안에 엣지 존재 여부 — from 포함(사이클 시작 시각 동시 발화도 그 사이클 소속).</summary>
     private static bool HasEdgeInRange(List<DateTime> edges, DateTime fromInclusive, DateTime toExclusive)

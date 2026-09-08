@@ -44,7 +44,7 @@ public static class OeeMath
     /// <summary>
     /// MT 과주행 경계 = max(14일 중앙값 MT × 고장배수, 절대 하한). 유발자 판별의 모든 경로(집계 사전
     /// 수집·dtCond @MtThr·행 단위 mtOverrun 판정)가 이 함수를 쓴다 — 경계가 갈라지면 "로그 라벨과
-    /// failureCount 가 어긋난다"(<see cref="ClassifyByDuration"/> 주석과 같은 이유).
+    /// failureCount 가 어긋난다".
     /// </summary>
     public static double ResolveMtFaultBoundaryMs(double medianMtMs, double faultMultiplier)
         => Math.Max(medianMtMs * faultMultiplier, FaultMtBoundaryFloorMs);
@@ -232,27 +232,6 @@ public static class OeeMath
     }
 
     /// <summary>
-    /// 무사이클 정지 이벤트의 마감(clear)/발생(onset) 판정 — 순수 함수.
-    /// <list type="bullet">
-    /// <item><b>마감</b> = 열린 정지가 있고 그 시작 이후 새 사이클이 있으면 참. <b>idle 여부와 무관하다.</b>
-    ///   종전 구현은 마감을 "idle &lt; 임계" 분기 안에만 둬서, tick(15s)이 그 창에 못 들어가거나 조회가
-    ///   stale 하면 사이클이 정상 유입 중인데도 정지가 영구 open 으로 남았다 → 집계가 그 구간을 비생산으로
-    ///   승격시켜 가동시간이 0 으로 나옴(2026-07-29 실측: 사이클 1540건/1시간이 가동 0·비생산 100%).</item>
-    /// <item>등호 제외(<c>&lt;</c>) — startAt == lastCycle 은 그 정지를 만든 사이클 자신이라 0 길이 마감이 된다.</item>
-    /// <item><b>발생</b> = 임계 초과 + (마감 반영 후) 열린 정지 없음. 마감과 같은 tick 에서 재발생할 수 있다:
-    ///   그 사이클 뒤로 또 임계를 넘겼다는 뜻이므로 정상(startAt = 그 사이클 시각).</item>
-    /// </list>
-    /// </summary>
-    public static (bool Close, bool Open) ResolveNoCycleActions(
-        bool hasOpen, DateTime openStartUtc, DateTime lastCycleUtc, double idleMs, double thresholdMs)
-    {
-        var close = hasOpen && openStartUtc < lastCycleUtc;
-        var remainsOpen = hasOpen && !close;
-        var open = idleMs >= thresholdMs && !remainsOpen;
-        return (close, open);
-    }
-
-    /// <summary>
     /// 무사이클 정지 onset 임계(ms) 폴백 체인 (doc/23 §6 Phase 1). 위에서부터:
     ///   ① gap' 학습됨 → max(3×gap', floor) — floor 는 초고속 flow 잡음성 미세정지 onset 방지
     ///   ② gap' 없지만 14일평균CT 학습됨 → 3×평균CT (여전히 per-flow)
@@ -368,45 +347,6 @@ public static class OeeMath
     /// </summary>
     public static bool IsMaintenanceCovered(double measuredMs, double maintOverlapMs)
         => measuredMs > 0 && maintOverlapMs > measuredMs / 2;
-
-    /// <summary>
-    /// nocycle 자동분류 최소 지속시간(ms) — 이 미만은 노이즈로 보아 도장을 찍지 않는다.
-    /// 호출부(<see cref="OeeDowntimeStateMachine"/>)가 MT 증거 조회를 건너뛰는 게이트로도 쓴다.
-    /// </summary>
-    public const double AutoClassifyFailureMs = 5d * 60 * 1000;
-
-    /// <summary>
-    /// nocycle clear 시 자동 분류 — 5분 임계 + <b>MT 과주행 증거</b>(2026-08-24). ShouldClassify=false 시 호출부가 skip.
-    /// <para>
-    /// 종전엔 입력이 지속시간 하나였다: ≥5분이면 무조건 equipment_fault. 그래서 라인이 8분 멈추면 굶어서 선
-    /// 설비까지 6행 전부 고장 도장을 받았다(실측 2026-08-24: 정지창마다 MT 과주행 flow 는 정확히 1개인데
-    /// 6개 flow 전부 고장). 지속시간은 "누가 고장인가"에 대해 아무 정보가 없다 — 직렬 라인에서 정지 길이는
-    /// 유발자와 피해자가 똑같기 때문이다.
-    /// </para>
-    /// <para>
-    /// 판정 근거를 MT 축으로 옮긴다. mt(실제 움직인 시간) &gt; 평균CT×비가동배수 = "going 중 걸린" 증거이고,
-    /// 이건 유발자를 단독으로 특정한다(실측: 유발자 mt=225~715s 대 형제 mt=4~13s — 두 자릿수 차이).
-    /// flow 세그먼트가 없어 유발자를 못 가리키는 usertag 보다 훨씬 강한 근거다.
-    /// </para>
-    /// <list type="bullet">
-    /// <item>&lt; 5분 → 미분류(짧은 정지 = 노이즈). 종전과 동일.</item>
-    /// <item>자기 flow MT 과주행 → equipment_fault(unplanned, isFailure=true) — 진짜 유발자.</item>
-    /// <item>다른 flow 만 MT 과주행 → wait_starve(wait, isFailure=false) — 여파로 굶은 것. 고장 건수·MTBF 제외.</item>
-    /// <item>아무도 MT 과주행 없음 → <b>미분류</b>. 고장이라 볼 근거가 없으므로 도장을 찍지 않고
-    ///       조회 시점 <see cref="ClassifyStopWindow"/>(신호 기반) 판정에 맡긴다. 종전처럼 고장으로
-    ///       확정해 버리면 집계는 대기로 빼는데 로그만 고장인 불일치가 DB 에 영구 박힌다.</item>
-    /// </list>
-    /// 경계(평균CT×배수)는 <see cref="ClassifyStopWindow"/> 경로가 쓰는 MT 과주행 경계와 동일하다 —
-    /// 두 분류기가 같은 증거·같은 임계를 보게 해서 로그 라벨과 failureCount 가 어긋나지 않게 한다.
-    /// </summary>
-    public static (string? ReasonCode, string? Category, bool IsFailure, bool ShouldClassify) ClassifyByDuration(
-        double durationMs, bool hasOwnMtOverrun, bool lineHasMtOverrun)
-    {
-        if (durationMs < AutoClassifyFailureMs) return (null, null, false, false);
-        if (hasOwnMtOverrun) return ("equipment_fault", "unplanned", true, true);
-        if (lineHasMtOverrun) return ("wait_starve", "wait", false, true);
-        return (null, null, false, false);
-    }
 
     // ════════════════════════════════════════════════════════════════════════
     //  사이클기반 OEE (doc/22 — P5 v4 CT/MT/WT 모델). 시간기반(달력/시프트) 대신

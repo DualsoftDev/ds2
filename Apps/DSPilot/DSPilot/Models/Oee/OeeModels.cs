@@ -186,7 +186,8 @@ public sealed record OeeTeepDto(
     string? TeepNote,
     double? Utilization,              // (캘린더 − 비생산) ÷ 캘린더 (0~1). 보조지표
     double? CtThresholdMs,            // 참고 (14일 평균)
-    double UnmeasuredMs = 0);         // 미계측(수신 공백, §3.4) — flowCount 배수 적용. 잔여(Residual)에서 분리 표기
+    double UnmeasuredMs = 0,          // 미계측(수신 공백, §3.4) — flowCount 배수 적용. 잔여(Residual)에서 분리 표기
+    double InProgressMs = 0);         // 진행 중(열린 사이클, doc/26) — Σ_flow, 가동·정지·비생산 어디에도 미포함. 잔여에서 분리 표기
 
 /// <summary>
 /// 생산효율 매트릭스(P6 L0) — flow × 시간버킷별 TEEP·OEE. /uptime-teep 의 라인 3D(설비×시간)·설비 2D(TEEP·OEE/시간) 차트 데이터.
@@ -299,7 +300,10 @@ public sealed record OeeSummaryDto(
     // Σ이벤트성 공백 = 가동간 공백 중 하나의 정지 이벤트에서 온 부분(대기 + 비가동 경계 미만 조각).
     //   WaitSlackWallMs ⊆ 이 값. 가용성에는 영향 없고(슬랙 잔여 그대로), 사이클당 공백 환산에서 빼는 데 쓴다 —
     //   4분짜리 단기 정지가 '사이클 간 미세 간격' 지표를 희석하지 않게(2026-07-30).
-    double EventSlackWallMs = 0);
+    double EventSlackWallMs = 0,
+    // ── 진행 중(열린 사이클, 2026-09-08 doc/26) — flow 의 마지막 완료 사이클 이후 다음 head 가 없는 구간(Σ_flow). ──
+    //   가동·비가동·비생산 어느 쪽도 아니다(분모 밖, 미계측과 같은 자리). 과거 창엔 0. 다음 사이클 완료 시 확정된다.
+    double InProgressWallMs = 0);
 
 /// <summary>비생산 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);
@@ -397,11 +401,11 @@ public sealed record OeeDowntimeDto(
     string? ReasonCode,
     string? Category,
     bool IsFailure,
-    string DetectSource,              // 감지 출처(정지 구간 소스): nocycle / usertag / manual
+    string DetectSource,              // 감지 출처(정지 구간 소스): over-cycle(완료 사이클 행) / in-progress(열린 사이클, 합성) / usertag / manual / nocycle(구 상태머신 — 수동 확정분만 잔존)
     long? SourceLogId,
     string? Note,
     string Status,                    // "open" | "recovered"
-    string? ClassifySource = null,    // 분류 출처: manual / auto-bit / auto-heuristic / auto-longstop / null(미분류)
+    string? ClassifySource = null,    // 분류 출처: manual / auto-bit / auto-heuristic / auto-longstop / pending(진행 중 — 완료 후 분류) / null(미분류)
     OeeDowntimeClue? Clue = null,     // abnormal/usertag 시간겹침 단서(표시 전용 — 건수·MTBF 미반영, doc/21 §4)
     bool IsNonProd = false,           // 구분=비생산(A 분모 밖). 수동(reasonCode='non_production') 또는 당일 자동(10×CT) 판정
     bool IsWait = false,              // 대기(고장 여파, doc/25 §1) — 같은 창에 유발 flow 고장 존재. IsNonProd=true 면
@@ -455,7 +459,8 @@ public sealed record OeeDailySlotDto(
     //   종전엔 프런트가 가동을 '슬롯 − 감지된 것들'(잔여)로 그려, 감지되지 않은 시간이 전부 가동으로 칠해졌다
     //   (실측: 사이클 0건인 설비가 24시간 만근 막대로 표시). 이제 실측만 그리고 못 채운 만큼은 여백으로 남긴다
     //   — 여백 = 미수집. 세로합 ≤ SlotMs 이고 그 차이가 곧 수집 결손이다.
-    long RunMs = 0);
+    long RunMs = 0,
+    long InProgressMs = 0); // 진행 중(열린 사이클, doc/26) — 분모 밖. 현재 슬롯 끝부분에만 생긴다(과거 슬롯 0)
 
 /// <summary>
 /// 계측 품질 — 설비(Flow)별 사이클 누락/제외 현황 한 행 (OEE 지표와 별개 축, doc/22 §3.2 표본 게이트).

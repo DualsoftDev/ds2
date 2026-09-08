@@ -232,6 +232,15 @@ public class AppSettingsService
     /// </summary>
     public void SaveFlowCycleOverride(
         string flowName, string? startCallName, string? endCallName, int? chatterFilterMs, bool chatterSpecified)
+        => SaveFlowCycleOverride(flowName, startCallName, endCallName, chatterFilterMs, chatterSpecified, lookup: null);
+
+    /// <summary>
+    /// <paramref name="lookup"/> 이 있으면 Head/Tail 이름에서 Call GUID 를 함께 기록한다(이중 키 —
+    /// <see cref="CallRefReconciler"/>). null 이면 GUID 는 비워 두고 다음 재해석에서 이름으로 채운다.
+    /// </summary>
+    public void SaveFlowCycleOverride(
+        string flowName, string? startCallName, string? endCallName, int? chatterFilterMs, bool chatterSpecified,
+        FlowCallLookup? lookup)
     {
         if (string.IsNullOrWhiteSpace(flowName))
         {
@@ -249,6 +258,9 @@ public class AppSettingsService
             ? (chatterFilterMs is int c ? Math.Max(0, c) : null)
             : existing?.ChatterFilterMs;
 
+        string? IdOf(string? name) =>
+            lookup is not null && lookup.TryGetId(name, out var id) ? CallRefReconciler.IdText(id) : null;
+
         if (existing is null)
         {
             if (!string.IsNullOrWhiteSpace(normalizedStart) || !string.IsNullOrWhiteSpace(normalizedEnd) || normalizedChatter is not null)
@@ -258,6 +270,8 @@ public class AppSettingsService
                     FlowName = flowName,
                     StartCallName = normalizedStart,
                     EndCallName = normalizedEnd,
+                    StartCallId = IdOf(normalizedStart),
+                    EndCallId = IdOf(normalizedEnd),
                     ChatterFilterMs = normalizedChatter,
                 });
             }
@@ -266,6 +280,8 @@ public class AppSettingsService
         {
             existing.StartCallName = normalizedStart;
             existing.EndCallName = normalizedEnd;
+            existing.StartCallId = IdOf(normalizedStart);
+            existing.EndCallId = IdOf(normalizedEnd);
             existing.ChatterFilterMs = normalizedChatter;
             // 종전엔 Head/Tail 이 기본값으로 돌아가면 항목을 통째로 지워 IdealCycleTimeMs 까지 유실됐다 —
             // 이제 모든 override 필드가 비었을 때만 제거(SaveFlowIdealCycleTime 과 동일 원칙).
@@ -296,6 +312,68 @@ public class AppSettingsService
 
     /// <summary>분기 개수 상한 — OEE 행·precompute 작업량이 분기 수 배수라 폭주 방지용 가드.</summary>
     public const int MaxBranchesPerFlow = 8;
+
+    /// <summary>마지막 재해석 결과(유령 목록 포함) — 화면/API 가 "모델에 없는 call" 안내에 쓴다. null=아직 안 돌았음.</summary>
+    public CallRefReconcileReport? LastCallRefReport { get; private set; }
+
+    /// <summary>
+    /// AASX (재)로드 직후: 분기 정의·flow 경계 override 의 Call 참조(GUID+이름)를 현재 모델에 맞춘다.
+    /// GUID 로 찾은 call 의 이름이 바뀌었으면 스냅샷을 새 이름으로 갱신(리네임 추종), GUID 가 없던 구 데이터는
+    /// 이름으로 GUID 를 채운다. 유령(둘 다 없음)은 지우지 않고 보고만 한다 — 화면이 사용자에게 제거/재지정을 맡긴다.
+    /// 모델에 없는 flow 의 정의는 건드리지 않는다(유령 flow 정리는 PruneFlowCycleOverrides 의 몫).
+    /// 변경이 있을 때만 1회 저장. 어떤 예외도 로드 경로를 막지 않는다.
+    /// </summary>
+    public CallRefReconcileReport ReconcileCallReferences(DsProjectService project)
+    {
+        var report = new CallRefReconcileReport();
+        try
+        {
+            if (!project.IsLoaded) return report;
+            var settings = LoadSettings();
+            var lookups = new Dictionary<string, FlowCallLookup?>(StringComparer.OrdinalIgnoreCase);
+            FlowCallLookup? LookupFor(string flowName)
+            {
+                if (lookups.TryGetValue(flowName, out var hit)) return hit;
+                var flow = project.GetAllFlowsIncludingDisabled()
+                    .FirstOrDefault(f => string.Equals(f.Name, flowName, StringComparison.OrdinalIgnoreCase));
+                var built = flow is null ? null : project.GetFlowCallLookup(flow.Id);
+                lookups[flowName] = built;
+                return built;
+            }
+
+            foreach (var set in settings.FlowCycle.BranchSets)
+            {
+                var lookup = LookupFor(set.FlowName);
+                if (lookup is null || lookup.Count == 0) continue;   // 모델에 없는 flow / 빈 flow — 판단 근거 없음
+                CallRefReconciler.ReconcileBranchSet(set, lookup, report);
+            }
+            foreach (var ov in settings.FlowCycle.Overrides)
+            {
+                var lookup = LookupFor(ov.FlowName);
+                if (lookup is null || lookup.Count == 0) continue;
+                CallRefReconciler.ReconcileOverride(ov, lookup, report);
+            }
+
+            if (report.Changed)
+            {
+                SaveSettings(settings);
+                foreach (var r in report.Renamed)
+                    _logger.LogInformation("[CallRef] '{Flow}'{Branch} {Role}: '{Old}' -> '{New}' (GUID 동일 - 이름 추종)",
+                        r.FlowName, r.BranchName is null ? "" : $" 분기 '{r.BranchName}'", r.Role, r.OldName, r.NewName);
+                if (report.FilledIds > 0)
+                    _logger.LogInformation("[CallRef] Call GUID {N}건 채움(구 데이터/재생성 - 이름으로 해석)", report.FilledIds);
+            }
+            foreach (var g in report.Ghosts)
+                _logger.LogWarning("[CallRef] '{Flow}'{Branch} {Role}: '{Name}' 이 현재 모델에 없음 - 화면에서 제거/재지정 필요",
+                    g.FlowName, g.BranchName is null ? "" : $" 분기 '{g.BranchName}'", g.Role, g.Name);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[CallRef] 분기/경계 참조 재해석 실패(로드는 계속)");
+        }
+        LastCallRefReport = report;
+        return report;
+    }
 
     /// <summary>OEE 노출용 가상 flow 이름 규약 — "부모_분기". 파싱은 금지(이름에 '_' 가능), 역해석은 맵으로.</summary>
     public static string ComposeBranchFlowName(string parentFlow, string branchName) => parentFlow + "_" + branchName;
@@ -364,14 +442,22 @@ public class AppSettingsService
                 throw new ArgumentException($"분기 이름이 중복됩니다: {name}");
             if (string.IsNullOrWhiteSpace(b.StartCallName) || string.IsNullOrWhiteSpace(b.EndCallName))
                 throw new ArgumentException($"분기 '{name}' 의 시작/끝(Head/Tail) call 이 지정되지 않았습니다.");
+            var excludedNames = (b.ExcludedCallNames ?? [])
+                .Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             cleaned.Add(new FlowBranchDef
             {
                 Name = name,
                 StartCallName = b.StartCallName!.Trim(),
                 EndCallName = b.EndCallName!.Trim(),
-                ExcludedCallNames = (b.ExcludedCallNames ?? [])
-                    .Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                ExcludedCallNames = excludedNames,
+                // GUID(이중 키) — 호출측(FlowController)이 CallRefReconciler.StampIds 로 채운 값. 정리로 제외 목록
+                // 개수가 달라졌으면 병렬 리스트가 어긋나므로 버린다(다음 재해석이 이름으로 다시 채움).
+                StartCallId = b.StartCallId,
+                EndCallId = b.EndCallId,
+                ExcludedCallIds = b.ExcludedCallIds is { } ids
+                    && ids.Count == (b.ExcludedCallNames?.Count ?? 0)
+                    && excludedNames.Count == ids.Count ? ids : null,
             });
         }
 

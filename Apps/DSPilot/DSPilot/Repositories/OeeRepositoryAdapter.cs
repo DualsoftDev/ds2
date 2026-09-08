@@ -226,6 +226,20 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             if (upgraded > 0)
                 _logger.LogInformation("[OEE] isFailure 기본값 업그레이드(고장): {N}건 — nocycle 미분류 → isFailure=1", upgraded);
 
+            // 2026-09-08 (doc/26): 구 무가동 상태머신(detectSource='nocycle')의 자동 행 정리 — OEE 는 완료 사이클 행의
+            //   집합으로만 계산하므로 이 행들은 어디에서도 읽히지 않는 죽은 데이터다(정지 시간은 이상치 초과 사이클 행에
+            //   이미 들어 있음). 사용자가 손으로 확정한 행(classifySource='manual' — 비생산/유지보수 지정)은 구간
+            //   오버라이드로 계속 읽히므로 보존. 멱등(매 부팅 0건).
+            var purgedNocycle = await conn.ExecuteAsync(@"
+                DELETE FROM oeeDowntimeEvent
+                WHERE detectSource = 'nocycle' AND COALESCE(classifySource, '') <> 'manual'");
+            if (purgedNocycle > 0)
+            {
+                _logger.LogInformation("[OEE] 구 무가동(nocycle) 자동 이벤트 {N}건 정리 — 정지는 완료 사이클 행에서 재도출(doc/26)", purgedNocycle);
+                try { await _mirror.ReplicateOeeAsync("oeeDowntimeEvent", "detectSource = 'nocycle'"); }
+                catch (Exception ex) { _logger.LogDebug(ex, "[OEE] nocycle 정리 미러 반영 실패(다음 스냅샷이 따라잡음)"); }
+            }
+
             _logger.LogInformation("OEE schema ensured (oeeDowntimeEvent / oeeProductionCount / oeeShiftException / oeeNonProdDetectionLog / oeeCommHealthLog) at {Path}", OeeDbPath());
             return true;
         }
@@ -325,20 +339,6 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         return n;
     }
 
-    public async Task<int> SetDowntimeMidCycleAsync(long id, int midCycle, CancellationToken ct = default)
-    {
-        await using var conn = await OpenAsync();
-        // 자세는 승격만(NULL/0 → 1) — "일감을 쥔 채 멈췄다"는 증거는 이후 abandon 으로도 소멸하지 않는다.
-        // 1 → 0 강등 금지: 유발자 증거를 지우는 방향의 갱신은 존재하지 않는다.
-        const string sql = @"
-            UPDATE oeeDowntimeEvent
-            SET midCycle = @MidCycle
-            WHERE id = @Id AND COALESCE(midCycle, 0) < @MidCycle";
-        var n = await conn.ExecuteAsync(sql, new { Id = id, MidCycle = midCycle });
-        if (n > 0) await MirrorDowntimeAsync(id);
-        return n;
-    }
-
     public async Task<int> ClassifyDowntimeAsync(long id, string? reasonCode, string? category, bool isFailure, string? classifySource = "manual", CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
@@ -416,31 +416,6 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             ClassifySource = classifySource,
         });
         await MirrorDowntimeAsync(ids);
-        return n;
-    }
-
-    public async Task<int> AutoClassifyHeuristicAsync(long id, string? reasonCode, string? category, bool isFailure, CancellationToken ct = default)
-    {
-        await using var conn = await OpenAsync();
-        // 휴리스틱 자동분류 — 수동 분류는 절대 덮지 않는다(classifySource='manual' 가드 = 수동 우선, doc/21 §12).
-        // 미분류(category IS NULL) 인 행만 채운다 — 이미 분류된(수동·비트) 건은 건드리지 않음.
-        const string sql = @"
-            UPDATE oeeDowntimeEvent
-            SET reasonCode     = @ReasonCode,
-                category       = @Category,
-                isFailure      = @IsFailure,
-                classifySource = 'auto-heuristic'
-            WHERE id = @Id
-              AND category IS NULL
-              AND (classifySource IS NULL OR classifySource <> 'manual')";
-        var n = await conn.ExecuteAsync(sql, new
-        {
-            Id = id,
-            ReasonCode = reasonCode,
-            Category = category,
-            IsFailure = isFailure ? 1 : 0,
-        });
-        await MirrorDowntimeAsync(id);
         return n;
     }
 

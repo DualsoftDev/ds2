@@ -19,7 +19,8 @@ namespace DSPilot.Services;
 ///   ② 스팬 페인팅 — 정지가 덮는 전 구간을 그날 샘플에 칠함(구: 시작 hour 1칸만).
 ///   ③ 슬롯 30분(구: 60분) + 슬롯 절반 이상 커버만 투표(경계 조각 배제).
 ///   ④ 미계측(수신 공백, §3.4) 구간은 그날 샘플에서 제외 — 블랙아웃이 패턴을 학습시키지 않는다.
-///   ⑤ 무사이클(nocycle) 이벤트도 학습 입력에 합류(구: dspFlowHistory 유휴 사이클 행만 — 사각지대).
+///   ⑤ 학습 입력 = 완료 사이클 행(dspFlowHistory 유휴 사이클)만 — 장기 정지도 다음 head 가 오면 한 행으로 완결되므로
+///      별도 이벤트 소스가 필요 없다(2026-09-08 doc/26, 구 무가동 이벤트 합류 폐기).
 ///   ⑥ 활동일(사이클 ≥1) 기준 분모, 표본 minActiveDays 미만이면 창 미성립(가짜 창 금지).
 ///
 /// 파라미터(appsettings 오버라이드): Oee:NonProdPattern:{SlotMinutes=30, PromoteRatio=0.6,
@@ -107,7 +108,6 @@ public sealed class OeeNonProdPatternService
             try
             {
                 await CollectIdleCycleStopsAsync(targetFlows, thresholds, fromUtc, toUtc, stops, activeDays, ct);
-                await CollectNocycleStopsAsync(flowName, thresholds, targetFlows, fromUtc, toUtc, stops, ct);
             }
             catch (Exception ex)
             {
@@ -216,64 +216,6 @@ public sealed class OeeNonProdPatternService
                 var recMs = ToMs(rec);
                 stops.Add((Math.Max(ToMs(fromUtc), recMs - r.Ct), Math.Min(ToMs(toUtc), recMs)));
             }
-        }
-    }
-
-    /// <summary>
-    /// 무사이클(nocycle) 정지 이벤트 중 지속시간 ≥ 10×(라인 대표 평균CT) — 라이브 nocycle-gap 분기와 동일 임계.
-    /// dspFlowHistory 에 유휴 행이 안 남는 완전 무사이클 정지(주말·종일 정지)의 학습 사각지대 보강(구모델 ⑤).
-    /// </summary>
-    private async Task CollectNocycleStopsAsync(
-        string? flowName,
-        IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
-        List<string> targetFlows,
-        DateTime fromUtc, DateTime toUtc,
-        List<(double S, double E)> stops, CancellationToken ct)
-    {
-        var sharedDb = _pathResolver.GetSharedDbPath();
-        var dir = System.IO.Path.GetDirectoryName(sharedDb);
-        if (string.IsNullOrEmpty(dir)) return;
-        var oeeDb = System.IO.Path.Combine(dir, "oee.db");
-        if (!System.IO.File.Exists(oeeDb)) return;
-
-        var thrVals = targetFlows.Select(f => thresholds[f].AvgMs).Where(v => v > 0).ToList();
-        if (thrVals.Count == 0) return;
-        // 라인 대표 임계 × 사용자 설정 비생산 배수 — CollectIdleCycleStopsAsync 와 동일 규칙(라이브 nocycle-gap 분기 정합).
-        var longStopMs = thrVals.Average() * _settings.LoadSettings().OeeManual.ResolveCtMultipliers().NonProdMult;
-
-        await using var conn = new SqliteConnection($"Data Source={oeeDb};Mode=ReadOnly;Default Timeout=20");
-        await conn.OpenAsync(ct);
-        var exists = await conn.ExecuteScalarAsync<long>(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='oeeDowntimeEvent'");
-        if (exists == 0) return;
-
-        var flowClause = string.IsNullOrWhiteSpace(flowName) ? "" : " AND flowName = @Flow ";
-        var rows = await conn.QueryAsync<(string StartAt, string? EndAt)>(
-            $@"SELECT startAt AS StartAt, endAt AS EndAt FROM oeeDowntimeEvent
-               WHERE detectSource = 'nocycle' {flowClause}",
-            new { Flow = flowName?.Trim() });
-
-        var fromMs = ToMs(fromUtc);
-        var toMs = ToMs(toUtc);
-        foreach (var r in rows)
-        {
-            if (!DateTime.TryParse(r.StartAt, System.Globalization.CultureInfo.InvariantCulture,
-                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
-                    out var startAt)) continue;
-            double sMs = ToMs(startAt);
-            double eMs;
-            if (!string.IsNullOrWhiteSpace(r.EndAt) && DateTime.TryParse(r.EndAt,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
-                    out var endAt))
-                eMs = ToMs(endAt);
-            else
-                eMs = toMs; // open — 학습창 끝(어제 자정)으로 캡
-
-            if (eMs - sMs < longStopMs) continue;       // 장시간(≥10×) 정지만 학습 재료(라이브 규칙과 동일 문턱)
-            var clipS = Math.Max(sMs, fromMs);
-            var clipE = Math.Min(eMs, toMs);
-            if (clipE > clipS) stops.Add((clipS, clipE));
         }
     }
 

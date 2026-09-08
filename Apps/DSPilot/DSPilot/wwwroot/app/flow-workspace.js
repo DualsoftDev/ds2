@@ -57,7 +57,7 @@
                 // CALL 정렬 모드 — 'signal'(시작 맨 위·끝 맨 아래·사이는 첫 신호 시각 순, Work 헤더 없음)
                 //                 | 'work'(Work 그룹 고정 순서 = 모델 순, 시작/끝을 바꿔도 행이 안 움직임). localStorage 보존.
                 sortMode: 'signal',
-                laneFilter: '',          // 간트 내부 검색(사이드바 행 필터) — call/Work/태그/I/O 쌍 이름 부분 일치, 공백 AND
+                laneFilter: '',          // 간트 내부 검색(사이드바 행 필터) — 기본 call 이름만, work:/tag:/api: 접두어로 다른 필드, 공백 AND
                 // 복수 선택 모드(분기 탭) — 체크한 call 들을 '선택 제외/해제' 로 일괄 적용. selCalls = callName → true
                 selMode: false, selCalls: {}, selMsg: '', _selAnchor: null,
                 branchMsg: '',
@@ -84,6 +84,9 @@
                 //   nav 트리(/api/nav)로 Flow 이름을 모아 각 Flow 히스토리를 병렬 조회 후 병합. 추이 페이지 전용.
                 allMode: false,
                 allFlowNames: [],
+                // 전체 추이의 시스템 스코프(2026-09-08) — /flow-trend?system=이름(좌측 메뉴 추이 분석 트리의 시스템 행).
+                //   그 시스템 flow 히스토리만 합산. ?name= 이 있으면 무관(설비 우선). '' = 라인 전체.
+                systemParam: '',
 
                 // ── 사이클 분석 (구 cycle-time-analysis, 이 Flow 스코프) ──
                 selectedFlow: '',
@@ -113,7 +116,7 @@
                 tailCompletionSource: null,
                 cycleView: 'chart',   // 사이클 목록: 'table' | 'chart' (기본=차트)
                 cyclePreset: null,    // 활성 사이클-기준 프리셋(최근 N 사이클) — 시간 프리셋/수동 변경 시 해제
-                timePreset: null,     // 활성 시간 프리셋('m1'|'m5'|'m30'|'h1'|'h24') — 사이클/수동 변경 시 해제
+                timePreset: null,     // 활성 시간 프리셋('m1'|'m5'|'m30'|'h1'|'h24'|'today') — 사이클/수동 변경 시 해제
                 rangePopupOpen: false, // 시작·종료 직접 지정 팝업 표시
                 dataLatestAt: null,   // 프리셋 앵커 = DB 최신 로그 시각(벽시계 now 아님) — effectiveLatest() 가 채움
                 dataAnchorHint: '',   // 그 앵커의 지연 안내 문구(1분 미만이면 빈 문자열 = 표시 안 함)
@@ -165,6 +168,7 @@
                     else if (this.view === 'cycle') this.tab = 'cycle';
                     // 추이 페이지에 ?name= 없이 진입 → 전체 추이(라인 전체 합산) 모드.
                     this.allMode = (this.view === 'trend' && !this.flowName);
+                    this.systemParam = this.allMode ? (new URLSearchParams(location.search).get('system') || '') : '';
                     // 더티 가드 등록 — 가동시간 분석(cycle)에서 Head/Tail 미저장 이탈 방지
                     if (this.view === 'cycle') {
                         window.dspDirtyRegister(() => this.userOverrodeHeadTail || this.userOverrodeChatter || this.branchesDirty);
@@ -254,13 +258,16 @@
                     } finally { this.loading = false; }
                 },
 
-                // 전체 추이 모드: nav 트리에서 모든 시스템의 Flow 이름을 모은다(설비 필터 없이 라인 전체).
+                // 전체 추이 모드: nav 트리에서 Flow 이름을 모은다 — 라인 전체(모든 시스템) 또는 ?system= 의 그 시스템만.
+                //   시스템 이름이 nav 에 없으면(모델 교체 등) 전체로 폴백하지 않고 0개(라인 수치를 그 시스템 것으로 오해 방지).
                 async loadAllFlowNames() {
                     this.loading = true;
                     try {
                         const nav = await this.apiGet('/api/nav');
                         const names = [];
-                        (nav && nav.systems || []).forEach(s => (s.flows || []).forEach(n => { if (n && names.indexOf(n) === -1) names.push(n); }));
+                        (nav && nav.systems || [])
+                            .filter(s => !this.systemParam || (s.name || '') === this.systemParam)
+                            .forEach(s => (s.flows || []).forEach(n => { if (n && names.indexOf(n) === -1) names.push(n); }));
                         this.allFlowNames = names;
                         this.error = null;
                     } catch (e) {
@@ -370,7 +377,7 @@
                 },
 
                 // ── 내보내기 (기간별 추이) ─────────────────────────────────────────────
-                trendName() { return this.allMode ? '전체추이' : (this.flow ? this.flow.flowName : (this.flowName || 'Flow')); },
+                trendName() { return this.allMode ? (this.systemParam ? this.systemParam + '_추이' : '전체추이') : (this.flow ? this.flow.flowName : (this.flowName || 'Flow')); },
                 _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
                 _downloadBlob(filename, blob) {
                     const url = URL.createObjectURL(blob);
@@ -398,7 +405,7 @@
                         ].filter(Boolean);
                         const model = {
                             title: this.trendName(),
-                            systemName: (this.flow && this.flow.systemName) ? this.flow.systemName : (this.allMode ? '라인 전체' : null),
+                            systemName: (this.flow && this.flow.systemName) ? this.flow.systemName : (this.allMode ? (this.systemParam || '라인 전체') : null),
                             periodStart: this.periodStart ? this.dateToInput(this.periodStart) : '',
                             periodEnd: this.periodEnd ? this.dateToInput(this.periodEnd) : '',
                             granularity: this.granularity,
@@ -848,6 +855,18 @@
                     this.startTime = this.dateToInput(new Date(end.getTime() - hours * 3600000));
                     if (this.selectedFlow) await this.load();
                 },
+                // '오늘' = 오늘 00:00 ~ 지금(벽시계). 다른 프리셋과 달리 마지막 신호 시각에 앵커하지 않는다 —
+                // 신호가 끊긴 뒤 "오늘 얼마나 돌았나"를 볼 때 끝점이 밀리면 공백이 숨는다. 앵커 힌트도 의미 없어 지운다.
+                async setToday() {
+                    this.cyclePreset = null;
+                    this.timePreset = 'today';
+                    const now = new Date();
+                    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+                    this.endTime = this.dateToInput(now);
+                    this.startTime = this.dateToInput(start);
+                    this.dataLatestAt = null; this.dataAnchorHint = '';
+                    if (this.selectedFlow) await this.load();
+                },
                 // 프리셋("최근 N분") 의 끝점 = 벽시계 now 가 아니라 *DB 최신 로그 시각*이다(신호 없는 창에
                 // 앵커하면 빈 화면이 되는 것을 피하는 기존 설계). 그 사실을 화면에 안 알려주면, 신호가 끊긴
                 // 뒤에도 간트가 꽉 차 보여 "실시간인데 헤더는 데이터 대기"로 오해된다 → dataAnchorHint 로 노출.
@@ -930,6 +949,7 @@
                     if ((m = per.match(/^m(\d+)$/))) return await this.setRecentMinutes(+m[1]);
                     if ((m = per.match(/^h(\d+)$/))) return await this.setRecentHours(+m[1]);
                     if ((m = per.match(/^c(\d+)$/))) return await this.setRecentCycles(+m[1]);
+                    if (per === 'today') return await this.setToday();
                     const from = qp.get('from'), to = qp.get('to');
                     if (from && to && this.inputToDate(to) > this.inputToDate(from)) {
                         this.startTime = from; this.endTime = to;
@@ -995,23 +1015,33 @@
                     this.userOverrodeChatter = true;
                     await this.load();   // 파형·경계·분기 미리보기 전부 새 필터로 재조회(서버 단일 정의)
                 },
+                // ✕ — Flow 전용 값을 지워 설정 기본값(빈칸 상속)으로. 이미 저장값도 빈칸이면 dirty 없이 원복만(미저장 타이핑 취소).
+                async resetChatterToDefault() {
+                    if (this.chatterInput === '') return;
+                    this.chatterInput = '';
+                    this.userOverrodeChatter = this.chatterFlowMs != null;
+                    await this.load();
+                },
                 async applyHeadTail() {
                     if (!this.selectedFlow) return;
                     const headName = this.headName, tailName = this.tailName;
                     if (!headName || !tailName) { this.errorMessage = '적용하려면 Head 와 Tail 을 모두 지정하세요.'; return; }
                     await this.saveBoundaryAndRecompute(headName, tailName, '적용(저장) 실패');
                 },
-                async saveBoundaryAndRecompute(headName, tailName, failLabel) {
+                // opts.skipRecompute = 저장만(서버 재계산 생략, 후속 분기 저장이 한 번에 돌림) — 통합 적용(저장) 전용. 실패는 throw.
+                async saveBoundaryAndRecompute(headName, tailName, failLabel, opts) {
+                    const skip = !!(opts && opts.skipRecompute);
                     this.overlayBusy = true; this.errorMessage = null;
                     this.recomputeError = false;
-                    this.recomputeMsg = '전체 이력 재계산 준비…';
+                    this.recomputeMsg = skip ? '경계·채터링 저장 중…' : '전체 이력 재계산 준비…';
                     try {
                         await this.apiPost('/api/flow/' + encodeURIComponent(this.selectedFlow) + '/cycle-override',
                             { startCallName: headName, endCallName: tailName,
-                              chatterFilterMs: this.chatterValueOrNull(), chatterSpecified: true });
+                              chatterFilterMs: this.chatterValueOrNull(), chatterSpecified: true, skipRecompute: skip });
                         this.userOverrodeHeadTail = false;
                         this.userOverrodeChatter = false;
                         this.tailSuggested = false; this.tailSuggestReason = '';   // 저장 완료 = 확정값
+                        if (skip) return;
                         await this.pollRecomputeStatus();
                         await this.load();
                         // 사이클 경계 변경 → 라이브 KPI/추이/히스토리도 새 기준 반영
@@ -1020,8 +1050,78 @@
                         this.syncHistory();
                     } catch (e) {
                         this.errorMessage = failLabel + ': ' + e.message;
-                        this.recomputeMsg = '';
+                        this.recomputeMsg = failLabel + ': ' + e.message; this.recomputeError = true;
+                        if (skip) throw e;
                     } finally { this.overlayBusy = false; }
+                },
+
+                // ═══ 통합 적용(저장) — 시작/끝·채터링·분기 정의를 한 버튼으로(2026-09-08). 종전엔 상단 적용(저장)과
+                //     분기 간트 하단 '분기 저장' 이 따로 있어 헷갈렸다. 셋 중 dirty 인 것만 저장하고 전체 이력 재계산은 1회.
+                //     · 분기 없음: 종전 적용(저장) 그대로(dirty 아니어도 재저장 = 재계산 강제).
+                //     · 분기 있음: 채터링 dirty 면 cycle-override(재계산 생략) → 분기 저장(재계산). 분기만 dirty 면 분기 저장만.
+                //       분기를 전부 지운 상태(저장본은 있음) = 분기 해제 경로. 분기 해제 버튼(별도, 파괴적)은 그대로 둔다.
+                get anyDirty() { return this.userOverrodeHeadTail || this.userOverrodeChatter || this.branchesDirty; },
+                get applyBusy() { return this.overlayBusy || this.recomputeBusy || this.branchBusy || this.isLoading; },
+                get applyDisabled() {
+                    if (this.applyBusy || !this.selectedFlow) return true;
+                    // 분기 없음 = 경계 저장 → Head/Tail 필수. 분기 있음 = 분기 정의가 저장 대상(경계는 잠김).
+                    if (this.branches.length === 0 && this.branchSavedCount === 0) return !this.headCallId || !this.tailCallId;
+                    return false;
+                },
+                // 버튼 옆/툴팁 요약 — 무엇이 저장될지 미리 알린다.
+                get applySummary() {
+                    const parts = [];
+                    if (this.userOverrodeHeadTail) parts.push('시작/끝 경계');
+                    if (this.userOverrodeChatter) parts.push('채터링 필터');
+                    if (this.branchesDirty) parts.push(this.branches.length === 0 && this.branchSavedCount > 0 ? '분기 해제' : '분기 ' + this.branches.length + '개');
+                    return parts.join(' · ');
+                },
+                get applyTitle() {
+                    const s = this.applySummary;
+                    if (s) return '저장: ' + s + ' — 이 Flow 의 과거 이력 전체를 새 기준으로 재계산합니다(백그라운드, 진행률 표시). 라이브 가동시간·대시보드에 과거 포함 반영';
+                    if (this.branches.length > 0) return '변경 없음 — 다시 누르면 분기 정의를 재저장하고 과거 이력 전체를 재분류합니다';
+                    return '변경 없음 — 다시 누르면 현재 시작/끝·채터링으로 과거 이력 전체를 재계산합니다';
+                },
+                // 분기 정의 사전 검증(서버 400 을 기다리지 않고) — 시작/끝 미지정·이름 중복.
+                branchesPrecheck() {
+                    const names = new Set();
+                    for (let i = 0; i < this.branches.length; i++) {
+                        const b = this.branches[i], label = b.name || ('분기' + (i + 1));
+                        if (!b.startCallName || !b.endCallName) return '분기 ‘' + label + '’ 의 시작/끝 call 을 lane 의 시작/끝 버튼으로 지정하세요.';
+                        const key = (b.name || '').trim().toLowerCase();
+                        if (!key) return (i + 1) + '번째 분기의 이름을 입력하세요.';
+                        if (names.has(key)) return '분기 이름 ‘' + b.name + '’ 이 중복됩니다.';
+                        names.add(key);
+                    }
+                    return null;
+                },
+                async applyAll() {
+                    if (this.applyDisabled) return;
+                    const wantBoundary = this.userOverrodeHeadTail || this.userOverrodeChatter;
+                    const branchMode = this.branches.length > 0 || this.branchSavedCount > 0;
+                    // 분기 없는 flow = 종전 적용(저장) 그대로.
+                    if (!branchMode) { await this.applyHeadTail(); return; }
+
+                    const disable = this.branches.length === 0;               // 저장본은 있는데 전부 지움 = 해제
+                    if (!disable) {
+                        const pre = this.branchesPrecheck();
+                        if (pre) { this.recomputeMsg = pre; this.recomputeError = true; this.errorMessage = pre; return; }
+                    }
+                    const wantBranches = this.branchesDirty || !wantBoundary;  // 분기만 있고 dirty 없음 = 재저장(재계산 강제)
+                    const lines = [];
+                    if (wantBoundary) lines.push('· 채터링 필터' + (this.userOverrodeHeadTail ? '·시작/끝 경계' : ''));
+                    if (wantBranches) lines.push(disable
+                        ? '· 분기 해제 → 단일 시작/끝 분석으로 복귀(과거 이력의 분기 라벨 제거)'
+                        : '· 분기 ' + this.branches.length + '개 → 설비효율 현황에 "' + this.flowName + '_분기이름" 단위로 표시');
+                    if (!window.confirm('저장합니다.\n' + lines.join('\n') + '\n\n이 Flow 의 과거 이력 전체가 새 기준으로 재계산됩니다(백그라운드). 계속할까요?')) return;
+
+                    if (wantBoundary) {
+                        const headName = this.headName, tailName = this.tailName;
+                        try { await this.saveBoundaryAndRecompute(headName, tailName, '경계·채터링 저장 실패', { skipRecompute: wantBranches }); }
+                        catch (_) { return; }   // 메시지는 saveBoundaryAndRecompute 가 채움. 분기 저장은 진행하지 않는다.
+                        if (!wantBranches) return;
+                    }
+                    await this.saveBranches(disable, { skipConfirm: true });
                 },
                 // ═══ 사이클 분기(branch) — 분기별 Head/Tail + 제외 call. 저장 = 서버 전체 이력 재분류,
                 //     설비효율(OEE)은 "부모_분기" 단위로 표시. 미리보기 = 현재 조회 창 신호로 분류한 근사이며
@@ -1054,6 +1154,29 @@
                     return st || { count: 0, pct: 0, dup: 0 };
                 },
                 brRename(name) { const b = this.curBranch; if (!b) return; b.name = name; this._brRefresh(); },
+                // call 별 분기 사용 요약(2026-09-07) — 상단 flow 간트(분기 사용 중 = 시작/끝 버튼 자리)에 "어느 분기가 이 call 을
+                //   쓰는지" 배지로 보여준다. 사용 = 그 분기의 제외 목록에 없음(시작/끝 call 은 항상 사용 + 역할 표시).
+                //   all = 모든 분기가 쓰고 역할 없음(공통 call → 칩 하나로 접음), none = 모든 분기가 제외(어디에도 안 세는 call).
+                brUsage(callName) {
+                    const used = [], excl = [];
+                    let hasRole = false;
+                    this.branches.forEach((b, bi) => {
+                        const role = b.startCallName === callName ? 'head' : (b.endCallName === callName ? 'tail' : null);
+                        if (role) hasRole = true;
+                        if (role || (b.excludedCallNames || []).indexOf(callName) === -1) used.push({ bi, name: this.brName(bi), color: this.brColor(bi), role });
+                        else excl.push(this.brName(bi));
+                    });
+                    const n = this.branches.length;
+                    return { chips: used, excl, all: n > 0 && used.length === n && !hasRole, none: n > 0 && used.length === 0 };
+                },
+                brUsageTitle(callName) {
+                    const u = this.brUsage(callName);
+                    const roleTxt = (c) => c.role === 'head' ? '(시작)' : (c.role === 'tail' ? '(끝)' : '');
+                    const parts = [];
+                    parts.push(u.chips.length ? '사용: ' + u.chips.map(c => c.name + roleTxt(c)).join(', ') : '사용하는 분기 없음');
+                    if (u.excl.length) parts.push('제외: ' + u.excl.join(', '));
+                    return parts.join(' · ') + ' — 클릭하면 그 분기 간트로 이동';
+                },
 
                 // ═══ 복수 선택 → 일괄 제외/해제 (2026-09-06) — 분기 탭 전용 ═══
                 // 행마다 '제외' 를 하나씩 누르는 대신, 선택 모드에서 체크(행 클릭 · Work 헤더 = 그 Work 전체 · 표시된 행 전체 ·
@@ -1212,11 +1335,20 @@
                     });
                     const collapsed = {};
                     (b.excludedCallNames || []).forEach(n => { collapsed[n] = true; });
+                    // 제외 call 은 제외하지 않은 call 아래로 모아 표시(2026-09-07) — 순서 = 기존 정렬을 유지한 채 두 묶음으로 분할.
+                    //   head/tail 은 제외 불가라 항상 위 묶음(끝 call 이 위 묶음 마지막). CycleGantt.laneLayout 이 groupExcluded 로
+                    //   첫 제외 lane 앞에 '제외 call N' 구분 행을 끼운다. 계산(분기 판정·리본)은 순서 무관.
+                    const orderedAll = this._orderedLanes(head ? head.callId : null, tail ? tail.callId : null);
+                    const orderedLanes = orderedAll.filter(l => !collapsed[l.callName]).concat(orderedAll.filter(l => collapsed[l.callName]));
                     const ct = (sp) => this.formatMs(sp.eMs - sp.sMs);
                     const bar = pv.spans.map(sp => {
                         const me = sp.byBranch[bi];
                         let color, title;
-                        if (me && me.pass) {
+                        if (sp.open) {
+                            // 진행 중(미완성) — 판별 보류. 이 분기가 후보면 분기색 흐리게, 아니면 회색(사유는 툴팁).
+                            color = (me && me.pass) ? this.brColor(bi) : '#d7dde3';
+                            title = '진행 중(미완성) — 집계 제외 · ' + (me && me.pass ? this.brName(bi) + ' 후보' : (me ? '제외 call \'' + me.reason + '\' 발화' : '이 분기 시작 아님')) + ' · 경과 ' + ct(sp);
+                        } else if (me && me.pass) {
                             color = sp.dup ? '#e53935' : this.brColor(bi);
                             title = (sp.dup ? 'CT 중복 — ' + sp.passing.map(x => this.brName(x)).join(', ') + ' 모두 정상 판별 · ' : this.brName(bi) + ' · ') + ct(sp);
                         } else if (me) {
@@ -1224,14 +1356,14 @@
                         } else {
                             color = '#d7dde3'; title = '이 분기 시작 아님 — ' + (sp.win === -1 ? '미분류' : this.brName(sp.win)) + ' · ' + ct(sp);
                         }
-                        return { sMs: sp.sMs, eMs: sp.eMs, color, title };
+                        return { sMs: sp.sMs, eMs: sp.eMs, color, title, open: !!sp.open };
                     });
                     return Object.assign(base, {
                         kind: 'branch', bi, branch: b,
-                        callLanes: this._orderedLanes(head ? head.callId : null, tail ? tail.callId : null),
+                        callLanes: orderedLanes,
                         headCallId: head ? head.callId : null, tailCallId: tail ? tail.callId : null,
                         cycleBoundaries: [], tailEdges: [], cycleSpans: spans,
-                        collapsedCallNames: collapsed, editable: true, unionMode: false,
+                        collapsedCallNames: collapsed, groupExcluded: true, editable: true, unionMode: false,
                         // 제외 call 접기 ON — 같은 목록을 hiddenCallNames 로도 넘겨 CycleGantt.visibleLanes 가 행을 통째 뺀다.
                         hiddenCallNames: this.hideExcl ? collapsed : null,
                         avgCycleMs: ctN ? ctSum / ctN : null, avgActiveMs: atN ? atSum / atN : null,
@@ -1300,12 +1432,59 @@
                         this.branches = (r.branches || []).map(b => ({
                             name: b.name || '', startCallName: b.startCallName || '', endCallName: b.endCallName || '',
                             excludedCallNames: (b.excludedCallNames || []).slice(),
+                            // 서버 판정 유령(모델에 없는 참조) — lane 이 아직 없을 때의 폴백. lane 로드 후엔 brUnknown 이 lane 집합으로 재판정.
+                            unknown: (b.unknownCallNames || []).slice(),
                         }));
                         this.branchesSaved = JSON.stringify(this.branches);
                         this.branchSavedCount = this.branches.length;
                         // 분기가 있으면 flow 전체 탭 = 분기별 CT 합산 뷰(편집 잠김) — 탭 자체는 'flow' 유지.
                         this._brRefresh();
                     } catch (_) { /* 분기 API 실패 — 편집기만 비활성(가동 분석 자체는 무관) */ }
+                },
+                // ── 모델에 없는 call(유령) 참조 ──────────────────────────────────────────
+                // AASX 교체로 이름이 바뀌거나 삭제된 call 이 분기 정의에 남으면 서버가 저장을 거절하고(전 분기 한 요청),
+                // 화면엔 lane 이 없어 보이지도 않는다(2026-09-07 현장 사고). 여기서 세어 헤더 칩으로 드러내고 한 번에 정리한다.
+                // 판정 소스 = 현재 lane 집합(= 모델의 이 flow call 전체). lane 이 아직 없으면 서버 응답(unknown) 폴백.
+                _laneNameSet() {
+                    if (!this.callLanesRaw || !this.callLanesRaw.length) return null;
+                    const set = new Set(); this.callLanesRaw.forEach(l => set.add(l.callName)); return set;
+                },
+                brUnknown(bi) {
+                    const b = this.branches[bi]; if (!b) return [];
+                    const set = this._laneNameSet();
+                    if (!set) return (b.unknown || []).slice();
+                    const out = [];
+                    [b.startCallName, b.endCallName].concat(b.excludedCallNames || []).forEach(n => {
+                        if (n && !set.has(n) && out.indexOf(n) === -1) out.push(n);
+                    });
+                    return out;
+                },
+                brUnknownTotal() {
+                    let n = 0; this.branches.forEach((_, i) => { n += this.brUnknown(i).length; }); return n;
+                },
+                brUnknownTitle(bi) {
+                    const b = this.branches[bi]; if (!b) return '';
+                    const list = this.brUnknown(bi);
+                    const ht = list.filter(n => n === b.startCallName || n === b.endCallName);
+                    const ex = list.filter(n => ht.indexOf(n) === -1);
+                    let t = '현재 모델(AASX)에 없는 call 이 이 분기 정의에 남아 있습니다 — 이름이 바뀌었거나 삭제된 call. 이 상태로는 저장이 거절됩니다.';
+                    if (ht.length) t += '\n\n시작/끝(재지정 필요): ' + ht.join(', ');
+                    if (ex.length) t += '\n\n제외(클릭 = 전 분기에서 제거): ' + ex.join(', ');
+                    return t;
+                },
+                // 전 분기의 유령 제외 call 을 제거(저장 전 로컬 편집 — dirty 표시 후 '분기 저장'). 시작/끝 유령은 lane 클릭으로 재지정.
+                brDropUnknown() {
+                    const set = this._laneNameSet(); if (!set) return;
+                    let removed = 0, headTail = 0;
+                    this.branches.forEach(b => {
+                        const before = (b.excludedCallNames || []).length;
+                        b.excludedCallNames = (b.excludedCallNames || []).filter(c => set.has(c));
+                        removed += before - b.excludedCallNames.length;
+                        if (!set.has(b.startCallName) || !set.has(b.endCallName)) headTail++;
+                    });
+                    this._brRefresh();
+                    this.branchError = '';
+                    this.branchMsg = '모델에 없는 제외 call ' + removed + '개 제거(미저장)' + (headTail ? ' — 시작/끝이 없는 분기 ' + headTail + '개는 lane 의 시작/끝 버튼으로 다시 지정하세요' : ' — 적용(저장)을 눌러 반영');
                 },
                 brAdd() {
                     if (this.branches.length >= 8) return;
@@ -1314,7 +1493,7 @@
                         name: '분기' + (this.branches.length + 1),
                         startCallName: this.callNameOf(this.headCallId) || '',
                         endCallName: this.callNameOf(this.tailCallId) || '',
-                        excludedCallNames: [],
+                        excludedCallNames: [], unknown: [],
                     });
                     this.setBranchTab(this.branches.length - 1);   // 새 분기를 하단 간트 활성 탭으로
                 },
@@ -1370,14 +1549,18 @@
                         this.chartStart.getTime(), this.chartEnd ? this.chartEnd.getTime() : 0,
                         { brName: (bi) => this.brName(bi), formatMs: (ms) => this.formatMs(ms) });
                 },
-                async saveBranches(disable) {
+                // opts.skipConfirm = 통합 적용(저장)이 이미 확인을 받았을 때. 직접 호출은 '분기 해제(단일 복귀)' 버튼만 남았다.
+                async saveBranches(disable, opts) {
                     if (!this.flowName || this.branchBusy) return;
+                    const skipConfirm = !!(opts && opts.skipConfirm);
                     if (disable) {
-                        if (!window.confirm('분기를 해제하고 단일 Head/Tail 분석으로 되돌립니다.\n과거 이력의 분기 라벨이 제거되도록 전체 재계산이 실행됩니다. 계속할까요?')) return;
+                        if (!skipConfirm && !window.confirm('분기를 해제하고 단일 Head/Tail 분석으로 되돌립니다.\n과거 이력의 분기 라벨이 제거되도록 전체 재계산이 실행됩니다. 계속할까요?')) return;
                     } else {
                         if (!this.branches.length) return;
-                        if (!window.confirm('분기 정의를 저장합니다.\n이 Flow 의 과거 이력 전체가 새 분기 기준으로 재분류됩니다(백그라운드).\n설비효율 현황에는 "' + this.flowName + '_분기이름" 단위로 표시됩니다. 계속할까요?')) return;
+                        if (!skipConfirm && !window.confirm('분기 정의를 저장합니다.\n이 Flow 의 과거 이력 전체가 새 분기 기준으로 재분류됩니다(백그라운드).\n설비효율 현황에는 "' + this.flowName + '_분기이름" 단위로 표시됩니다. 계속할까요?')) return;
                     }
+                    this.recomputeError = false; this.errorMessage = null;
+                    this.recomputeMsg = disable ? '분기 해제 저장 중…' : '분기 저장 중…';
                     const list = disable ? [] : this.branches.map(b => ({
                         name: (b.name || '').trim(),
                         startCallName: b.startCallName,
@@ -1401,6 +1584,7 @@
                         this.branches = (r.branches || []).map(b => ({
                             name: b.name || '', startCallName: b.startCallName || '', endCallName: b.endCallName || '',
                             excludedCallNames: (b.excludedCallNames || []).slice(),
+                            unknown: (b.unknownCallNames || []).slice(),
                         }));
                         this.branchesSaved = JSON.stringify(this.branches);
                         this.branchSavedCount = this.branches.length;
@@ -1412,6 +1596,8 @@
                     } catch (e) {
                         this.branchError = (disable ? '해제' : '저장') + ' 실패: ' + e.message;
                         this.branchMsg = '';
+                        // 적용(저장) 버튼은 sticky 툴바에 있으므로 오류도 그 옆(재계산 메시지 자리)에 같이 띄운다.
+                        this.recomputeMsg = '분기 ' + this.branchError; this.recomputeError = true;
                     } finally { this.branchBusy = false; }
                 },
 
@@ -1512,7 +1698,13 @@
                     this.headCallId = null; this.tailCallId = null;
                     this.userOverrodeHeadTail = false;
                     this.userOverrodeChatter = false;   // 채터링 필터 입력도 서버 저장값으로 복귀
-                    this.errorMessage = null;
+                    // 분기 정의도 저장 스냅샷으로 복귀(통합 적용(저장)의 되돌리기 = 세 dirty 전부, 2026-09-08)
+                    if (this.branchesDirty) {
+                        try { this.branches = JSON.parse(this.branchesSaved || '[]'); } catch (_) { this.branches = []; }
+                        if (this.branchTab >= this.branches.length) this.branchTab = Math.max(0, this.branches.length - 1);
+                        this.selClear(); this.selMsg = ''; this.branchMsg = ''; this.branchError = '';
+                    }
+                    this.errorMessage = null; this.recomputeMsg = ''; this.recomputeError = false;
                     await this.load();
                 },
                 async load() {

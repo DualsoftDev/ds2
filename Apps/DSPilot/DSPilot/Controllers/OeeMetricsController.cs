@@ -74,7 +74,9 @@ public class OeeMetricsController : OeeControllerBase
         double nonProdMs = agg.NonProdWallMs;
         // 미계측(§3.4)은 flow별 합산 축에 맞춰 flowCount 배수 — 정지/비생산과 같은 단위로 잔여에서 분리.
         double teepUnmeasuredMs = agg.UnmeasuredMs * flowCount;
-        double residualMs = Math.Max(0, calendarMs - runningMs - downMs - nonProdMs - teepUnmeasuredMs);
+        // 진행 중(열린 사이클, doc/26) — flow별 합산 축(Σ_flow). 잔여에서 분리해 "아직 모르는 시간"으로 표기.
+        double inProgressMs = agg.InProgressWallMs;
+        double residualMs = Math.Max(0, calendarMs - runningMs - downMs - nonProdMs - teepUnmeasuredMs - inProgressMs);
 
         var teep = OeeMath.ComputeTeep(runningMs, calendarMs);
         var util = OeeMath.ComputeUtilization(calendarMs, nonProdMs);
@@ -96,7 +98,8 @@ public class OeeMetricsController : OeeControllerBase
             TeepNote: teepNote,
             Utilization: util,
             CtThresholdMs: agg.CtThresholdMs,
-            UnmeasuredMs: teepUnmeasuredMs);
+            UnmeasuredMs: teepUnmeasuredMs,
+            InProgressMs: inProgressMs);
     }
 
     // ── GET /api/oee/teep/matrix?from&to&flow ─────────────────────────────
@@ -345,7 +348,7 @@ public class OeeMetricsController : OeeControllerBase
         var gran = hourly ? "hour" : "day";
 
         // 벽시계 단일모델(2026-07-06): 추이 = 요약 KPI 와 동일 SSOT(ComputeCycleAggregateAsync 벽시계 구간).
-        //   슬롯별 [가동 / 고장 / 유지보수 / 비생산 / 미계측] flow 합산 — 세로 합 = 정산, 정지부 = 도넛.
+        //   슬롯별 [가동 / 고장 / 유지보수 / 비생산 / 미계측 / 진행 중] flow 합산 — 세로 합 = 정산, 정지부 = 도넛.
         //   가동·유지보수·비생산(doc/25 §3.1 flow 귀속화)은 flow별 구간 연결(concat) SumOverlap(=flow 합),
         //   미계측만 라인 공통이라 ×flow수.
         var thresholds = await ResolveCtThresholdsAsync(branchView: true);
@@ -379,6 +382,7 @@ public class OeeMetricsController : OeeControllerBase
         // 미계측만 여전히 라인 공통이라 ×flowCount.
         var nonProdDisp = ToLong(agg.NonProdIntervals ?? new List<(double S, double E)>());
         var unmeasuredL = ToLong(unmeasuredIv);
+        var inProgressL = ToLong(agg.InProgressIntervals);   // 진행 중(열린 사이클, doc/26) — flow별 concat, 분모 밖
 
         static long SumOverlap(List<(long S, long E)> segs, long slotS, long slotE)
         {
@@ -397,7 +401,8 @@ public class OeeMetricsController : OeeControllerBase
             long nonProd = SumOverlap(nonProdDisp, sS, sE);                // flow별 concat — 곱 없음(doc/25 §3.1)
             long unmeasured = SumOverlap(unmeasuredL, sS, sE) * flowCount; // 미계측은 라인 공통 유지 — ×flow수
             long run = SumOverlap(runWall, sS, sE);
-            long available = Math.Max(0, slotCal - nonProd - unmeasured);
+            long inProg = SumOverlap(inProgressL, sS, sE);                  // 진행 중 — 어떤 상태도 아님(분모 밖)
+            long available = Math.Max(0, slotCal - nonProd - unmeasured - inProg);
             long down = Math.Max(0, available - run);            // 비가동 = 생산가능 − 가동(잔여)
             long maint = Math.Min(SumOverlap(maintWall, sS, sE), down);
             // 고장 = 감지된 정지(이상치 초과 사이클 + 무사이클 갭)에 덮인 비가동만. 임계 미만 사이클 간 미세 슬랙
@@ -407,7 +412,7 @@ public class OeeMetricsController : OeeControllerBase
             // 벽시계 매핑: FailureMs=고장 / PlannedMs=유지보수(Other·Unclassified 미사용) / SlotMs=달력(설비 합산).
             //   RunMs=실측 가동(정상 사이클 구간 ∩ 슬롯) — 종전엔 계산만 하고 버려 프런트가 잔여로 재구성했다.
             //   이제 실측을 그대로 넘겨 "감지 안 된 시간 = 가동" 이라는 낙관적 기본값을 없앤다.
-            slots.Add(new OeeDailySlotDto(label, slotCal, fault + maint, maint, fault, 0, 0, nonProd, unmeasured, run));
+            slots.Add(new OeeDailySlotDto(label, slotCal, fault + maint, maint, fault, 0, 0, nonProd, unmeasured, run, inProg));
         }
         if (hourly)
         {

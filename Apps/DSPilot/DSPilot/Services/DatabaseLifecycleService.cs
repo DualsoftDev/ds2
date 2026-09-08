@@ -280,6 +280,10 @@ public sealed class DatabaseLifecycleService
                 return new RebuildResult(false, "AASX 파싱 실패 — 구 포맷일 수 있습니다. ds2 에디터에서 다시 Export 하세요.");
             }
 
+            // 분기 정의·경계 override 의 Call 참조(GUID+이름)를 새 모델에 맞춤 — Promaker 에서 Call 이름만 바뀐 경우
+            // 이름 스냅샷을 GUID 로 추종(2026-09-08). 유령은 로그 경고 + 화면 안내(삭제 안 함).
+            _settingsService.ReconcileCallReferences(_projectService);
+
             // 헤더 PLC 어댑터 캐시 폐기 — Tracker 는 UPSERT-only 라 구 모델의 PLC(이름 키)가 영구 잔존한다
             // (AASX 교체 후 서비스 재시작 전까지 옛 5대가 계속 보이던 증상). 비우면 다음 /api/nav/summary 가
             // 새 모델 AID 로 직접 핑 폴백하고, Agent 가 재보고하면 새 이름으로 다시 채워진다.
@@ -324,6 +328,10 @@ public sealed class DatabaseLifecycleService
             _projectService.LoadProject(path);
             if (!_projectService.IsLoaded)
                 return new RebuildResult(false, "AASX 파싱 실패 — 구 포맷일 수 있습니다. ds2 에디터에서 다시 Export 하세요.");
+
+            // 1-b) 분기 정의·경계 override 의 Call 참조(GUID+이름) 재해석 — 아래 UPSERT/재계산이 새 이름 기준 정의를
+            //      보도록 모델 교체 직후, 다른 단계보다 먼저 돈다(2026-09-08).
+            _settingsService.ReconcileCallReferences(_projectService);
 
             // 2) 새 모델에 살아있는 Flow 수집 — DspDatabaseServiceAdapter 와 동일하게 "*_Flow" 접미사 제외.
             //    prune 보존 기준(keepNames)은 비활성(IsDisabled) 포함 — 비활성은 숨김이지 삭제가 아니므로,

@@ -76,15 +76,32 @@
     // ════════════════════════════════════════════════════════════════════════
     function hasApiCalls(lane) { return !!(lane && lane.apiCalls && lane.apiCalls.length); }
 
-    // 사이드바 검색(필터) — call 이름 · Work · IN/OUT 태그 주소 · 소속 I/O 쌍 이름을 대상으로 부분 일치.
-    //   공백으로 나눈 토큰은 AND(모두 어딘가에 맞아야 표시). 대소문자 무시. 빈 질의 = 전체 표시.
+    // 사이드바 검색(필터) — 기본은 **call 이름만** 부분 일치(2026-09-07 개정).
+    //   종전엔 Work 이름·IN/OUT 태그 주소·ApiCall 이름까지 한 덩어리로 매칭해 'y/q' 검색이 Work "…동작 회로 - Y/Q" 소속
+    //   Q300/Y450 call 전부를 통과시켰고(신호 정렬 모드는 Work 헤더가 없어 "상관없는 call" 로 보임), 그 상태에서
+    //   '표시된 행 선택 → 선택 제외' 를 누르면 의도치 않은 call 이 일괄 제외되는 사고 경로가 됐다.
+    //   다른 필드는 접두어로만 검색: `work:회로` (Work 이름) · `tag:%QW40` (IN/OUT·ApiCall 태그 주소) · `api:lock` (ApiCall 이름).
+    //   공백으로 나눈 토큰은 AND(각 토큰이 자기 대상 필드에 맞아야 표시). 대소문자 무시. 빈 질의 = 전체 표시.
     function laneMatches(lane, q) {
         var terms = String(q || '').toLowerCase().split(/\s+/).filter(function (t) { return t; });
         if (!terms.length) return true;
-        var hay = [lane.callName, lane.workName, lane.inTag, lane.outTag];
-        (lane.apiCalls || []).forEach(function (ac) { hay.push(ac.name, ac.inTag, ac.outTag); });
-        var joined = hay.filter(function (h) { return h; }).join('\n').toLowerCase();
-        for (var i = 0; i < terms.length; i++) if (joined.indexOf(terms[i]) === -1) return false;
+        var apis = lane.apiCalls || [];
+        for (var i = 0; i < terms.length; i++) {
+            var term = terms[i];
+            var m = /^(work|tag|api):(.*)$/.exec(term);
+            var hay, needle;
+            if (m) {
+                needle = m[2];
+                if (!needle) continue;                       // 접두어만 입력 중 = 아직 조건 없음
+                if (m[1] === 'work') hay = [lane.workName];
+                else if (m[1] === 'tag') { hay = [lane.inTag, lane.outTag]; apis.forEach(function (ac) { hay.push(ac.inTag, ac.outTag); }); }
+                else { hay = apis.map(function (ac) { return ac.name; }); }
+            } else {
+                needle = term; hay = [lane.callName];
+            }
+            var joined = hay.filter(function (h) { return h; }).join('\n').toLowerCase();
+            if (joined.indexOf(needle) === -1) return false;
+        }
         return true;
     }
     // 표시 lane — 검색 필터(s.laneFilter) 통과분에서 s.hiddenCallNames[callName]=true 인 lane 을 뺀다(2026-09-07).
@@ -120,16 +137,29 @@
         // 접힌 lane(2026-08-28) — s.collapsedCallNames[callName]=true 인 call 은 얇은 띠로 축소(신호 미표시).
         //   분기 간트의 '제외' call 시각화 전용 — 상단/벌크 간트는 이 필드가 없어 종전과 동일.
         var collapsed = s.collapsedCallNames || null;
+        // 제외 call 모아 보기(2026-09-07) — s.groupExcluded=true 면 호출자(branchSlice)가 제외 lane 을 목록 끝에 연속으로
+        //   두었다는 계약. 첫 제외 lane 앞에 Work 헤더 대신 '제외 call N' 구분 행(kind:'work', exclGroup:true) 하나를 끼우고,
+        //   제외 lane 들에는 Work 헤더를 다시 끼우지 않는다(정렬 모드와 무관하게 구분 행은 항상 — 신호 정렬에서도 경계가 보여야 함).
+        var groupExcl = !!(s.groupExcluded && collapsed);
+        var exclCount = 0;
+        if (groupExcl) for (var ci0 = 0; ci0 < lanes.length; ci0++) if (collapsed[lanes[ci0].callName]) exclCount++;
+        var exclHeaderDone = false;
         var prevWork = null;
         for (var li = 0; li < lanes.length; li++) {
             var lane = lanes[li];
             var wn = lane.workName || '';
-            if (useWorkRows && wn !== prevWork) {
+            var isCol = !!(collapsed && collapsed[lane.callName]);
+            if (groupExcl && isCol) {
+                if (!exclHeaderDone) {
+                    rows.push({ kind: 'work', exclGroup: true, key: 'w:excl', workName: '제외 call', count: exclCount, y: y, h: WORK_ROW_H });
+                    y += WORK_ROW_H;
+                    exclHeaderDone = true;
+                }
+            } else if (useWorkRows && wn !== prevWork) {
                 rows.push({ kind: 'work', key: 'w:' + wn + ':' + li, workName: wn || '(Work 없음)', y: y, h: WORK_ROW_H });
                 y += WORK_ROW_H;
                 prevWork = wn;
             }
-            var isCol = !!(collapsed && collapsed[lane.callName]);
             // ★ key 에 collapsed 상태 포함 — 제외 토글로 collapsed 만 바뀌면 Alpine 이 :key 동일이라 DOM 을
             //   재사용하고 :class(is-collapsed)를 갱신하지 않는 함정(height 는 :style 로 줄지만 class 누락 → 내용 넘침).
             //   key 를 바꿔 행을 재생성하게 한다(사이드바 x-for 전용 — SVG 는 문자열 재빌드라 무관).
@@ -152,7 +182,7 @@
         return 'ct-lane-row';
     }
     function rowClass(s, row) {
-        if (row.kind === 'work') return 'ct-work-row';
+        if (row.kind === 'work') return row.exclGroup ? 'ct-work-row is-excl-group' : 'ct-work-row';
         if (row.kind !== 'call') return 'ct-api-row';
         return laneRowClass(s, row.lane) + (row.collapsed ? ' is-collapsed' : '');
     }
@@ -376,7 +406,9 @@
 
             if (row.kind === 'work') {
                 // Work 그룹 헤더 밴드 — 사이드바 헤더 행과 같은 높이의 옅은 띠(경계 시각화 전용, 신호 없음).
-                sb += '<rect x="0" y="' + f(rowY) + '" width="' + chartW + '" height="' + WORK_ROW_H + '" fill="#eceff1" opacity="0.6"/>';
+                //   제외 call 구분 행(exclGroup)은 조금 진한 띠 + 상단 실선으로 "여기부터 제외" 경계를 강조.
+                sb += '<rect x="0" y="' + f(rowY) + '" width="' + chartW + '" height="' + WORK_ROW_H + '" fill="' + (row.exclGroup ? '#d7dde3' : '#eceff1') + '" opacity="' + (row.exclGroup ? 0.8 : 0.6) + '"/>';
+                if (row.exclGroup) sb += '<line x1="0" y1="' + f(rowY) + '" x2="' + chartW + '" y2="' + f(rowY) + '" stroke="#90a4ae" stroke-width="1.4"/>';
                 sb += '<line x1="0" y1="' + f(rowY + WORK_ROW_H) + '" x2="' + chartW + '" y2="' + f(rowY + WORK_ROW_H) + '" stroke="#cfd8dc" stroke-width="1"/>';
                 continue;
             }
@@ -567,9 +599,11 @@
             var w = ex - sx;
             if (w <= 0) continue;
             // 텍스트 라벨은 그리지 않는다 — 리본 바(16px~)와 겹쳐 지저분해진다. 이름은 툴팁 + 편집기 범례로.
+            // 진행 중(미완성) 스팬 = 흐린 채움 + 점선 테두리(판별 보류 표시).
             sb += '<g><title>' + esc(sp.title || sp.label || '') + '</title>'
                 + '<rect x="' + f(sx) + '" y="' + y + '" width="' + f(Math.max(1.5, w)) + '" height="' + h
-                + '" rx="1.5" fill="' + sp.color + '" opacity="0.9"/></g>';
+                + '" rx="1.5" fill="' + sp.color + '" opacity="' + (sp.open ? 0.35 : 0.9) + '"'
+                + (sp.open ? ' stroke="#78909c" stroke-width="1" stroke-dasharray="3 2"' : '') + '/></g>';
         }
         return sb;
     }
@@ -609,8 +643,9 @@
             // ── flow 합산 모드(분기 사용 중) — 스팬 색 = 판별된 분기, 회색 = 정상 CT 없음, 빨간 해치 = CT 중복 ──
             var u = span.union;
             if (u) {
-                var none = u.win === -1;
-                var base = none ? '#cfd8dc' : u.color;
+                // open(진행 중·미완성) 스팬은 '정상 CT 없음' 과 같은 연한 톤으로 그리되 점선 테두리로 구분 — 판별 보류이지 실패가 아님.
+                var none = u.win === -1 || !!u.open;
+                var base = none ? (u.open ? '#e0e5e9' : '#cfd8dc') : u.color;
                 var ug = '<g><title>' + esc(u.title || u.label || '') + (atMs !== null ? '  · 동작 ' + esc(formatMs(atMs)) + ' / 대기 ' + esc(formatMs(idleMs)) : '') + '</title>';
                 if (tailX !== null && !none) {
                     ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(Math.max(0, tailX - sx)) + '" height="' + barH + '" fill="' + base + '" opacity="' + (0.92 * dim) + '"/>';
@@ -622,7 +657,7 @@
                     ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="url(#ctDupHatch)"/>';
                     ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="none" stroke="#e53935" stroke-width="1.6"/>';
                 } else {
-                    ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="none" stroke="' + (none ? '#90a4ae' : base) + '" stroke-width="0.9"/>';
+                    ug += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="none" stroke="' + (none ? '#90a4ae' : base) + '" stroke-width="' + (u.open ? 1.2 : 0.9) + '"' + (u.open ? ' stroke-dasharray="4 2"' : '') + '/>';
                 }
                 if (span.isOpen) ug += '<line x1="' + f(ex) + '" y1="' + barY + '" x2="' + f(ex) + '" y2="' + f(barY + barH) + '" stroke="#90a4ae" stroke-width="1" stroke-dasharray="3 2"/>';
                 if (bandW > 64) {
@@ -789,7 +824,10 @@
     //  판별 결과(분기/CT 중복/정상 CT 없음)가 화면 간에 항상 일치한다.
     //  규칙 = 서버 재도출(CycleRecomputeService 병합 스트림)의 클라이언트 근사:
     //    · 분기 head OutTag↑ 를 전 분기 병합·정렬한 시각들이 스팬 경계(마지막 스팬 끝 = 조회 창 끝 = 진행중).
-    //    · 스팬 안에서 그 분기의 제외 call OutTag↑ 가 발화하면 그 분기 기각.
+    //    · 그 분기의 제외 call OutTag↑ 가 발화하면 그 분기 기각 — 단 반증 창은 스팬 전체가 아니라
+    //      [시작, 끝 call 동작 종료) = 끝 call 완료(InTag↑) 직후 그 OutTag↓ 까지(2026-09-07). MT 뒤 WT 구간에
+    //      들어온 다음 차종 준비 동작(분기 전환 시 다음 head 8~9s 전 UNIT up 등)은 다음 사이클 몫이라 반증 아님.
+    //      끝 call 완료가 없으면(MT 미확정) 종전처럼 스팬 전체가 반증 창(근거 없을 때 관대해지지 않음).
     //    · 통과 분기 전부 = passing. 복수 통과 = CT 중복(dup, 승자 win = 정의 순서 첫 통과 = 서버 규칙). 전멸 = 정상 CT 없음(win=-1).
     //    · 완료 마커 = 끝 call InTag↑, 없으면 OutTag↓ (CycleCompletionResolver 규칙의 근사).
     //  반환 = { spans[{sMs,eMs,isOpen,win,dup,passing,byBranch,tailIn,tailInBy,color,label,title}],
@@ -799,7 +837,7 @@
     var BRANCH_NONE_COLOR = '#9e9e9e';   // 정상 CT 없음(미분류) 고정 회색
     function brColor(i) { return BRANCH_COLORS[i % BRANCH_COLORS.length]; }
     function brNameOf(branches, bi) { var b = branches[bi]; return b ? (b.name || ('분기' + (bi + 1))) : ''; }
-    function emptyBranchPreview() { return { spans: [], stats: [], un: 0, unPct: 0, dup: 0, total: 0 }; }
+    function emptyBranchPreview() { return { spans: [], stats: [], un: 0, unPct: 0, dup: 0, total: 0, open: 0 }; }
 
     function classifyBranches(callLanes, branches, cs, ce, opts) {
         branches = branches || [];
@@ -835,36 +873,62 @@
                 .map(function (n) { return { name: n, edges: risesOf(n) }; });
         });
         var tailsBy = branches.map(function (b) { return tailsOf(b.endCallName); });
+        // 끝 call OutTag↓(동작 종료) — 반증 창 상한. 완료 마커(InTag↑)보다 0.4~0.5s 늦어 완료와 거의 동시에 움직이는
+        // 차종별 call(공유 head/tail 분기의 유일한 구분 근거)이 스캔 순서로 창 밖에 밀리는 일을 막는다.
+        var tailFallsBy = branches.map(function (b) {
+            var l = laneByName[b.endCallName];
+            return l ? (l.outIntervals || []).map(function (iv) { return new Date(iv.end).getTime(); }).sort(function (a, b2) { return a - b2; }) : [];
+        });
         var lowerBound = function (arr, v) { var lo = 0, hi = arr.length; while (lo < hi) { var m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; } return lo; };
         var hasIn = function (arr, s, e) { var lo = lowerBound(arr, s); return lo < arr.length && arr[lo] < e; };
         var firstAfter = function (arr, s, e) { var lo = lowerBound(arr, s + 1); return (lo < arr.length && arr[lo] < e) ? arr[lo] : null; };
+        var firstAtOrAfter = function (arr, s, e) { var lo = lowerBound(arr, s); return (lo < arr.length && arr[lo] < e) ? arr[lo] : null; };
+        // 반증 창 상한 — 끝 call 완료(tailIn)가 있으면 그 뒤 첫 OutTag↓, 그것도 스팬 안에 없으면(OUT 유지) 스팬 끝.
+        var refuteEndOf = function (bi, tailIn, e) {
+            if (tailIn === null) return e;
+            var fall = firstAtOrAfter(tailFallsBy[bi], tailIn, e);
+            return fall !== null ? fall : e;
+        };
         var spans = [];
         var counts = branches.map(function () { return 0; });
         var dupCounts = branches.map(function () { return 0; });
-        var un = 0, dupTotal = 0;
+        var un = 0, dupTotal = 0, openCount = 0;
         for (var i = 0; i < starts.length; i++) {
             var s = starts[i], e = i + 1 < starts.length ? starts[i + 1] : ce;
             if (e <= s) continue;
             var cands = startMap.get(s).slice().sort(function (a, b) { return a - b; });
             var byBranch = {};
             var passing = [];
+            var tailInBy = {};
             for (var ci = 0; ci < cands.length; ci++) {
                 var bi = cands[ci];
+                var tailIn = firstAfter(tailsBy[bi], s, e);
+                tailInBy[bi] = tailIn;
+                var rEnd = refuteEndOf(bi, tailIn, e);
                 var fired = null;
-                for (var xi = 0; xi < exclOf[bi].length; xi++) { var ex = exclOf[bi][xi]; if (hasIn(ex.edges, s, e)) { fired = ex.name; break; } }
+                for (var xi = 0; xi < exclOf[bi].length; xi++) { var ex = exclOf[bi][xi]; if (hasIn(ex.edges, s, rEnd)) { fired = ex.name; break; } }
                 byBranch[bi] = { pass: !fired, reason: fired };
                 if (!fired) passing.push(bi);
             }
             var win = passing.length ? passing[0] : -1;
             var dup = passing.length > 1;
-            if (win === -1) un++; else counts[win]++;
-            if (dup) { dupTotal++; passing.forEach(function (b2) { dupCounts[b2]++; }); }
-            var tailInBy = {};
-            passing.forEach(function (b3) { tailInBy[b3] = firstAfter(tailsBy[b3], s, e); });
+            // 마지막 스팬 = 진행 중(다음 시작이 아직 없어 끝 = 조회 끝). 제외 call 이 아직 발화 안 했을 뿐이라 공유 head
+            // 분기끼리 '중복' 으로 보이는 게 구조적이라(2026-09-07 사용자 지적) 미완성으로 취급 — 횟수/중복/미분류 집계에서
+            // 빼고 dup 도 세우지 않는다. passing/byBranch 는 그대로 넘겨 분기 간트가 후보를 보여줄 수 있게 한다.
             var isOpen = i === starts.length - 1;
+            if (isOpen) { dup = false; openCount++; }
+            else {
+                if (win === -1) un++; else counts[win]++;
+                if (dup) { dupTotal++; passing.forEach(function (b2) { dupCounts[b2]++; }); }
+            }
             var ctTxt = fmtMs(e - s);
             var label, title, color;
-            if (win === -1) {
+            if (isOpen) {
+                color = '#b0bec5'; label = '진행 중';
+                title = '진행 중(미완성) — 다음 시작 전이라 판별 보류, 집계 제외'
+                    + (passing.length ? ' · 후보 ' + passing.map(nameOf).join(', ') : ' · 후보 없음(제외 call 발화)')
+                    + ' · 경과 ' + ctTxt;
+            } else if (win === -1) {
                 color = BRANCH_NONE_COLOR; label = '정상 CT 없음';
                 title = '정상 CT 없음(미분류) — ' + cands.map(function (b4) { return nameOf(b4) + (byBranch[b4].reason ? ': 제외 \'' + byBranch[b4].reason + '\' 발화' : ''); }).join(' · ') + ' · 가동시간 ' + ctTxt;
             } else if (dup) {
@@ -875,18 +939,20 @@
                 title = nameOf(win) + ' · 가동시간 ' + ctTxt;
             }
             spans.push({
-                sMs: s, eMs: e, isOpen: isOpen, win: win, dup: dup, passing: passing, byBranch: byBranch,
+                sMs: s, eMs: e, isOpen: isOpen, open: isOpen, win: win, dup: dup, passing: passing, byBranch: byBranch,
                 tailIn: win === -1 ? null : tailInBy[win], tailInBy: tailInBy,
                 color: color, label: label, title: title,
             });
         }
-        var total = starts.length;
+        // total = 완결 스팬 수(진행 중 제외). open = 진행 중 스팬 수(0|1) — 완결 0·진행 중 1 이면 "시작 없음" 이 아니다.
+        var total = starts.length - openCount;
+        var pctOf = function (n) { return total ? Math.round(n / total * 100) : 0; };
         return {
             spans: spans,
             stats: branches.map(function (b, bi) {
-                return { name: nameOf(bi), color: brColor(bi), count: counts[bi], pct: Math.round(counts[bi] / total * 100), dup: dupCounts[bi] };
+                return { name: nameOf(bi), color: brColor(bi), count: counts[bi], pct: pctOf(counts[bi]), dup: dupCounts[bi] };
             }),
-            un: un, unPct: Math.round(un / total * 100), dup: dupTotal, total: total,
+            un: un, unPct: pctOf(un), dup: dupTotal, total: total, open: openCount,
         };
     }
     // 판별 결과(spans) → 리본 cycleSpans(union 메타 포함) — flow 합산 뷰(단일 페이지 flowSlice / 개요 카드) 공용 변환.
@@ -894,7 +960,7 @@
         return (preview && preview.spans ? preview.spans : []).map(function (sp, i) {
             return {
                 start: sp.sMs, end: sp.eMs, number: i + 1, isOpen: sp.isOpen, tailIn: sp.tailIn,
-                union: { win: sp.win, dup: sp.dup, color: sp.color, label: sp.label, title: sp.title },
+                union: { win: sp.win, dup: sp.dup, open: !!sp.open, color: sp.color, label: sp.label, title: sp.title },
             };
         });
     }

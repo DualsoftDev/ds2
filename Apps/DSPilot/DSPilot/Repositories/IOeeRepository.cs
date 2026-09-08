@@ -9,7 +9,7 @@ namespace DSPilot.Repositories;
 /// OEE / 정지(다운타임) 저장소 — 별도 oee.db (수동입력 자산 보존).
 /// 경로 = IDatabasePathResolver.GetSharedDbPath() 의 디렉터리 + "oee.db".
 /// datetime = TEXT ISO8601 UTC (SqliteDateTimeHelpers). 컨벤션은 plc.db 와 동일.
-/// 자동 파생(무사이클 정지)은 OeeDowntimeStateMachine 이 INSERT/CLOSE 하고,
+/// 자동 파생 정지는 완료 사이클 행(dspFlowHistory)에서 조회 시 합성한다(doc/26 — 구 무가동 상태머신 폐기).
 /// 분류(reasonCode/category)·불량·시프트는 사람이 컨트롤러를 통해 입력한다.
 /// </summary>
 public interface IOeeRepository
@@ -26,12 +26,6 @@ public interface IOeeRepository
     Task<int> CloseDowntimeAsync(long id, DateTime endAtUtc, CancellationToken ct = default);
 
     /// <summary>
-    /// 자세(midCycle) 승격 — NULL/0 → 1 방향만 갱신(유발자 증거는 강등되지 않는다).
-    /// <see cref="Models.Oee.OeeDowntimeEvent.MidCycle"/> 참조. 영향 행 수 반환(0=이미 같거나 높음).
-    /// </summary>
-    Task<int> SetDowntimeMidCycleAsync(long id, int midCycle, CancellationToken ct = default);
-
-    /// <summary>
     /// 분류 PATCH — reasonCode/category, isFailure(category=unplanned 일 때 1), classifySource(출처).
     /// 수동 분류는 'manual'(기본), CauseBit 자동분류는 'auto-bit'. 무조건 UPDATE(수동·비트는 권위적).
     /// </summary>
@@ -46,12 +40,6 @@ public interface IOeeRepository
 
     /// <summary>일괄 분류 — 복수 id 에 동일 reasonCode/category/classifySource 적용. 영향 행 수 반환.</summary>
     Task<int> BulkClassifyDowntimeAsync(IReadOnlyList<long> ids, string? reasonCode, string? category, bool isFailure, string? classifySource = "manual", CancellationToken ct = default);
-
-    /// <summary>
-    /// 휴리스틱 자동분류(5분/8h) — 미분류(category IS NULL)이고 classifySource ≠ 'manual' 인 행만 채운다
-    /// (수동 우선 — 작업자 분류를 자동이 덮지 않게). classifySource='auto-heuristic' 스탬프. 영향 행 수 반환.
-    /// </summary>
-    Task<int> AutoClassifyHeuristicAsync(long id, string? reasonCode, string? category, bool isFailure, CancellationToken ct = default);
 
     /// <summary>일괄 수동 마감 — open 상태인 항목만 endAt/durationMs 채움. 영향 행 수 반환.</summary>
     Task<int> BulkCloseDowntimeAsync(IReadOnlyList<long> ids, DateTime endAtUtc, CancellationToken ct = default);
