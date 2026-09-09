@@ -56,7 +56,10 @@ function isDark() {
 // timeBuckets: [{ bucketStartIso, level, count }] — level 슬롯은 이제 구분(ABNORMAL/USERTAG)을 담는다.
 // cats: 표시할 구분 목록(기본 둘 다). 설비별 보기는 ['ABNORMAL'] 만 넘겨 자동감지 단일로 그린다
 //   (설비별은 서버가 자동감지만 주고 FillBucketGaps 가 USERTAG 0-채움 버킷을 남기므로, 여기서 명시적으로 배제).
-export function renderTrendChart(chartId, timeBuckets, granularity, cats) {
+// onBarClick: 막대 클릭 드릴다운 콜백 — ({ iso, total }) 로 그 버킷 한 칸을 알려준다(구분은 스택 합산:
+//   interaction.mode='index' 라 클릭 지점이 어느 스택 조각인지 모호하고, 화면의 구분 필터가 이미 적용돼 있다).
+//   in-place 갱신 경로에서도 최신 콜백이 쓰이도록 옵션 클로저가 아닌 chart._onBarClick 을 통해 호출한다.
+export function renderTrendChart(chartId, timeBuckets, granularity, cats, onBarClick) {
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
 
@@ -103,6 +106,7 @@ export function renderTrendChart(chartId, timeBuckets, granularity, cats) {
         existing.data.labels = labels;
         existing.data.datasets = datasets;
         existing.options.scales.x.time.unit = timeUnit;
+        existing._onBarClick = onBarClick;
         existing.update('none');
         return;
     }
@@ -115,6 +119,20 @@ export function renderTrendChart(chartId, timeBuckets, granularity, cats) {
             responsive: true,
             maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
+            // 막대 클릭 = 그 버킷 드릴다운(어떤 태그가 몇 시에 떴는지). 0건 칸은 열지 않는다.
+            onClick(evt, els, chart) {
+                const el = (els && els.length) ? els[0] : null;
+                if (!el) return;
+                const iso = chart.data.labels[el.index];
+                const total = chart.data.datasets.reduce((a, ds) => a + (Number(ds.data[el.index]) || 0), 0);
+                if (!iso || total <= 0) return;
+                if (typeof chart._onBarClick === 'function') chart._onBarClick({ iso, total });
+            },
+            onHover(evt, els, chart) {
+                const hit = !!(els && els.length) && chart.data.datasets.some(ds => (Number(ds.data[els[0].index]) || 0) > 0);
+                const target = evt?.native?.target;
+                if (target) target.style.cursor = (hit && typeof chart._onBarClick === 'function') ? 'pointer' : 'default';
+            },
             scales: {
                 x: {
                     type: 'time',
@@ -142,20 +160,41 @@ export function renderTrendChart(chartId, timeBuckets, granularity, cats) {
         },
     });
     chart._dark = isDark();
+    chart._onBarClick = onBarClick;
     charts[chartId] = chart;
 }
 
-// topRows: [{ name, level, count }] — level 슬롯은 구분(ABNORMAL/USERTAG). 막대색을 구분으로 칠해
+// altName(콤마 구분 이름 목록) → 축 두 번째 줄. 한 주소에 이름이 여럿 붙을 수 있어(자동감지 4유형 등)
+// 앞 2개만 적고 나머지는 "외 N" 으로 접는다(전체 목록은 툴팁에 그대로 표시).
+const TOP_ALT_INLINE = 2;
+function altNames(alt) {
+    return String(alt || '').split(',').map(s => s.trim()).filter(Boolean);
+}
+function altLabel(alt) {
+    const names = altNames(alt);
+    if (names.length === 0) return '';
+    if (names.length <= TOP_ALT_INLINE) return names.join(', ');
+    return names.slice(0, TOP_ALT_INLINE).join(', ') + ` 외 ${names.length - TOP_ALT_INLINE}`;
+}
+
+// topRows: [{ name, level, count, altName }] — level 슬롯은 구분(ABNORMAL/USERTAG). 막대색을 구분으로 칠해
 // 수동등록TAG 를 자동감지와 시각적으로 분리한다(시계열 스택·구분 도넛과 동일 팔레트).
+// 축 라벨은 2줄 — 1줄=그룹키(경로 기준이면 태그 주소), 2줄=반대편 이름(altName). 주소만으로는 어떤
+// 수동등록TAG/자동감지인지 알 수 없어 둘을 함께 보여준다.
 export function renderTopChart(chartId, topRows) {
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
 
     const CAT_COLORS = categoryColors();
     const tc = themeChartColors();
-    const labels = topRows.map(r => r.name);
+    const labels = topRows.map(r => {
+        const key = r.name || '(주소 없음)';
+        const alt = altLabel(r.altName);
+        return alt ? [key, alt] : [key];
+    });
     const counts = topRows.map(r => r.count);
     const cats = topRows.map(r => r.level);
+    const alts = topRows.map(r => altNames(r.altName));
     const colors = cats.map(c => (CAT_COLORS[c] || CAT_COLORS.USERTAG).fill);
 
     // 같은 canvas·테마면 in-place 갱신(차트 재생성 churn 방지).
@@ -165,6 +204,7 @@ export function renderTopChart(chartId, topRows) {
         const ds = existing.data.datasets[0];
         ds.data = counts; ds.backgroundColor = colors; ds.borderColor = colors;
         existing._rowCats = cats;
+        existing._rowAlts = alts;
         existing.update('none');
         return;
     }
@@ -195,6 +235,15 @@ export function renderTopChart(chartId, topRows) {
                 tooltip: {
                     enabled: true, backgroundColor: tc.surface, titleColor: tc.textStrong, bodyColor: tc.text, borderColor: tc.grid, borderWidth: 1,
                     callbacks: {
+                        // 축은 "외 N" 으로 접히므로 툴팁엔 주소 + 이름 전체를 펼쳐 보여준다.
+                        title(items) {
+                            const i = items[0]?.dataIndex ?? 0;
+                            const chart = items[0]?.chart;
+                            const raw = chart?.data?.labels?.[i];
+                            const key = Array.isArray(raw) ? raw[0] : raw;
+                            const names = chart?._rowAlts?.[i] || [];
+                            return names.length ? [String(key), ...names.map(n => '· ' + n)] : [String(key)];
+                        },
                         // 막대색만으론 구분이 애매할 수 있어 툴팁에 자동감지/수동등록TAG 를 병기.
                         label(ctx) {
                             const cat = ctx.chart._rowCats?.[ctx.dataIndex];
@@ -208,6 +257,7 @@ export function renderTopChart(chartId, topRows) {
     });
     chart._dark = isDark();
     chart._rowCats = cats;
+    chart._rowAlts = alts;
     charts[chartId] = chart;
 }
 

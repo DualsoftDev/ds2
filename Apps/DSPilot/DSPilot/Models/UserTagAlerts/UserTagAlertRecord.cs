@@ -27,7 +27,12 @@ public sealed record UserTagAlertBucket(
     int Count);
 
 /// <summary>태그명 별 Top-N 행. LogLevel 슬롯엔 구분(ABNORMAL/USERTAG)이 담긴다 — 막대색 구분용.</summary>
+/// <remarks>
+/// AltName = 그룹키의 반대편 라벨(경로 기준 집계면 태그 이름들, 이름 기준 집계면 경로들).
+/// 같은 경로에 여러 이름이 붙을 수 있어(자동감지 4유형 등) 콤마로 이어 붙인다 — 표시 측에서 축약.
+/// </remarks>
 public sealed record UserTagAlertTopRow(
     string Name,
     string LogLevel,
-    int Count);
+    int Count,
+    string? AltName = null);

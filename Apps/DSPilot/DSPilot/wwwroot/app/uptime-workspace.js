@@ -89,6 +89,10 @@
                 _userBusy: 0,
                 // utCategory = 구분 필터 ('' 전체 | 'abnormal' | 'usertag'). 레벨은 서버가 Error 로 통일(클라 미노출).
                 utPage: 0, utSearch: '', utCategory: '', utSystem: '', actionOverHint: [],
+                // 시계열 추이 막대 드릴다운 모달 — 클릭한 버킷 한 칸의 알람 원본(어떤 태그가 몇 시에 떴는지).
+                // iso=클릭한 버킷 시작(라벨 키, 재조회·중복열기 판정용), 나머지는 /api/user-tags/bucket 응답.
+                utDrill: { show: false, loading: false, err: null, iso: '', from: '', to: '', label: '', total: 0, alerts: [] },
+                _utDrillSeq: 0,
                 // 알람 이력 테이블 — 페이지 크기 / 정렬(서버 처리). sort 키는 서버 화이트리스트와 일치.
                 utPageSize: 10, utSort: 'occurredAt', utSortDir: 'desc', _utSearchTimer: null,
                 _focusAt: null, // 피드에서 at 으로 진입 시 스크롤·하이라이트할 알람 행 키(occurredAtLocal 초단위)
@@ -758,10 +762,51 @@
                         // 요약 카드로 구분을 골랐을 때도 같은 규칙 — 0-채움 버킷만 남는 시리즈를 범례에서 지운다.
                         const trendCats = (this.curFlow || this.utCategory === 'abnormal') ? ['ABNORMAL']
                             : (this.utCategory === 'usertag' ? ['USERTAG'] : ['ABNORMAL', 'USERTAG']);
-                        this._charts.renderTrendChart('ut-trend-chart', this.ut.buckets || [], this.ut.granularity, trendCats);
+                        // 막대 클릭 = 그 시간대 드릴다운(어떤 태그가 몇 시에 떴는지 목록 모달).
+                        this._charts.renderTrendChart('ut-trend-chart', this.ut.buckets || [], this.ut.granularity, trendCats,
+                            ({ iso }) => this.openUtDrill(iso));
                         // 태그별 Top 10 은 경로(FLOW / WORK / CALL)별 집계로 고정.
                         this._charts.renderTopChart('ut-top-chart', (this.ut.topRowsByPath || []).slice(0, 10));
                     } catch (e) { console.warn('chart draw failed', e); }
+                },
+
+                // ── 시계열 추이 막대 드릴다운 ──
+                // 버킷 경계(시/일/주/월)는 서버가 차트 집계와 같은 규칙으로 계산한다 — 클라는 시작 시각과
+                // 단위만 넘긴다. 목록 필터는 화면과 동일(검색·구분·시스템·설비)이라 막대 높이와 건수가 맞는다.
+                async openUtDrill(iso) {
+                    if (!iso) return;
+                    const gran = (this.ut && this.ut.granularity) || 'hour';
+                    const p = new URLSearchParams({ from: iso, gran, limit: 300 });
+                    if (this.utSearch.trim()) p.set('search', this.utSearch.trim());
+                    if (this.curFlow) p.set('flow', this.curFlow);
+                    else if (this.utCategory) p.set('category', this.utCategory);
+                    const sysFilter = this.utSystem || this.curSystem;
+                    if (sysFilter) p.set('system', sysFilter);
+
+                    this.utDrill = { show: true, loading: true, err: null, iso, from: '', to: '', label: '', total: 0, alerts: [] };
+                    const seq = ++this._utDrillSeq;
+                    try {
+                        const dto = await this.apiGet('/api/user-tags/bucket?' + p.toString());
+                        if (seq !== this._utDrillSeq) return; // 연속 클릭 시 stale 응답 폐기
+                        this.utDrill = {
+                            show: true, loading: false, err: null, iso,
+                            from: dto.bucketStartLocal || '', to: dto.bucketEndLocal || '',
+                            label: dto.bucketLabel || '', total: dto.totalCount || 0, alerts: dto.alerts || [],
+                        };
+                    } catch (e) {
+                        if (seq !== this._utDrillSeq) return;
+                        this.utDrill.loading = false;
+                        this.utDrill.err = '해당 시간대 알람을 불러오지 못했습니다: ' + e.message;
+                    }
+                },
+                closeUtDrill() { this.utDrill.show = false; this._utDrillSeq++; },
+                // 모달 행 시각 — 같은 버킷 안이라 날짜는 접고 시:분:초(밀리초 앞 3자리 유지)만 보여준다.
+                drillTime(a) { return String(a.occurredAtLocal || '').slice(11, 19); },
+                // 드릴다운 → 알림 이력 표로 이동(그 행 하이라이트) — 상세(조건·값·차단)는 표 쪽이 정본.
+                drillGotoRow(a) {
+                    this._focusAt = String(a.occurredAtLocal || '').slice(0, 19);
+                    this.closeUtDrill();
+                    this.$nextTick(() => this.focusAlertRow());
                 },
 
                 // ── 이상발생 필터/페이지 (구 관리페이지) ──
@@ -1595,6 +1640,15 @@
                 get utTopPath() {
                     const rows = (this.ut && this.ut.topRowsByPath) || [];
                     return rows.length ? rows[0] : null;
+                },
+                // 주소만으론 어떤 태그인지 알 수 없어 "주소 · 이름" 으로 함께 표기(차트 축 2줄과 동일 정보).
+                // altName 은 서버가 콤마로 이어 붙인 DISTINCT 이름 목록 — 3개를 넘으면 접는다.
+                get utTopPathLabel() {
+                    const r = this.utTopPath;
+                    if (!r) return '';
+                    const names = String(r.altName || '').split(',').map(s => s.trim()).filter(Boolean);
+                    const shown = names.length > 3 ? names.slice(0, 3).join(', ') + ' 외 ' + (names.length - 3) : names.join(', ');
+                    return (r.name || '(주소 없음)') + (shown ? ' · ' + shown : '');
                 },
                 categoryShare(cat) {
                     const total = this.categoryTotal;

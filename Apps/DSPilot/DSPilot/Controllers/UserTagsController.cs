@@ -114,8 +114,8 @@ public class UserTagsController : ControllerBase
             total, page, maxPage, size,
             dataPage.Select(ToAlertDto).ToList(),
             buckets.Select(b => new UtBucketDto(b.BucketStart.ToLocalTime().ToString("o"), b.LogLevel, b.Count)).ToList(),
-            top.Select(t => new UtTopDto(t.Name, t.LogLevel, t.Count)).ToList(),
-            topByPath.Select(t => new UtTopDto(t.Name, t.LogLevel, t.Count)).ToList(),
+            top.Select(t => new UtTopDto(t.Name, t.LogLevel, t.Count, t.AltName)).ToList(),
+            topByPath.Select(t => new UtTopDto(t.Name, t.LogLevel, t.Count, t.AltName)).ToList(),
             new Dictionary<string, int>(categoryCounts),
             activeError, todayError, lastAlertAtLocal,
             defDtos, systemOptions,
@@ -320,6 +320,46 @@ public class UserTagsController : ControllerBase
             startLocal.ToUniversalTime(), endLocal.ToUniversalTime(),
             null, DisplayLevel, null, null, size, 0, ct, flowFilter: flw);
         return rows.Select(ToAlertDto).ToList();
+    }
+
+    /// <summary>
+    /// 시계열 막대 드릴다운 — 클릭한 버킷 한 칸에 실제로 발생한 알람 목록.
+    /// 버킷 끝은 차트 집계와 같은 규칙(NextBucketUtc)으로 서버가 계산한다 — 클라이언트가 시/일/주/월
+    /// 경계를 다시 유추하면 주 시작요일·월 길이에서 어긋난다.
+    /// snapshot 의 무거운 집계(버킷·TOP·도넛)를 다시 돌리지 않는 경량 경로(막대 클릭마다 호출됨).
+    /// 필터 규약은 snapshot 과 동일 — flow 가 걸리면 category 는 무시(자동감지만 남아 모순 방지).
+    /// </summary>
+    [HttpGet("bucket")]
+    public async Task<ActionResult<UtBucketDrillDto>> GetBucketAlerts(
+        [FromQuery] DateTime from,              // 버킷 시작(로컬 벽시계 또는 오프셋 포함 ISO)
+        [FromQuery] string gran = "hour",       // "hour" | "day" | "week" | "month"
+        [FromQuery] string? search = null,
+        [FromQuery] string? category = null,
+        [FromQuery] string? system = null,
+        [FromQuery] string? flow = null,
+        [FromQuery] int limit = 300,
+        CancellationToken ct = default)
+    {
+        var g = gran is "hour" or "day" or "week" or "month" ? gran : "hour";
+        var startUtc = TruncBucketUtc(from.ToUniversalTime(), g);
+        var endUtc = NextBucketUtc(startUtc, g);
+        var flw = Blank(flow);
+        var cat = flw is null ? Blank(category) : null;
+        var size = Math.Clamp(limit, 1, 1000);
+        // BuildFilter 의 끝 경계가 포함(<=)이라 다음 버킷 첫 행을 빨아들이지 않게 1틱 당긴다.
+        var endInclusive = endUtc.AddTicks(-1);
+
+        var total = await _repo.CountAlertsAsync(startUtc, endInclusive, Blank(search), DisplayLevel, Blank(system), cat, ct, flowFilter: flw);
+        var rows = await _repo.QueryAlertsAsync(
+            startUtc, endInclusive, Blank(search), DisplayLevel, Blank(system), cat, size, 0, ct,
+            flowFilter: flw, sortColumn: "occurredAt", sortDesc: false);
+
+        return new UtBucketDrillDto(
+            startUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"),
+            endUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"),
+            BucketLabel(g),
+            total,
+            rows.Select(ToAlertDto).ToList());
     }
 
     /// <summary>Excel(.xlsx) 내보내기 — 현재 필터의 전체 알림을 단일 시트 테이블로. snapshot 과 동일 데이터원.</summary>

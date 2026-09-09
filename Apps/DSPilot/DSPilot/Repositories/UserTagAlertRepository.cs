@@ -296,19 +296,24 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         var (where, p) = BuildFilter(startUtc, endUtc, null, levelFilter, systemFilter, categoryFilter, flowFilter);
         p.Add("TopN", topN);
         // 그룹키: name(기본) | tagAddress(경로). SQL 삽입값이라 화이트리스트로만 결정(주입 방지).
-        var keyCol = string.Equals(groupBy, "path", StringComparison.OrdinalIgnoreCase) ? "tagAddress" : "name";
+        var byPath = string.Equals(groupBy, "path", StringComparison.OrdinalIgnoreCase);
+        var keyCol = byPath ? "tagAddress" : "name";
+        // 반대편 라벨(AltName) — 경로 기준이면 태그 이름, 이름 기준이면 경로. 한 그룹에 여러 값이 붙을 수
+        // 있어(같은 주소의 자동감지 4유형 등) DISTINCT 콘캣으로 모두 담고 축약은 표시 측에 맡긴다.
+        var altCol = byPath ? "name" : "tagAddress";
         // Level 슬롯엔 구분(ABNORMAL/USERTAG)을 담는다 — 레벨이 Error 단일로 통일돼 Top N 막대색은
         // 자동감지/수동등록 구분으로 칠한다(버킷 스택과 동일 규약). 같은 키는 단일 구분이라 그룹 분열 없음.
         // ⚠ GROUP BY 별칭 LogLevel 은 테이블 컬럼 logLevel 로 해석됨(버킷 쿼리와 동일 함정) → CASE 식으로 직접 그룹.
         var sql = $@"
-            SELECT {keyCol} AS Name, {CategoryCase} AS LogLevel, COUNT(*) AS Count
+            SELECT {keyCol} AS Name, {CategoryCase} AS LogLevel, COUNT(*) AS Count,
+                   GROUP_CONCAT(DISTINCT {altCol}) AS AltName
             FROM userTagAlertLog
             {where}
             GROUP BY {keyCol}, {CategoryCase}
             ORDER BY Count DESC
             LIMIT @TopN";
         var rows = await conn.QueryAsync<TopRow>(sql, p);
-        return rows.Select(r => new UserTagAlertTopRow(r.Name ?? "", r.LogLevel ?? "USERTAG", r.Count)).ToList();
+        return rows.Select(r => new UserTagAlertTopRow(r.Name ?? "", r.LogLevel ?? "USERTAG", r.Count, r.AltName)).ToList();
     }
 
     public async Task<IReadOnlyDictionary<string, int>> GetCategoryCountsAsync(
@@ -447,6 +452,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         public string? Name { get; set; }
         public string? LogLevel { get; set; }
         public int Count { get; set; }
+        public string? AltName { get; set; }
     }
 
     private sealed class CategoryCountRow

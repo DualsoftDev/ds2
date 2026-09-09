@@ -44,7 +44,21 @@ public record UtAlertDto(
 // Level 슬롯은 이제 구분(ABNORMAL/USERTAG)을 담는다 — 시계열 스택 막대의 스택 키(레벨 통일 후 구분 스택).
 public record UtBucketDto(string BucketStartIso, string Level, int Count);
 
-public record UtTopDto(string Name, string Level, int Count);
+// Name = 그룹키(경로 기준 집계면 tagAddress), AltName = 반대편 라벨(태그 이름들, 콤마 구분).
+// 차트가 "주소 + 이름"을 함께 보여주도록 두 값을 모두 내려보낸다.
+public record UtTopDto(string Name, string Level, int Count, string? AltName = null);
+
+/// <summary>
+/// 시계열 막대 드릴다운 — 클릭한 버킷 한 칸([BucketStart, 다음 버킷))에 발생한 알람 원본.
+/// 버킷 경계는 차트를 그린 서버 집계(GetBucketCountsAsync)와 같은 규칙으로 서버가 계산해 내려준다
+/// (클라이언트가 시/일/주/월 경계를 다시 유추하면 DST·주 시작요일에서 어긋난다).
+/// </summary>
+public record UtBucketDrillDto(
+    string BucketStartLocal,   // "yyyy-MM-dd HH:mm"
+    string BucketEndLocal,     // "yyyy-MM-dd HH:mm" (배타적 끝)
+    string BucketLabel,        // "1시간" | "1일" | ...
+    int TotalCount,            // 구간 전체 건수(Limit 로 잘리기 전)
+    List<UtAlertDto> Alerts);  // 시간 오름차순, 최대 Limit 건
 
 public record UtDefinitionDto(
     string SystemName,
