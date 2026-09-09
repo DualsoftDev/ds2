@@ -310,38 +310,44 @@ public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, stri
 
 /// <summary>
 /// 비생산 시간대 설정 상태 — GET /api/oee/planned-stops 응답 (병행 모델 2026-07-08).
-/// 당일 자동 판정(배수×CT)은 항상 켜져 있고, Windows(수동 지정)는 추가로 "무조건 비생산" 확정 창.
-/// Source = "auto"(지정 없음) | "both"(자동+지정). CtMultiplier = 비생산 자동판정 배수(사용자 설정, 기본 10),
-/// IdleCtMultiplier = 비가동 판정 배수(사용자 설정, 기본 2.5 — 2026-07-13).
+/// 당일 자동 판정(배수×중앙 WT)은 항상 켜져 있고, Windows(수동 지정)는 추가로 "무조건 비생산" 확정 창.
+/// Source = "auto"(지정 없음) | "both"(자동+지정). NonProdWtMultiplier = 비생산 자동판정 배수(WT 축, 사용자 설정, 기본 30),
+/// IdleWtMultiplier = 비가동 판정 배수(WT 축, 기본 5 — 2026-09-09 CT→WT 축 전환).
 /// </summary>
 public sealed record PlannedStopsDto(
     string Source,
     IReadOnlyList<PlannedStopWindowDto> Windows,
-    double CtMultiplier,
-    double IdleCtMultiplier = Services.OeeMath.IdleCtMultiplierDefault);
+    double NonProdWtMultiplier,
+    double IdleWtMultiplier = Services.OeeMath.IdleWtMultiplierDefault);
 
 /// <summary>
-/// 정지·비생산 판정 기준(배수) — GET /api/oee/ct-multipliers 응답 (2026-07-13, doc/22 §3/§3.3 사용자 설정화).
-/// Flows = flow별 14일 평균 CT(판정 임계 환산 표시용 — 경계 = AvgCtMs × 배수).
+/// 정지·비생산·고장 판정 기준(배수) — GET /api/oee/ct-multipliers 응답 (2026-07-13 사용자 설정화 → 2026-09-09 WT/MT 2축).
+/// 경로 이름의 "ct-multipliers" 는 호환을 위해 유지한다(구 클라이언트·문서). 축은 WT(정지·비생산)와 MT(고장).
+/// Flows = flow별 기준선(중앙 WT·중앙 CT·중앙 MT·평균 CT) — 화면이 "이 배수가 우리 라인에선 몇 분인가"를 환산한다.
+/// 하한 상수(StopFloorCtMultiples 등)도 함께 내려 화면 환산이 서버 경계 함수와 같은 값을 내게 한다.
 /// </summary>
 public sealed record CtMultipliersDto(
-    double IdleCtMultiplier,
-    double NonProdCtMultiplier,
+    double IdleWtMultiplier,
+    double NonProdWtMultiplier,
     IReadOnlyList<CtMultiplierFlowDto> Flows,
-    // 고장 유발자 판별 배수(2026-08-24) — 곱하는 대상이 CT 가 아니라 flow별 중앙 MT 다(FlowDto.MedianMtMs).
-    double FaultMtMultiplier = Services.OeeMath.FaultMtMultiplierDefault);
+    // 고장 유발자 판별 배수(2026-08-24) — 곱하는 대상이 flow별 중앙 MT 다(FlowDto.MedianMtMs).
+    double FaultMtMultiplier = Services.OeeMath.FaultMtMultiplierDefault,
+    double StopFloorCtMultiples = Services.OeeMath.WtStopFloorCtMultiples,
+    double NonProdFloorCtMultiples = Services.OeeMath.WtNonProdFloorCtMultiples,
+    double FaultFloorMs = Services.OeeMath.FaultMtBoundaryFloorMs);
 
 /// <summary>
-/// flow별 판정 임계 환산 정보.
-///   AvgCtMs     = 14일 평균 CT — 정지 계상(×IdleCtMultiplier)·비생산 승격(×NonProdCtMultiplier) 경계의 기준값
-///   MedianMtMs  = 14일 중앙 MT — 고장 유발자 판별(×FaultMtMultiplier) 경계의 기준값. 0 = 표본 없음(판별 불가)
-/// 두 값의 축이 다르므로 화면에서도 같은 막대에 얹지 않는다.
+/// flow별 판정 기준선(ms). 화면 환산식은 서버 경계 함수와 동일해야 한다(OeeMath.ResolveWt*BoundaryMs / ResolveMtFaultBoundaryMs).
+///   AvgCtMs     = 14일 평균 CT — 성능 P 표준치. WT 기준선 미보유 flow 의 <b>CT 폴백</b> 경계(AvgCtMs × 배수)에도 쓰인다
+///   MedianMtMs  = 14일 중앙 MT — 고장 유발자 판별(×FaultMtMultiplier, 절대 하한) 경계의 기준값. 0 = 표본 없음(판별 불가)
+///   MedianWtMs  = 14일 중앙 WT — 정지(×IdleWtMultiplier)·비생산(×NonProdWtMultiplier) 경계의 기준값. 0 = 미보유(CT 폴백)
+///   MedianCtMs  = 14일 중앙 CT — WT 경계 하한(1사이클·10사이클)의 기준값
 /// </summary>
-public sealed record CtMultiplierFlowDto(string FlowName, double AvgCtMs, double MedianMtMs = 0);
+public sealed record CtMultiplierFlowDto(string FlowName, double AvgCtMs, double MedianMtMs = 0, double MedianWtMs = 0, double MedianCtMs = 0);
 
 /// <summary>PUT /api/oee/ct-multipliers 요청. null 필드는 기존값 유지.</summary>
 public sealed record CtMultipliersRequest(
-    double? IdleCtMultiplier, double? NonProdCtMultiplier, double? FaultMtMultiplier = null);
+    double? IdleWtMultiplier, double? NonProdWtMultiplier, double? FaultMtMultiplier = null);
 
 /// <summary>
 /// 판정 기준 변경 미리보기 — GET /api/oee/ct-multipliers/preview. 같은 기간을 현재 배수/제안 배수로
@@ -353,8 +359,8 @@ public sealed record CtMultipliersPreviewDto(
 
 /// <summary>미리보기 한쪽(현재 또는 제안) 재분류 요약 — 정지 건수/비가동 CT/비생산(벽시계)/A/P.</summary>
 public sealed record CtMultipliersPreviewSideDto(
-    double IdleCtMultiplier,
-    double NonProdCtMultiplier,
+    double IdleWtMultiplier,
+    double NonProdWtMultiplier,
     int DowntimeCount,
     int NormalCycleCount,
     double IdleCtMs,

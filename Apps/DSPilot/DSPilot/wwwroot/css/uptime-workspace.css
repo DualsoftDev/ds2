@@ -527,9 +527,49 @@
         .up-ptl-win.auto .up-ptl-handle::after { background: var(--nonprod); }
         .up-ptl-win:hover .up-ptl-handle, .up-ptl-win.sel .up-ptl-handle { display: block; }
 
-        /* ── 정지·비생산 판정 기준 카드 (doc/22 §3/§3.3, 2026-07-13 사용자 설정화) ──
-           분류 밴드(정상|비가동|비생산) — 색은 OEE 색 SSOT(--oee-run/--oee-fault/--nonprod) 재사용,
+        /* ── 정지·비생산·고장 판정 기준 카드 (doc/27, 2026-09-09 WT/MT 2축) ──
+           ① 사이클 해부도(동작 MT + 대기 WT) ② 판정 순서 4단계 ③ 축별 레인(밴드 + 슬라이더) ④ flow 환산 칩.
+           색은 OEE 색 SSOT(--oee-run/--oee-fault/--nonprod, 유발=--oee-cause, 대기=--oee-wait 폴백) 재사용,
            정지 계열은 다른 화면과 동일하게 대각선 빗금으로 신호. 슬라이더 thumb 색 = 담당 세그먼트 색. */
+        :root { --oee-cause: #7E1D12; --oee-wait-c: #6B7280; }
+        .dark-theme { --oee-cause: #E8695B; --oee-wait-c: #9CA3AF; }
+        .c-fault { color: var(--oee-cause) !important; }
+        .c-idle { color: var(--oee-fault) !important; }
+        .c-np { color: var(--nonprod) !important; }
+        .c-wait { color: var(--oee-wait-c) !important; }
+        .up-cm-anatomy { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin: 2px 0 12px; font-size: 0.72rem; color: var(--color-text-secondary); }
+        .up-cm-anatomy .lbl { font-weight: 800; color: var(--color-text-primary); white-space: nowrap; }
+        .up-cm-anatomy .bar { display: flex; align-items: stretch; border: 1px solid var(--color-lines); border-radius: 8px; overflow: hidden; min-width: 300px; flex: 1 1 320px; }
+        .up-cm-anatomy .bar > span { display: flex; flex-direction: column; justify-content: center; padding: 6px 12px; line-height: 1.3; }
+        .up-cm-anatomy .bar .mt { flex: 0 0 36%; background: color-mix(in srgb, var(--oee-cause) 12%, var(--color-surface)); }
+        .up-cm-anatomy .bar .wt { flex: 1; background: color-mix(in srgb, var(--oee-fault) 10%, var(--color-surface)); }
+        .up-cm-anatomy .bar .plus { flex: 0 0 auto; padding: 0 6px; font-weight: 900; color: var(--color-text-secondary); align-self: center; }
+        .up-cm-anatomy .bar b { font-size: 0.76rem; color: var(--color-text-primary); }
+        .up-cm-anatomy .bar b em { font-style: normal; font-family: var(--font-mono); font-weight: 700; opacity: 0.8; }
+        .up-cm-anatomy .bar small { font-size: 0.62rem; color: var(--color-text-secondary); white-space: nowrap; }
+        .up-cm-anatomy .rule { white-space: nowrap; }
+        .up-cm-anatomy .rule b { font-weight: 800; }
+        .up-cm-steps { list-style: none; margin: 0 0 16px; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+        @media (max-width: 1100px) { .up-cm-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 560px) { .up-cm-steps { grid-template-columns: 1fr; } }
+        .up-cm-steps li { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--color-lines); border-radius: 8px; background: var(--color-surface-variant); font-size: 0.7rem; line-height: 1.45; color: var(--color-text-secondary); }
+        .up-cm-steps li .n { flex: 0 0 20px; width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 900; font-size: 0.66rem; border: 2px solid currentColor; margin-top: 1px; }
+        .up-cm-steps li b { color: var(--color-text-primary); font-weight: 800; }
+        .up-cm-steps li i { font-style: normal; font-family: var(--font-mono); font-weight: 800; color: var(--color-text-primary); }
+        .up-cm-steps li small { display: block; font-size: 0.62rem; margin-top: 2px; color: var(--color-text-secondary); }
+        .up-cm-lane { border: 1px solid var(--color-lines); border-radius: 10px; padding: 12px 14px 10px; margin-bottom: 12px; background: color-mix(in srgb, var(--color-surface-variant) 40%, transparent); }
+        .up-cm-lane.fault { border-left: 4px solid var(--oee-cause); }
+        .up-cm-lane.wt { border-left: 4px solid var(--oee-fault); }
+        .up-cm-lane-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .up-cm-lane-head b { font-size: 0.8rem; }
+        .up-cm-info { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; font-size: 0.7rem; color: var(--color-text-secondary); cursor: help; }
+        .up-cm-info:hover { color: var(--color-primary); }
+        .up-cm-band .seg .badge { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 0.56rem; font-weight: 800; padding: 2px 7px; border-radius: 999px; background: var(--color-surface); border: 1px solid var(--oee-cause); color: var(--oee-cause); white-space: nowrap; }
+        .up-cm-band .seg.fault { background-color: color-mix(in srgb, var(--oee-cause) 14%, var(--color-surface)); background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var(--oee-cause) 26%, transparent) 0 1.4px, transparent 1.4px 7px); }
+        .up-cm-lane .up-cm-band { margin: 4px 0 12px; }
+        .up-cm-flowchip .base { color: var(--color-text-secondary); padding-right: 6px; border-right: 1px solid var(--color-lines); }
+        .up-cm-flowchip .base i { font-style: normal; font-family: var(--font-mono); font-weight: 700; color: var(--color-text-primary); }
+        .up-cm-flowchip.fb { border-style: dashed; }
         .up-cm-band { display: flex; height: 38px; border-radius: 8px; overflow: hidden; border: 1px solid var(--color-lines); margin: 4px 0 16px; }
         .up-cm-band .seg { position: relative; display: flex; flex-direction: column; justify-content: center; padding: 0 10px; min-width: 56px; overflow: hidden; transition: width 0.18s ease; }
         .up-cm-band .seg + .seg { border-left: 1px solid color-mix(in srgb, var(--color-text-primary) 18%, transparent); }
@@ -550,12 +590,9 @@
         .up-cm-slider::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: var(--oee-fault); border: 3px solid var(--color-surface); box-shadow: 0 1px 3px rgba(0,0,0,0.35); cursor: grab; }
         .up-cm-slider.nonprod::-webkit-slider-thumb { background: var(--nonprod); }
         .up-cm-slider.nonprod::-moz-range-thumb { background: var(--nonprod); }
-        /* 고장 유발(MT축) — 비가동 슬라이더(--oee-fault)와 구분되는 진홍. CT축 밴드에 얹지 않는 별도 축임을 색으로도 표시 */
-        :root { --oee-cause: #7E1D12; }
-        .dark-theme { --oee-cause: #E8695B; }
+        /* 고장 유발(MT축) — 정지 슬라이더(--oee-fault)와 구분되는 진홍(--oee-cause, 위에서 정의). 별도 레인임을 색으로도 표시 */
         .up-cm-slider.fault::-webkit-slider-thumb { background: var(--oee-cause); }
         .up-cm-slider.fault::-moz-range-thumb { background: var(--oee-cause); }
-        .up-cm-row.fault { border-top: 1px dashed var(--color-lines); padding-top: 12px; }
         .up-cm-flows { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 13px; }
         .up-cm-flowchip { display: inline-flex; align-items: center; gap: 8px; padding: 3px 10px; border: 1px solid var(--color-lines); border-radius: 999px; background: var(--color-surface-variant); font-size: 0.64rem; white-space: nowrap; }
         .up-cm-flowchip b { font-weight: 800; color: var(--color-text-primary); }

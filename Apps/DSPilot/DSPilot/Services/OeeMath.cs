@@ -10,13 +10,72 @@ namespace DSPilot.Services;
 /// </summary>
 public static class OeeMath
 {
+    // ════════════════════════════════════════════════════════════════════════
+    //  판정 축 (2026-09-09 WT/MT 2축 전환, doc/27). 사이클 = 동작(MT) + 대기(WT).
+    //    · MT 축 — "설비가 평소보다 늘어졌나" → 고장(유발자). 길이 무관, 비생산으로 승격되지 않는다.
+    //    · WT 축 — "사이클 사이에 얼마나 서 있었나" → 정지(비가동), 더 길면 비생산(분모 밖).
+    //  종전 CT 축(평균 CT × 배수)은 두 성분이 섞여 "정지인지 늘어진 동작인지"를 가리지 못했다. CT 축은 WT
+    //  기준선이 없는 flow(tail 미정의 → mt·wt 항상 NULL)의 폴백으로만 남는다(COALESCE(wt, ct)).
+    // ════════════════════════════════════════════════════════════════════════
+
     /// <summary>
-    /// 비생산 자동판정 배수 <b>기본값</b> — 무변화 정지 길이가 14일 평균 CT 의 이 배수 이상이면 "비생산"(분모 밖)으로 본다(doc/22 §3.3).
-    /// "라인이 평균 사이클의 10배를 넘게 멈춰 있었으면 그 시간은 애초에 생산하던 시간이 아니다"는 가정. 고장신호와 무관(순수 CT).
-    /// 2026-07-13 사용자 설정화: 실제 적용값은 <see cref="Models.OeeManualSettings.NonProdCtMultiplier"/>(설비효율 현황에서 조절) —
+    /// 비생산 자동판정 배수 <b>기본값</b>(WT 축) — 사이클의 대기시간(wt)이 14일 <b>중앙 WT × 이 배수</b> 이상이면
+    /// "비생산"(분모 밖)으로 본다. "평소 대기의 30배를 서 있었으면 그 시간은 애초에 생산하던 시간이 아니다"는 가정.
+    /// MT 과주행(고장) 행은 이 판정 대상이 아니다 — 움직인 증거가 있는 정지는 길어도 고장이다.
+    /// 실제 적용값은 <see cref="Models.OeeManualSettings.NonProdWtMultiplier"/>(설비효율 현황에서 조절) —
     /// 이 상수는 그 설정의 기본값이자 설정 미보유 경로의 폴백이다.
+    /// <para>왜 30 인가: 종전 CT 축 기본 15× 를 현장 실측 WT 비중(#121 CT 의 43% / 셔틀 89%)으로 환산하면
+    /// 17~35× 에 흩어진다. 단일 등가값은 없으므로 중간값을 잡고 flow별 환산(분·시간)을 화면에 보여 조절하게 한다.</para>
     /// </summary>
-    public const double NonProductionCtMultiplier = 15.0;
+    public const double NonProductionWtMultiplier = 30.0;
+
+    /// <summary>
+    /// 비가동(정지) 판정 배수 기본값(WT 축) — 사이클의 대기시간(wt)이 14일 <b>중앙 WT × 이 배수</b>를 <b>초과</b>하면
+    /// 정지로 본다. 그 미만의 긴 대기는 정상(속도 손실 → 성능 P 로 재배분). 성능 P 의 표준치는 여전히 1×평균 CT
+    /// (<see cref="ComputeCyclePerformance"/>) — 판정 경계만 WT 축이다. 실제 적용값은
+    /// <see cref="Models.OeeManualSettings.IdleWtMultiplier"/>.
+    /// <para>왜 5 인가: 종전 CT 축 기본 2.5× 를 WT 로 환산하면 #121 5.8× / 셔틀 2.8× / kit 3.2× — 중간을 잡았다.</para>
+    /// </summary>
+    public const double IdleWtMultiplierDefault = 5.0;
+
+    /// <summary>
+    /// WT 정지 경계의 하한 = 그 flow <b>중앙 CT × 이 배수</b>(=1 사이클). 중앙 WT 가 극소인 flow(항상 소재가
+    /// 대기하는 설비 — 실측 kit Turn Zone 중앙 WT 0.6초)에선 배수만 곱하면 3초 대기가 정지가 된다.
+    /// "한 사이클도 못 채운 대기는 정지가 아니다"는 가정으로 하한을 둔다. MT 축의 절대 하한
+    /// (<see cref="FaultMtBoundaryFloorMs"/>)과 같은 이유의 장치.
+    /// </summary>
+    public const double WtStopFloorCtMultiples = 1.0;
+
+    /// <summary>
+    /// WT 비생산 경계의 하한 = 중앙 CT × 이 배수(=10 사이클). 같은 극소 WT flow 에서 18초 대기가 비생산(분모 밖)이
+    /// 되어 가용성을 부풀리는 것을 막는다. 종전 CT 축 기본(15×CT)보다 낮게 두어 하한이 "WT 기준선이 무의미한
+    /// flow" 에서만 발동하게 한다(#121·셔틀 실측에선 WT 배수 경계가 항상 하한보다 크다).
+    /// </summary>
+    public const double WtNonProdFloorCtMultiples = 10.0;
+
+    /// <summary>
+    /// WT 정지 경계(ms) = max(중앙 WT × 정지배수, 중앙 CT × <see cref="WtStopFloorCtMultiples"/>).
+    /// <paramref name="medianCtMs"/> ≤ 0(기준선 미보유)이면 호출측이 CT 폴백(평균 CT × 배수)을 쓴다 — 여기선 0 반환.
+    /// 중앙 WT 가 0(항상 즉시 재시작하는 설비)인 것은 정상 기준선이다 — 그때 경계는 하한(1 사이클)이 맡는다.
+    /// dtCond @WtThr·행 단위 판정·정지 로그 문구·'진행 중' 기준·lookback 이 모두 이 함수 하나를 쓴다(경계 SSOT).
+    /// </summary>
+    public static double ResolveWtStopBoundaryMs(double medianWtMs, double medianCtMs, double idleMultiplier)
+        => medianCtMs <= 0 ? 0
+            : Math.Max(Math.Max(0, medianWtMs) * Math.Max(idleMultiplier, 1.0), medianCtMs * WtStopFloorCtMultiples);
+
+    /// <summary>
+    /// WT 비생산 경계(ms) = max(중앙 WT × 비생산배수, 중앙 CT × <see cref="WtNonProdFloorCtMultiples"/>, 정지 경계).
+    /// 정지 경계보다 작아질 수 없다(역전 시 비가동 밴드 소멸). 기준선 미보유(중앙 CT ≤0)면 0 → 호출측 CT 폴백.
+    /// </summary>
+    public static double ResolveWtNonProdBoundaryMs(double medianWtMs, double medianCtMs, double nonProdMultiplier, double stopBoundaryMs)
+        => medianCtMs <= 0 ? 0
+            : Math.Max(Math.Max(Math.Max(0, medianWtMs) * nonProdMultiplier, medianCtMs * WtNonProdFloorCtMultiples), stopBoundaryMs);
+
+    /// <summary>
+    /// 판정에 쓰는 행의 대기시간 — <c>COALESCE(wt, ct)</c> 와 동일. wt 가 없는 행(tail 미완료 = mt NULL, 또는 tail
+    /// 미정의 flow)은 사이클 전체를 대기로 본다. SQL(dtCond)과 C# 판정이 같은 값을 보게 하는 SSOT.
+    /// </summary>
+    public static double ResolveWaitMs(int? wtMs, double ctMs) => wtMs is int w && w >= 0 ? w : ctMs;
 
     /// <summary>
     /// 고장 유발자 판별 배수 기본값 (2026-08-24). 사이클 MT 가 <b>14일 평균 MT × 이 배수</b>를 넘으면
@@ -25,7 +84,7 @@ public static class OeeMath
     /// <para>축이 CT 가 아니라 <b>MT</b> 인 이유: 라인이 서면 모든 flow 의 CT 가 동시에 늘어나 유발자를 못 가린다.
     /// MT 는 자기 설비가 실제로 움직인 시간이라 유발자만 늘어난다 (2026-08-24 실측 — 같은 4분 정지에서
     /// 조립 46.3× / 이송 8.0× / 나머지 3개 1.0×). 정지 시간 <b>계상</b>은 종전대로 CT 축
-    /// (<see cref="IdleCtMultiplierDefault"/>) — MT 로 옮기면 대기 중이던 flow 의 정지가 정상 가동으로 잡혀
+    /// (종전 <c>IdleCtMultiplierDefault</c>, 2026-09-09 부터 WT 축 <see cref="IdleWtMultiplierDefault"/>) — MT 로 옮기면 대기 중이던 flow 의 정지가 정상 가동으로 잡혀
     /// 가용성이 부풀어 오른다(실측: 6개 중 4개가 정지 미계상).</para>
     ///
     /// <para>실제 적용값은 <see cref="Models.OeeManualSettings.FaultMtMultiplier"/>.</para>
@@ -49,14 +108,6 @@ public static class OeeMath
     public static double ResolveMtFaultBoundaryMs(double medianMtMs, double faultMultiplier)
         => Math.Max(medianMtMs * faultMultiplier, FaultMtBoundaryFloorMs);
 
-    /// <summary>
-    /// 비가동(정지) 판정 배수 기본값 — 사이클 MT(또는 미완료 CT)가 14일 평균 CT 의 이 배수를 <b>초과</b>하면
-    /// 비가동으로 본다(doc/22 §3 ①②, 2026-07-13 도입 — 종전 1×). 평균의 1~2.5배 구간 "느린 사이클"은 정상(속도
-    /// 손실 → 성능 P 로 재배분)으로 두고, 그 이상 늘어진 것만 정지로 계상한다. 성능 P 의 표준치는 여전히 1×평균
-    /// (<see cref="ComputeCyclePerformance"/>) — 판정 경계만 배수가 붙는다. 실제 적용값은
-    /// <see cref="Models.OeeManualSettings.IdleCtMultiplier"/>.
-    /// </summary>
-    public const double IdleCtMultiplierDefault = 2.5;
 
     /// <summary>
     /// 사용자/자동 분류에서 "비생산"을 뜻하는 reasonCode — 정지 이벤트를 비생산으로 보내면 이 코드가 찍히고
@@ -66,14 +117,16 @@ public static class OeeMath
     public const string NonProductionReasonCode = "non_production";
 
     /// <summary>
-    /// 무변화 정지 지속시간(ms)이 비생산(≥ multiplier×CT이상치)인지 판정(doc/22 §3.3).
-    /// thr ≤ 0(표본 부족)이면 판정 불가 → false(=다운타임 유지). 대상은 "변화 없음" 정지뿐(무사이클 갭·미완료 멈춤),
-    /// 완료된 느린 사이클(움직였음)은 호출측에서 제외한다. multiplier 는 사용자 설정(기본 10×) — 호출측이
-    /// <see cref="Models.OeeManualSettings.ResolveCtMultipliers"/> 값을 넘긴다(미지정 = 기본 상수).
+    /// 정지 길이(ms)가 비생산 경계(≥ baseline × multiplier) 이상인지 — 기준선·배수를 따로 받는 원형.
+    /// baseline ≤ 0(표본 부족)이면 판정 불가 → false(=다운타임 유지). 2026-09-09 부터 기준선은 CT 가 아니라
+    /// 중앙 WT 다(하한 포함 경계는 <see cref="ResolveWtNonProdBoundaryMs"/> 로 만들고 <see cref="IsNonProductionLength"/> 로 비교).
     /// </summary>
-    public static bool IsLongStopNonProduction(double idleDurationMs, double ctThresholdMs,
-        double multiplier = NonProductionCtMultiplier)
-        => ctThresholdMs > 0 && multiplier > 0 && idleDurationMs >= multiplier * ctThresholdMs;
+    public static bool IsLongStopNonProduction(double idleDurationMs, double baselineMs, double multiplier)
+        => baselineMs > 0 && multiplier > 0 && idleDurationMs >= multiplier * baselineMs;
+
+    /// <summary>정지 길이가 (하한이 반영된) 비생산 경계 이상인가. 경계 ≤ 0 = 판정 불가 → false.</summary>
+    public static bool IsNonProductionLength(double durationMs, double nonProdBoundaryMs)
+        => nonProdBoundaryMs > 0 && durationMs >= nonProdBoundaryMs;
 
     /// <summary>
     /// 신호 기반 정지 분류 결과 (doc/25 §1 분류표). 무변화 정지(무사이클 갭·미완료 멈춤) 하나를 flow 관점에서
@@ -101,6 +154,9 @@ public static class OeeMath
     ///           ④ 라인 전체 무신호(또는 신호 규칙 비활성) → 현행 순수 CT 규칙(기준 이상 비생산 승격 / 미만 비가동).
     /// signalRulesActive=false(설정 OFF 또는 커버리지 게이트 §2.4 발동)면 ④ 만 적용 — 나머지 인자는 무시된다.
     /// 수동 재분류(비생산↔비가동 보내기)는 이 함수 밖에서 항상 우선한다.
+    /// <para>2026-09-09: 기준이 (평균 CT, 배수) 쌍에서 <paramref name="nonProdBoundaryMs"/> 하나로 바뀌었다 — 호출측이
+    /// <see cref="ResolveWtNonProdBoundaryMs"/>(WT 축, 하한 포함) 또는 CT 폴백으로 경계를 만들어 넘긴다.
+    /// <paramref name="durationMs"/> 도 사이클 전체가 아니라 <b>대기 성분</b>(미계측 카빙 후 잔여와의 min)이다.</para>
     /// </summary>
     /// <param name="lineHasMtOverrun">
     /// 이 구간에 <b>다른 flow</b>가 MT 과주행(Going 중 임계 초과)으로 이미 고장 확정된 경우.
@@ -114,7 +170,7 @@ public static class OeeMath
     /// </param>
     public static StopClass ClassifyStopWindow(
         bool signalRulesActive, bool hasOwnSignal, bool lineHasCulprit, bool lineHasUnresolvedUsertag,
-        double durationMs, double ctThresholdMs, double nonProdMultiplier = NonProductionCtMultiplier,
+        double durationMs, double nonProdBoundaryMs,
         bool lineHasMtOverrun = false)
     {
         if (signalRulesActive)
@@ -122,7 +178,7 @@ public static class OeeMath
             if (hasOwnSignal) return StopClass.Fault;
             // 유발자 특정됨(abnormal 신호 또는 MT 과주행) → 나머지는 대기.
             if (lineHasCulprit || lineHasMtOverrun)
-                return IsLongStopNonProduction(durationMs, ctThresholdMs, nonProdMultiplier)
+                return IsNonProductionLength(durationMs, nonProdBoundaryMs)
                     ? StopClass.WaitNonProd
                     : StopClass.WaitSlack;
             // 유발자를 아무도 특정 못 했는데 미해소 usertag 가 걸쳐 있으면 라인 문제로 보고 전원 고장.
@@ -134,47 +190,14 @@ public static class OeeMath
         //   고장 건수로 부풀고 MTBF 가 그만큼 짧아진다(실측 2026-08-21: 3분 라인 정지 1회 → 고장 6건).
         //   실제 설비 고장은 ① MT 과주행(위에서 이미 무조건 고장) ② 자기 flow abnormal ③ 미해소 usertag
         //   로 잡는다 — 이 폴백은 "고장이라 볼 근거가 하나도 없는 정지"만 남는다.
-        //   장기 정지(10×CT 이상)는 종전대로 비생산(분모 밖) — 주말·야간을 대기로 세지 않기 위함.
-        return IsLongStopNonProduction(durationMs, ctThresholdMs, nonProdMultiplier)
+        //   장기 정지(비생산 경계 이상)는 종전대로 비생산(분모 밖) — 주말·야간을 대기로 세지 않기 위함.
+        return IsNonProductionLength(durationMs, nonProdBoundaryMs)
             ? StopClass.NonProduction
             : StopClass.WaitSlack;
     }
 
-    /// <summary>
-    /// 비가동 gap 판정 배수(doc/23 §5) — gap(완료→다음 가동 간격)이 flow 자신의 클린 gap 중앙값(gap')의
-    /// 이 배수를 넘으면 비가동. ×1 은 중앙값 정의상 정상 gap 절반이 초과해 오탐 → 마진 필수, ×2 는 작고
-    /// 변동 큰 gap 에서 튐 → 3 을 기본으로 한다.
-    /// </summary>
-    public const double DowntimeGapMultiplier = 3.0;
-
-    /// <summary>gap(완료 후 대기 간격) 분류 결과 (doc/23 §5).</summary>
-    public enum GapClass
-    {
-        /// <summary>정상 대기 — 생산 시간에 포함.</summary>
-        Normal,
-        /// <summary>비가동 — 가용성 A 분모 안에서 깎임.</summary>
-        Downtime,
-        /// <summary>비생산 — A 분모 밖(≥10×CT, 기존 규칙 재사용).</summary>
-        NonProduction
-    }
-
-    /// <summary>
-    /// gap(ms)을 정상/비가동/비생산으로 분류 (doc/23 §5).
-    ///   gap ≥ <see cref="NonProductionCtMultiplier"/>(10) × ctThresholdMs → 비생산 (기존 10×CT 규칙과 동일 경계)
-    ///   gap &gt; <see cref="DowntimeGapMultiplier"/>(3) × gapMedianMs      → 비가동
-    ///   그 외                                                              → 정상
-    /// gapMedianMs ≤ 0(표본 부족)이면 비가동 판정 불가 → 비생산 경계만 적용(가짜 정지 금지, doc/21 §10).
-    /// 비생산을 먼저 검사한다 — 정상 데이터에선 항상 3×gap' &lt; 10×CT (gap'=WT ⊂ CT) 라 순서 무해하나,
-    /// 표본 왜곡 시에도 "더 긴 정지 = 더 관대한 분류(분모 밖)" 방향으로 안전.
-    /// nonProdMultiplier 는 사용자 설정 비생산 배수(기본 10×) — <see cref="IsLongStopNonProduction"/> 와 동일 경계.
-    /// </summary>
-    public static GapClass ClassifyGap(double gapMs, double gapMedianMs, double ctThresholdMs,
-        double nonProdMultiplier = NonProductionCtMultiplier)
-    {
-        if (IsLongStopNonProduction(gapMs, ctThresholdMs, nonProdMultiplier)) return GapClass.NonProduction;
-        if (gapMedianMs > 0 && gapMs > DowntimeGapMultiplier * gapMedianMs) return GapClass.Downtime;
-        return GapClass.Normal;
-    }
+    // (구 ClassifyGap/GapClass/DowntimeGapMultiplier[doc/23 §5 gap 분류]는 2026-09-09 삭제 — doc/26 에서 무사이클
+    //  갭 패스가 제거된 뒤 호출처가 없었고, CT 축 상수에 묶여 있어 WT 축 전환과 함께 정리했다.)
 
     /// <summary>
     /// '가동중' 박제 해제(abandon) 경계의 <b>자동 폴백</b>(ms) — 순수 함수.
@@ -365,51 +388,49 @@ public static class OeeMath
     }
 
     /// <summary>
-    /// 한 사이클을 정상/비가동으로 분류 (doc/22 §3 ①②). thr = CT이상치(14일 평균, ms), 판정 경계 = thr × idleMultiplier.
-    ///   ① CT &gt; thr×mult (완료 여부 무관 — 정지를 머금은 사이클. 2026-08-19: 종전 mt-only 판정이
-    ///      정지 후 재개 사이클(mt 정상·wt=정지 전체)을 정상으로 삼켜 장기정지가 가동에 편입됐다)
-    ///   ② MT &gt; <b>mtBoundaryMs</b> (과주행 모션 — 평소보다 늘어진 동작. 2026-08-24 MT 축으로 분리)
-    /// CT 없는 사이클(마지막 열린)은 Ignore. thr ≤ 0(표본 부족)이면 판정 불가 → 상위에서 산출 게이트.
-    /// idleMultiplier 는 사용자 설정 비가동 배수(2026-07-13, 기본 2.5× — 이 함수의 기본 인자는 종전 호환 1.0).
-    ///
-    /// <para><paramref name="mtBoundaryMs"/> = flow별 14일 중앙 MT × 고장 배수. <b>0 이하면 ① 의 CT 경계로 폴백</b>
-    /// (MT 기준 미보유 flow 의 종전 동작 유지 — 0 을 경계로 쓰면 모든 완료 사이클이 비가동이 된다).
-    /// 종전엔 ② 도 CT 경계와 비교해서, MT 축 배수가 유발자 <i>귀속</i>에만 쓰이고 고장 <i>생성</i>엔 관여하지
-    /// 못했다. 그 비대칭이 "평소 MT 의 17배인데 정상 가동으로 계상되면서 남의 정지는 대기로 강등"시켰다.</para>
-    ///
-    /// 경계 아래의 느린 사이클은 정상(Σ실측CT 편입 → 성능 P 가 속도 손실로 흡수). 성능 표준치는 여전히 1×thr.
-    /// IsIdle(아웃라이어 캡)과는 무관 — IsIdle 은 CT이상치 산출 시만 제외(§3.2).
-    /// ComputeCycleAggregateAsync 인라인 SQL dtCond 와 같은 규칙(SSOT 쌍) — 한쪽만 바꾸지 말 것.
-    /// </summary>
-    /// <summary>
     /// dtCond 로 선택된 사이클 행에서 <b>비가동으로 적립할 길이(ms)</b>. 두 축은 잃은 시간의 의미가 다르다.
     /// <list type="bullet">
-    ///   <item>CT 초과 — 사이클 자체가 비정상적으로 길었다 → <b>사이클 전체</b>가 손실</item>
+    ///   <item>WT 초과 — 사이클 사이에 서 있었다(정지를 머금은 사이클) → <b>사이클 전체</b>가 손실(종전 CT 초과와 동일 취급)</item>
     ///   <item>MT 만 초과 — 설비는 늘어졌지만 여유(wt)가 흡수해 제때 산출했다 → <b>평소 대비 초과분만</b></item>
     /// </list>
     /// <para>MT 만 초과인 행을 사이클 전체로 적립하면 "제때 생산했는데 100% 비가동"이 된다. 실측
     /// 2026-08-24 이송 12:43:35 — ct 40,823ms(중앙 40,754ms 와 동일)인데 mt 31,191ms(중앙 4,220ms 의 7.4배).
     /// 부품은 정상 사이클 타임에 나왔으므로 40.8초가 아니라 초과분 27.0초만 손실로 본다. 설정 화면의
     /// "경계 미만의 느린 사이클은 정상 — 속도 저하는 성능 P 가 흡수" 약속과도 일치한다.</para>
-    /// <para><paramref name="mtMedianMs"/> ≤ 0(기준 미보유)이면 초과분을 낼 수 없으므로 사이클 전체로 폴백한다.</para>
+    /// <para><paramref name="mtMedianMs"/> ≤ 0(기준 미보유)이면 초과분을 낼 수 없으므로 사이클 전체로 폴백한다.
+    /// wt 가 없는 행(mt NULL)은 <see cref="ResolveWaitMs"/> 규약대로 사이클 전체를 대기로 본다.</para>
     /// </summary>
     public static double ResolveDowntimeAccrualMs(
-        double ctMs, int? mtMs, double ctBoundaryMs, double mtBoundaryMs, double mtMedianMs)
+        double ctMs, int? mtMs, int? wtMs, double wtBoundaryMs, double mtBoundaryMs, double mtMedianMs)
     {
-        if (ctMs > ctBoundaryMs) return ctMs;                       // CT 초과 — 전체
+        if (ResolveWaitMs(wtMs, ctMs) > wtBoundaryMs) return ctMs;  // WT 초과 — 전체
         if (mtMs is not int m || mtMedianMs <= 0) return ctMs;      // 기준 미보유 — 종전 동작
-        if (m <= mtBoundaryMs) return ctMs;                         // dtCond 를 CT 로 통과한 행 — 전체
+        if (m <= mtBoundaryMs) return ctMs;                         // dtCond 를 WT 로 통과한 행 — 전체
         return Math.Clamp(m - mtMedianMs, 0, ctMs);                 // MT 만 초과 — 초과분(사이클 길이 상한)
     }
 
-    public static CycleClass ClassifyCycle(int? mt, int? ct, double ctThresholdMs,
-        double idleMultiplier = 1.0, double mtBoundaryMs = 0)
+    /// <summary>
+    /// 한 사이클을 정상/비가동으로 분류 (doc/22 §3 ①② → 2026-09-09 WT/MT 2축).
+    ///   ① 대기 <c>COALESCE(wt, ct)</c> &gt; <paramref name="wtBoundaryMs"/> (사이클 사이 정지 — 정지 후 재개 사이클의
+    ///      wt 폭주, tail 미완료(mt NULL) 행의 ct 전체 포함)
+    ///   ② MT &gt; <paramref name="mtBoundaryMs"/> (과주행 모션 — 평소보다 늘어진 동작. 2026-08-24 MT 축)
+    /// CT 없는 사이클(마지막 열린)은 Ignore. wtBoundaryMs ≤ 0(표본 부족)이면 판정 불가 → 상위에서 산출 게이트.
+    ///
+    /// <para><paramref name="wtBoundaryMs"/> = <see cref="ResolveWtStopBoundaryMs"/>(중앙 WT × 정지배수, 1사이클 하한),
+    /// WT 기준선 미보유 flow 는 호출측이 평균 CT × 정지배수를 넘긴다(CT 폴백 — 그 flow 는 wt 도 NULL 이라 ct 가 비교값).
+    /// <paramref name="mtBoundaryMs"/> = 중앙 MT × 고장 배수(절대 하한 포함). <b>0 이하면 ① 의 WT 경계로 폴백</b>
+    /// (MT 기준 미보유 flow — 0 을 경계로 쓰면 모든 완료 사이클이 비가동이 된다).</para>
+    ///
+    /// 경계 아래의 느린 사이클은 정상(Σ실측CT 편입 → 성능 P 가 속도 손실로 흡수). 성능 표준치는 여전히 1×평균 CT.
+    /// IsIdle(아웃라이어 캡)과는 무관 — IsIdle 은 CT이상치 산출 시만 제외(§3.2).
+    /// ComputeCycleAggregateAsync 인라인 SQL dtCond 와 같은 규칙(SSOT 쌍) — 한쪽만 바꾸지 말 것.
+    /// </summary>
+    public static CycleClass ClassifyCycle(int? mt, int? ct, int? wt, double wtBoundaryMs, double mtBoundaryMs = 0)
     {
         if (ct is not int c || c <= 0) return CycleClass.Ignore;
-        if (ctThresholdMs <= 0) return CycleClass.Normal;
-        var boundary = ctThresholdMs * Math.Max(idleMultiplier, 1.0);
-        if (c > boundary) return CycleClass.Downtime;                          // ①
-        var mtBoundary = mtBoundaryMs > 0 ? mtBoundaryMs : boundary;           // 미보유 → CT 경계 폴백
+        if (wtBoundaryMs <= 0) return CycleClass.Normal;
+        if (ResolveWaitMs(wt, c) > wtBoundaryMs) return CycleClass.Downtime;   // ①
+        var mtBoundary = mtBoundaryMs > 0 ? mtBoundaryMs : wtBoundaryMs;       // 미보유 → WT 경계 폴백(SQL @MtThr=@WtThr 와 동일)
         return mt is int m && m > mtBoundary ? CycleClass.Downtime : CycleClass.Normal;  // ②
     }
 
