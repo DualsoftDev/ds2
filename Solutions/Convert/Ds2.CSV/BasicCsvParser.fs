@@ -8,6 +8,8 @@ open System.Collections.Generic
 /// 오류는 전량 집계 후 한 번에 Error 로 반환한다(부분 import 금지).
 /// 오류 코드: CSV001~006, CALL001~002, DAG001~002 (계약 문서 §9).
 /// 연산자는 '>'와 ';' 2개뿐 — 별칭 문법(ID=디바이스.액션)은 지원하지 않는다.
+/// CALL 토큰 뒤 '=1000MS' / '=2.5S' 로 그 디바이스 API 의 동작 시간을 지정할 수 있다(선택).
+/// '=' 는 원래부터 이름 금지문자라 이 문법이 이름 규칙을 새로 제약하지 않는다.
 module BasicCsvParser =
 
     // ---------- 전처리 ----------
@@ -35,6 +37,48 @@ module BasicCsvParser =
     let private namePartInvalid (part: string) =
         part |> Seq.exists (fun c -> c = '.' || c = '>' || c = ';' || c = '=' || c = ',' || c = '"')
 
+    // ---------- 동작 시간 ----------
+
+    /// 상한 24시간 — 단위 오타(3600000000MS 등)를 그대로 통과시키지 않기 위한 가드.
+    let private durationMaxMs = 24.0 * 60.0 * 60.0 * 1000.0
+
+    /// '=' 오른쪽 해석 결과.
+    /// 단위(MS/S)를 필수로 두어 판정을 확정적으로 만든다 — 추측이 개입하지 않는다.
+    ///   Duration : 단위로 끝남 → 동작 시간 지정 (숫자가 틀리면 DUR001)
+    ///   MissingUnit : 숫자만 있고 단위 없음 → 단위를 붙이라고 안내 (DUR001)
+    ///   NotDuration : 그 외 → 옛 별칭 문법으로 보고 기존 CALL001 안내
+    type internal RhsKind =
+        | Duration of TimeSpan
+        | MissingUnit
+        | EmptyValue
+        | NotDuration
+        | BadDuration of string
+
+    let private isNumeric (s: string) =
+        s.Length > 0
+        && s |> Seq.forall (fun c -> Char.IsDigit c || c = '.')
+
+    /// "1000MS" / "2.5S" → TimeSpan. 단위는 필수다.
+    let internal classifyRhs (text: string) : RhsKind =
+        let s = text.Replace(" ", "")
+        let upper = s.ToUpperInvariant()
+        let numText, scale =
+            if upper.EndsWith("MS", StringComparison.Ordinal) then Some (upper.Substring(0, upper.Length - 2)), 1.0
+            elif upper.EndsWith("S", StringComparison.Ordinal) then Some (upper.Substring(0, upper.Length - 1)), 1000.0
+            else None, 0.0
+        match numText with
+        | _ when s = "" -> EmptyValue
+        | None -> if isNumeric upper then MissingUnit else NotDuration
+        | Some num ->
+            match Double.TryParse(num, Globalization.NumberStyles.Float, Globalization.CultureInfo.InvariantCulture) with
+            | false, _ ->
+                BadDuration $"'{text}' 의 숫자 부분 '{num}' 을 읽을 수 없습니다. 예: '=1000MS', '=2.5S'."
+            | true, value ->
+                let ms = value * scale
+                if Double.IsNaN ms || ms < 0.0 then BadDuration $"'{text}' 는 0 이상이어야 합니다."
+                elif ms > durationMaxMs then BadDuration $"'{text}' 가 상한(24시간)을 넘습니다."
+                else Duration (TimeSpan.FromMilliseconds ms)
+
     /// "디바이스.액션" 분해: 정확히 '.' 1개, 양쪽 비공백, 금지문자/예약어 검사.
     let private tryParseCallName (token: string) : Result<string * string, string> =
         let dotCount = token |> Seq.filter ((=) '.') |> Seq.length
@@ -58,7 +102,11 @@ module BasicCsvParser =
     /// CALL 셀 하나를 노드/엣지 집합으로 파싱.
     /// '>' = Start 엣지, ';' = 경로 구분, 경로 합집합 = DAG, 동일 이름 = 동일 노드.
     /// 별칭 문법은 없다 — 공유 노드는 전체 이름을 반복하면 자동 병합된다.
-    let internal parseCallCell (lineNumber: int) (cell: string)
+    let internal parseCallCell
+        (durations: Dictionary<string * string, TimeSpan * int>)
+        (warnings: ResizeArray<string>)
+        (lineNumber: int)
+        (cell: string)
         : Result<(string * string * string) list * (string * string) list, ParseError list> =
         let errors = ResizeArray<ParseError>()
         let err (msg: string) = errors.Add { LineNumber = lineNumber; Message = msg }
@@ -79,15 +127,42 @@ module BasicCsvParser =
             if token = "" then
                 err "CALL002: 빈 노드가 있습니다('>>', 선행/후행 '>' 등)."
                 None
-            elif token.Contains("=") then
-                err $"CALL001: '{token}' — 별칭 문법(ID=디바이스.액션)은 지원하지 않습니다. '디바이스.액션' 전체 이름을 반복하면 같은 노드로 병합됩니다."
-                None
             else
-                match tryParseCallName token with
+                // '=' 는 이름 금지문자다. 오른쪽이 동작 시간 꼴이면 duration 지정,
+                // 아니면 옛 별칭 문법으로 보고 기존 안내를 그대로 낸다.
+                let namePart, durationText =
+                    let eq = token.IndexOf('=')
+                    if eq < 0 then token, None
+                    else token.Substring(0, eq).Trim(), Some (token.Substring(eq + 1).Trim())
+                let rhsKind = durationText |> Option.map classifyRhs
+                match rhsKind with
+                | Some NotDuration ->
+                    err $"CALL001: '{token}' — 별칭 문법(ID=디바이스.액션)은 지원하지 않습니다. '디바이스.액션' 전체 이름을 반복하면 같은 노드로 병합됩니다. 동작 시간을 지정하려면 '디바이스.액션=1000MS' 형식을 쓰세요."
+                    None
+                | _ ->
+                match tryParseCallName namePart with
                 | Error msg -> err msg; None
                 | Ok (dev, api) ->
                     let key = $"{dev}.{api}"
                     ensureNode key dev api
+                    // 동작 시간은 Call 이 아니라 (디바이스, 액션) 단위 속성이다.
+                    match rhsKind with
+                    | None | Some NotDuration -> ()
+                    | Some MissingUnit ->
+                        err $"DUR001: '{token}' — 동작 시간에 단위가 없습니다. MS(밀리초) 또는 S(초)를 붙이세요. 예: '{namePart}=1000MS'."
+                    | Some EmptyValue ->
+                        err $"DUR001: '{token}' — '=' 뒤에 동작 시간이 없습니다. 예: '{namePart}=1000MS'. 시간을 지정하지 않으려면 '=' 를 지우세요."
+                    | Some (BadDuration msg) -> err $"DUR001: '{token}' — {msg}"
+                    | Some (Duration ts) ->
+                            match durations.TryGetValue((dev, api)) with
+                            | true, (prev, prevLine) when prev <> ts ->
+                                // 불러오기를 막지 않는다 — 먼저 지정한 값을 쓰고 경고만 남긴다.
+                                warnings.Add(
+                                    $"DUR002: '{key}' 의 동작 시간이 {prevLine}행 {prev.TotalMilliseconds}ms 와 "
+                                    + $"{lineNumber}행 {ts.TotalMilliseconds}ms 로 다릅니다. 동작 시간은 디바이스 API 단위 속성이라 "
+                                    + $"먼저 지정한 {prev.TotalMilliseconds}ms 를 씁니다.")
+                            | true, _ -> ()
+                            | false, _ -> durations.[(dev, api)] <- (ts, lineNumber)
                     Some key
 
         let routes = cell.Split(';')
@@ -159,6 +234,8 @@ module BasicCsvParser =
                 err headerLine "CSV001: 헤더가 'FLOW,WORK,CALL' 이 아닙니다(쉼표 또는 탭 구분)."
 
             let works = ResizeArray<BasicCsvWork>()
+            // (디바이스, 액션) → (동작 시간, 최초 지정 행). 행 사이 충돌 검출을 위해 문서 단위로 누산.
+            let durations = Dictionary<string * string, TimeSpan * int>()
             let seenWorkKeys = HashSet<string>()
             let seenFlows = HashSet<string>()
             let warnedFlows = HashSet<string>()
@@ -196,7 +273,7 @@ module BasicCsvParser =
                                 seenFlows.Add flowName |> ignore
                                 prevFlow <- Some flowName
 
-                                match parseCallCell lineNumber callCell with
+                                match parseCallCell durations warnings lineNumber callCell with
                                 | Error cellErrors -> errors.AddRange cellErrors
                                 | Ok (nodes, edges) ->
                                     works.Add {
@@ -235,4 +312,7 @@ module BasicCsvParser =
                 err 0 "CSV003: 데이터 행이 없습니다."
 
             if errors.Count > 0 then Error (List.ofSeq errors)
-            else Ok { Works = List.ofSeq works; Warnings = List.ofSeq warnings }
+            else
+                Ok { Works = List.ofSeq works
+                     Warnings = List.ofSeq warnings
+                     Durations = [ for kv in durations -> kv.Key, fst kv.Value ] }
