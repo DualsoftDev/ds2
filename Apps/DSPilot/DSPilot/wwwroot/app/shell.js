@@ -62,6 +62,7 @@ window.dspFmt = {
  * 동작 개요:
  *   - 테마: <html> 에 dark + dark-theme 동시 토글(Tailwind dark: 변형 + ds.css 다크).
  *     localStorage 'dspilot-theme'. 로드 시 적용 + 설정 페이지/다른 탭 storage 동기화(헤더 토글 버튼 제거됨).
+ *   - 콘텐츠 폭: localStorage 'dspilot-content-width'(auto|fixed|wide). auto=창 폭 ≥2200px 이면 넓게. 헤더 우측 토글 + 설정 페이지 동기화.
  *   - .dsp-page(Alpine 루트) 를 main(ml-60) 안으로 이동, 슬림 헤더 제거.
  *   - /api/nav         : showPlcDebug (PLC 디버그 링크, 1회) + systems(기능별 트리 본문) + externalShortcuts.
  *   - /api/nav/summary : 이상발생 배지 · 연결 배지 · Agent 상태 (4초 폴링).
@@ -111,6 +112,30 @@ window.dspFmt = {
         document.documentElement.classList.toggle('dark-theme', dark);
         document.documentElement.classList.toggle('dark', dark);
 
+        // ── 1.1) 콘텐츠 폭: 분석 페이지 본문(.dsp-main)은 기본 1400px 캡(가독 폭) — 와이드 모니터(2560/3440)에서는
+        //   좌우 여백이 과해져 '넓게(전체 폭)' 모드를 둔다. localStorage 'dspilot-content-width' = 'auto'|'fixed'|'wide'.
+        //   auto(기본) = 창 폭 ≥ WIDE_AUTO_MIN 이면 넓게. 헤더 토글(아래) / 설정▸사용자 인터페이스 / 타 탭 storage 로 동기화.
+        //   설정·폼류 페이지는 읽기 폭을 유지하고(제외), 대시보드·CCTV 는 원래 캡이 없어 대상이 아니다.
+        //   <html>.dsp-wide 클래스만 켜고 실제 규칙은 1.6 의 주입 CSS(`html.dsp-wide .dsp-main{max-width:none}`).
+        var WIDTH_KEY = 'dspilot-content-width';
+        var WIDE_AUTO_MIN = 2200;
+        var WIDE_EXCLUDED = /^\/(app\/)?(settings|settings-cloud|settings-email|demo-admin|admin-login|cctv|dashboard)(\.html)?$/;
+        function widthPref() {
+            try { var v = localStorage.getItem(WIDTH_KEY); return (v === 'fixed' || v === 'wide') ? v : 'auto'; } catch (e) { return 'auto'; }
+        }
+        function widePageCapable() {
+            var p = (location.pathname || '/').replace(/\/+$/, '') || '/';
+            return p !== '/' && !WIDE_EXCLUDED.test(p);
+        }
+        function wideEffective() {
+            var v = widthPref();
+            return v === 'auto' ? window.innerWidth >= WIDE_AUTO_MIN : v === 'wide';
+        }
+        function applyWide() {
+            document.documentElement.classList.toggle('dsp-wide', widePageCapable() && wideEffective());
+        }
+        applyWide();
+
         // ── 1.5) stitch 셸 스타일(self-host 정적 CSS) 로드 — 빠른 로드 위해 DOM 빌드 전에 주입(중복 방지) ──
         if (!document.querySelector('link[data-dsp-shell-css]')) {
             var shellCss = document.createElement('link');
@@ -137,6 +162,16 @@ window.dspFmt = {
                   'border-color:rgba(180,200,220,0.50)!important;' +
                 '}' +
                 '#dsp-header-actions .btn:disabled{opacity:0.42;cursor:not-allowed;}' +
+                /* 콘텐츠 폭 '넓게': 페이지별 .dsp-main{max-width:1400px}(id 셀렉터 포함) 캡을 해제 — 1.1 의 <html>.dsp-wide 가 스위치 */
+                'html.dsp-wide .dsp-main{max-width:none!important;}' +
+                /* 헤더 폭 토글(아이콘 버튼) — 실시간 배지 옆, 액션 슬롯 .btn 과 같은 테두리 톤 */
+                '.dsp-width-toggle{display:inline-flex;align-items:center;justify-content:center;width:32px;height:30px;padding:0;' +
+                  'border:1.5px solid rgba(120,140,165,0.55);border-radius:var(--radius-sm,6px);background:var(--color-surface);' +
+                  'color:var(--color-text-secondary,#556);cursor:pointer;line-height:1;transition:color .15s,border-color .15s;}' +
+                '.dsp-width-toggle .material-icons{font-size:19px;}' +
+                '.dsp-width-toggle:hover{color:var(--color-text-primary);}' +
+                '.dsp-width-toggle[aria-pressed="true"]{color:var(--color-primary,#0058be);border-color:var(--color-primary,#0058be);}' +
+                '.dark .dsp-width-toggle,.dark-theme .dsp-width-toggle{border-color:rgba(180,200,220,0.50);}' +
                 '@media (max-width:768px){' +
                   /* 드로어 폭: 폰에서 300px 가 화면을 다 가리지 않도록 85vw 로 클램프(인라인 width 를 !important 로 덮음). 숨김 오프셋(-300px)은 항상 폭 이상이라 완전히 가려짐. */
                   'aside.dsp-shell{width:min(300px,85vw)!important;}' +
@@ -152,7 +187,9 @@ window.dspFmt = {
                   'header.dsp-shell .dsp-shell-headleft{gap:10px!important;}' +
                   /* 헤더 액션 슬롯: 480px 미만에서 텍스트 숨기고 아이콘만 표시 */
                   '#dsp-header-actions .btn span:not(.material-icons){display:none!important;}' +
-                '}';
+                '}' +
+                /* 폭 토글은 데스크톱 전용(모바일/태블릿은 캡 이하라 의미 없음) */
+                '@media (max-width:1500px){.dsp-width-toggle{display:none!important;}}';
             document.head.appendChild(mcss);
         }
 
@@ -926,6 +963,36 @@ window.dspFmt = {
         headRight.appendChild(pageActionsSlot);
 
         headRight.appendChild(liveBadge);
+
+        // ── 콘텐츠 폭 토글(기본 1400px ↔ 넓게=전체 폭) — 1.1 의 pref 를 명시값으로 박제(auto 종료). 제외 페이지는 숨김. ──
+        var widthBtn = el('button', 'dsp-width-toggle');
+        widthBtn.type = 'button';
+        var widthIc = icon('width_full');
+        widthBtn.appendChild(widthIc);
+        function renderWidthBtn() {
+            widthBtn.style.display = widePageCapable() ? '' : 'none';
+            var w = wideEffective();
+            widthIc.textContent = w ? 'width_normal' : 'width_full';
+            widthBtn.setAttribute('aria-pressed', w ? 'true' : 'false');
+            var pref = widthPref();
+            widthBtn.title = (w ? '화면 폭: 넓게(전체 폭)' : '화면 폭: 기본(최대 1400px)')
+                + (pref === 'auto' ? ' · 자동' : '')
+                + ' — 클릭: ' + (w ? '기본 폭(1400px)으로' : '넓게(전체 폭)로') + ' 전환';
+            widthBtn.setAttribute('aria-label', widthBtn.title);
+        }
+        widthBtn.addEventListener('click', function () {
+            var next = wideEffective() ? 'fixed' : 'wide';
+            try { localStorage.setItem(WIDTH_KEY, next); } catch (e) { /* ignore */ }
+            applyWide();
+            renderWidthBtn();
+        });
+        renderWidthBtn();
+        headRight.appendChild(widthBtn);
+        // auto 모드는 창 폭에 따르므로 리사이즈 시 재평가(모니터 이동/창 축소).
+        window.addEventListener('resize', function () { applyWide(); renderWidthBtn(); });
+        window.addEventListener('storage', function (e) {
+            if (e.key === WIDTH_KEY) { applyWide(); renderWidthBtn(); }
+        });
 
         var _agPopOpen = false;
         function closeAgPopover(e) {

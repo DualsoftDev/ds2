@@ -189,7 +189,8 @@
 
         /* ── 이상발생 차트 컨테이너 ── */
         .up-ut-chart-tall { position: relative; height: 300px; }
-        .up-ut-chart-md { position: relative; height: 250px; }
+        /* 태그별 Top 10 — 축 라벨이 2줄(주소 + 태그 이름)이라 10행이 겹치지 않게 높이를 잡는다. */
+        .up-ut-chart-md { position: relative; height: 360px; }
         .up-ut-chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; align-items: start; }
         @media (max-width: 900px) { .up-ut-chart-row { grid-template-columns: 1fr; } }
         .up-ut-toolrow { display: flex; gap: 8px; align-items: center; }
@@ -631,7 +632,7 @@
 
             /* ── 차트 컨테이너 phone 높이 ── */
             .up-ut-chart-tall { height: 220px; }
-            .up-ut-chart-md { height: 200px; }
+            .up-ut-chart-md { height: 300px; }
 
             /* ════ 와이드 테이블 → 카드 리스트 리플로우 ════
                대상: 정지 이벤트 로그(.up-dt-table), idealCT 표(.up-dt-table),

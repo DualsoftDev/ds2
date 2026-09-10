@@ -2,7 +2,22 @@
 ; Self-contained installer with Windows Service registration
 
 #define MyAppName "DSPilot"
-#define MyAppExePath "..\publish\" + MyAppName + ".exe"
+; ── 빌드 변형 파라미터(build-installer*.bat 가 /D 로 주입, 미지정 = 표준 self-contained 빌드) ──
+;   PublishDir / AgentPublishDir / CollectorPublishDir : publish 산출물 폴더
+;   OutputDir / OutputSuffix : 설치 exe 출력 폴더 · 파일명 접미
+;   Lite : 저용량 빌드(build-installer-lite.bat) — framework-dependent publish + ffmpeg/MediaMTX/WinSW 를 번들하지
+;          않고 설치 시 인터넷에서 받는다(cctv 태스크). 타겟 PC 에 ASP.NET Core 9 런타임이 없으면 그것도 받아 설치.
+;          표준 빌드(self-contained·전부 동봉·오프라인 설치 가능)와는 산출물 폴더가 달라 서로 영향 없다.
+#ifndef PublishDir
+  #define PublishDir "..\publish"
+#endif
+#ifndef OutputDir
+  #define OutputDir "..\Output"
+#endif
+#ifndef OutputSuffix
+  #define OutputSuffix ""
+#endif
+#define MyAppExePath AddBackslash(PublishDir) + MyAppName + ".exe"
 #define MyAppVersion GetVersionNumbersString(MyAppExePath)
 #define MyAppPublisher "DualSoft"
 #define MyAppURL "https://dualsoft.co.kr"
@@ -35,7 +50,9 @@
 ; 5051 SignalR Hub + PLC 스캔을 SYSTEM 서비스로 제공한다(= DSPilot 가 client 로 접속하는 hub).
 ; build-installer.bat 의 [3c] 단계가 publish-agent 폴더를 self-contained 로 채운다.
 ; AgentPublishDir 에 Promaker.Agent.exe 가 없으면(=에이전트 미publish) Tasks/Files/Run 전부 자동 스킵.
-#define AgentPublishDir "..\publish-agent"
+#ifndef AgentPublishDir
+  #define AgentPublishDir "..\publish-agent"
+#endif
 #define MyAgentExeName "Promaker.Agent.exe"
 #define MyAgentServiceName "PromakerAgentService"
 #define MyAgentServiceDisplay "Promaker Agent Service"
@@ -45,12 +62,24 @@
 #define MyAgentUploadPort "5050"
 ; Collector는 Agent UA를 구독해 typed SQLite 이력과 localhost Data API(:62542)를 제공한다.
 ; Agent만 설치되면 수집 파이프가 비므로 두 publish 산출물이 모두 있을 때만 옵션을 노출한다.
-#define CollectorPublishDir "..\publish-collector"
+#ifndef CollectorPublishDir
+  #define CollectorPublishDir "..\publish-collector"
+#endif
 #define MyCollectorExeName "Ds2.Collector.exe"
 #define MyCollectorServiceName "Ds2CollectorService"
 #define MyCollectorServiceDisplay "DualSoft Data Collector"
 #define MyCollectorServiceDesc "Secure OPC UA collector, typed SQLite history and localhost Data API"
 #define HasAgent FileExists(AddBackslash(AgentPublishDir) + MyAgentExeName) && FileExists(AddBackslash(CollectorPublishDir) + MyCollectorExeName)
+#ifdef Lite
+; Lite 설치 시 다운로드 원본 — 버전은 build-installer.bat(MTX_VERSION/WINSW_VERSION)와 맞춘다.
+;   .NET 런타임은 aka.ms 고정 링크(9.0 최신 패치, ASP.NET Core Runtime = NETCore.App 포함) → 서비스 3종 모두 커버.
+#define LiteMtxVersion "v1.19.1"
+#define LiteWinswVersion "v2.12.0"
+#define LiteDotnetUrl "https://aka.ms/dotnet/9.0/aspnetcore-runtime-win-x64.exe"
+#define LiteMtxUrl "https://github.com/bluenviron/mediamtx/releases/download/" + LiteMtxVersion + "/mediamtx_" + LiteMtxVersion + "_windows_amd64.zip"
+#define LiteWinswUrl "https://github.com/winsw/winsw/releases/download/" + LiteWinswVersion + "/WinSW.NET461.exe"
+#define LiteFfmpegUrl "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+#endif
 
 [Setup]
 AppId={{E8A3F2B1-7C4D-4E5F-9A1B-3D6E8F0C2A4B}
@@ -60,8 +89,8 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppPublisher}\{#MyAppName}
 DefaultGroupName={#MyAppName}
-OutputDir=..\Output
-OutputBaseFilename=DSPilot_Setup_{#MyAppVersion}
+OutputDir={#OutputDir}
+OutputBaseFilename=DSPilot_Setup_{#MyAppVersion}{#OutputSuffix}
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -74,6 +103,10 @@ Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
+#ifdef Lite
+; Lite: CCTV 구성요소는 번들 대신 설치 중 다운로드(약 140MB). 해제하면 CCTV(영상 중계·스냅샷)만 빠진 채 설치된다.
+Name: "cctv"; Description: "CCTV 구성요소(MediaMTX · ffmpeg) 인터넷에서 내려받아 설치 (약 140MB)"
+#endif
 #if HasAgent
 ; Promaker.Agent 옵션 설치 — 기본 해제(unchecked). Promaker 를 별도로 설치하지 않고 DSPilot 만
 ; 쓰는 PC 에서 PLC 스캔 + 5051 모니터링 Hub 백엔드를 함께 깔고 싶을 때만 체크한다.
@@ -95,13 +128,19 @@ Name: "{#MySharedDir}"; Permissions: users-modify
 ; 들어가 타겟 PC 의 오버레이를 덮어쓰므로(layout-data.json 과 동일 케이스) 함께 제외한다.
 ; demo-admin.json(관리자 계정 아이디/비밀번호·데모 전환)도 사이트별 런타임 파일 — csproj 가 publish 에서 빼지만,
 ; 예전 publish 산출물이 남아 있어도 현장 계정을 덮어쓰지 않도록 이중으로 제외한다(업데이트 시 계정 초기화 사고 방지).
-Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "demo-admin.json,demo-admin.enabled,wwwroot\uploads\blueprint.*,wwwroot\uploads\layout-data.json,wwwroot\uploads\layout-data.json.*,wwwroot\uploads\cctv-overlays.json,wwwroot\uploads\cctv-fallbacks\*"
+Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "demo-admin.json,demo-admin.enabled,wwwroot\uploads\blueprint.*,wwwroot\uploads\layout-data.json,wwwroot\uploads\layout-data.json.*,wwwroot\uploads\cctv-overlays.json,wwwroot\uploads\cctv-fallbacks\*"
 ; Icon file for shortcuts
 Source: "..\DSPilot\DSPilot.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; CCTV — MediaMTX 바이너리 + WinSW 래퍼. build-installer.bat 가 mediamtx 폴더를 채운다.
 ; mediamtx.yml 은 운영자가 손볼 수 있으므로 업그레이드 시 덮어쓰지 않는다(onlyifdoesntexist).
+#ifndef Lite
 Source: "mediamtx\mediamtx.exe"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
 Source: "mediamtx\{#MyMtxServiceExe}"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
+#else
+; Lite: 설치 중 다운로드한 바이너리({tmp}, LiteDownload 가 채움). 다운로드 실패/cctv 태스크 해제면 없음 → 스킵.
+Source: "{tmp}\mediamtx.exe"; DestDir: "{app}\mediamtx"; Flags: external ignoreversion skipifsourcedoesntexist
+Source: "{tmp}\{#MyMtxServiceExe}"; DestDir: "{app}\mediamtx"; Flags: external ignoreversion skipifsourcedoesntexist
+#endif
 Source: "mediamtx\mediamtx-service.xml"; DestDir: "{app}\mediamtx"; Flags: ignoreversion
 Source: "mediamtx\mediamtx.yml"; DestDir: "{app}\mediamtx"; Flags: onlyifdoesntexist
 ; MIT 고지문 — 바이너리 재배포 시 저작권·허가 고지 동봉 의무 (MediaMTX / WinSW)
@@ -110,10 +149,15 @@ Source: "mediamtx\LICENSE-winsw.txt"; DestDir: "{app}\mediamtx"; Flags: ignoreve
 ; CCTV 스냅샷 — ffmpeg 원샷 프레임 그랩(/api/cctv/snapshot). 상주 아님: 요청 시 실행→1프레임→종료라
 ; 서비스 등록·방화벽 설정 불필요. Installer\ffmpeg\ffmpeg.exe 를 놓으면 함께 배포되고(없으면 자동 스킵 —
 ; 스냅샷 API 는 대체 이미지 폴백만 동작). LICENSE 동봉 의무(GPL/LGPL 빌드에 따라 고지문 필수).
+#ifdef Lite
+Source: "{tmp}\ffmpeg.exe"; DestDir: "{app}\ffmpeg"; Flags: external ignoreversion skipifsourcedoesntexist
+Source: "{tmp}\LICENSE-ffmpeg.txt"; DestDir: "{app}\ffmpeg"; Flags: external ignoreversion skipifsourcedoesntexist
+#else
 #define HasFfmpeg FileExists("ffmpeg\ffmpeg.exe")
 #if HasFfmpeg
 Source: "ffmpeg\ffmpeg.exe"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion
 Source: "ffmpeg\LICENSE*"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion skipifsourcedoesntexist
+#endif
 #endif
 #if HasAgent
 ; Promaker.Agent — "installagent" 태스크 체크 시에만 {app}\Agent 로 번들(self-contained).
@@ -135,6 +179,13 @@ Name: "{group}\{#MyAppName} 제거"; Filename: "{uninstallexe}"
 ; 바탕화면 바로가기는 [Code] 섹션에서 .url 파일로 직접 생성 (아이콘 포함)
 
 [Run]
+#ifdef Lite
+; Lite: 타겟 PC 에 ASP.NET Core 9 런타임이 없으면(LiteDownload 가 받아둔) 런타임 설치기를 먼저 돌린다 — 뒤의 서비스
+;   시작(Agent/Collector [Run], DSPilot ssPostInstall)이 framework-dependent exe 라 런타임이 선행돼야 한다.
+Filename: "{tmp}\aspnetcore-runtime.exe"; Parameters: "/install /quiet /norestart"; \
+  Flags: runhidden waituntilterminated; Check: NeedInstallDotnetRuntime; \
+  StatusMsg: ".NET 런타임(ASP.NET Core 9) 설치 중..."
+#endif
 ; Install and configure the Windows Service (no --urls, port is in appsettings.json)
 Filename: "{sys}\sc.exe"; \
   Parameters: "create {#MyServiceName} binPath=""{app}\{#MyAppExeName}"" start=auto DisplayName=""{#MyServiceDisplayName}"""; \
@@ -169,12 +220,12 @@ Filename: "{sys}\netsh.exe"; \
 ; ── CCTV: MediaMTX 서비스 (WinSW 래퍼로 등록 + 시작) ──
 Filename: "{app}\mediamtx\{#MyMtxServiceExe}"; \
   Parameters: "install"; \
-  Flags: runhidden waituntilterminated; \
+  Flags: runhidden waituntilterminated; Check: HasMtxBinary; \
   StatusMsg: "CCTV(MediaMTX) 서비스 등록 중..."
 
 Filename: "{app}\mediamtx\{#MyMtxServiceExe}"; \
   Parameters: "start"; \
-  Flags: runhidden waituntilterminated; \
+  Flags: runhidden waituntilterminated; Check: HasMtxBinary; \
   StatusMsg: "CCTV(MediaMTX) 서비스 시작 중..."
 
 ; WebRTC 시청 포트 (TCP 8889 = WHEP/시그널링, UDP 8189 = ICE 미디어)
@@ -289,12 +340,12 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 ; ── CCTV: MediaMTX 서비스 정지 + 등록 해제 (WinSW) ──
 Filename: "{app}\mediamtx\{#MyMtxServiceExe}"; \
   Parameters: "stop"; \
-  Flags: runhidden waituntilterminated; \
+  Flags: runhidden waituntilterminated; Check: HasMtxBinary; \
   RunOnceId: "StopMtxService"
 
 Filename: "{app}\mediamtx\{#MyMtxServiceExe}"; \
   Parameters: "uninstall"; \
-  Flags: runhidden waituntilterminated; \
+  Flags: runhidden waituntilterminated; Check: HasMtxBinary; \
   RunOnceId: "UninstallMtxService"
 
 ; Remove CCTV firewall rules
@@ -340,6 +391,131 @@ Filename: "{sys}\netsh.exe"; \
 [Code]
 var
   PortPage: TInputQueryWizardPage;
+#ifdef Lite
+  DownloadPage: TDownloadWizardPage;
+#endif
+
+// MediaMTX 바이너리(mediamtx.exe + WinSW 래퍼)가 실제로 설치됐는지 — [Run]/[UninstallRun] 의 Check.
+// 표준 빌드는 항상 번들되므로 True. Lite 는 cctv 태스크 해제/다운로드 실패면 False → 서비스 등록·시작을 건너뛴다.
+function HasMtxBinary: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{app}\mediamtx\mediamtx.exe'))
+    and FileExists(ExpandConstant('{app}\mediamtx\{#MyMtxServiceExe}'));
+end;
+
+#ifdef Lite
+// ── Lite: 설치 시 다운로드(.NET 런타임 / MediaMTX / WinSW / ffmpeg) ──
+// Microsoft.AspNetCore.App 9.x 공유 프레임워크가 있는지 — 기본 설치 위치(64bit Program Files\dotnet) 폴더 검사.
+// framework-dependent net9.0 앱은 9.0.x 어느 패치에서든 roll-forward 로 뜬다.
+function DotnetRuntimeInstalled: Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := FindFirst(ExpandConstant('{commonpf64}\dotnet\shared\Microsoft.AspNetCore.App\9.*'), FindRec);
+  if Result then FindClose(FindRec);
+end;
+
+// [Run] Check: 런타임이 없고 설치기를 받아뒀을 때만 실행.
+function NeedInstallDotnetRuntime: Boolean;
+begin
+  Result := (not DotnetRuntimeInstalled) and FileExists(ExpandConstant('{tmp}\aspnetcore-runtime.exe'));
+end;
+
+function OnDownloadProgress(const Url, FileName: String; const Progress, ProgressMax: Int64): Boolean;
+begin
+  if Progress = ProgressMax then Log(Format('Downloaded %s (%d bytes)', [FileName, ProgressMax]));
+  Result := True;
+end;
+
+// zip 안의 파일 1개를 골라 {tmp}\<DestName> 으로 꺼낸다(zip 최상위 폴더 이름이 버전별로 달라 재귀 검색).
+// Windows 10/11 내장 PowerShell 5.1 Expand-Archive 사용 — 별도 압축 해제 도구 의존 없음.
+function ExtractOneFromZip(ZipName, Filter, DestName: String): Boolean;
+var
+  Tmp, Cmd: String;
+  ResultCode: Integer;
+begin
+  Tmp := ExpandConstant('{tmp}');
+  Cmd := '-NoProfile -ExecutionPolicy Bypass -Command "' +
+    '$ErrorActionPreference=''Stop''; ' +
+    '$d=Join-Path ''' + Tmp + ''' ''x-' + Filter + '''; ' +
+    'Expand-Archive -LiteralPath ''' + Tmp + '\' + ZipName + ''' -DestinationPath $d -Force; ' +
+    '$f=Get-ChildItem $d -Recurse -Filter ''' + Filter + ''' | Select-Object -First 1; ' +
+    'if(-not $f){ exit 2 }; Copy-Item $f.FullName ''' + Tmp + '\' + DestName + ''' -Force; ' +
+    'Remove-Item $d -Recurse -Force"';
+  Result := Exec('powershell.exe', Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0)
+    and FileExists(Tmp + '\' + DestName);
+  if not Result then Log(Format('ExtractOneFromZip failed: %s -> %s (rc=%d)', [ZipName, DestName, ResultCode]));
+end;
+
+// wpReady → 설치 직전에 호출. 런타임은 필수(없고 못 받으면 진행 불가 → 재시도/취소), CCTV 는 선택(실패해도 계속).
+function LiteDownload: Boolean;
+var
+  NeedRt, WantCctv: Boolean;
+begin
+  Result := True;
+  NeedRt := not DotnetRuntimeInstalled;
+  WantCctv := WizardIsTaskSelected('cctv');
+  if not (NeedRt or WantCctv) then Exit;
+
+  DownloadPage.Clear;
+  DownloadPage.Show;
+  try
+    // 1) .NET 런타임(필수)
+    if NeedRt then
+    begin
+      DownloadPage.Add('{#LiteDotnetUrl}', 'aspnetcore-runtime.exe', '');
+      try
+        DownloadPage.Download;
+      except
+        if DownloadPage.AbortedByUser then
+          Log('Runtime download aborted by user')
+        else
+          SuppressibleMsgBox('.NET 런타임(ASP.NET Core 9) 다운로드에 실패했습니다.' + #13#10 +
+            AddPeriod(GetExceptionMessage) + #13#10#13#10 +
+            '이 설치본(저용량)은 런타임을 인터넷에서 받아 설치합니다. 네트워크를 확인한 뒤 [다음]으로 다시 시도하거나,' + #13#10 +
+            '런타임을 미리 설치(https://dotnet.microsoft.com/download/dotnet/9.0 · ASP.NET Core Runtime x64)한 뒤 진행하세요.',
+            mbCriticalError, MB_OK, IDOK);
+        Result := False;
+        Exit;
+      end;
+    end;
+    // 2) CCTV 구성요소(선택) — 실패는 경고만, CCTV 없이 설치 계속(HasMtxBinary Check 가 서비스 등록을 건너뜀).
+    if WantCctv then
+    begin
+      DownloadPage.Clear;
+      DownloadPage.Add('{#LiteMtxUrl}', 'mediamtx.zip', '');
+      DownloadPage.Add('{#LiteWinswUrl}', '{#MyMtxServiceExe}', '');
+      DownloadPage.Add('{#LiteFfmpegUrl}', 'ffmpeg.zip', '');
+      try
+        DownloadPage.Download;
+        DownloadPage.SetText('CCTV 구성요소 압축 해제 중...', '');
+        if not ExtractOneFromZip('mediamtx.zip', 'mediamtx.exe', 'mediamtx.exe') then
+          DeleteFile(ExpandConstant('{tmp}\{#MyMtxServiceExe}'));   // exe 없이 래퍼만 깔리는 반쪽 설치 방지
+        ExtractOneFromZip('ffmpeg.zip', 'ffmpeg.exe', 'ffmpeg.exe');
+        ExtractOneFromZip('ffmpeg.zip', 'LICENSE', 'LICENSE-ffmpeg.txt');
+        DeleteFile(ExpandConstant('{tmp}\mediamtx.zip'));
+        DeleteFile(ExpandConstant('{tmp}\ffmpeg.zip'));
+      except
+        if DownloadPage.AbortedByUser then
+        begin
+          Log('CCTV download aborted by user');
+          Result := False;
+          Exit;
+        end;
+        SuppressibleMsgBox('CCTV 구성요소(MediaMTX · ffmpeg) 다운로드에 실패했습니다.' + #13#10 +
+          AddPeriod(GetExceptionMessage) + #13#10#13#10 +
+          'CCTV 없이 설치를 계속합니다. 나중에 표준(전체) 설치본으로 덧설치하면 CCTV 가 추가됩니다.',
+          mbInformation, MB_OK, IDOK);
+        DeleteFile(ExpandConstant('{tmp}\mediamtx.exe'));
+        DeleteFile(ExpandConstant('{tmp}\{#MyMtxServiceExe}'));
+        DeleteFile(ExpandConstant('{tmp}\ffmpeg.exe'));
+      end;
+    end;
+  finally
+    DownloadPage.Hide;
+  end;
+end;
+#endif
 
 // netstat -ano -p tcp 출력에서 지정 포트가 LISTENING 상태로 잡혀있는지 검사.
 // ':80 ' 처럼 포트 뒤 공백까지 매칭해 ':8080' 같은 부분일치를 회피한다.
@@ -486,7 +662,16 @@ begin
     '  · MediaMTX (MIT License)  https://github.com/bluenviron/mediamtx' + #13#10 +
     '  · WinSW (MIT License)     https://github.com/winsw/winsw' + #13#10 +
     '  라이선스 전문은 설치 폴더의 mediamtx\LICENSE,' + #13#10 +
-    '  mediamtx\LICENSE-winsw.txt 에서 확인할 수 있습니다.';
+    '  mediamtx\LICENSE-winsw.txt 에서 확인할 수 있습니다.'
+#ifdef Lite
+    + #13#10#13#10 +
+    '[저용량 설치본 — 인터넷 연결 필요]' + #13#10 +
+    '  이 설치본은 용량을 줄이기 위해 아래 구성요소를 설치 중 인터넷에서 내려받습니다.' + #13#10 +
+    '  · .NET 런타임(ASP.NET Core 9, 약 11MB) — 이 PC 에 없을 때만' + #13#10 +
+    '  · CCTV 구성요소 MediaMTX · WinSW · ffmpeg(약 140MB) — 구성요소 선택에서 해제 가능' + #13#10 +
+    '  오프라인 PC 에는 표준(전체) 설치본을 사용하세요.'
+#endif
+    ;
 
   DefaultPort := '{#MyDefaultPort}';
   PortHint := '기본값: {#MyDefaultPort}';
@@ -506,6 +691,10 @@ begin
     'DSPilot 웹 서비스가 사용할 포트 번호를 입력하세요.' + #13#10 + PortHint);
   PortPage.Add('포트 번호:', False);
   PortPage.Values[0] := DefaultPort;
+#ifdef Lite
+  DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing), SetupMessage(msgPreparingDesc), @OnDownloadProgress);
+  DownloadPage.ShowBaseNameInsteadOfUrl := True;
+#endif
 end;
 
 function GetPort(Param: String): String;
@@ -537,6 +726,13 @@ var
   OurServiceRunning: Boolean;
 begin
   Result := True;
+#ifdef Lite
+  if CurPageID = wpReady then
+  begin
+    Result := LiteDownload;
+    Exit;
+  end;
+#endif
   if CurPageID = PortPage.ID then
   begin
     Port := PortPage.Values[0];
@@ -660,6 +856,19 @@ begin
     WaitForServiceStopped('{#MyAgentServiceName}', 10);
     Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('delete {#MyAgentServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
+#endif
+#ifdef Lite
+  // 표준(self-contained) 설치본 위에 Lite 를 덧설치하는 경우 앱 폴더에 남는 옛 런타임 DLL(hostfxr/coreclr/System.*)을
+  // 정리한다 — apphost 가 앱 로컬 hostfxr 를 먼저 잡아 framework-dependent 실행과 어긋날 수 있다. [Files] 가 필요한
+  // DLL 을 전부 다시 놓으므로 *.dll 일괄 삭제는 안전(사용자 데이터 = json/db/conf, DLL 아님). 서비스는 위에서 이미 정지.
+  DelTree(ExpandConstant('{app}\*.dll'), False, True, False);
+#if HasAgent
+  if WizardIsTaskSelected('installagent') then
+  begin
+    DelTree(ExpandConstant('{app}\Agent\*.dll'), False, True, False);
+    DelTree(ExpandConstant('{app}\Collector\*.dll'), False, True, False);
+  end;
+#endif
 #endif
   // Remove old firewall rule (re-created with new port after install)
   Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall delete rule name="DSPilot Web Service"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);

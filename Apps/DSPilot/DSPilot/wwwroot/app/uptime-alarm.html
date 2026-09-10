@@ -135,18 +135,18 @@
                                 </div>
                                 <!-- 최다 발생 — 아래 '태그별 Top 10'(경로 기준) 1위와 동일 소스. 검색은 이름만 매칭해
                                      경로로는 필터가 되지 않으므로 표시 전용(비클릭)으로 둔다. -->
-                                <div class="up-utkpi" :title="utTopPath ? ('태그별 Top 10 1위(경로 기준) — ' + utTopPath.name) : '해당 기간 발생 없음'">
+                                <div class="up-utkpi" :title="utTopPath ? ('태그별 Top 10 1위(경로 기준) — ' + utTopPathLabel) : '해당 기간 발생 없음'">
                                     <div class="up-utkpi-label">최다 발생</div>
                                     <div class="up-utkpi-value" x-text="utTopPath ? (utTopPath.count.toLocaleString() + '건') : '—'"
                                          :style="utTopPath ? '' : 'color:var(--color-text-disabled);'"></div>
-                                    <div class="up-utkpi-sub" x-text="utTopPath ? utTopPath.name : '해당 기간 발생 없음'" style="word-break:break-all;"></div>
+                                    <div class="up-utkpi-sub" x-text="utTopPath ? utTopPathLabel : '해당 기간 발생 없음'" style="word-break:break-all;"></div>
                                 </div>
                             </div>
 
                             <!-- 시계열 추이 (Chart.js 스택 막대) -->
                             <div class="ds-card-h" style="margin-bottom:10px;">
                                 <h4 style="font-size:0.74rem;">시계열 추이</h4>
-                                <span class="ds-card-h-sub" x-text="(curFlow || utCategory) ? (utCategoryLabel + ' 시계열 막대') : '구분별 스택 막대 (자동감지 · 수동등록TAG)'"></span>
+                                <span class="ds-card-h-sub" x-text="((curFlow || utCategory) ? (utCategoryLabel + ' 시계열 막대') : '구분별 스택 막대 (자동감지 · 수동등록TAG)') + ' · 막대 클릭 = 그 시간대 발생 목록'"></span>
                             </div>
                             <div class="up-ut-chart-tall" style="margin-bottom:16px;"><canvas id="ut-trend-chart"></canvas></div>
 
@@ -156,7 +156,7 @@
                                 <div>
                                     <div class="ds-card-h" style="margin-bottom:10px;">
                                         <h4 style="font-size:0.74rem;">태그별 Top 10</h4>
-                                        <span class="ds-card-h-sub" x-text="'경로 기준 · ' + utCategoryLabel"></span>
+                                        <span class="ds-card-h-sub" x-text="'주소 + 태그 이름 · ' + utCategoryLabel"></span>
                                     </div>
                                     <div class="up-ut-chart-md"><canvas id="ut-top-chart"></canvas></div>
                                 </div>
@@ -268,6 +268,64 @@
 
             </div>
         </main>
+
+        <!-- ════ 시계열 추이 막대 드릴다운 모달 ════
+             추이 막대를 클릭하면 그 버킷(1시간/1일/…) 한 칸에 실제로 발생한 알람을 시간순으로 보여준다.
+             목록 필터는 화면과 동일(검색·구분·시스템·설비)이라 막대 높이 = 총 건수. 상세(조건·값·차단)는
+             아래 '알림 이력' 표가 정본이라, 행을 클릭하면 표의 해당 행으로 보내 하이라이트한다. -->
+        <div class="up-blk-overlay" x-show="utDrill.show" style="display:none;" @click.self="closeUtDrill()" @keydown.escape.window="closeUtDrill()">
+            <div class="up-blk-modal" style="width:min(720px,94vw);" @click.stop>
+                <div class="up-blk-head">
+                    <span class="material-icons">query_stats</span>
+                    <h3>시간대별 발생 알람</h3>
+                    <span style="flex:1;"></span>
+                    <button class="btn-icon" @click="closeUtDrill()" title="닫기"><span class="material-icons">close</span></button>
+                </div>
+                <div class="up-blk-sub">
+                    <template x-if="!utDrill.loading && !utDrill.err">
+                        <span>
+                            <b x-text="utDrill.from"></b> ~ <b x-text="utDrill.to"></b>
+                            <span x-text="utDrill.label ? ' (' + utDrill.label + ' 구간)' : ''"></span> ·
+                            총 <b x-text="utDrill.total.toLocaleString()"></b>건
+                            <span x-show="utDrill.total > utDrill.alerts.length" x-text="' — 앞 ' + utDrill.alerts.length.toLocaleString() + '건만 표시'"></span>
+                            · 행 클릭 = 알림 이력에서 보기
+                        </span>
+                    </template>
+                </div>
+
+                <div x-show="utDrill.loading" class="progress-bar progress-bar-indeterminate" style="margin-bottom:8px;"><div class="progress-bar-fill"></div></div>
+                <div class="alert alert-error" x-show="utDrill.err" style="margin-bottom:8px;"><span class="material-icons">error</span><span x-text="utDrill.err"></span></div>
+
+                <template x-if="!utDrill.loading && !utDrill.err && utDrill.alerts.length > 0">
+                    <div class="up-blk-body">
+                        <table class="up-blk-table">
+                            <thead><tr>
+                                <th style="width:84px;">시각</th>
+                                <th style="width:110px;" x-show="!curFlow">구분</th>
+                                <th>이름</th>
+                                <th style="width:34%;">주소</th>
+                            </tr></thead>
+                            <tbody>
+                                <template x-for="(a, i) in utDrill.alerts" :key="i">
+                                    <tr style="cursor:pointer;" @click="drillGotoRow(a)" :title="a.name + ' — 알림 이력에서 보기'">
+                                        <td class="num" x-text="drillTime(a)"></td>
+                                        <td x-show="!curFlow"><span class="ds-status" style="white-space:nowrap;" :class="categoryStatus(a)" x-text="categoryLabel(a)"></span></td>
+                                        <td><strong x-text="a.name"></strong><div style="font-size:0.68rem;color:var(--color-text-secondary);" x-text="abnPath(a)"></div></td>
+                                        <td><span :class="abnAddrClass(a)" x-text="abnAddr(a)"></span></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </template>
+                <template x-if="!utDrill.loading && !utDrill.err && utDrill.alerts.length === 0">
+                    <div class="ds-empty" style="border-style:solid;">
+                        <span class="material-icons">notifications</span>
+                        <div class="ds-empty-title">이 시간대에 발생한 알람 없음</div>
+                    </div>
+                </template>
+            </div>
+        </div>
 
         <!-- ════ 알람 차단 관리 모달 (자동알람 / 수동등록TAG 알람 탭) ════ -->
         <div class="up-blk-overlay" x-show="blockMgr.show" style="display:none;" @click.self="blockMgr.show = false" @keydown.escape.window="blockMgr.show = false">

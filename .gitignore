@@ -109,6 +109,11 @@ Apps/DSPilot/publish/
 Apps/DSPilot/publish-agent/
 Apps/DSPilot/publish-collector/
 Apps/DSPilot/Output/
+# DSPilot Lite(저용량) 빌드 산출물 — build-installer-lite.bat (표준 빌드와 별개 폴더)
+Apps/DSPilot/publish-lite/
+Apps/DSPilot/publish-agent-lite/
+Apps/DSPilot/publish-collector-lite/
+Apps/DSPilot/Output-lite/
 Apps/DSPilot/Installer/linux/.stage/
 
 

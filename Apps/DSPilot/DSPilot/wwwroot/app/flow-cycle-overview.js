@@ -136,12 +136,12 @@ function overviewCycleApp() {
         get loadedFlowCount() { return this.flows.filter(s => !s.loading && !s.error && s.callLanes.length).length; },
         // 페이지 상단 합계 — 로드된 카드 기준(분기 flow 의 사이클 = 판별 스팬 수).
         get totals() {
-            const t = { flows: this.flows.length, loaded: 0, cycles: 0, branched: 0, dup: 0, un: 0, unmeasured: 0 };
+            const t = { flows: this.flows.length, loaded: 0, cycles: 0, branched: 0, dup: 0, un: 0, minViol: 0, unmeasured: 0 };
             for (const s of this.flows) {
                 if (s.loading || s.error) continue;
                 t.loaded++;
                 t.cycles += s.sum.cycles;
-                if (s.branches.length) { t.branched++; if (s.bp) { t.dup += s.bp.dup; t.un += s.bp.un; } }
+                if (s.branches.length) { t.branched++; if (s.bp) { t.dup += s.bp.dup; t.un += s.bp.un; t.minViol += (s.bp.minViol || 0); } }
                 if (s.unmeasuredMs > 0) t.unmeasured++;
             }
             return t;
@@ -326,7 +326,7 @@ function overviewCycleApp() {
         },
         fmtMs(ms) { return CG.formatMs(ms); },
         // 단일 flow 페이지의 ct-sh-stat 규약과 같은 요약 문구(리본 사이드 부제)
-        ribbonSub(slice) { return slice.unionMode ? '어느 분기의 CT · 중복 · 정상 CT 없음' : '동작시간 · 대기시간 · 동작률'; },
+        ribbonSub(slice) { return slice.unionMode ? '어느 분기의 CT · 최소위반 · 중복 · 정상 CT 없음' : '동작시간 · 대기시간 · 동작률'; },
 
         // ── 간트 지오메트리 / 줌 ──
         areaEl(slice) { return document.getElementById('cta-' + slice.id); },
