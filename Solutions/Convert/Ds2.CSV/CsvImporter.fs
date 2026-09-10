@@ -120,22 +120,29 @@ module CsvImporter =
             WorkArrowCount = max (List.length works - 1) 0
         }
 
-    let buildBasicSystemImportPlan (store: DsStore) (document: BasicCsvDocument) (systemId: Guid) : Result<ImportPlan, string list> =
+    /// autoStartClear=true 면 첫 Flow 앞 Start(Source), 마지막 Flow 뒤 Clear(Sink) 를 자동 추가한다.
+    let buildBasicSystemImportPlanWith (autoStartClear: bool) (store: DsStore) (document: BasicCsvDocument) (systemId: Guid) : Result<ImportPlan, string list> =
         match Queries.getSystem systemId store, CsvMapper.tryResolveProjectId store systemId with
         | None, _ ->
             Error [ $"System({systemId})을 찾을 수 없습니다." ]
         | Some _, None ->
             Error [ $"System({systemId})에 연결된 Project를 찾을 수 없습니다." ]
         | Some _, Some projectId ->
-            Ok (BasicCsvMapper.mapToSystemPlan store projectId systemId document)
+            Ok (BasicCsvMapper.mapToSystemPlanWith autoStartClear store projectId systemId document)
 
-    let loadBasicProject (document: BasicCsvDocument) (projectName: string) (systemName: string) : Result<DsStore, string list> =
+    let buildBasicSystemImportPlan (store: DsStore) (document: BasicCsvDocument) (systemId: Guid) : Result<ImportPlan, string list> =
+        buildBasicSystemImportPlanWith false store document systemId
+
+    let loadBasicProjectWith (autoStartClear: bool) (document: BasicCsvDocument) (projectName: string) (systemName: string) : Result<DsStore, string list> =
         match validateName "Project" projectName, validateName "System" systemName with
         | Error errors, _
         | _, Error errors -> Error errors
         | Ok projectName, Ok systemName ->
             let store, systemId = buildStore projectName systemName
-            buildBasicSystemImportPlan store document systemId
+            buildBasicSystemImportPlanWith autoStartClear store document systemId
             |> Result.map (fun plan ->
                 ImportPlan.applyDirect store plan
                 store)
+
+    let loadBasicProject (document: BasicCsvDocument) (projectName: string) (systemName: string) : Result<DsStore, string list> =
+        loadBasicProjectWith false document projectName systemName

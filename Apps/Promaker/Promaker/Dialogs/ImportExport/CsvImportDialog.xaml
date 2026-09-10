@@ -70,11 +70,25 @@
                                Margin="0,4,0,4"/>
                     <StackPanel Orientation="Horizontal"
                                 Margin="0,0,0,12">
-                        <RadioButton x:Name="StandardModeRadio"
+                        <RadioButton x:Name="BasicModeRadio"
                                      GroupName="CsvImportMode"
                                      IsChecked="True"
                                      Checked="ImportMode_Checked"
                                      Margin="0,0,32,0"
+                                     VerticalContentAlignment="Top">
+                            <StackPanel Margin="4,0,0,0">
+                                <TextBlock Text="기본 3열 (ds2-basic-csv/v1)"
+                                           FontWeight="SemiBold"
+                                           FontSize="13"/>
+                                <TextBlock Text="FLOW,WORK,CALL — '&gt;' 순차 · ';' 병렬 DAG · 행 순서 = Work 실행 순서 · 'A.ADV=1000MS' 동작 시간"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           FontSize="11"
+                                           Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton x:Name="StandardModeRadio"
+                                     GroupName="CsvImportMode"
+                                     Checked="ImportMode_Checked"
                                      VerticalContentAlignment="Top">
                             <StackPanel Margin="4,0,0,0">
                                 <TextBlock Text="표준 9열"
@@ -86,21 +100,22 @@
                                            Margin="0,2,0,0"/>
                             </StackPanel>
                         </RadioButton>
-                        <RadioButton x:Name="BasicModeRadio"
-                                     GroupName="CsvImportMode"
-                                     Checked="ImportMode_Checked"
-                                     VerticalContentAlignment="Top">
-                            <StackPanel Margin="4,0,0,0">
-                                <TextBlock Text="기본 3열 (ds2-basic-csv/v1)"
-                                           FontWeight="SemiBold"
-                                           FontSize="13"/>
-                                <TextBlock Text="FLOW,WORK,CALL — '&gt;' 순차 · ';' 병렬 DAG · 행 순서 = Work 실행 순서"
-                                           Foreground="{DynamicResource SecondaryTextBrush}"
-                                           FontSize="11"
-                                           Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </RadioButton>
                     </StackPanel>
+
+                    <CheckBox x:Name="AutoStartClearCheck"
+                              IsChecked="True"
+                              Margin="0,0,0,12"
+                              VerticalContentAlignment="Top">
+                        <StackPanel Margin="4,0,0,0">
+                            <TextBlock Text="Start / Clear Work 자동 추가"
+                                       FontWeight="SemiBold"
+                                       FontSize="13"/>
+                            <TextBlock Text="첫 Flow 앞에 Start(StartReset 1줄) · 마지막 Flow 뒤에 Clear(StartReset+Reset 2줄로 항상 리셋)"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       FontSize="11"
+                                       Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </CheckBox>
 
                     <TextBlock Text="CSV 내용"
                                FontSize="13"

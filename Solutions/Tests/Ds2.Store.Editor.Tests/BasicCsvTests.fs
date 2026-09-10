@@ -161,7 +161,9 @@ module MapperTests =
             store.Works.Values |> Seq.filter (fun w -> activeFlowIds.Contains w.ParentId) |> Seq.toList
         Assert.Equal(7, activeWorks.Length)
 
-        // Work StartReset 체인 6개 (Flow 경계 무시, ParentId=activeSystemId)
+        // Work StartReset 체인 6개 — Flow 경계를 넘어 끝까지 잇는다.
+        // Flow 는 제품이 머무는 자리이고, 이 체인이 자리 사이의 이송이다.
+        // 다음 Work 가 시작하면 이전 Work 가 리셋되어 곧바로 다음 제품을 받는다(파이프라인).
         let chainArrows =
             store.ArrowWorks.Values
             |> Seq.filter (fun a -> a.ParentId = activeSystemId && a.ArrowType = ArrowType.StartReset)
@@ -491,3 +493,110 @@ module HeaderVariantTests =
         match CsvImporter.parseContent ("Flow\tWork\tSequence\n" + row) with
         | Ok _ -> failwith "잘못된 헤더가 통과했습니다."
         | Error errors -> Assert.Contains(errors, fun e -> e.Contains "invalid header")
+
+// ---------------------------------------------------------------------------
+// CALL 동작 시간 '디바이스.액션=1000MS' — 디바이스 API Work.Duration 으로 반영.
+// '=' 는 원래부터 이름 금지문자라 이 문법이 이름 규칙을 새로 제약하지 않는다.
+// 동작 시간은 Call 단위가 아니라 (디바이스, 액션) 단위 속성이다.
+// ---------------------------------------------------------------------------
+module DurationTests =
+
+    let private durOf (doc: BasicCsvDocument) dev api =
+        doc.Durations
+        |> List.tryPick (fun ((d, a), ts) -> if d = dev && a = api then Some ts.TotalMilliseconds else None)
+
+    [<Fact>]
+    let ``MS 를 밀리초로 읽는다`` () =
+        let doc = parseOk (csv [ "투입,작업,실린더.전진=1200MS>실린더.후진=800MS" ])
+        Assert.Equal(Some 1200.0, durOf doc "실린더" "전진")
+        Assert.Equal(Some 800.0, durOf doc "실린더" "후진")
+
+    [<Fact>]
+    let ``S 를 초로 읽는다`` () =
+        Assert.Equal(Some 2500.0, durOf (parseOk (csv [ "체결,작업,런너.체결=2.5S" ])) "런너" "체결")
+
+    // 단위는 필수다 — '=' 오른쪽이 단위로 끝나야만 동작 시간으로 본다.
+    // 덕분에 '숫자로 시작하는가' 같은 추측 없이 판정이 확정된다.
+    [<Fact>]
+    let ``단위를 빠뜨리면 DUR001`` () =
+        let messages = parseErrors (csv [ "투입,작업,실린더.전진=300" ])
+        Assert.True(hasCode "DUR001" messages, String.concat " | " messages)
+        Assert.Contains("단위", List.head messages)
+
+    [<Fact>]
+    let ``단위만 있고 숫자가 없으면 DUR001`` () =
+        Assert.True(hasCode "DUR001" (parseErrors (csv [ "투입,작업,실린더.전진=MS" ])))
+
+    [<Fact>]
+    let ``대소문자와 공백을 허용한다`` () =
+        let doc = parseOk (csv [ "투입,작업,실린더.전진=1000 ms>실린더.후진= 1s " ])
+        Assert.Equal(Some 1000.0, durOf doc "실린더" "전진")
+        Assert.Equal(Some 1000.0, durOf doc "실린더" "후진")
+
+    [<Fact>]
+    let ``지정이 없으면 Durations 는 비어 있다`` () =
+        Assert.Empty((parseOk (csv [ "투입,작업,실린더.전진>실린더.후진" ])).Durations)
+
+    [<Fact>]
+    let ``값 없이 반복되면 지정값을 유지한다`` () =
+        let doc =
+            parseOk (csv [ "투입,작업1,실린더.전진=700MS>실린더.후진"
+                           "투입,작업2,실린더.전진>실린더.후진=400MS" ])
+        Assert.Equal(Some 700.0, durOf doc "실린더" "전진")
+        Assert.Equal(Some 400.0, durOf doc "실린더" "후진")
+
+    [<Fact>]
+    let ``같은 값을 다시 적어도 통과한다`` () =
+        let doc = parseOk (csv [ "투입,작업1,실린더.전진=700MS"; "투입,작업2,실린더.전진=700MS" ])
+        Assert.Equal(Some 700.0, durOf doc "실린더" "전진")
+
+    [<Fact>]
+    let ``값이 다르면 오류가 아니라 경고 + 선착순이다`` () =
+        let doc = parseOk (csv [ "투입,작업1,실린더.전진=700MS"; "투입,작업2,실린더.전진=900MS" ])
+        Assert.Equal(Some 700.0, durOf doc "실린더" "전진")
+        let w = doc.Warnings |> List.filter (fun w -> w.StartsWith "DUR002:")
+        Assert.Single(w) |> ignore
+        Assert.Contains("700", w.Head)
+
+    [<Fact>]
+    let ``이름에 괄호를 써도 통과한다`` () =
+        let doc = parseOk (csv [ "투입,작업,밸브(대).열림=500MS>밸브(대).닫힘" ])
+        Assert.Equal(Some 500.0, durOf doc "밸브(대)" "열림")
+        Assert.Equal(2, List.length doc.Works.Head.Nodes)
+
+    [<Fact>]
+    let ``숫자로 시작하지 않으면 기존 별칭 안내를 낸다`` () =
+        let messages = parseErrors (csv [ "투입,작업,s=실린더.전진" ])
+        Assert.True(hasCode "CALL001" messages, String.concat " | " messages)
+
+    [<Fact>]
+    let ``단위가 이상하면 DUR001`` () =
+        Assert.True(hasCode "DUR001" (parseErrors (csv [ "투입,작업,실린더.전진=100XS" ])))
+
+    [<Fact>]
+    let ``24시간을 넘으면 DUR001`` () =
+        Assert.True(hasCode "DUR001" (parseErrors (csv [ "투입,작업,실린더.전진=90000000MS" ])))
+
+    [<Fact>]
+    let ``접미사가 붙어도 노드와 엣지는 그대로다`` () =
+        let work = (parseOk (csv [ "투입,작업,실린더.전진=1200MS>실린더.후진=800MS" ])).Works.Head
+        Assert.Equal(2, List.length work.Nodes)
+        Assert.Equal<(string * string) list>([ "실린더.전진", "실린더.후진" ], work.Edges)
+
+    [<Fact>]
+    let ``지정한 시간이 디바이스 Work Duration 으로 들어간다`` () =
+        let content = csv [ "투입,작업,실린더.전진=1200MS>실린더.후진" ]
+        let store =
+            match CsvImporter.parseBasicContent content with
+            | Error e -> failwith (String.concat "\n" e)
+            | Ok doc ->
+                match CsvImporter.loadBasicProject doc "durProject" "durSystem" with
+                | Error e -> failwith (String.concat "\n" e)
+                | Ok s -> s
+        let ms (suffix: string) =
+            store.Works.Values
+            |> Seq.filter (fun w -> w.Name.EndsWith(suffix: string))
+            |> Seq.tryPick (fun w -> w.Duration |> Option.map (fun d -> d.TotalMilliseconds))
+        // 지정한 API 는 1200ms, 미지정 API 는 기존 기본값 500ms 를 유지한다.
+        Assert.Equal(Some 1200.0, ms "실린더_Flow.전진")
+        Assert.Equal(Some 500.0, ms "실린더_Flow.후진")
