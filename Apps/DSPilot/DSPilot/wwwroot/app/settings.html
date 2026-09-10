@@ -243,7 +243,7 @@
 </head>
 
 <body>
-    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="settingsApp()" x-init="init()" x-cloak>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="settingsApp()" x-cloak>
 
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
@@ -1702,8 +1702,8 @@
                     this.loadOpcUaRejected();
                     this.loadAppInfo();
                     // 가동 시간은 서버 재조회 없이 클라이언트에서 1초씩 증가시켜 표시(새로고침 시 서버값으로 재동기화).
-                    // clearInterval 선행: 이 페이지는 x-init="init()" 과 Alpine 자동 init() 로 init 이 두 번 실행되므로
-                    // 가드가 없으면 티커가 2개 붙어 가동 시간이 2배속으로 흐른다.
+                    // clearInterval 선행: init 이 두 번 돌면(과거 x-init="init()" 중복 호출, 지금은 제거)
+                    // 티커가 2개 붙어 가동 시간이 2배속으로 흐른다 — 재진입 가드는 남겨 둔다.
                     // 접혀 있을 땐 틱을 멈춘다(펼칠 때 toggleAppInfo 가 서버값으로 재동기화).
                     clearInterval(this._uptimeTimer);
                     this._uptimeTimer = setInterval(() => { if (this.info.d && this.appInfoOpen) this.info.uptimeSec++; }, 1000);

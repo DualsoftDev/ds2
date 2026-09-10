@@ -555,7 +555,7 @@
 
 <body class="bg-background text-on-background">
 <!-- 공통 셸(shell.js)이 사이드바(DUAL 로고 navmenu)+상단 헤더를 생성하고 .dsp-page 를 그 안으로 이동시킨다. -->
-<div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="dashboardApp()" x-init="init()" x-cloak>
+<div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="dashboardApp()" x-cloak>
 
     <!-- 사이드바(navmenu)·상단 헤더는 공통 셸(shell.js)이 생성한다. (구 stitch 자체 사이드바/헤더 제거) -->
     <div class="p-container-margin space-y-gutter">
@@ -1309,7 +1309,10 @@
                 this.connectSignalR();
                 // 숨긴 탭(다른 탭 뒤/최소화)은 폴링 정지 — 방치된 대시보드 탭이 서버를 계속 때리지 않게.
                 // 다시 보이는 순간 스냅샷 1회 즉시 재로드로 따라잡는다(상시 표시 관제 모니터는 영향 없음).
-                this._pollTimer = setInterval(() => { if (!document.hidden) this.loadSnapshot(); }, 5000);
+                // 폴링도 허브 트리거와 같은 스로틀을 통과시킨다 — 직접 loadSnapshot() 을 부르면 방금
+                // 허브로 받아온 직후에도 한 번 더 나가 중복이 된다. 허브가 끊긴 상태에서는 마지막 조회가
+                // 5초 전이라 스로틀(1초)을 그대로 통과하므로 안전망 성격은 그대로다.
+                this._pollTimer = setInterval(() => this.debouncedLoad(), 5000);
                 document.addEventListener('visibilitychange', () => { if (!document.hidden) this.loadSnapshot(); });
                 // 시프트 카운트다운은 분 단위 표시라 1초 틱은 불필요한 reactivity churn — 15초면 충분히 라이브.
                 this._shiftTimer = setInterval(() => { this.nowTick = Date.now(); }, 15000);
@@ -1370,7 +1373,12 @@
                     if (data.alarmTickerIntervalSec > 0 && data.alarmTickerIntervalSec !== this.alarmTickerSec) this.alarmTickerSec = data.alarmTickerIntervalSec;
                     this.error = null;
                     this.rebuildProcessOrder();
-                    this.loadTodayCycles();
+                    // today-cycles 는 스냅샷에 1:1로 붙어 있어 요청 수를 그대로 2배로 만들었다.
+                    // 사이클 완료 때만 바뀌는 누적 카운터라 10초면 체감상 실시간이다(60초 타이머는 별도 유지).
+                    if (Date.now() - (this._tcAt || 0) >= 10000) {
+                        this._tcAt = Date.now();
+                        this.loadTodayCycles();
+                    }
                 } catch (e) {
                     this.error = '데이터를 불러오지 못했습니다: ' + e.message;
                 } finally {
@@ -1513,11 +1521,30 @@
                 conn.start().then(() => { this.rt.connected = true; }).catch(() => { this.rt.connected = false; });
                 this._conn = conn;
             },
+            // 허브 이벤트 → 스냅샷 재조회 스로틀(선행 1회 + 최소 간격).
+            // CallStateChanged 는 사이클마다 오는 최다 빈도 이벤트라 현장에서 초당 40건까지 나온다.
+            // 200ms 트레일링 디바운스만 있던 동안에는 상한이 없어 초당 2.7회씩(=today-cycles 까지 2배)
+            // 재조회가 나갔고, 원격 접속에서는 그것만으로 커넥션 6개가 상시 포화됐다(2026-09-09 계측).
+            // 선행 호출은 그대로 두어 첫 변화는 즉시 반영되고, 이후 폭주분만 1초로 묶는다.
             debouncedLoad() {
-                clearTimeout(this._dt);
-                this._dt = setTimeout(() => {
+                if (document.hidden) return;   // 숨긴 탭은 재조회 없음(visibilitychange 에서 1회 따라잡음)
+                const MIN_MS = 1000;
+                const since = Date.now() - (this._lastTrigLoad || 0);
+                if (since >= MIN_MS) {
+                    // 예약된 트레일링이 있으면 취소 — 안 그러면 타이머 만료와 선행 호출이 같은 ms 에 겹쳐
+                    // 1초마다 2건씩 나간다(실측: 5초에 16건).
+                    clearTimeout(this._dt);
+                    this._dt = null;
+                    this._lastTrigLoad = Date.now();
                     this.loadSnapshot();
-                }, 200);
+                    return;
+                }
+                if (this._dt) return;          // 이미 트레일링 1회 예약됨
+                this._dt = setTimeout(() => {
+                    this._dt = null;
+                    this._lastTrigLoad = Date.now();
+                    this.loadSnapshot();
+                }, MIN_MS - since);
             },
 
             get abnFlowSet() { const s = new Set(); for (const a of this.abnormals) if (a.flowName) s.add(a.flowName); return s; },

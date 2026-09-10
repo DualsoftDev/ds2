@@ -89,7 +89,7 @@
 
 <body>
     <!-- 단일 Flow 사이클 분석(?name= 진입). 부트스트랩이 ?name= 없으면 이 루트를 제거한다. -->
-    <div id="fc-single" class="dsp-page" :class="{ 'dark-theme': dark }" x-data="flowApp()" x-init="init()" x-cloak>
+    <div id="fc-single" class="dsp-page" :class="{ 'dark-theme': dark }" x-data="flowApp()" x-cloak>
 
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
@@ -963,7 +963,7 @@
          카드(헤더·간트) 클릭 → /flow-cycle?name=<flow> 로 이동해 편집(구 '전체 편집' 일괄 적용은 폐기, 2026-09-07).
          부트스트랩이 ?name= 있으면 이 루트를 제거한다(단일 페이지 진입).
          ════════════════════════════════════════════════════════════════════════ -->
-    <div id="fc-overview" class="dsp-page" x-data="overviewCycleApp()" x-init="init()" x-cloak>
+    <div id="fc-overview" class="dsp-page" x-data="overviewCycleApp()" x-cloak>
         <header class="dsp-appbar">
             <span class="dsp-title">가동시간 분석 · 전체</span>
             <span class="dsp-badge">조회 전용</span>

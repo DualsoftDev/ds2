@@ -1552,6 +1552,9 @@
                         if (document.hidden) return;
                         const since = Date.now() - (this._lastTrigLoad || 0);
                         if (since >= 2000) {
+                            // 예약된 트레일링 취소 — 만료 시점과 선행 호출이 겹치면 재조회가 2배로 나간다.
+                            clearTimeout(this._dt);
+                            this._dt = null;
                             this._lastTrigLoad = Date.now();
                             this.load(true);
                         } else if (!this._dt) {

@@ -85,6 +85,26 @@ builder.Services.Configure<Microsoft.AspNetCore.Components.Server.CircuitOptions
 // SignalR for real-time monitoring
 builder.Services.AddSignalR();
 
+// ── 응답 압축(brotli/gzip) ──
+// 원격(Tailscale/사내망) 접속에서 로딩이 느린 주 원인 중 하나가 무압축 전송이었다(2026-09-09 계측).
+// 가동시간 분석 페이지 기준 정적 자산 1,175KB → br 298KB, 알람 스냅샷 JSON 508KB → br 18KB.
+// 압축 레벨은 Fastest — 이 앱의 응답은 대부분 JSON/JS 라 Optimal 과 크기 차이는 몇 % 인데
+// CPU 시간은 몇 배다(수집 스레드와 CPU 를 나눠 쓰는 현장 PC 를 고려).
+// EnableForHttps 는 기본값(false) 유지 — 세션 쿠키를 쓰는 앱이라 HTTPS + 압축 조합의
+// BREACH 표면을 만들지 않는다. 현재 배포(3000/http)는 그대로 압축된다.
+builder.Services.AddResponseCompression(o =>
+{
+    o.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+    o.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+    // 기본 목록에 없는 타입만 추가(이미 압축된 woff2/png/jpg/mp4 는 일부러 제외 — 재압축은 손해).
+    o.MimeTypes = Microsoft.AspNetCore.ResponseCompression.ResponseCompressionDefaults.MimeTypes
+        .Concat(["application/json", "text/javascript", "application/javascript", "image/svg+xml", "text/csv"]);
+});
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProviderOptions>(
+    o => o.Level = System.IO.Compression.CompressionLevel.Fastest);
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProviderOptions>(
+    o => o.Level = System.IO.Compression.CompressionLevel.Fastest);
+
 // 격리형 호스팅(Isolated Hosting) — /api/* JSON 컨트롤러 계층.
 // 정적 HTML/JS/CSS 페이지(wwwroot/app/*)가 fetch 로 호출하는 데이터 API.
 // 기존 싱글톤 서비스를 얇게 래핑만 하며(신규 데이터 로직 없음), Blazor 회로와 동일 프로세스·DI·SignalR 허브를 공유한다.
@@ -292,6 +312,10 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error");
     // app.UseHsts(); // Allow HTTP for debugging
 }
+
+// 압축은 응답을 쓰는 모든 미들웨어보다 앞이어야 한다 — 특히 아래 P2 사전계산 단락은
+// Response.Body 에 직접 쓰므로, 이 줄이 그 앞에 있어야 저장본 JSON 도 압축돼 나간다.
+app.UseResponseCompression();
 
 // ── 진단용: uploads 요청 예외 캡처 (원인 파악 후 제거) ──
 app.Use(async (context, next) =>

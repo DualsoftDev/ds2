@@ -1,22 +1,27 @@
 /* ============================================
    Local Font Definitions (Offline Support)
-   ============================================ */
+   ============================================
 
-/* Noto Sans KR */
-@font-face {
-    font-family: 'Noto Sans KR';
-    font-style: normal;
-    font-weight: 300;
-    font-display: swap;
-    src: url('../fonts/NotoSansKR-Light.ttf') format('truetype');
-}
+   모든 페이지가 이 파일을 링크한다 → 여기 실린 용량이 곧 매 첫 방문의 로딩 시간이다.
+   원본(NotoSansKR TTF 6.1MB x 4 + Material Symbols 가변 3.9MB = 22MB)을 그대로 쓰던 동안
+   원격(Tailscale) 접속의 콜드 로드가 20초 넘게 걸렸고, 폰트가 HTTP/1.1 커넥션 6개 중 4개를
+   20초간 물고 있어서 그 뒤에 줄 선 API 응답까지 0.4~3초로 밀렸다(2026-09-09 계측).
 
+   지금은 tools/build-fonts.py 가 만든 woff2 서브셋을 쓴다(2.2MB, 글리프 손실 없음).
+   - *.kr.woff2  : 라틴/기호/한글 자모+음절 11172자 전부. 실사용 텍스트는 전부 여기서 나온다.
+   - *.cjk.woff2 : 한자·가나 등. unicode-range 로 분리해 두어 해당 글자를 실제로 그릴 때만 받는다.
+   폰트 파일을 교체하거나 아래 unicode-range 를 손대면 반드시 python tools/build-fonts.py 를
+   다시 돌려서 서브셋과 범위를 일치시킬 것(스크립트가 정본 범위를 출력한다).
+   원본 TTF 는 wwwroot 밖(tools/fonts-src/)에 있어 배포본에 실리지 않는다. */
+
+/* Noto Sans KR — 라틴·기호·한글 전 음절 */
 @font-face {
     font-family: 'Noto Sans KR';
     font-style: normal;
     font-weight: 400;
     font-display: swap;
-    src: url('../fonts/NotoSansKR-Regular.ttf') format('truetype');
+    src: url('../fonts/NotoSansKR-Regular.kr.woff2') format('woff2');
+    unicode-range: U+0000-024F, U+0250-02FF, U+0300-036F, U+0370-03FF, U+0400-04FF, U+1E00-1EFF, U+2000-206F, U+2070-209F, U+20A0-20BF, U+2100-214F, U+2150-218F, U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2460-24FF, U+2500-257F, U+25A0-25FF, U+2600-27BF, U+2B00-2BFF, U+3000-303F, U+1100-11FF, U+3130-318F, U+A960-A97F, U+AC00-D7A3, U+D7B0-D7FF, U+FF00-FFEF, U+FE0E-FE0F;
 }
 
 @font-face {
@@ -24,7 +29,8 @@
     font-style: normal;
     font-weight: 500;
     font-display: swap;
-    src: url('../fonts/NotoSansKR-Medium.ttf') format('truetype');
+    src: url('../fonts/NotoSansKR-Medium.kr.woff2') format('woff2');
+    unicode-range: U+0000-024F, U+0250-02FF, U+0300-036F, U+0370-03FF, U+0400-04FF, U+1E00-1EFF, U+2000-206F, U+2070-209F, U+20A0-20BF, U+2100-214F, U+2150-218F, U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2460-24FF, U+2500-257F, U+25A0-25FF, U+2600-27BF, U+2B00-2BFF, U+3000-303F, U+1100-11FF, U+3130-318F, U+A960-A97F, U+AC00-D7A3, U+D7B0-D7FF, U+FF00-FFEF, U+FE0E-FE0F;
 }
 
 @font-face {
@@ -32,7 +38,19 @@
     font-style: normal;
     font-weight: 700;
     font-display: swap;
-    src: url('../fonts/NotoSansKR-Bold.ttf') format('truetype');
+    src: url('../fonts/NotoSansKR-Bold.kr.woff2') format('woff2');
+    unicode-range: U+0000-024F, U+0250-02FF, U+0300-036F, U+0370-03FF, U+0400-04FF, U+1E00-1EFF, U+2000-206F, U+2070-209F, U+20A0-20BF, U+2100-214F, U+2150-218F, U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2460-24FF, U+2500-257F, U+25A0-25FF, U+2600-27BF, U+2B00-2BFF, U+3000-303F, U+1100-11FF, U+3130-318F, U+A960-A97F, U+AC00-D7A3, U+D7B0-D7FF, U+FF00-FFEF, U+FE0E-FE0F;
+}
+
+/* 한자·가나 — 위 범위 밖 글자를 실제로 그릴 때만 내려받는다(평소 0바이트).
+   굵기별로 두지 않는다 — 한자는 거의 안 쓰이고, 없으면 브라우저가 이 400 페이스를 재사용한다. */
+@font-face {
+    font-family: 'Noto Sans KR';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('../fonts/NotoSansKR-Regular.cjk.woff2') format('woff2');
+    unicode-range: U+2E80-2FDF, U+3040-30FF, U+3190-319F, U+31F0-31FF, U+3200-4DBF, U+4E00-9FFF, U+A000-A4CF, U+F900-FAFF, U+FE30-FE4F;
 }
 
 /* Inter (가변폰트: wght 축) — dashboard2(stitch) 라틴 본문/헤딩용. self-host woff2(오프라인).
@@ -45,14 +63,17 @@
     src: url('../fonts/Inter-Variable.woff2') format('woff2');
 }
 
-/* Material Symbols Outlined (가변폰트: FILL/wght/GRAD/opsz 축) — code.html 과 동일한 아이콘 글리프.
-   self-host woff2(오프라인). classic Material Icons 는 폴백으로 유지. */
+/* Material Symbols Outlined — code.html 과 동일한 아이콘 글리프. self-host woff2(오프라인).
+   아이콘은 하나도 빼지 않았고(런타임에 이름을 조합해 쓰는 곳이 있다), 대신 가변 축을 아래
+   .material-icons 가 지정하는 값(FILL 0 / wght 400 / GRAD 0 / opsz 24)으로 고정해 3.9MB → 375KB.
+   축을 다시 쓰려면(예: 채운 아이콘) build-fonts.py 의 pin 에서 해당 축을 빼고 재생성해야 한다.
+   classic Material Icons 는 Symbols 에 없는 이름의 폴백으로 유지. */
 @font-face {
     font-family: 'Material Symbols Outlined';
     font-style: normal;
     font-weight: 100 700;
     font-display: block;
-    src: url('../fonts/MaterialSymbolsOutlined.woff2') format('woff2');
+    src: url('../fonts/MaterialSymbolsOutlined.static.woff2') format('woff2');
 }
 
 /* classic Material Icons — Symbols 에 없는 이름의 폴백 */
@@ -65,7 +86,7 @@
 }
 
 /* 앱 전역은 .material-icons 클래스를 쓰므로, 이 클래스를 Symbols 로 재지정 → 마크업 변경 없이 전 페이지 글리프 교체.
-   기본 FILL 0(외곽선, code.html 기본값). 채움이 필요한 곳(예: KPI 배지)은 개별적으로 'FILL' 1 지정. */
+   기본 FILL 0(외곽선, code.html 기본값). */
 .material-icons,
 .material-symbols-outlined {
     font-family: 'Material Symbols Outlined', 'Material Icons';
