@@ -37,6 +37,13 @@ module internal ImportPlanDeviceOps =
     /// 센서를 생략한 API 의 감지 지연(ms) — SensingType.Virtual 기본값(ApiDef 편집 다이얼로그와 동일).
     let [<Literal>] internal sensorlessSensingMs = 200
 
+    /// 동작 시간 미지정 시 디바이스 API Work 에 부여하는 기본값.
+    /// CSV 가 'A.ADV(1000MS)' 로 지정하면 그 값이 우선한다.
+    let private defaultWorkDuration : TimeSpan option = Some (TimeSpan.FromMilliseconds 500.)
+
+    /// 기본 리졸버 — 모든 (디바이스, 액션) 에 기본값을 준다.
+    let private defaultDurationOf (_alias: string) (_api: string) : TimeSpan option = defaultWorkDuration
+
     let hasCreatableApiName (callName: string) =
         // M2: splitApiCallName(canonical, isNull/no-dot→None) 위임 — null/no-dot → false 정책 보존.
         Queries.splitApiCallName callName |> Option.exists (snd >> String.IsNullOrEmpty >> not)
@@ -219,11 +226,11 @@ module internal ImportPlanDeviceOps =
     /// 누락된 API 의 Work/ApiDef 를 채워 넣어 ADV↔RET 상호 리셋이 성립하게 한다.
     /// ApiCall 은 만들지 않는다 — 입력에 없는 행을 지어내지 않기 위함(센서 없는 동작은 미배선 상태로 남음).
     let private completeDeviceApiSets
+        (durationOf: string -> string -> TimeSpan option)
         (store: DsStore)
         (callsByFlow: (string * (Call * string * string option) list) list)
         (operations: ResizeArray<ImportPlanOperation>)
         (state: DeviceBatchState) =
-        let workDurationDefault = Some (TimeSpan.FromMilliseconds 500.)
         callsByFlow
         |> List.fold (fun flowState (flowName, calls) ->
             // alias 별 API 집합 / deviceKey 집합 / (alias,api) → Call 수집
@@ -254,7 +261,7 @@ module internal ImportPlanDeviceOps =
                             if Map.containsKey (apiName, system.Id) apiState.PendingWorks then apiState
                             else
                                 let withWork =
-                                    ensurePendingWork deviceKey apiName system.Id workDurationDefault store operations apiState
+                                    ensurePendingWork deviceKey apiName system.Id (durationOf alias apiName) store operations apiState
                                 // 신규 device 가 아니면 ensurePendingWork 가 state 를 그대로 반환 → 건너뛴다.
                                 if not (Map.containsKey (apiName, system.Id) withWork.PendingWorks) then withWork
                                 else
@@ -321,6 +328,7 @@ module internal ImportPlanDeviceOps =
             | _ -> ())
 
     let private linkCallsToDevicesWithState
+        (durationOf: string -> string -> TimeSpan option)
         (store: DsStore)
         (projectId: Guid)
         (flowName: string)
@@ -337,8 +345,7 @@ module internal ImportPlanDeviceOps =
                 else
                     let devAlias = call.DevicesAlias
                     let system, deviceKey, withSystem = ensureSystem store projectId flowName devAlias sysHint None operations st
-                    let workDurationDefault = Some (TimeSpan.FromMilliseconds 500.)
-                    let withWork = ensurePendingWork deviceKey apiName system.Id workDurationDefault store operations withSystem
+                    let withWork = ensurePendingWork deviceKey apiName system.Id (durationOf devAlias apiName) store operations withSystem
                     let apiDef, withApiDef = ensureApiDef store system apiName operations withWork
                     createAndRegisterApiCall call callName apiDef.Id operations
                     withApiDef
@@ -403,13 +410,17 @@ module internal ImportPlanDeviceOps =
         (operations: ResizeArray<ImportPlanOperation>) =
         if not calls.IsEmpty then
             let withHint = calls |> List.map (fun (c, n) -> c, n, None)
-            let finalState = linkCallsToDevicesWithState store projectId flowName withHint operations initialState
-            let completedState = completeDeviceApiSets store [ flowName, withHint ] operations finalState
+            let finalState = linkCallsToDevicesWithState defaultDurationOf store projectId flowName withHint operations initialState
+            let completedState = completeDeviceApiSets defaultDurationOf store [ flowName, withHint ] operations finalState
             buildWorkArrows store operations completedState
             buildSingleApiDoneWorks store operations completedState
 
     /// 여러 Flow의 Call을 state 공유하며 처리. systemNameHint가 있으면 System 이름으로 사용.
-    let linkCallsToDevicesMultiFlow
+    /// durationOf = (디바이스 alias) -> (액션) -> 동작 시간.
+    /// CSV import 는 'A.ADV(1000MS)' 접미사에서 만든 맵을 넘기고,
+    /// 그 외 호출자는 linkCallsToDevicesMultiFlow (기본 500ms) 를 쓴다.
+    let linkCallsToDevicesMultiFlowWithDurations
+        (durationOf: string -> string -> TimeSpan option)
         (store: DsStore)
         (projectId: Guid)
         (callsByFlow: (string * (Call * string * string option) list) list)
@@ -417,8 +428,15 @@ module internal ImportPlanDeviceOps =
         let finalState =
             callsByFlow
             |> List.fold (fun st (flowName, calls) ->
-                linkCallsToDevicesWithState store projectId flowName calls operations st
+                linkCallsToDevicesWithState durationOf store projectId flowName calls operations st
             ) initialState
-        let completedState = completeDeviceApiSets store callsByFlow operations finalState
+        let completedState = completeDeviceApiSets durationOf store callsByFlow operations finalState
         buildWorkArrows store operations completedState
         buildSingleApiDoneWorks store operations completedState
+
+    let linkCallsToDevicesMultiFlow
+        (store: DsStore)
+        (projectId: Guid)
+        (callsByFlow: (string * (Call * string * string option) list) list)
+        (operations: ResizeArray<ImportPlanOperation>) =
+        linkCallsToDevicesMultiFlowWithDurations defaultDurationOf store projectId callsByFlow operations

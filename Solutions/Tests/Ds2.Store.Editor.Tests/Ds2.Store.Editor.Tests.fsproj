@@ -21,6 +21,8 @@
     <Compile Include="DsStore\DsStore.WorkNamingTests.fs" />
     <Compile Include="ImportPlanTests.fs" />
     <Compile Include="BasicCsvTests.fs" />
+    <Compile Include="DurE2E.fs" />
+    <Compile Include="StartClearCycleTests.fs" />
     <Compile Include="SkipActionConditionTests.fs" />
     <Compile Include="EditorProjectionTests.fs" />
     <Compile Include="SimulationTests.fs" />

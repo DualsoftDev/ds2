@@ -15,6 +15,10 @@ type BasicCsvWork = {
 
 type BasicCsvDocument = {
     Works    : BasicCsvWork list
+    /// (디바이스, 액션) → 동작 시간. CALL 토큰의 '(1000MS)' / '(2.5S)' 접미사에서 수집.
+    /// 미지정 디바이스 API 는 이 맵에 없으며, 매퍼가 기본값(500ms)을 쓴다.
+    /// 같은 Call 이 여러 번 나오면서 서로 다른 시간을 지정하면 DUR002 오류(파서에서 차단).
+    Durations : ((string * string) * System.TimeSpan) list
     /// 오류가 아닌 경고(CSV005 FLOW 비연속 등).
     Warnings : string list
 }
