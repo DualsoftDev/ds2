@@ -356,7 +356,7 @@
                                     <span class="num">가동 수</span>
                                 </div>
                                 <template x-for="f in mqRows" :key="f.flowName">
-                                    <div class="up-mq-row" :class="(curFlow === f.flowName ? 'is-cur ' : '') + (f.measurable === false ? 'is-unmeas ' : '') + (mqHasBranched ? 'has-br' : '')">
+                                    <div class="up-mq-row" :class="(flowMatches(f.flowName) ? 'is-cur ' : '') + (f.measurable === false ? 'is-unmeas ' : '') + (mqHasBranched ? 'has-br' : '')">
                                         <a class="up-mq-name" :href="'/uptime-oee?flow=' + encodeURIComponent(f.flowName)"
                                            :title="f.measurable === false
                                                    ? (f.flowName + ' — 측정 불가: 표준 가동시간 미학습(클린샘플 0). 설비 경계(Head/Tail) 지정을 확인하세요.')

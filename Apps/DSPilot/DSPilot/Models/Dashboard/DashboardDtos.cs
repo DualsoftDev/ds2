@@ -47,13 +47,16 @@ public record FlowPlacementDto(
 
 public record FlowOrderDto(string FlowName);
 
+// BranchName(2026-09-11) = 사이클 분기 라벨(분기 미사용 flow 또는 미분류 = null). 추이 분석이 분기 스코프 필터와
+//   부모 flow 의 분기별 분해(횟수 스택·분기별 평균 CT)에 쓴다. 집계는 클라이언트(flow-workspace.js).
 public record FlowHistoryDto(
     int? CycleNo,
     int? MT,
     int? WT,
     int? CT,
     System.DateTime RecordedAt,
-    bool IsIdle);
+    bool IsIdle,
+    string? BranchName = null);
 
 // 시프트 운영 — 서버 공유 설정 + 실시간 진행(만든 수).
 // Start/End 는 로컬 "HH:mm". MadeCount = 현재 시프트 시작 이후 만든 수

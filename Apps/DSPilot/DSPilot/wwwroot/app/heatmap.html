@@ -530,6 +530,7 @@
                 error: null,
                 // 설비(Flow) 필터 — 좌측 메뉴 '동작편차' 트리에서 /heatmap?flow=이름 으로 진입. '' = 전체.
                 flowParam: '',
+                branchParam: '',     // &branch= (설비효율 순위의 분기 행 → 히트맵 링크). 필터는 부모 flow, 칩에만 분기 표기.
                 // 시스템 필터(2026-09-08) — 트리 시스템 행 /heatmap?system=이름. 설비(?flow=)가 있으면 무시(설비 우선).
                 //   서버 API 는 그대로(전 flow) — /api/nav 의 그 시스템 flow 집합으로 클라이언트에서 좁힌다.
                 systemParam: '',
@@ -561,6 +562,8 @@
                     // 설비 필터는 URL(?flow=)에서만 온다(좌측 메뉴 트리). 없으면 전체.
                     const qp = new URLSearchParams(location.search);
                     this.flowParam = qp.get('flow') || '';
+                    // 분기(&branch=) — 설비효율 분기 행에서 넘어온 경우. 동작편차는 부모 flow 축 집계라 필터엔 안 쓰고 칩에만 표기.
+                    this.branchParam = qp.get('branch') || '';
                     this.systemParam = this.flowParam ? '' : (qp.get('system') || '');
                     await this.loadBranchMap();
                     window.addEventListener('storage', (e) => {
@@ -655,9 +658,11 @@
                         this.systemFlows = this.systemParam ? (sysFlows || new Set()) : null;
                     } catch (e) { this.branchMap = {}; this.systemFlows = this.systemParam ? new Set() : null; }
                 },
-                // 설비 필터 해석 — {flow: 실제 필터할 flow 이름, branch: 분기명|null}. 분기 가상이름이면 부모로 번역.
+                // 설비 필터 해석 — {flow: 실제 필터할 flow 이름, branch: 분기명|null}.
+                //   새 계약 ?flow=<부모>&branch=<분기>(2026-09-11) 우선, 구 가상이름(?flow=부모_분기)은 부모로 번역.
                 get flowScope() {
                     if (!this.flowParam) return null;
+                    if (this.branchParam) return { flow: this.flowParam, branch: this.branchParam };
                     const hit = this.branchMap[this.flowParam];
                     return hit ? { flow: hit.parent, branch: hit.branch } : { flow: this.flowParam, branch: null };
                 },

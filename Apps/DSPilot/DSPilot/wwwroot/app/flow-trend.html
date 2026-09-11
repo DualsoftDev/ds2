@@ -72,7 +72,12 @@
                 <!-- 오른쪽: 설비(Flow) 필터 상태 + 전체 보기 + Excel 내보내기 (종합효율 현황 페이지와 동일 패턴) -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end;">
                     <template x-if="!allMode && (flow || flowName)">
-                        <span class="chip chip-info">설비: <b x-text="flow ? flow.flowName : flowName"></b></span>
+                        <span class="chip chip-info" :title="branchScoped ? '이 분기 사이클 행만 집계합니다(미분류 제외)' : (branchDecompose ? '분기 ' + flowBranches.join(' · ') + ' 의 합집합 — 아래 분기별 분해 표·스택·선으로 나눠 읽으세요' : '')">설비: <b x-text="flow ? flow.flowName : flowName"></b><template x-if="branchScoped"><span> · 분기 <b x-text="branchParam"></b></span></template><template x-if="branchDecompose"><span x-text="' · 분기 ' + flowBranches.length + '개 합집합'"></span></template></span>
+                    </template>
+                    <template x-if="branchScoped">
+                        <a class="btn btn-sm btn-outlined color-default" :href="'/flow-trend?name=' + encodeURIComponent(flowName)" title="이 설비의 분기 합집합 + 분기별 분해 보기">
+                            <span class="material-icons" style="font-size:15px;">account_tree</span> flow 전체
+                        </a>
                     </template>
                     <template x-if="allMode && systemParam">
                         <span class="chip chip-info" title="이 시스템 소속 flow 의 히스토리만 합산합니다(좌측 메뉴 추이 분석 트리의 시스템 행).">시스템: <b x-text="systemParam"></b></span>
@@ -160,8 +165,46 @@
                                     </div>
                                 </div>
 
+                                <!-- 분기별 분해(부모 뷰, 분기 있는 flow) — 위 KPI 는 부모 합계(미분류 포함). 평균은 쌓이지 않으므로 분기별 행으로 나눠 읽는다.
+                                     행 클릭 = 그 분기 스코프(?branch=) 페이지. 미분류 = 어느 분기의 제외 필터도 통과하지 못한 사이클(링크 없음). -->
+                                <template x-if="branchDecompose && branchRows.length">
+                                    <div class="fw-br-wrap">
+                                        <div class="ds-card-h fw-chart-h">
+                                            <h4 style="font-size:0.78rem;">분기별 분해 <span class="fw-chart-h-hint">위 KPI = 분기 합집합 · 평균은 분기별로 읽을 것(혼합비가 바뀌면 부모 평균이 함께 움직임)</span></h4>
+                                        </div>
+                                        <div class="fw-br-scroll">
+                                            <table class="fw-br-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>분기</th><th class="num">가동 횟수</th><th class="num">비중</th><th class="num">평균 가동시간</th>
+                                                        <th class="num">평균 동작시간</th><th class="num">평균 대기시간</th><th class="num">가동률</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <template x-for="b in branchRows" :key="b.name">
+                                                        <tr :class="b.isUn ? 'is-un' : ''">
+                                                            <td>
+                                                                <span class="fw-br-dot" :style="'background:' + b.color"></span>
+                                                                <template x-if="!b.isUn"><a :href="branchHref(b.name)" :title="b.name + ' 분기 사이클만 보기'" x-text="b.name"></a></template>
+                                                                <template x-if="b.isUn"><span title="어느 분기의 제외 필터도 통과하지 못한 사이클 — 분기 정의 오류 또는 제외 call 센서 오감지 감시용" x-text="b.name"></span></template>
+                                                            </td>
+                                                            <td class="num" x-text="b.cycleCount.toLocaleString() + '회'"></td>
+                                                            <td class="num" x-text="Math.round(b.share * 100) + '%'"></td>
+                                                            <td class="num" x-text="fmtDur(b.avgCT)"></td>
+                                                            <td class="num" style="color:var(--dash-mt,#12A594);" x-text="fmtDur(b.avgMT)"></td>
+                                                            <td class="num" x-text="fmtDur(b.avgWT)"></td>
+                                                            <td class="num" x-text="b.cycleCount > 0 ? Math.round(b.utilization * 100) + '%' : '—'"></td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </template>
+
                                 <div class="ds-card-h fw-chart-h">
-                                    <h4 style="font-size:0.78rem;">가동시간 구성 <span class="fw-chart-h-hint">버킷별 평균 · 동작 + 대기</span></h4>
+                                    <h4 style="font-size:0.78rem;"><span x-text="branchDecompose ? '분기별 평균 가동시간' : '가동시간 구성'"></span>
+                                        <span class="fw-chart-h-hint" x-text="branchDecompose ? '버킷별 · 분기 색 선 · 점선 = flow 전체(혼합 평균)' : '버킷별 평균 · 동작 + 대기'"></span></h4>
                                 </div>
                                 <div class="fw-chart-tall"><canvas x-ref="trendChart"></canvas></div>
                                 <div class="fw-chart-note" x-show="trendClipped" x-cloak>
@@ -169,7 +212,7 @@
                                     한 구간의 대기시간이 유난히 길어(가동 정지 등) 세로축을 축약했습니다. ▲ 표시 막대는 실제값이 더 크며, 막대에 마우스를 올리면 정확한 값을 볼 수 있습니다.
                                 </div>
 
-                                <div class="ds-card-h fw-chart-h"><h4 style="font-size:0.78rem;">가동횟수</h4></div>
+                                <div class="ds-card-h fw-chart-h"><h4 style="font-size:0.78rem;">가동횟수<span class="fw-chart-h-hint" x-show="branchDecompose" x-cloak>분기 색 스택 · 합 = flow 전체</span></h4></div>
                                 <div class="fw-chart-md"><canvas x-ref="countChart"></canvas></div>
                             </div>
                         </template>

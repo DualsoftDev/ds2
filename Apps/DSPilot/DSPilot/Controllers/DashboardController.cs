@@ -227,7 +227,7 @@ public class DashboardController : ControllerBase
             // System.Text.Json 이 'Z' 없이 직렬화 → 브라우저 new Date() 가 로컬 시각으로 오인(KST 면 9h 밀림).
             // UTC 로 마킹해 'Z' 표기로 emit → 클라가 절대시각으로 정확히 파싱(기간별 추이 '오늘' 필터 누락 수정).
             .Select(h => new FlowHistoryDto(h.CycleNo, h.MT, h.WT, h.CT,
-                DateTime.SpecifyKind(h.RecordedAt, DateTimeKind.Utc), h.IsIdle))
+                DateTime.SpecifyKind(h.RecordedAt, DateTimeKind.Utc), h.IsIdle, h.BranchName))
             .ToList();
     }
 

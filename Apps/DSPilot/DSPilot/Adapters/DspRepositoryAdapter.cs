@@ -1178,9 +1178,10 @@ public class DspRepositoryAdapter : IDspRepository
         {
             await EnsureIsIdleColumnAsync(conn);
 
+            // BranchName(2026-09-11) — 추이 분석의 분기 스코프/분기별 분해용. 컬럼은 EnsureDspSchema 가 기동 시 보장.
             var sql = $@"
                 SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle,
-                       HeadCallName, TailCallName
+                       HeadCallName, TailCallName, BranchName
                 FROM {HistoryTable}
                 WHERE FlowName = @FlowName
                 ORDER BY RecordedAt DESC
@@ -1213,7 +1214,7 @@ public class DspRepositoryAdapter : IDspRepository
 
             var sql = $@"
                 SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle,
-                       HeadCallName, TailCallName
+                       HeadCallName, TailCallName, BranchName
                 FROM {HistoryTable}
                 WHERE FlowName = @FlowName
                   AND RecordedAt >= @SinceDate
@@ -1245,7 +1246,7 @@ public class DspRepositoryAdapter : IDspRepository
 
             var sql = $@"
                 SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle,
-                       HeadCallName, TailCallName
+                       HeadCallName, TailCallName, BranchName
                 FROM {HistoryTable}
                 WHERE FlowName = @FlowName
                   AND RecordedAt >= @SinceDate

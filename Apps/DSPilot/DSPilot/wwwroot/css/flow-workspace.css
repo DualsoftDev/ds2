@@ -40,6 +40,18 @@
         .fw-chart-note { display: flex; align-items: flex-start; gap: 6px; margin: 2px 0 14px; padding: 8px 11px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); border: 1px solid var(--color-lines); font-size: 0.74rem; line-height: 1.4; color: var(--color-text-secondary); }
         .fw-chart-note .material-icons { font-size: 15px; color: var(--color-primary); flex-shrink: 0; margin-top: 1px; }
 
+        /* 추이 분기별 분해 표(부모 뷰, 분기 있는 flow) — KPI 행 아래. 행 = 분기(정의 순서) + 미분류(회색, 링크 없음). */
+        .fw-br-wrap { margin: 2px 0 14px; }
+        .fw-br-scroll { overflow-x: auto; }
+        .fw-br-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+        .fw-br-table th, .fw-br-table td { padding: 6px 10px; border-bottom: 1px solid var(--color-lines); white-space: nowrap; }
+        .fw-br-table th { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-secondary); text-align: left; }
+        .fw-br-table th.num, .fw-br-table td.num { text-align: right; }
+        .fw-br-table td a { color: var(--color-primary); font-weight: 600; text-decoration: none; }
+        .fw-br-table td a:hover { text-decoration: underline; }
+        .fw-br-table tr.is-un td { color: var(--color-text-secondary); }
+        .fw-br-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; vertical-align: -1px; }
+
         .fw-period-controls { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: flex-start; }
         .fw-dl-group { display: flex; gap: 6px; flex-wrap: wrap; }
 

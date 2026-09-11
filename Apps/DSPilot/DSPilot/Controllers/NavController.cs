@@ -82,8 +82,9 @@ public class NavController : ControllerBase
         for (var i = 0; i < processOrder.Count; i++)
             rankByName.TryAdd(processOrder[i].FlowName, i);
 
-        // 사이클 분기 — flow 별 분기 이름 목록(분기 활성 flow 만 항목 존재). 셸이 설비효율/가동시간 분석
-        // 그룹에서 부모 행을 "부모_분기" 행들로 치환하는 데 쓴다(생산효율/추이는 부모 그대로 = 설계 규약).
+        // 사이클 분기 — flow 별 분기 이름 목록(분기 활성 flow 만 항목 존재, 정의 순서 = 분기 색 index).
+        // 셸(shell.js window.dspBranch)이 설비효율·추이 분석 트리의 FLOW 행 아래 분기 자식 행을 그리고, 구 가상이름
+        // 딥링크(?flow=부모_분기)를 부모+분기로 분해하는 정본 맵이다(2026-09-11). 추이 분석은 분기별 분해 표에도 쓴다.
         var branchSets = _settings.GetAllFlowBranchSets()
             .ToDictionary(s => s.FlowName, s => s.Branches.Select(b => b.Name).ToList(),
                 StringComparer.OrdinalIgnoreCase);
@@ -371,7 +372,8 @@ public record NavDto(bool ShowPlcDebug, List<NavSystemDto> Systems, List<NavShor
 // 사이드바 외부 도구 바로가기 1행(절대 URL). 데모 전환 활성 + 개별 노출 체크 시에만 내려온다.
 public record NavShortcutDto(string Label, string Href, string Icon);
 
-// FlowBranches: 분기 활성 flow → 분기 이름 목록(정의 순서). null/미포함 = 그 flow 분기 미사용.
+// FlowBranches: 분기 활성 flow → 분기 이름 목록(정의 순서 = 분기 색 index). null/미포함 = 그 flow 분기 미사용.
+//   소비자: shell.js dspBranch(트리 분기 자식 행·가상이름 분해), flow-workspace.js(추이 분기 분해), heatmap.html, flow-cycle-overview.js.
 public record NavSystemDto(string Name, List<string> Flows,
     Dictionary<string, List<string>>? FlowBranches = null);
 

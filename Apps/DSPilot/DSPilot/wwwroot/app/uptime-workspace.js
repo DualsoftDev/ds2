@@ -76,7 +76,11 @@
                 // 구 내부 탭(oeeTab ?section=)은 2026-07-03 물리 분리로 폐지 — ?section=teep 딥링크는 init 이 /uptime-teep 로 보냄.
                 view: (window.DSP_UPTIME_VIEW || 'both'),
                 period: 'today',
-                curFlow: '', // '' = 라인 전체, 그 외 = 특정 Flow (OEE/정지/도넛/계획시간을 그 설비로 필터)
+                curFlow: '', // '' = 라인 전체, 그 외 = 특정 Flow(부모 이름) (OEE/정지/도넛/계획시간을 그 설비로 필터)
+                // 분기 스코프(2026-09-11, &branch=) — curFlow 가 부모 flow, curBranch 가 그 분기. '' = 분기 미선택(분기 있는 flow 면 합집합).
+                //   서버 OEE API 는 가상이름 "부모_분기" 를 flow= 로 받는다(scopeFlowName). 구 딥링크 ?flow=부모_분기 는 resolveBranchScope 가 분해.
+                curBranch: '',
+                brMap: { virt: {}, byParent: {} },   // window.dspBranch.mapFromNav(/api/nav) — 가상 행 ↔ 부모 매칭(flowMatches)·칩 표기
                 curSystem: '', // '' = 스코프 없음, 그 외 = 시스템 단위 묶음(?system=, 좌측 나브 기능 트리의 시스템 행). curFlow 가 우선.
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
@@ -180,6 +184,9 @@
                     const qp = new URLSearchParams(location.search);
                     // 설비(Flow) 필터는 URL(?flow=)에서만 온다(좌측 나브 '이상·알람' 트리의 FLOW 행 / OEE·TEEP 시스템 그룹). 없으면 라인 전체.
                     if (qp.has('flow')) this.curFlow = qp.get('flow') || '';
+                    if (this.curFlow) this.curBranch = qp.get('branch') || '';
+                    // 분기 맵 로드 + 구 가상이름 딥링크 정규화 — 이후 모든 조회가 scopeQs() 를 쓰므로 로드 전에 끝내야 한다.
+                    await this.resolveBranchScope();
                     // 시스템 스코프(?system=) — 좌측 나브 시스템 그룹 헤더(OEE/TEEP) 또는 '이상·알람' 트리 시스템 행 진입.
                     // 설비(?flow=)가 있으면 무시(설비 우선). 알람 스냅샷은 utQs() 가 이 값을 system 파라미터로 보낸다.
                     if (!this.curFlow && qp.has('system')) this.curSystem = qp.get('system') || '';
@@ -304,14 +311,56 @@
                     history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
                 },
                 // ── 스코프 헬퍼 — 설비(?flow=)가 시스템(?system=)보다 우선(나브 딥링크 규약과 동일) ──
+                //   분기(2026-09-11): 페이지 URL 은 ?flow=<부모>&branch=<분기>, 서버 호출은 가상이름 flow=<부모_분기>
+                //   (precompute 캐시가 flow= 만 키로 인식 — branch= 를 서버로 보내면 캐시 우회). 부모만 주면 서버
+                //   NormalizeOeeScope 가 그 부모의 분기 집합 합집합으로 폴백한다(= FLOW 행 클릭 = 분기 합집합).
+                async resolveBranchScope() {
+                    const db = window.dspBranch;
+                    try {
+                        const nav = db ? await db.nav() : null;
+                        this.brMap = db ? db.mapFromNav(nav && nav.systems) : { virt: {}, byParent: {} };
+                    } catch (_) { this.brMap = { virt: {}, byParent: {} }; }
+                    if (db && this.curFlow && !this.curBranch) {
+                        const s = db.split(this.curFlow, this.brMap);   // 구 ?flow=부모_분기 → 부모 + 분기
+                        if (s.branch) { this.curFlow = s.flow; this.curBranch = s.branch; }
+                    }
+                },
+                // 서버에 보낼 설비 이름 — 분기 스코프면 가상이름.
+                scopeFlowName() {
+                    if (!this.curFlow) return '';
+                    return window.dspBranch ? window.dspBranch.virtual(this.curFlow, this.curBranch)
+                        : (this.curBranch ? this.curFlow + '_' + this.curBranch : this.curFlow);
+                },
+                // 현재 부모 flow 의 분기 이름 목록(정의 순서). 분기 미사용 flow = [].
+                get curFlowBranches() { return (this.curFlow && this.brMap.byParent && this.brMap.byParent[this.curFlow]) || []; },
+                // 서버 응답 행 이름이 현재 설비 스코프에 속하는가 — 부모 축 행(measurement-quality·teep 매트릭스)과
+                // 가상 행(ranking·CT 표) 모두. 부모 스코프(합집합)면 그 부모의 모든 가상 행이, 분기 스코프면 그 분기 가상 행만 매칭.
+                flowMatches(rowName) {
+                    if (!this.curFlow || !rowName) return false;
+                    if (rowName === this.curFlow) return true;
+                    if (this.curBranch) return rowName === this.scopeFlowName();
+                    const hit = this.brMap.virt && this.brMap.virt[rowName];
+                    return !!hit && hit.parent === this.curFlow;
+                },
                 scopeQs() {
-                    if (this.curFlow) return '&flow=' + encodeURIComponent(this.curFlow);
+                    if (this.curFlow) return '&flow=' + encodeURIComponent(this.scopeFlowName());
                     if (this.curSystem) return '&system=' + encodeURIComponent(this.curSystem);
                     return '';
                 },
                 scopeLabel() {
-                    return this.curFlow ? ('설비: ' + this.curFlow)
-                        : this.curSystem ? ('시스템: ' + this.curSystem) : '라인 전체';
+                    if (this.curFlow) {
+                        if (this.curBranch) return '설비: ' + this.curFlow + ' · 분기 ' + this.curBranch;
+                        const n = this.curFlowBranches.length;
+                        return '설비: ' + this.curFlow + (n ? (' · 분기 ' + n + '개 합집합') : '');
+                    }
+                    return this.curSystem ? ('시스템: ' + this.curSystem) : '라인 전체';
+                },
+                // 순위/CT 표의 가상 행("부모_분기") 표기·링크 — 표시는 "부모 · 분기", 링크는 새 계약(?flow=부모&branch=분기).
+                rankSplit(r) { return window.dspBranch ? window.dspBranch.split(r.flowName, this.brMap) : { flow: r.flowName, branch: '' }; },
+                rankName(r) { const s = this.rankSplit(r); return window.dspBranch ? window.dspBranch.label(s.flow, s.branch) : r.flowName; },
+                rankHref(r) {
+                    const s = this.rankSplit(r);
+                    return '/heatmap?flow=' + encodeURIComponent(s.flow) + (s.branch ? '&branch=' + encodeURIComponent(s.branch) : '');
                 },
                 // ── fetch 헬퍼 ──
                 async apiGet(url) {
@@ -987,7 +1036,7 @@
                         const best = per.reduce((a, b) => (b.teep > a.teep ? b : a));
                         return `기간 생산효율 최저 설비: ${worst.name} ${this.pct(worst.teep)} (정지 ${this.durShort(worst.down)}) · 최고: ${best.name} ${this.pct(best.teep)}`;
                     }
-                    const f = this.curFlow ? m.flows.find(x => x.flowName === this.curFlow) : m.flows[0];
+                    const f = this.curFlow ? m.flows.find(x => this.flowMatches(x.flowName)) : m.flows[0];
                     if (!f) return '';
                     let wi = -1;
                     f.cells.forEach((c, i) => {
@@ -1152,7 +1201,7 @@
                 // 2D 막대(설비 뷰) — 3D 아이소의 단일 flow 시간열을 평면으로 편 것(같은 정보): 막대 높이=TEEP(가동),
                 // 색=가동(초록)/정지(빨간 캡) 2색, 골드 점선=계획 기준선. 한 flow 대상이라 2D 로 충분.
                 _renderTeepBars(host, m) {
-                    const fr = this.curFlow ? m.flows.find(f => f.flowName === this.curFlow) : m.flows[0];
+                    const fr = this.curFlow ? m.flows.find(f => this.flowMatches(f.flowName)) : m.flows[0];
                     if (!fr) return;
                     const B = m.buckets.length;
                     const W = 900, H = 300;
@@ -1309,7 +1358,7 @@
                 get mqCurrentIssue() {
                     const rows = this.mqIssueRows;
                     if (!rows.length) return null;
-                    if (this.curFlow) return rows.find(f => f.flowName === this.curFlow) || null;
+                    if (this.curFlow) return rows.find(f => this.flowMatches(f.flowName)) || null;
                     return rows[0];
                 },
                 // 경계 문제가 있는 설비 목록 — 카드 상단 배너용.
@@ -1369,7 +1418,7 @@
 
                 // ── 내보내기 (종합효율 현황) ─────────────────────────────────────────────
                 // Excel = 화면 상태(요약·순위·정지) + 일자별 추이 차트(캔버스 캡처)를 서버(OeeExcelExporter)가 렌더 → WYSIWYG.
-                oeeExportName() { return this.curFlow ? this.curFlow : this.curSystem ? this.curSystem : '라인전체'; },
+                oeeExportName() { return this.curFlow ? this.scopeFlowName() : this.curSystem ? this.curSystem : '라인전체'; },
                 _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
                 _downloadBlob(filename, blob) {
                     const url = URL.createObjectURL(blob);
@@ -1397,9 +1446,9 @@
                         }
                         const ac = this.availComp;
                         const model = {
-                            title: this.curFlow || this.curSystem || '라인 전체',
+                            title: this.curFlow ? (window.dspBranch ? window.dspBranch.label(this.curFlow, this.curBranch) : this.curFlow) : (this.curSystem || '라인 전체'),
                             systemName: this.curSystem || null,
-                            flowName: this.curFlow || null,
+                            flowName: this.curFlow ? this.scopeFlowName() : null,
                             periodStart: r.from, periodEnd: r.to,
                             kpi: {
                                 oee: o.oee, availability: o.availability, performance: o.performance, quality: o.quality,

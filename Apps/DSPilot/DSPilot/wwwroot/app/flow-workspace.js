@@ -87,6 +87,15 @@
                 // 전체 추이의 시스템 스코프(2026-09-08) — /flow-trend?system=이름(좌측 메뉴 추이 분석 트리의 시스템 행).
                 //   그 시스템 flow 히스토리만 합산. ?name= 이 있으면 무관(설비 우선). '' = 라인 전체.
                 systemParam: '',
+                // ── 사이클 분기(2026-09-11) — 추이 분석 ──
+                //   분기 = 사이클 행(history.branchName)의 라벨. 부모 평균 CT 는 분기 혼합비가 바뀌면 설비가 느려지지 않아도
+                //   움직이므로(40s/60s 두 분기 70:30→30:70 이면 46s→54s) 분기 있는 flow 는 분기별로 읽어야 한다.
+                //   branchParam : &branch=<분기>(좌측 트리 분기 자식 행) → 그 분기 사이클 행만 집계(분기 스코프). '' = flow 전체(합집합).
+                //   flowBranches: 이 flow 의 분기 이름 목록(정의 순서 = 색 index, /api/nav flowBranches). [] = 분기 미사용.
+                //   branchRows  : 부모 뷰(분기 있는 flow, 분기 미선택)의 분기별 분해 표 — 부모 합계 = KPI, 각 분기 + 미분류 행.
+                branchParam: '',
+                flowBranches: [],
+                branchRows: [],
 
                 // ── 사이클 분석 (구 cycle-time-analysis, 이 Flow 스코프) ──
                 selectedFlow: '',
@@ -162,6 +171,8 @@
                     // 분기 간트 제외 call 접기 복원(기본 OFF)
                     try { this.hideExcl = localStorage.getItem('dspilot-gantt-hide-excl') === '1'; } catch (_) { }
                     this.flowName = new URLSearchParams(location.search).get('name');
+                    // 분기 스코프(&branch=) — flow 가 있을 때만 의미. 추이 집계에서 그 분기 행만 남긴다(reloadTrend).
+                    this.branchParam = this.flowName ? (new URLSearchParams(location.search).get('branch') || '') : '';
                     // 뷰 모드 확정 — 전용 페이지(window.DSP_FLOW_VIEW) ▸ ?view= ▸ 기본 'both'(구 flow.html).
                     this.view = window.DSP_FLOW_VIEW || new URLSearchParams(location.search).get('view') || 'both';
                     if (this.view === 'trend') this.tab = 'trend';
@@ -205,6 +216,8 @@
                         await this.loadFlow();
                         if (this.flow) {
                             this.selectedFlow = this.flow.flowName;
+                            // 분기 목록(추이 분해·스코프 표기) — 사이클 전용 페이지는 loadBranches(/api/flow/{name}/branches)가 정본이라 건너뜀.
+                            if (this.view !== 'cycle') await this.loadFlowBranches();
                             await this.reloadTrend();
                             await this.loadExclusions();
                             if (this.view === 'cycle') await this.loadBranches();
@@ -377,7 +390,11 @@
                 },
 
                 // ── 내보내기 (기간별 추이) ─────────────────────────────────────────────
-                trendName() { return this.allMode ? (this.systemParam ? this.systemParam + '_추이' : '전체추이') : (this.flow ? this.flow.flowName : (this.flowName || 'Flow')); },
+                trendName() {
+                    if (this.allMode) return this.systemParam ? this.systemParam + '_추이' : '전체추이';
+                    const f = this.flow ? this.flow.flowName : (this.flowName || 'Flow');
+                    return this.branchParam ? f + '_' + this.branchParam : f;
+                },
                 _stamp() { const t = new Date(); const p = (x) => String(x).padStart(2, '0'); return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`; },
                 _downloadBlob(filename, blob) {
                     const url = URL.createObjectURL(blob);
@@ -400,8 +417,9 @@
                             } catch (e) { return null; }
                         };
                         const images = [
-                            grab('trendChart', '기간별 가동시간 (동작·대기)'),
-                            grab('countChart', '가동횟수'),
+                            // 분기 분해 모드(부모 뷰)에서는 캔버스 내용이 분기별 선/스택이라 시트 캡션도 맞춘다(데이터 시트는 부모 합계 그대로).
+                            grab('trendChart', this.branchDecompose ? '분기별 평균 가동시간 (점선 = flow 전체 혼합 평균)' : '기간별 가동시간 (동작·대기)'),
+                            grab('countChart', this.branchDecompose ? '가동횟수 (분기별 스택)' : '가동횟수'),
                         ].filter(Boolean);
                         const model = {
                             title: this.trendName(),
@@ -441,7 +459,52 @@
                 get trendSubtitle() {
                     const fmt = (d) => { if (!d) return '-'; const p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
                     const g = this.granularity === 'hour' ? '1시간' : this.granularity === 'day' ? '1일' : this.granularity === 'week' ? '1주' : this.granularity;
-                    return `현재 기간: ${fmt(this.periodStart)} ~ ${fmt(this.periodEnd)} (버킷: ${g}, 가동 ${this.trend.cycleCount.toLocaleString()}회)`;
+                    const br = this.branchScoped ? `, 분기 ${this.branchParam} 사이클만` : (this.branchDecompose ? `, 분기 ${this.flowBranches.length}개 합집합` : '');
+                    return `현재 기간: ${fmt(this.periodStart)} ~ ${fmt(this.periodEnd)} (버킷: ${g}, 가동 ${this.trend.cycleCount.toLocaleString()}회${br})`;
+                },
+
+                // ── 사이클 분기 헬퍼(추이) ──
+                // 분기 스코프 = ?name=<flow>&branch=<분기> 진입. 분해 = 분기 있는 flow 를 분기 미선택으로 볼 때(부모 합집합 + 분기별 표/스택/선).
+                get branchScoped() { return !this.allMode && !!this.flowName && !!this.branchParam; },
+                get branchDecompose() { return !this.allMode && !!this.flowName && !this.branchParam && this.flowBranches.length > 0; },
+                // 분기 목록 — /api/nav(window.dspBranch 공유 fetch) flowBranches(정의 순서). 실패·분기 미사용 → [].
+                //   존재하지 않는 분기 이름으로 진입(삭제·리네임 뒤 북마크)해도 스코프를 무시하지 않는다 — 0건으로 드러내는 편이 오해가 없다.
+                async loadFlowBranches() {
+                    this.flowBranches = [];
+                    if (!this.flowName || !window.dspBranch) return;
+                    try {
+                        const nav = await window.dspBranch.nav();
+                        const m = window.dspBranch.mapFromNav(nav && nav.systems);
+                        this.flowBranches = (m.byParent[this.flowName] || []).slice();
+                    } catch (_) { this.flowBranches = []; }
+                },
+                // 분기 색 = 간트/나브와 같은 팔레트(정의 순서). 목록에 없는 이름(미분류 '') = 회색.
+                //   (이름 주의: 사이클 뷰의 brColor(i) 는 CycleGantt 위임 — 추이 페이지엔 cycle-gantt.js 가 없어 별도 메서드.)
+                trendBrColor(name) {
+                    const db = window.dspBranch;
+                    const i = this.flowBranches.indexOf(name);
+                    if (!db) return i >= 0 ? '#2e7d32' : '#9e9e9e';
+                    return i >= 0 ? db.color(i) : db.NONE_COLOR;
+                },
+                // 분기 스코프 링크(분해 표 행 → 그 분기만 보기). 같은 페이지라 기간 파라미터는 없고 name+branch 만.
+                branchHref(name) {
+                    return '/flow-trend?name=' + encodeURIComponent(this.flowName || '') + '&branch=' + encodeURIComponent(name);
+                },
+                // 분기별 분해 행 — 정의 순서의 각 분기 + (있으면) 미분류. share = 부모 행 수 대비 비중(합 = 1).
+                buildBranchRows(rows) {
+                    const total = rows.length;
+                    const groups = new Map(this.flowBranches.map(k => [k, []]));
+                    const un = [];
+                    for (const r of rows) {
+                        const k = r.branchName || '';
+                        if (groups.has(k)) groups.get(k).push(r); else un.push(r);
+                    }
+                    const mk = (name, list, isUn) => Object.assign(
+                        { name, isUn, color: isUn ? this.trendBrColor('') : this.trendBrColor(name), share: total > 0 ? list.length / total : 0 },
+                        this.statsOf(list));
+                    const out = this.flowBranches.map(k => mk(k, groups.get(k), false));
+                    if (un.length) out.push(mk('미분류', un, true));
+                    return out;
                 },
 
                 async reloadTrend() {
@@ -461,34 +524,42 @@
                         }
                         if (seq !== this._trendSeq) return;
                         const startMs = this.periodStart.getTime(), endMs = this.periodEnd.getTime();
-                        const rows = (hist || []).filter(h => { const t = new Date(h.recordedAt).getTime(); return t >= startMs && t <= endMs; });
+                        let rows = (hist || []).filter(h => { const t = new Date(h.recordedAt).getTime(); return t >= startMs && t <= endMs; });
+                        // 분기 스코프 — 그 분기 라벨 행만(미분류 NULL 행은 어느 분기에도 속하지 않으므로 제외).
+                        if (this.branchScoped) rows = rows.filter(h => (h.branchName || '') === this.branchParam);
                         this.buildStats(rows);
+                        // 부모 뷰(분기 있는 flow) — 분기별 분해 표. 부모 합계(KPI)는 미분류 포함 전체 행(실제 있었던 사이클).
+                        this.branchRows = this.branchDecompose ? this.buildBranchRows(rows) : [];
                         this.buckets = this.buildBuckets(rows);
                         this.$nextTick(() => this.drawCharts());
                     } catch (e) {
-                        if (seq === this._trendSeq) { this.resetStats(); this.buckets = []; }
+                        if (seq === this._trendSeq) { this.resetStats(); this.buckets = []; this.branchRows = []; }
                     } finally { if (seq === this._trendSeq) this.trendLoading = false; }
                 },
 
-                resetStats() { this.trend = { cycleCount: 0, idleCount: 0, avgCT: null, avgMT: null, avgWT: null, minCT: null, maxCT: null, utilization: 0, totalMt: 0, totalWt: 0 }; },
+                emptyStats() { return { cycleCount: 0, idleCount: 0, avgCT: null, avgMT: null, avgWT: null, minCT: null, maxCT: null, utilization: 0, totalMt: 0, totalWt: 0 }; },
+                resetStats() { this.trend = this.emptyStats(); },
 
-                buildStats(rows) {
-                    this.resetStats();
-                    if (rows.length === 0) return;
+                // 사이클 행 집합 → 요약 통계(순수 함수). KPI(부모/스코프)와 분기별 분해 행이 같은 정의를 쓴다.
+                statsOf(rows) {
+                    const t = this.emptyStats();
+                    if (!rows || rows.length === 0) return t;
                     const ct = rows.filter(r => r.ct != null).map(r => r.ct);
                     const mt = rows.filter(r => r.mt != null).map(r => r.mt);
                     const wt = rows.filter(r => r.wt != null).map(r => r.wt);
                     const avg = (a) => a.reduce((s, v) => s + v, 0) / a.length;
                     const sum = (a) => a.reduce((s, v) => s + v, 0);
-                    this.trend.cycleCount = rows.length;
-                    this.trend.idleCount = rows.filter(r => r.isIdle).length;
-                    if (ct.length) { this.trend.avgCT = avg(ct); this.trend.minCT = Math.min(...ct); this.trend.maxCT = Math.max(...ct); }
-                    if (mt.length) this.trend.avgMT = avg(mt);
-                    if (wt.length) this.trend.avgWT = avg(wt);
-                    this.trend.totalMt = sum(mt); this.trend.totalWt = sum(wt);
-                    const denom = this.trend.totalMt + this.trend.totalWt;
-                    this.trend.utilization = denom > 0 ? this.trend.totalMt / denom : 0;
+                    t.cycleCount = rows.length;
+                    t.idleCount = rows.filter(r => r.isIdle).length;
+                    if (ct.length) { t.avgCT = avg(ct); t.minCT = Math.min(...ct); t.maxCT = Math.max(...ct); }
+                    if (mt.length) t.avgMT = avg(mt);
+                    if (wt.length) t.avgWT = avg(wt);
+                    t.totalMt = sum(mt); t.totalWt = sum(wt);
+                    const denom = t.totalMt + t.totalWt;
+                    t.utilization = denom > 0 ? t.totalMt / denom : 0;
+                    return t;
                 },
+                buildStats(rows) { this.trend = this.statsOf(rows); },
 
                 truncBucket(d) {
                     if (this.granularity === 'hour') return new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours());
@@ -505,22 +576,39 @@
                 },
                 buildBuckets(rows) {
                     const map = new Map();
+                    // 분기별 분해 — 버킷마다 분기 키(정의 순서 이름, '' = 미분류)별 횟수·평균 CT 도 함께 누적한다.
+                    const dec = this.branchDecompose;
+                    const brKeys = dec ? this.flowBranches.concat(['']) : [];
                     for (const r of rows) {
                         const key = this.truncBucket(new Date(r.recordedAt)).getTime();
                         let a = map.get(key);
-                        if (!a) { a = { key, count: 0, idle: 0, sCt: 0, nCt: 0, sMt: 0, nMt: 0, sWt: 0, nWt: 0 }; map.set(key, a); }
+                        if (!a) { a = { key, count: 0, idle: 0, sCt: 0, nCt: 0, sMt: 0, nMt: 0, sWt: 0, nWt: 0, br: {} }; map.set(key, a); }
                         a.count++; if (r.isIdle) a.idle++;
                         if (r.ct != null) { a.sCt += r.ct; a.nCt++; }
                         if (r.mt != null) { a.sMt += r.mt; a.nMt++; }
                         if (r.wt != null) { a.sWt += r.wt; a.nWt++; }
+                        if (dec) {
+                            const bk = this.flowBranches.indexOf(r.branchName || '') >= 0 ? r.branchName : '';
+                            let b = a.br[bk]; if (!b) b = a.br[bk] = { count: 0, sCt: 0, nCt: 0 };
+                            b.count++; if (r.ct != null) { b.sCt += r.ct; b.nCt++; }
+                        }
                     }
-                    const emit = (a, key) => ({
-                        ts: key,
-                        avgCT: a && a.nCt > 0 ? a.sCt / a.nCt : 0,
-                        avgMT: a && a.nMt > 0 ? a.sMt / a.nMt : 0,
-                        avgWT: a && a.nWt > 0 ? a.sWt / a.nWt : 0,
-                        count: a ? a.count : 0, idle: a ? a.idle : 0,
-                    });
+                    const emit = (a, key) => {
+                        const o = {
+                            ts: key,
+                            avgCT: a && a.nCt > 0 ? a.sCt / a.nCt : 0,
+                            avgMT: a && a.nMt > 0 ? a.sMt / a.nMt : 0,
+                            avgWT: a && a.nWt > 0 ? a.sWt / a.nWt : 0,
+                            count: a ? a.count : 0, idle: a ? a.idle : 0,
+                            brCount: {}, brAvgCT: {},
+                        };
+                        for (const k of brKeys) {
+                            const b = a && a.br[k];
+                            o.brCount[k] = b ? b.count : 0;
+                            o.brAvgCT[k] = b && b.nCt > 0 ? b.sCt / b.nCt : 0;
+                        }
+                        return o;
+                    };
                     // 기간 내 모든 단위시간 버킷을 빠짐없이 생성(데이터 없으면 0). — 시계열 연속성 규약
                     const out = [];
                     if (this.periodStart && this.periodEnd) {
@@ -580,7 +668,60 @@
                     // 라벨용 짧은 시간 포맷 (막대 위 이상치 표시)
                     const fmtShort = (sec) => { const ms = sec * 1000; if (ms >= 3600000) return Math.round(ms / 3600000) + '시간'; if (ms >= 60000) return Math.round(ms / 60000) + '분'; return Math.round(ms / 1000) + '초'; };
 
-                    if (trendCv) {
+                    // 분기별 분해 시리즈(부모 뷰, 분기 있는 flow) — 정의 순서 분기 + 미분류(그 기간에 있을 때만).
+                    const brSeries = this.branchDecompose
+                        ? this.flowBranches.map(n => ({ key: n, label: n, color: this.trendBrColor(n) }))
+                            .concat(this.buckets.some(b => (b.brCount[''] || 0) > 0) ? [{ key: '', label: '미분류', color: this.trendBrColor('') }] : [])
+                        : [];
+
+                    if (trendCv && this.branchDecompose) {
+                        // ── 분기별 평균 가동시간(선) + flow 전체 혼합 평균(점선) ──
+                        // 평균은 쌓을 수 없어 분기별 선이 유일한 선택. 부모 점선은 혼합비에 따라 움직이는 값(=오독 위험)을 대조용으로 남긴다.
+                        // 막대(동작·대기 구성)는 분기 스코프 페이지(분기 행 클릭)에서 종전 그대로 본다.
+                        const fmtMs = (s) => this.fmt(s * 1000);
+                        const datasets = brSeries.map(s => ({
+                            type: 'line', label: s.label, brKey: s.key,
+                            data: this.buckets.map(b => (b.brAvgCT[s.key] > 0) ? toSec(b.brAvgCT[s.key]) : null),
+                            borderColor: s.color, backgroundColor: s.color, borderWidth: 2, tension: 0.25,
+                            pointRadius: 2.5, pointHoverRadius: 5, spanGaps: true, fill: false,
+                            borderDash: s.key === '' ? [3, 3] : undefined,
+                        }));
+                        datasets.push({
+                            type: 'line', label: 'flow 전체(혼합 평균)', brKey: null,
+                            data: this.buckets.map(b => b.avgCT > 0 ? toSec(b.avgCT) : null),
+                            borderColor: tickColor, borderWidth: 1.5, borderDash: [6, 4], pointRadius: 0, pointHoverRadius: 4,
+                            spanGaps: true, fill: false,
+                        });
+                        this.trendClipped = false;   // 선 차트는 축약하지 않는다(▲ 마커 규약은 막대 전용)
+                        const bks = this.buckets;
+                        _charts.trend = new Chart(trendCv, {
+                            type: 'line',
+                            data: { labels, datasets },
+                            options: {
+                                responsive: true, maintainAspectRatio: false, animation: false,
+                                interaction: { mode: 'index', intersect: false },
+                                plugins: {
+                                    legend: { position: 'top', labels: { color: tickColor, boxWidth: 12, usePointStyle: true, pointStyle: 'line', font: { size: 11 } } },
+                                    tooltip: {
+                                        callbacks: {
+                                            title: (items) => labels[items[0].dataIndex] || '',
+                                            label: (c) => {
+                                                const v = c.parsed.y;
+                                                if (v == null) return null;
+                                                const k = c.dataset.brKey;
+                                                const n = k == null ? (bks[c.dataIndex] ? bks[c.dataIndex].count : 0) : ((bks[c.dataIndex] && bks[c.dataIndex].brCount[k]) || 0);
+                                                return `${c.dataset.label}: ${fmtMs(v)} (${n}회)`;
+                                            },
+                                        }
+                                    },
+                                },
+                                scales: {
+                                    x: { grid: { display: false }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } },
+                                    y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '평균 가동시간', color: tickColor } },
+                                },
+                            }
+                        });
+                    } else if (trendCv) {
                         // 최근 히스토리와 동일한 차트 스타일: 버킷별 MT/WT 스택 막대 + 평균 CT 기준선
                         const cssRaw = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
                         const cMtBar = cssRaw('--dash-mt') || cssRaw('--color-primary') || '#12A594';
@@ -675,7 +816,38 @@
                         });
                         _charts.trend.$ctx = { labels, mt: mtData, wt: wtData, avg };
                     }
-                    if (countCv) {
+                    if (countCv && this.branchDecompose) {
+                        // ── 가동횟수 = 분기 색 스택 막대(합 = 부모 횟수). 미분류는 회색 조각 — 혼합비 변화가 여기서 바로 보인다. ──
+                        const bks = this.buckets;
+                        _charts.count = new Chart(countCv, {
+                            type: 'bar',
+                            data: {
+                                labels,
+                                datasets: brSeries.map(s => ({
+                                    label: s.label, data: bks.map(b => b.brCount[s.key] || 0),
+                                    backgroundColor: s.color, stack: 'n', borderWidth: 0, borderRadius: 2, maxBarThickness: 40,
+                                })),
+                            },
+                            options: {
+                                responsive: true, maintainAspectRatio: false, animation: false,
+                                interaction: { mode: 'index', intersect: false },
+                                plugins: {
+                                    legend: { position: 'top', labels: { color: tickColor, boxWidth: 12, usePointStyle: true, pointStyle: 'rectRounded', font: { size: 11 } } },
+                                    tooltip: {
+                                        callbacks: {
+                                            title: (items) => items[0].label || '',
+                                            label: (c) => `${c.dataset.label}: ${(c.parsed.y ?? 0).toLocaleString()}회`,
+                                            afterBody: (items) => { const b = bks[items[0].dataIndex]; return b ? ['전체: ' + b.count.toLocaleString() + '회'] : []; },
+                                        }
+                                    },
+                                },
+                                scales: {
+                                    x: { stacked: true, grid: { display: false }, ticks: { color: tickColor, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } },
+                                    y: { stacked: true, beginAtZero: true, grid: { color: grid }, ticks: { color: tickColor, precision: 0 } },
+                                },
+                            }
+                        });
+                    } else if (countCv) {
                         const cctx = countCv.getContext('2d');
                         const grad = cctx.createLinearGradient(0, 0, 0, countCv.clientHeight || 260);
                         grad.addColorStop(0, hexA(cCt, 0.30));

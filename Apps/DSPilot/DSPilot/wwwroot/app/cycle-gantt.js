@@ -837,9 +837,12 @@
     //  반환 = { spans[{sMs,eMs,isOpen,win,dup,minViol,passing,byBranch{pass,reason,fired[],viol},tailIn,tailInBy,color,label,title}],
     //           stats[{name,color,count,pct,dup,minViol}], un, unPct, dup, minViol, total, open }  — 빈 입력이면 전부 0/[] 인 새 객체.
     //  opts(선택): brName(bi) / formatMs(ms) 를 호출자 규약으로 바꿔 끼울 수 있다(기본 = 아래 brNameOf / formatMs).
+    // 분기 팔레트 SSOT = shell.js window.dspBranch.COLORS(나브 분기 점·추이 스택/선과 공유). shell.js 는 defer 라 이 파일
+    // 평가 시점엔 없을 수 있어 호출 시점에 읽고, 없으면 동일 값의 로컬 폴백(값을 바꿀 땐 두 곳 함께).
     var BRANCH_COLORS = ['#2e7d32', '#7b1fa2', '#0277bd', '#ef6c00', '#c2185b', '#5d4037', '#00695c', '#455a64'];
     var BRANCH_NONE_COLOR = '#9e9e9e';   // 정상 CT 없음(미분류) 고정 회색
-    function brColor(i) { return BRANCH_COLORS[i % BRANCH_COLORS.length]; }
+    function brPalette() { return (window.dspBranch && window.dspBranch.COLORS) || BRANCH_COLORS; }
+    function brColor(i) { var p = brPalette(); return p[i % p.length]; }
     function brNameOf(branches, bi) { var b = branches[bi]; return b ? (b.name || ('분기' + (bi + 1))) : ''; }
     function emptyBranchPreview() { return { spans: [], stats: [], un: 0, unPct: 0, dup: 0, minViol: 0, total: 0, open: 0 }; }
 

@@ -37,6 +37,59 @@ window.dspFmt = {
     },
 };
 
+// ── 사이클 분기(branch) 헬퍼 SSOT — window.dspBranch (2026-09-11) ──
+// 분기 = 사이클 행(dspFlowHistory.branchName)의 라벨. 세 이름 세계를 한곳에서 번역한다:
+//   · 페이지 URL 계약  : ?flow|name=<부모>&branch=<분기>   (나브 트리 FLOW 행 → 분기 자식 행)
+//   · 서버 OEE API     : flow=<부모_분기> 가상이름            (precompute 캐시가 flow= 만 키로 인식 — branch= 를 서버로 보내지 말 것)
+//   · 구 딥링크        : ?flow=<부모_분기>                    (split 으로 분해 — 분기명에 '_' 가 들어갈 수 있어 문자열 split 금지, nav 맵 정확 매칭만)
+// 색 = 가동시간 분석 간트(cycle-gantt.js brColor)와 같은 순서 — 나브 점·추이 스택/선이 간트와 같은 색을 낸다.
+window.dspBranch = {
+    COLORS: ['#2e7d32', '#7b1fa2', '#0277bd', '#ef6c00', '#c2185b', '#5d4037', '#00695c', '#455a64'],
+    NONE_COLOR: '#9e9e9e',   // 미분류(어느 분기의 제외 필터도 통과 못 한 사이클) 고정 회색
+    color(i) { var n = this.COLORS.length; return this.COLORS[((i % n) + n) % n]; },
+    // 가상이름 접합 — 분기 없으면 부모 그대로(분기 미사용 현장 = 항등).
+    virtual(flow, branch) { return branch ? flow + '_' + branch : (flow || ''); },
+    // 표시 라벨 — "부모 · 분기" / "부모".
+    label(flow, branch) { return branch ? flow + ' · ' + branch : (flow || ''); },
+    // /api/nav systems → { virt: {가상이름: {parent, branch, index}}, byParent: {부모: [분기명…(정의 순서 = 색 index)]} }
+    mapFromNav(systems) {
+        var virt = {}, byParent = {};
+        (systems || []).forEach(function (sys) {
+            var fb = sys.flowBranches || {};
+            Object.keys(fb).forEach(function (parent) {
+                var brs = fb[parent] || [];
+                byParent[parent] = brs.slice();
+                brs.forEach(function (b, i) { virt[parent + '_' + b] = { parent: parent, branch: b, index: i }; });
+            });
+        });
+        return { virt: virt, byParent: byParent };
+    },
+    // 이름 해석 — 가상이름이면 {flow:부모, branch}, 아니면 {flow:name, branch:''}.
+    split(name, map) {
+        var hit = map && map.virt ? map.virt[name] : null;
+        return hit ? { flow: hit.parent, branch: hit.branch } : { flow: name || '', branch: '' };
+    },
+    // URL → {flow, branch}. &branch= 가 없고 map 이 있으면 구 가상이름 딥링크를 분해한다.
+    fromUrl(flowKey, map, search) {
+        var qp = new URLSearchParams(search == null ? location.search : search);
+        var raw = qp.get(flowKey) || '';
+        var branch = qp.get('branch') || '';
+        var flow = raw;
+        if (raw && !branch && map) { var s = this.split(raw, map); flow = s.flow; branch = s.branch; }
+        return { flow: flow, branch: branch };
+    },
+    // /api/nav 1회 공유 fetch — 셸 트리와 페이지(OEE 스코프 해석·추이 분기 목록)가 같은 응답을 쓴다. 실패 = null.
+    _navP: null,
+    nav() {
+        if (!this._navP) {
+            this._navP = fetch('/api/nav', { headers: { 'Accept': 'application/json' } })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .catch(function () { return null; });
+        }
+        return this._navP;
+    },
+};
+
 /*
  * DSPilot 정적 셸 (Shared App-Shell) — stitch "Industrial Insight"
  * ------------------------------------------------------------------
@@ -49,8 +102,9 @@ window.dspFmt = {
  *
  * 사이드바 구성(dashboard2 와 동일 — 축소판):
  *   · 브랜드 (DUAL 로고 이미지 /images/logo.png + Industrial Monitoring)
- *   · 페이지 링크 (대시보드 + 기능별 3범위 트리[전체 → 시스템 → FLOW]: 생산효율/설비효율/추이/가동시간/동작편차/이상·알람 [+PLC 디버그])
- *     트리 규약은 NAV_ITEMS 주석(2026-09-08 기능 축 단일화 — 구 시스템 '○○ 관리' 아코디언 제거) 참조.
+ *   · 페이지 링크 (대시보드 + 기능별 스코프 트리[전체 → 시스템 → FLOW (→ 분기: 설비효율·추이만)]:
+ *     생산효율/설비효율/추이/가동시간/동작편차/이상·알람 [+PLC 디버그])
+ *     트리 규약은 NAV_ITEMS 주석(2026-09-08 기능 축 단일화 — 구 시스템 '○○ 관리' 아코디언 제거, 2026-09-11 분기 자식 행) 참조.
  *   · Settings (푸터)
  *   ※ 구 shell.js 의 "시스템 flow 트리 · agent 통신 상태 · 마지막 갱신" 섹션은 제거됨.
  *   ※ 사이드바 "알람 이력" 피드와 헤더 "가동/대기" 위젯은 제거됨.
@@ -366,33 +420,41 @@ window.dspFmt = {
         function icon(name) { return el('span', 'material-icons', name); }
 
         // ── 3) 네비게이션 정의 (라우트/아이콘 — 라이브 대시보드는 '/'). ──
-        //   기능 축 트리(2026-09-08): 대시보드를 제외한 분석 기능은 모두 "전체 → 시스템 → FLOW" 3범위 트리.
+        //   기능 축 트리(2026-09-08): 대시보드를 제외한 분석 기능은 모두 "전체 → 시스템 → FLOW" 스코프 트리.
         //     · 링크 본문 클릭 = 전체(스코프 쿼리 없음, lineScope) / 우측 chevron = 시스템 목록 펼침·접힘(이동 없음)
         //     · 시스템 행 본문 = ?system=<시스템명> / 시스템 chevron = FLOW 목록 펼침 / FLOW 행 = ?<flowParam>=<flow>
         //     · 트리는 /api/nav systems 로 채운다(buildScopeTrees). 평소 접힘, 현재 페이지의 기능 트리만 자동 펼침.
         //   (구: 시스템 '○○ 관리' 아코디언 안에 기능 그룹을 반복하는 "시스템 → 기능 → FLOW" 축. 진입점이 둘이던
         //    생산효율/설비효율/이상·알람과 축을 맞추기 위해 기능 축으로 단일화·제거.)
+        //   분기 자식 행(2026-09-11): 분기 = 사이클 행의 라벨이므로 "그 분기 스코프에서 데이터가 실제로 달라지는" 기능,
+        //     즉 사이클 행 집계인 설비효율·추이 분석에만 FLOW 행 아래 분기 자식 행을 둔다(FLOW chevron = 분기 펼침,
+        //     분기 행 = ?<flowParam>=<부모>&branch=<분기>). FLOW 행 자체 = 분기 합집합(분기 없는 flow 는 종전 그대로).
+        //     생산효율(달력 분모라 분기 값 = 혼합비 → 오독)·가동시간(flow+분기를 한 화면에서 대조하는 편집 페이지)·
+        //     동작편차(call 물리량, 분기 무관)·이상·알람(사건 축, 부모 유지)은 FLOW 가 leaf.
+        //     (구 branchRows = 설비효율에서 부모 행을 "부모_분기" 병렬 행으로 치환 / parentAxis = 동작편차 부모 번역 → 폐기.
+        //      가상이름 딥링크(?flow=부모_분기)는 window.dspBranch 가 분해해 부모+분기로 정규화한다.)
         //   tree 필드:
         //     flowParam  : FLOW 행 쿼리 키 — 'flow'(생산·설비효율/동작편차/이상·알람) | 'name'(추이/가동시간 분석).
-        //     branchRows : 분기 활성 flow 를 "부모_분기" 행으로 치환(부모 행 소멸) — 설비효율만.
-        //                  생산효율/추이/가동시간/동작편차는 부모 그대로(2026-08-27 설계 규약).
-        //     parentAxis : "부모_분기" 이름으로 진입해도 부모 flow 행을 활성(동작편차 = 부모 flow 축 집계).
-        //     sysTitle / flowTitle : 행 툴팁(기능별 의미 안내).
+        //     branches   : true = 분기 활성 flow 의 FLOW 행 아래 분기 자식 행(설비효율·추이만).
+        //     sysTitle / flowTitle / branchTitle : 행 툴팁(기능별 의미 안내).
         var NAV_ITEMS = [
             { label: '대시보드',    href: '/',                    icon: 'space_dashboard', match: 'all',    legacy: '/app/dashboard.html' },
             { label: '생산효율 현황', href: '/uptime-teep', icon: 'trending_up', match: 'all', lineScope: true,
               tree: { flowParam: 'flow', sysTitle: '이 시스템 flow 합산 생산효율', flowTitle: '이 설비의 생산효율' } },
             { label: '설비효율 현황', href: '/uptime-oee',  icon: 'speed',       match: 'all', lineScope: true, legacy: ['/uptime', '/oee'],
-              tree: { flowParam: 'flow', branchRows: true, sysTitle: '이 시스템 flow 합산 설비효율(OEE)', flowTitle: '이 설비의 설비효율(OEE)' } },
+              tree: { flowParam: 'flow', branches: true, sysTitle: '이 시스템 flow 합산 설비효율(OEE)',
+                      flowTitle: '이 설비의 설비효율(OEE) — 분기가 있으면 분기 합집합', branchTitle: '이 분기 사이클만의 설비효율(OEE)' } },
             // 추이 분석 전체 = 전 flow 히스토리 합산(allMode), ?system= = 그 시스템 flow 만 합산(2026-09-08 추가).
+            //   FLOW = 그 flow 전체 사이클(분기 있으면 합집합 + 분기별 분해), 분기 = 그 분기 사이클만.
             { label: '추이 분석',   href: '/flow-trend',  icon: 'timeline',    match: 'all', lineScope: true,
-              tree: { flowParam: 'name', sysTitle: '이 시스템 flow 합산 추이', flowTitle: '이 설비의 기간별 추이' } },
+              tree: { flowParam: 'name', branches: true, sysTitle: '이 시스템 flow 합산 추이',
+                      flowTitle: '이 설비의 기간별 추이 — 분기가 있으면 합집합 + 분기별 분해', branchTitle: '이 분기 사이클만의 기간별 추이' } },
             // 가동시간 분석 전체/시스템 = 조회 전용 개요(카드 = 시작/끝 call + CT 리본), FLOW = 간트·분기 편집 페이지.
             { label: '가동시간 분석', href: '/flow-cycle', icon: 'account_tree', match: 'all', lineScope: true,
               tree: { flowParam: 'name', sysTitle: '이 시스템 flow 개요(조회 전용)', flowTitle: '이 설비의 가동시간 분석(간트·분기 편집)' } },
-            // 동작편차 전체 = 전 flow, ?system= = 그 시스템 flow 만(2026-09-08 추가), ?flow= = 설비(분기 이름은 부모로 번역).
+            // 동작편차 전체 = 전 flow, ?system= = 그 시스템 flow 만(2026-09-08 추가), ?flow= = 설비(부모 축 — 분기 무관).
             { label: '동작편차',    href: '/heatmap',     icon: 'gradient',    match: 'all', lineScope: true,
-              tree: { flowParam: 'flow', parentAxis: true, sysTitle: '이 시스템 flow 의 동작편차', flowTitle: '이 설비의 동작편차' } },
+              tree: { flowParam: 'flow', sysTitle: '이 시스템 flow 의 동작편차', flowTitle: '이 설비의 동작편차' } },
             // 이상·알람: 시스템 행 = 알람 행 systemName 등식(UserTag=AASX System, Abnormal=flow→System 해석) → 둘 다 포함,
             //   FLOW 행 = 자동감지만(UserTag 는 Flow 소속이 아님 — uptime-workspace utQs 주석). badge = 최근 10분 Error 수.
             { label: '이상·알람',    href: '/uptime-alarm', icon: 'warning_amber', match: 'all', lineScope: true, badge: true,
@@ -481,6 +543,9 @@ window.dspFmt = {
         var curItem = null;   // 현재 페이지의 기능 항목(트리 있는 것만). 대시보드/설정 등은 null.
         NAV_ITEMS.forEach(function (it) { if (it.tree && !curItem && onItemPage(it)) curItem = it; });
         var curFlow   = curItem ? (qs.get(curItem.tree.flowParam) || '') : '';
+        // 분기 스코프(&branch=) — FLOW 가 있을 때만 의미. 구 가상이름(?flow=부모_분기)은 /api/nav 도착 후
+        // buildScopeTrees 가 부모+분기로 정규화한다(분기명에 '_' 가 들어갈 수 있어 nav 맵 없이는 분해하지 않음).
+        var curBranch = curFlow ? (qs.get('branch') || '') : '';
         var curSystem = curItem && !curFlow ? (qs.get('system') || '') : '';
 
         // ── 4) 최상위 링크 + 기능별 트리 컨테이너(링크 바로 뒤). 트리 본문은 /api/nav 도착 후 buildScopeTrees 가 채운다. ──
@@ -629,15 +694,17 @@ window.dspFmt = {
                 var s = q.toString();
                 return p + (s ? '?' + s : '');
             }
-            // "부모_분기" 가상 이름 → 부모 flow(없으면 그대로). 시스템 1개 기준.
-            function parentFlowOf(name, flows, fbr) {
-                if (!name || flows.indexOf(name) !== -1) return name;
-                for (var i = 0; i < flows.length; i++) {
-                    var brs = fbr[flows[i]] || [];
-                    for (var j = 0; j < brs.length; j++)
-                        if (flows[i] + '_' + brs[j] === name) return flows[i];
-                }
-                return name;
+            // 구 가상이름 딥링크(?flow=부모_분기) 정규화 — nav 맵 정확 매칭으로만 분해(window.dspBranch SSOT).
+            //   모든 기능 공통: leaf 기능(동작편차 등)에서도 부모 FLOW 행이 활성된다(구 parentAxis 의 일반화).
+            var brMap = window.dspBranch.mapFromNav(systems);
+            if (curFlow && !curBranch && brMap.virt[curFlow]) {
+                curBranch = brMap.virt[curFlow].branch;
+                curFlow = brMap.virt[curFlow].parent;
+            }
+            // 분기 자식 행이 없는 기능(branches 미설정)에서 분기 스코프로 들어오면 부모 FLOW 행 활성으로 취급.
+            function flowHref(t, base, flowName, branch) {
+                return base + '?' + t.flowParam + '=' + encodeURIComponent(flowName)
+                    + (branch ? '&branch=' + encodeURIComponent(branch) : '');
             }
 
             NAV_ITEMS.forEach(function (item) {
@@ -652,16 +719,10 @@ window.dspFmt = {
                     var fbr = sys.flowBranches || {};
                     var sysName = sys.name || '';
 
-                    // FLOW 행 값 목록 — branchRows(설비효율)면 분기 활성 flow 를 "부모_분기" 로 치환.
-                    var rows = [];
-                    flows.forEach(function (f) {
-                        var brs = t.branchRows ? (fbr[f] || null) : null;
-                        if (brs && brs.length) brs.forEach(function (b) { rows.push(f + '_' + b); });
-                        else rows.push(f);
-                    });
-                    // 활성 FLOW — parentAxis(동작편차)면 "부모_분기" 진입도 부모 행 활성.
-                    var effFlow = (onPage && t.parentAxis) ? parentFlowOf(curFlow, flows, fbr) : curFlow;
-                    var flowInSys = onPage && !!effFlow && rows.indexOf(effFlow) !== -1;
+                    // 이 기능에서 분기 자식 행을 그리는가(설비효율·추이) — 분기 스코프 활성은 자식 행이 있을 때만 그 행에,
+                    // 없으면(leaf 기능) 부모 FLOW 행에 표시한다.
+                    var useBr = !!t.branches;
+                    var flowInSys = onPage && !!curFlow && flows.indexOf(curFlow) !== -1;
                     var sysCur = onPage && !!curSystem && curSystem === sysName;
 
                     var row = el('button', ROW_CLS + (sysCur ? '' : HOVER_CLS));
@@ -685,22 +746,68 @@ window.dspFmt = {
 
                     var list = el('div', 'flex flex-col gap-0.5');
                     list.style.cssText = 'display:none;padding-left:16px;';
-                    rows.forEach(function (flowName) {
-                        var isCur = onPage && effFlow === flowName;
+                    flows.forEach(function (flowName) {
+                        var brs = (useBr && fbr[flowName] && fbr[flowName].length) ? fbr[flowName] : null;
+                        var flowHit = onPage && curFlow === flowName;
+                        // FLOW 행 활성 = 이 flow 스코프이면서 (분기 자식이 없거나) 분기 미선택(=합집합). 분기 자식 활성이면 부모는 tint.
+                        var isCur = flowHit && (!brs || !curBranch);
+                        var inFlow = flowHit && !isCur;
                         var fb = el('button', ROW_CLS + (isCur ? '' : HOVER_CLS));
                         fb.type = 'button';
                         fb.style.cssText = 'text-align:left;' + BTN_RESET;
                         fb.title = flowName + ' — ' + t.flowTitle;
                         if (isCur) { fb.style.backgroundColor = '#2170e4'; fb.style.color = '#fff'; }
-                        fb.appendChild(dot(isCur ? '#fff' : 'currentColor', isCur ? '1' : '0.55'));
+                        fb.appendChild(dot(isCur ? '#fff' : (inFlow ? '#2170e4' : 'currentColor'), isCur || inFlow ? '1' : '0.55'));
                         var fl = el('span', 'font-label-sm text-label-sm', flowName);
-                        fl.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                        fl.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
+                            + (inFlow ? 'color:#2170e4;font-weight:600;' : '');
                         fb.appendChild(fl);
                         fb.addEventListener('click', function (ev) {
                             ev.stopPropagation();
-                            navigateTo(withPeriodCarry(base + '?' + t.flowParam + '=' + encodeURIComponent(flowName)));
+                            navigateTo(withPeriodCarry(flowHref(t, base, flowName, '')));
                         });
                         list.appendChild(fb);
+                        if (!brs) return;
+
+                        // ── 분기 자식 행(설비효율·추이) — FLOW chevron 으로 펼침, 현재 flow 스코프면 자동 펼침. ──
+                        var bchev = icon('chevron_right');
+                        bchev.style.cssText = 'flex:0 0 auto;font-size:15px;transition:transform 0.12s;cursor:pointer;padding:2px;margin:-2px;border-radius:4px;';
+                        bchev.setAttribute('role', 'button');
+                        bchev.setAttribute('aria-label', '분기 펼치기/접기');
+                        fb.appendChild(bchev);
+                        var blist = el('div', 'flex flex-col gap-0.5');
+                        blist.style.cssText = 'display:none;padding-left:16px;';
+                        blist.setAttribute('data-branches-of', flowName);
+                        brs.forEach(function (b, bi) {
+                            var bCur = flowHit && curBranch === b;
+                            var bb = el('button', ROW_CLS + (bCur ? '' : HOVER_CLS));
+                            bb.type = 'button';
+                            bb.style.cssText = 'text-align:left;' + BTN_RESET;
+                            bb.title = flowName + ' · ' + b + ' — ' + (t.branchTitle || '이 분기 사이클만');
+                            if (bCur) { bb.style.backgroundColor = '#2170e4'; bb.style.color = '#fff'; }
+                            // 분기 색 점 = 간트 분기색(dspBranch.color, 정의 순서). 활성 행은 흰 테두리로 파란 배경과 분리.
+                            var bd = dot(window.dspBranch.color(bi), '1');
+                            bd.style.width = '7px'; bd.style.height = '7px';
+                            if (bCur) bd.style.boxShadow = '0 0 0 1.5px #fff';
+                            bb.appendChild(bd);
+                            var bl = el('span', 'font-label-sm text-label-sm', b);
+                            bl.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                            bb.appendChild(bl);
+                            bb.addEventListener('click', function (ev) {
+                                ev.stopPropagation();
+                                navigateTo(withPeriodCarry(flowHref(t, base, flowName, b)));
+                            });
+                            blist.appendChild(bb);
+                        });
+                        var bopen = flowHit;
+                        function applyBOpen() {
+                            blist.style.display = bopen ? '' : 'none';
+                            bchev.style.transform = bopen ? 'rotate(90deg)' : '';
+                            fb.setAttribute('aria-expanded', bopen ? 'true' : 'false');
+                        }
+                        bchev.addEventListener('click', function (e) { e.stopPropagation(); bopen = !bopen; applyBOpen(); });
+                        applyBOpen();
+                        list.appendChild(blist);
                     });
 
                     var open = flowInSys || sysCur;
@@ -721,7 +828,7 @@ window.dspFmt = {
                 });
             });
 
-            // ── 헤더 제목·브레드크럼에 스코프 반영: "<FLOW|시스템> <기능명>" / Home › 기능명 › 시스템 › FLOW ──
+            // ── 헤더 제목·브레드크럼에 스코프 반영: "<FLOW[ · 분기]|시스템> <기능명>" / Home › 기능명 › 시스템 › FLOW › 분기 ──
             //   스코프 쿼리가 없는 전체 보기는 페이지 기본 제목 그대로(시스템 1개 현장이라도 시스템으로 오표기하지 않음).
             //   headTitle·crumb 은 var 선언 후 async 전에 이미 할당 → 클로저로 접근 가능.
             if (curItem && pageTitle && (curFlow || curSystem)) {
@@ -730,13 +837,12 @@ window.dspFmt = {
                 var funcName = pageTitle.replace(/\s+·\s+.+$/, '');
                 var sysName = curSystem;
                 if (curFlow) {
-                    // FLOW 의 소속 시스템(분기 가상 이름은 부모로 번역). 모델에 없는 flow(유령)면 시스템 단계 생략.
+                    // FLOW 의 소속 시스템(가상이름은 위에서 이미 부모로 정규화). 모델에 없는 flow(유령)면 시스템 단계 생략.
                     for (var i = 0; i < systems.length && !sysName; i++) {
-                        var fl = systems[i].flows || [];
-                        if (fl.indexOf(parentFlowOf(curFlow, fl, systems[i].flowBranches || {})) !== -1) sysName = systems[i].name || '';
+                        if ((systems[i].flows || []).indexOf(curFlow) !== -1) sysName = systems[i].name || '';
                     }
                 }
-                headTitle.textContent = (curFlow || sysName) + ' ' + funcName;
+                headTitle.textContent = (curFlow ? window.dspBranch.label(curFlow, curBranch) : sysName) + ' ' + funcName;
                 crumb.innerHTML = '';
                 crumb.appendChild(el('span', null, 'Home'));
                 crumb.appendChild(el('span', 'material-icons text-[16px]', 'chevron_right'));
@@ -747,7 +853,11 @@ window.dspFmt = {
                 }
                 if (curFlow) {
                     crumb.appendChild(el('span', 'material-icons text-[16px]', 'chevron_right'));
-                    crumb.appendChild(el('span', 'text-primary font-semibold', curFlow));
+                    crumb.appendChild(el('span', curBranch ? null : 'text-primary font-semibold', curFlow));
+                }
+                if (curFlow && curBranch) {
+                    crumb.appendChild(el('span', 'material-icons text-[16px]', 'chevron_right'));
+                    crumb.appendChild(el('span', 'text-primary font-semibold', curBranch));
                 }
             }
         }
@@ -1161,8 +1271,8 @@ window.dspFmt = {
         });
 
         // ── 8) /api/nav: ShowPlcDebug → PLC 디버그 링크 (1회) + 시스템별 Flow 서브메뉴 ──
-        fetch('/api/nav', { headers: { 'Accept': 'application/json' } })
-            .then(function (res) { return res.ok ? res.json() : null; })
+        //   window.dspBranch.nav() = 1회 공유 fetch — 페이지(OEE 스코프 해석·추이 분기 목록)와 같은 응답을 재사용.
+        window.dspBranch.nav()
             .then(function (data) {
                 if (!data) return;
                 if (data.showPlcDebug) {

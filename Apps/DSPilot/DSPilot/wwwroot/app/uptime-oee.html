@@ -58,10 +58,15 @@
                 <!-- 오른쪽: 스코프(설비/시스템) 필터 상태 + Excel 다운로드 (heatmap 과 동일한 .ds-topbar 우측 패턴) -->
                 <div class="ds-topbar-actions" style="justify-content:flex-end;" x-show="tab === 'oee'">
                     <template x-if="curFlow">
-                        <span class="chip chip-info">설비: <b x-text="curFlow"></b></span>
+                        <span class="chip chip-info" :title="curBranch ? '이 분기 사이클만의 설비효율' : (curFlowBranches.length ? '분기 ' + curFlowBranches.join(' · ') + ' 의 합집합(분기 행은 좌측 트리 또는 아래 표)' : '')">설비: <b x-text="curFlow"></b><template x-if="curBranch"><span> · 분기 <b x-text="curBranch"></b></span></template><template x-if="!curBranch && curFlowBranches.length"><span x-text="' · 분기 ' + curFlowBranches.length + '개 합집합'"></span></template></span>
                     </template>
                     <template x-if="!curFlow && curSystem">
                         <span class="chip chip-info">시스템: <b x-text="curSystem"></b></span>
+                    </template>
+                    <template x-if="curFlow && curBranch">
+                        <a class="btn btn-sm btn-outlined color-default" :href="'/uptime-oee?flow=' + encodeURIComponent(curFlow)" title="이 설비의 분기 합집합 보기">
+                            <span class="material-icons" style="font-size:15px;">account_tree</span> flow 전체
+                        </a>
                     </template>
                     <template x-if="curFlow || curSystem">
                         <a class="btn btn-sm btn-outlined color-default" href="/uptime-oee">
@@ -419,12 +424,13 @@
                         <div class="ds-card-h"><h4>OEE 순위</h4><span class="ds-card-h-sub">OEE = A × P × Q · 클릭→히트맵</span></div>
                         <template x-if="ranking.length > 0">
                             <div>
+                                <!-- 분기 활성 flow 는 "부모_분기" 가상 행 — 표시 "부모 · 분기", 링크 ?flow=부모&branch=분기(rankName/rankHref). -->
                                 <template x-for="(r, i) in ranking" :key="r.flowName">
                                     <a class="up-rank-row"
-                                       :href="'/heatmap?flow=' + encodeURIComponent(r.flowName)">
+                                       :href="rankHref(r)">
                                         <span class="up-rank-medal" x-text="medal(i)"></span>
                                         <div style="min-width:0;">
-                                            <div class="up-rank-name" :title="r.flowName" x-text="r.flowName"></div>
+                                            <div class="up-rank-name" :title="r.flowName" x-text="rankName(r)"></div>
                                             <div class="up-rank-sub" x-text="'정지 ' + r.downtimeCount + '건 · ' + durShort(r.downtimeMs) + ' · 생산 ' + (r.totalCount ?? 0)"></div>
                                         </div>
                                         <span class="up-rank-oee" :class="r.oee == null ? 'na' : ''" x-text="r.oee != null ? pct(r.oee) : '산출불가'"></span>
@@ -1078,7 +1084,7 @@
                                     <span class="num">가동 수</span>
                                 </div>
                                 <template x-for="f in mqRows" :key="f.flowName">
-                                    <div class="up-mq-row" :class="(curFlow === f.flowName ? 'is-cur ' : '') + (f.measurable === false ? 'is-unmeas ' : '') + (mqHasBranched ? 'has-br' : '')">
+                                    <div class="up-mq-row" :class="(flowMatches(f.flowName) ? 'is-cur ' : '') + (f.measurable === false ? 'is-unmeas ' : '') + (mqHasBranched ? 'has-br' : '')">
                                         <a class="up-mq-name" :href="'/uptime-oee?flow=' + encodeURIComponent(f.flowName)"
                                            :title="f.measurable === false
                                                    ? (f.flowName + ' — 측정 불가: 표준 가동시간 미학습(클린샘플 0). 설비 경계(Head/Tail) 지정을 확인하세요.')
