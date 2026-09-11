@@ -1594,10 +1594,15 @@
                         this.branchesSaved = JSON.stringify(this.branches);
                         this.branchSavedCount = this.branches.length;
                         this._brRefresh();
-                        this.branchMsg = (disable ? '분기 해제됨' : '분기 저장됨') + ' — 이력 재계산 중…';
+                        // 2026-09-11: 모델에 없는 참조가 있어도 서버는 저장을 통과시키고(격리 보존) unknownCalls/warning 으로 알려 준다.
+                        // 배지(brUnknown)는 응답의 unknownCallNames 로 그대로 남는다 — 정리는 사용자가 편할 때.
+                        const ghostN = (r.unknownCalls || []).length;
+                        this.branchMsg = (disable ? '분기 해제됨' : '분기 저장됨')
+                            + (ghostN ? ' — 모델에 없는 call ' + ghostN + '건 격리 보존' : '') + ' — 이력 재계산 중…';
                         await this.pollRecomputeStatus();
-                        this.branchMsg = disable ? '분기 해제 완료' : '분기 저장 완료 — 사이드바는 새로고침 후 분기 단위로 표시됩니다';
-                        setTimeout(() => { this.branchMsg = ''; }, 8000);
+                        this.branchMsg = (disable ? '분기 해제 완료' : '분기 저장 완료 — 사이드바는 새로고침 후 분기 단위로 표시됩니다')
+                            + (r.warning ? ' · ' + r.warning : '');
+                        setTimeout(() => { this.branchMsg = ''; }, r.warning ? 20000 : 8000);
                     } catch (e) {
                         this.branchError = (disable ? '해제' : '저장') + ' 실패: ' + e.message;
                         this.branchMsg = '';

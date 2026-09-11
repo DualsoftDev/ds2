@@ -160,7 +160,9 @@ public class FlowController : ControllerBase
 
     /// <summary>이 flow 의 분기 정의 목록 (없으면 빈 배열 = 분기 미사용).</summary>
     [HttpGet("{name}/branches")]
-    public ActionResult<FlowBranchesDto> GetBranches(string name)
+    public ActionResult<FlowBranchesDto> GetBranches(string name) => BuildBranchesDto(name);
+
+    private FlowBranchesDto BuildBranchesDto(string name, UnknownCallRefDto[]? unknownCalls = null, string? warning = null)
     {
         var set = _settings.GetFlowBranchSet(name);
         // 유령 참조(현재 모델에 없는 call 이름) — 화면이 "모델에 없는 call n개" 로 보여주고 사용자가 제거/재지정한다.
@@ -174,7 +176,9 @@ public class FlowController : ControllerBase
                 .Select(b => new FlowBranchDefDto(
                     b.Name, b.StartCallName, b.EndCallName, b.ExcludedCallNames.ToArray(),
                     lookup is null ? null : CallRefReconciler.UnknownNames(b, lookup).ToArray()))
-                .ToArray());
+                .ToArray(),
+            unknownCalls,
+            warning);
     }
 
     /// <summary>
@@ -194,13 +198,16 @@ public class FlowController : ControllerBase
         var options = BuildCallOptions(flow);
         var optionSet = new HashSet<string>(options, StringComparer.OrdinalIgnoreCase);
         var lookup = _project.GetFlowCallLookup(flow.Id);
+        var existingSet = _settings.GetFlowBranchSet(flow.Name);
         var branches = new List<Models.FlowBranchDef>();
         var unknownRefs = new List<UnknownCallRefDto>();
         foreach (var b in req?.Branches ?? [])
         {
-            // call 이름 실존 검증 — 오타/모델 변경 잔재가 조용히 전 사이클을 미분류로 만드는 것을 저장 시점에 차단.
-            // 첫 건에서 끊지 않고 전 분기의 유령을 모아 응답에 실어 준다(2026-09-08) — 화면이 목록으로 보여주고
-            // "모델에 없는 제외 call 제거" 로 한 번에 정리할 수 있게. 시작/끝 유령은 재지정이 필요하므로 제거 대상이 아니다.
+            // call 이름 실존 검증 — 모델에 없는 참조를 전 분기에서 모아 응답에 실어 준다(화면 배지·'제외 정리').
+            // 2026-09-11: 유령이 있어도 저장을 거절하지 않는다(격리 보존). 유령 제외 call 은 분류에서 무시되고, 유령 head/tail 은
+            // 재계산이 history 를 보존한 채 건너뛴다 — 정의 하나가 어긋났다고 무관한 수정까지 막을 이유가 없고, 지우지 않고 두면
+            // 원래 AASX 로 되돌렸을 때(9/10 사례) 그대로 다시 유효해진다. 종전 400 은 "조용한 손실 방지" 가 목적이었는데,
+            // 그 목적은 배지 + 응답 경고로 달성한다.
             foreach (var (call, role) in new[] { (b.StartCallName, "start"), (b.EndCallName, "end") })
                 if (string.IsNullOrWhiteSpace(call) || !optionSet.Contains(call.Trim()))
                     unknownRefs.Add(new UnknownCallRefDto(b.Name, call ?? "", role));
@@ -215,20 +222,21 @@ public class FlowController : ControllerBase
                 ExcludedCallNames = (b.ExcludedCallNames ?? [])
                     .Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).ToList(),
             };
-            CallRefReconciler.StampIds(def, lookup);   // 이중 키 — 이후 AASX 재로드 때 이름이 바뀌어도 GUID 로 추종
+            CallRefReconciler.StampIds(def, lookup);   // 다중 키(GUID + 배선 지문) — 이후 AASX 재로드 때 이름·GUID 가 바뀌어도 추종
+            // 모델에 없는 이름은 이전 저장분의 GUID·지문을 승계 — 되돌리기/배선 재매칭의 근거를 저장 한 번으로 잃지 않게.
+            CallRefReconciler.InheritUnresolved(def, existingSet);
             branches.Add(def);
         }
+        string? warning = null;
         if (unknownRefs.Count > 0)
         {
-            var first = unknownRefs[0];
-            var roleText = first.Role == "excluded" ? "제외" : "시작/끝";
-            var more = unknownRefs.Count > 1 ? $" (외 {unknownRefs.Count - 1}건)" : "";
-            return BadRequest(new
-            {
-                message = $"분기 '{first.Branch}' 의 {roleText} call '{first.CallName}' 이 이 flow 에 없습니다{more}. "
-                        + "AASX 에서 이름이 바뀌었거나 삭제된 call 입니다 — 분기 헤더의 '모델에 없는 call' 로 제거/재지정하세요.",
-                unknownCalls = unknownRefs,
-            });
+            var headTail = unknownRefs.Count(u => u.Role != "excluded");
+            warning = $"모델에 없는 call {unknownRefs.Count}건은 격리 보존됐습니다(분류에서 무시). "
+                    + (headTail > 0
+                        ? $"시작/끝이 모델에 없는 분기 {headTail}건은 이력 재계산이 보류됩니다 — lane 의 시작/끝 버튼으로 다시 지정하세요."
+                        : "분기 헤더의 '모델에 없는 call · 제외 정리' 로 정리할 수 있습니다.");
+            _logger.LogWarning("[Flow] 분기 저장 — 모델에 없는 참조 {N}건 격리 보존: {Flow} ({First}{More})",
+                unknownRefs.Count, flow.Name, unknownRefs[0].CallName, unknownRefs.Count > 1 ? " …" : "");
         }
 
         // OEE 노출명("부모_분기") 이 실존 flow 이름과 충돌하면 설비효율 열거가 두 개체를 한 이름으로 합쳐버린다.
@@ -269,7 +277,7 @@ public class FlowController : ControllerBase
             _logger.LogWarning(ex, "[Flow] 분기 저장 후 재계산 트리거 실패(저장은 유효): {Flow}", flow.Name);
         }
 
-        return GetBranches(flow.Name);
+        return BuildBranchesDto(flow.Name, unknownRefs.Count > 0 ? unknownRefs.ToArray() : null, warning);
     }
 
     // ── helpers ──
@@ -432,7 +440,10 @@ public record CycleOverrideRequestDto(
 
 public record FlowBranchesDto(
     string FlowName,
-    FlowBranchDefDto[] Branches);
+    FlowBranchDefDto[] Branches,
+    // 저장 응답 전용(2026-09-11): 이번 저장에서 격리 보존된 유령 참조 목록 + 사람이 읽는 경고 한 줄. 조회 응답은 null.
+    UnknownCallRefDto[]? UnknownCalls = null,
+    string? Warning = null);
 
 public record FlowBranchDefDto(
     string Name,
@@ -442,7 +453,7 @@ public record FlowBranchDefDto(
     // 응답 전용(2026-09-08): 현재 모델에 없는 참조 이름(시작·끝·제외). null = 판단 근거 없음(모델 미로드).
     string[]? UnknownCallNames = null);
 
-/// <summary>분기 저장 거절 응답의 유령 참조 1건 — Role = start | end | excluded.</summary>
+/// <summary>분기 저장 응답의 유령(격리 보존) 참조 1건 — Role = start | end | excluded.</summary>
 public record UnknownCallRefDto(string Branch, string CallName, string Role);
 
 public record SaveFlowBranchesRequestDto(

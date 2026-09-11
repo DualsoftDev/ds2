@@ -19,6 +19,12 @@ public class DspFlowEntity
     public string FlowName { get; set; } = string.Empty;
 
     /// <summary>
+    /// 모델 Flow GUID 스냅샷(문자열, null=구 데이터). flow 이름이 바뀌었는지 판정하는 근거
+    /// (<see cref="Services.FlowRenameDetector"/>) — 이름은 UNIQUE 키라 바뀌면 "다른 flow" 로 보이기 때문.
+    /// </summary>
+    public string? FlowId { get; set; }
+
+    /// <summary>
     /// Machine Time (ms) - 실제 작업 시간
     /// </summary>
     public int? MT { get; set; }

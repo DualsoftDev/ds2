@@ -483,6 +483,8 @@ public class DspRepositoryAdapter : IDspRepository
             await EnsureColumnAsync(conn, "dspFlow", "avgMT",             "REAL");
             await EnsureColumnAsync(conn, "dspFlow", "avgWT",             "REAL");
             await EnsureColumnAsync(conn, "dspFlow", "avgCT",             "REAL");
+            // 2026-09-11 — 모델 Flow GUID 스냅샷. flow 이름 변경을 "삭제+신규" 가 아니라 리네임으로 판정해 이력을 승계하기 위한 근거.
+            await EnsureColumnAsync(conn, "dspFlow", "flowId",            "TEXT");
             await EnsureColumnAsync(conn, "dspFlowHistory", "headCallName", "NVARCHAR(128)");
             await EnsureColumnAsync(conn, "dspFlowHistory", "tailCallName", "NVARCHAR(128)");
             await EnsureColumnAsync(conn, "dspFlowHistory", "branchName",   "NVARCHAR(128)");
@@ -513,9 +515,10 @@ public class DspRepositoryAdapter : IDspRepository
         try
         {
             var sql = $@"
-                INSERT INTO {_flowTable} (FlowName, MT, WT, CT, AvgMT, AvgWT, AvgCT, State, MovingStartName, MovingEndName)
-                VALUES (@FlowName, @MT, @WT, @CT, @AvgMT, @AvgWT, @AvgCT, @State, @MovingStartName, @MovingEndName)
+                INSERT INTO {_flowTable} (FlowName, FlowId, MT, WT, CT, AvgMT, AvgWT, AvgCT, State, MovingStartName, MovingEndName)
+                VALUES (@FlowName, @FlowId, @MT, @WT, @CT, @AvgMT, @AvgWT, @AvgCT, @State, @MovingStartName, @MovingEndName)
                 ON CONFLICT (FlowName) DO UPDATE SET
+                    FlowId = COALESCE(excluded.FlowId, {_flowTable}.FlowId),
                     MT = COALESCE(excluded.MT, {_flowTable}.MT),
                     WT = COALESCE(excluded.WT, {_flowTable}.WT),
                     CT = COALESCE(excluded.CT, {_flowTable}.CT),
@@ -1969,6 +1972,74 @@ public class DspRepositoryAdapter : IDspRepository
     }
 
     /// <summary>전체 dspFlow 의 FlowName 집합 — added/removed 계산용.</summary>
+    public async Task<List<(string FlowName, string? FlowId)>> GetFlowIdRowsAsync()
+    {
+        if (!_enabled) return [];
+        await using var conn = await OpenAsync();
+        if (!await TableExistsAsync(conn, _flowTable)) return [];
+        var cols = await conn.QueryAsync<string>($"SELECT name FROM pragma_table_info('{_flowTable}')");
+        if (!cols.Any(c => string.Equals(c, "flowId", StringComparison.OrdinalIgnoreCase))) return [];
+        var rows = await conn.QueryAsync<(string FlowName, string? FlowId)>(
+            $"SELECT FlowName, FlowId FROM {_flowTable}");
+        return rows.Where(r => !string.IsNullOrWhiteSpace(r.FlowName)).ToList();
+    }
+
+    public async Task<(int Flows, int Calls, int History)> RenameFlowAsync(string oldName, string newName)
+    {
+        if (!_enabled) return (0, 0, 0);
+        if (string.IsNullOrWhiteSpace(oldName) || string.IsNullOrWhiteSpace(newName)
+            || string.Equals(oldName, newName, StringComparison.Ordinal))
+            return (0, 0, 0);
+
+        await using var conn = await OpenAsync();
+        if (!await FlowAndCallTablesExistAsync(conn, _flowTable, _callTable))
+            return (0, 0, 0);
+
+        var param = new { Old = oldName, New = newName };
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            // dspFlow.FlowName 은 UNIQUE — 새 이름 행이 이미 있으면(UPSERT 선행/동명) 정의 행은 남기고 이력·call 만 이관.
+            // 정의 행은 재생성 가능한 파생물이고 통계 컬럼은 다음 UPSERT 의 COALESCE 가 보존한다.
+            var newExists = await conn.ExecuteScalarAsync<int>(
+                $"SELECT COUNT(*) FROM {_flowTable} WHERE FlowName = @New", param, tx) > 0;
+            var flows = newExists ? 0 : await conn.ExecuteAsync(
+                $"UPDATE {_flowTable} SET FlowName = @New, UpdatedAt = datetime('now') WHERE FlowName = @Old", param, tx);
+
+            // dspCall UNIQUE(callName, flowName, workName) — 새 이름 쪽에 같은 call 행이 이미 있으면 그 행은 건너뛴다(OR IGNORE).
+            // WorkName 은 Bootstrap 이 flow 이름으로 채우므로(F# parity) 함께 바꾼다.
+            var calls = await conn.ExecuteAsync(
+                $@"UPDATE OR IGNORE {_callTable}
+                   SET FlowName = @New,
+                       WorkName = CASE WHEN WorkName = @Old THEN @New ELSE WorkName END,
+                       UpdatedAt = datetime('now')
+                   WHERE FlowName = @Old", param, tx);
+
+            var history = 0;
+            if (await TableExistsAsync(conn, HistoryTable))
+                history = await conn.ExecuteAsync(
+                    $"UPDATE {HistoryTable} SET FlowName = @New WHERE FlowName = @Old", param, tx);
+            if (await TableExistsAsync(conn, "flowBoundaryChangeLog"))
+                await conn.ExecuteAsync(
+                    "UPDATE flowBoundaryChangeLog SET flowName = @New WHERE flowName = @Old", param, tx);
+
+            tx.Commit();
+
+            if (history > 0)
+                await _mirror.ReplicatePlcAsync(HistoryTable, "FlowName IN @Names", new { Names = new[] { oldName, newName } });
+
+            _logger.LogInformation("Renamed flow rows '{Old}' -> '{New}': dspFlow={Flows}, dspCall={Calls}, dspFlowHistory={History}",
+                oldName, newName, flows, calls, history);
+            return (flows, calls, history);
+        }
+        catch (Exception ex)
+        {
+            tx.Rollback();
+            _logger.LogError(ex, "Failed to rename flow rows '{Old}' -> '{New}'", oldName, newName);
+            throw;
+        }
+    }
+
     public async Task<List<string>> GetAllFlowNamesAsync()
     {
         if (!_enabled) return new List<string>();

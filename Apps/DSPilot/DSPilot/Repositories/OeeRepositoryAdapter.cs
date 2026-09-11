@@ -476,6 +476,35 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         return n;
     }
 
+    public async Task<int> RenameFlowAsync(string oldName, string newName, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(oldName) || string.IsNullOrWhiteSpace(newName)
+            || string.Equals(oldName, newName, StringComparison.Ordinal))
+            return 0;
+
+        await using var conn = await OpenAsync();
+        var param = new { Old = oldName, New = newName, Names = new[] { oldName, newName } };
+        var total = 0;
+        foreach (var table in new[] { "oeeDowntimeEvent", "oeeProductionCount", "oeeShiftException", "oeeNonProdDetectionLog" })
+        {
+            var exists = await conn.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = @T", new { T = table }) > 0;
+            if (!exists) continue;
+            // PK/UNIQUE 에 flowName 이 들어가는 표(생산 카운트·비생산 로그)는 새 이름 쪽 동일 키 행이 있으면 그 행만 건너뛴다.
+            var n = await conn.ExecuteAsync($"UPDATE OR IGNORE {table} SET flowName = @New WHERE flowName = @Old", param);
+            if (n <= 0) continue;
+            total += n;
+            if (table == "oeeDowntimeEvent")
+                await _mirror.ReplicateOeeAsync(table, "flowName IN @Names", param);
+        }
+        if (total > 0)
+        {
+            _mirror.MarkDirty("flow-rename");   // 정지 이벤트 외 표는 미러 재적재로 따라잡는다
+            _logger.LogInformation("[OEE] flow 리네임 승계 '{Old}' -> '{New}': {N}행", oldName, newName, total);
+        }
+        return total;
+    }
+
     private (string Where, DynamicParameters Params) BuildDowntimeFilter(
         DateTime fromUtc, DateTime toUtc, string? status, string? reasonCode, string? flowName)
     {

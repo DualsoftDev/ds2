@@ -63,6 +63,12 @@ public interface IOeeRepository
     Task<int> PruneDowntimeEventsByFlowNamesAsync(
         IEnumerable<string> retainFlowNames, bool countOnly = false, CancellationToken ct = default);
 
+    /// <summary>
+    /// flow 이름 변경 승계(2026-09-11) — oee.db 의 flowName 스냅샷(정지 이벤트·생산 카운트·시프트 예외·비생산 감지 로그)을
+    /// 옛 이름에서 새 이름으로. 키 충돌 행(새 이름 쪽에 같은 키가 이미 있음)은 건너뛴다(OR IGNORE). 반환 = 갱신 행 수 합.
+    /// </summary>
+    Task<int> RenameFlowAsync(string oldName, string newName, CancellationToken ct = default);
+
     /// <summary>정지 로그 조회 (필터: 기간/status open|recovered/reason). 최신순.</summary>
     Task<IReadOnlyList<OeeDowntimeDto>> QueryDowntimeAsync(
         DateTime fromUtc, DateTime toUtc,

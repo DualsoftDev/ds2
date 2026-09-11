@@ -189,6 +189,33 @@ public class SettingsController : ControllerBase
     [HttpGet("aasx-status")]
     public ActionResult<AasxStatusDto> GetAasxStatus() => BuildAasxStatus();
 
+    // ── GET: 모델 (재)로드 후 참조 재해석 결과 — Call 참조(리네임 추종·배선 재매칭·유령) + flow 이름 승계 ──
+    // 종전엔 서버 메모리(LastCallRefReport)에만 있고 어디에도 안 보여, 사용자가 분기 저장 버튼에서 처음 알게 됐다(2026-09-10).
+    // 설정 ▸ 모델·데이터 ▸ AASX 모델 카드의 '참조 재해석' 줄이 이걸 읽는다.
+    [HttpGet("model-reconcile")]
+    public ActionResult<object> GetModelReconcile()
+    {
+        var r = _settings.LastCallRefReport;
+        return Ok(new
+        {
+            callRef = r is null ? null : new
+            {
+                atUtc = r.AtUtc,
+                renamed = r.Renamed.Select(x => new { flowName = x.FlowName, branchName = x.BranchName, role = x.Role.ToString(), oldName = x.OldName, newName = x.NewName }),
+                rematched = r.Rematched.Select(x => new { flowName = x.FlowName, branchName = x.BranchName, role = x.Role.ToString(), oldName = x.OldName, newName = x.NewName }),
+                ghosts = r.Ghosts.Select(x => new { flowName = x.FlowName, branchName = x.BranchName, role = x.Role.ToString(), name = x.Name }),
+                filledIds = r.FilledIds,
+                filledSigs = r.FilledSigs,
+                rewired = r.Rewired,
+            },
+            flowRenames = _settings.LastFlowRenames.Select(x => new
+            {
+                atUtc = x.AtUtc, oldName = x.OldName, newName = x.NewName,
+                flows = x.Flows, calls = x.Calls, history = x.History, oee = x.Oee, settings = x.Settings,
+            }),
+        });
+    }
+
     // ── GET: 공유 폴더의 project.aasx 다운로드 ──
     // Promaker 와 공유하는 파일이므로 FileShare.ReadWrite 로 열어 잠금 충돌을 피한다.
     [HttpGet("download-aasx")]

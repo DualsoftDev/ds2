@@ -694,6 +694,15 @@ public class FlowBranchDef
     public string? EndCallId { get; set; }
     public List<string?>? ExcludedCallIds { get; set; }
 
+    /// <summary>
+    /// 배선 지문(2026-09-11) — 그 call 의 ApiCall IN/OUT PLC 주소를 정렬해 이은 문자열(<see cref="Services.CallSignature"/>).
+    /// 이름·GUID 가 모두 어긋난 참조(리네임 + GUID 재발급, 모델 되돌리기)를 되찾는 마지막 근거. 이름과 병렬·같은 순서,
+    /// null=구 데이터/미결선. 런타임은 읽지 않는다 — 재해석(<see cref="Services.CallRefReconciler"/>)만 쓴다.
+    /// </summary>
+    public string? StartCallSig { get; set; }
+    public string? EndCallSig { get; set; }
+    public List<string?>? ExcludedCallSigs { get; set; }
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
@@ -707,6 +716,10 @@ public class FlowCycleOverride
     /// <summary>Head/Tail 이름 스냅샷의 Call GUID(null=구 데이터) — <see cref="FlowBranchDef.StartCallId"/> 와 같은 규약.</summary>
     public string? StartCallId { get; set; }
     public string? EndCallId { get; set; }
+
+    /// <summary>Head/Tail 의 배선 지문 — <see cref="FlowBranchDef.StartCallSig"/> 와 같은 규약.</summary>
+    public string? StartCallSig { get; set; }
+    public string? EndCallSig { get; set; }
 
     /// <summary>
     /// 표준(ideal) 사이클 시간(ms). P5 OEE Performance = (idealCT × totalCount) / runtime 의 단일 소스.
