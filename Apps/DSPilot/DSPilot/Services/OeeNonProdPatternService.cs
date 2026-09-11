@@ -32,6 +32,7 @@ public sealed class OeeNonProdPatternService
     private readonly OeeCommHealthService _commHealth;
     private readonly AppSettingsService _settings;
     private readonly IConfiguration _configuration;
+    private readonly OeeCtStatsService _ctStats;
     private readonly ILogger<OeeNonProdPatternService> _logger;
 
     public OeeNonProdPatternService(
@@ -40,6 +41,7 @@ public sealed class OeeNonProdPatternService
         AppSettingsService settings,
         IConfiguration configuration,
         HistoryMirrorService mirror,
+        OeeCtStatsService ctStats,
         ILogger<OeeNonProdPatternService> logger)
     {
         _pathResolver = pathResolver;
@@ -47,6 +49,7 @@ public sealed class OeeNonProdPatternService
         _settings = settings;
         _configuration = configuration;
         _mirror = mirror;
+        _ctStats = ctStats;
         _logger = logger;
     }
 
@@ -194,19 +197,30 @@ public sealed class OeeNonProdPatternService
                     System.Globalization.DateTimeStyles.None, out var day))
                 activeDays.Add(day.Date);
 
-        // 사용자 설정 비생산 배수(기본 10×) — 라이브 §3.3 판정과 동일 문턱(설정 변경 시 학습 재료도 함께 이동).
-        var nonProdMult = _settings.LoadSettings().OeeManual.ResolveCtMultipliers().NonProdMult;
+        // 사용자 설정 비생산 배수(WT 축, 2026-09-09) — 라이브 판정과 동일 문턱(설정 변경 시 학습 재료도 함께 이동).
+        //   경계 = OeeMath.ResolveWtNonProdBoundaryMs(중앙 WT·중앙 CT, 하한 포함), WT 기준선 미보유 flow 는 평균 CT 폴백.
+        //   비교값도 판정과 같은 COALESCE(wt, ct) — 종전 "mt IS NULL 행만" 제약은 CT 축 시절 잔재(정지 후 재개 행이
+        //   wt 에 정지를 담는 지금은 mt 정상·wt 폭주 행이 장기 정지의 정본)라 함께 걷어냈다. 참고 표시 전용(KPI 미적용).
+        var (idleMult, nonProdMult) = _settings.LoadSettings().OeeManual.ResolveWtMultipliers();
+        var wtBase = await _ctStats.ComputeWtBaselineAsync();
         foreach (var f in targetFlows)
         {
             var thr = thresholds[f].AvgMs;
             if (thr <= 0) continue;
-            var longStopMs = thr * nonProdMult;
+            double longStopMs;
+            if (wtBase.TryGetValue(f, out var wb) && wb.MedianCtMs > 0)
+            {
+                var stopB = OeeMath.ResolveWtStopBoundaryMs(wb.MedianWtMs, wb.MedianCtMs, idleMult);
+                longStopMs = OeeMath.ResolveWtNonProdBoundaryMs(wb.MedianWtMs, wb.MedianCtMs, nonProdMult, stopB);
+            }
+            else longStopMs = thr * nonProdMult;
+            if (longStopMs <= 0) continue;
 
             var rows = await conn.QueryAsync<(string RecordedAt, long Ct)>(@"
                 SELECT recordedAt AS RecordedAt, ct AS Ct
                 FROM dspFlowHistory
                 WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow
-                  AND ct > 0 AND mt IS NULL AND ct >= @LongStop",
+                  AND ct > 0 AND COALESCE(wt, ct) >= @LongStop",
                 new { From = fromStr, To = toStr, Flow = f, LongStop = longStopMs });
             foreach (var r in rows)
             {

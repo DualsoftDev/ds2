@@ -430,7 +430,10 @@ public class DsProjectService
     /// (<see cref="CallRefReconciler"/>). 이름은 <see cref="Call.Name"/> 그대로(화면 lane·BuildCallOptions 와 동일 소스).
     /// </summary>
     public FlowCallLookup GetFlowCallLookup(Guid flowId)
-        => FlowCallLookup.From(GetWorks(flowId).SelectMany(w => GetCalls(w.Id)).Select(c => (c.Id, c.Name)));
+        => FlowCallLookup.From(GetWorks(flowId).SelectMany(w => GetCalls(w.Id))
+            .Select(c => (c.Id, c.Name,
+                // 배선 지문 — ApiCall 전 쌍의 IN/OUT 주소(PlcToCallMapperService 와 같은 접근: F# option 은 ?.Value).
+                CallSignature.Build(c.ApiCalls.Select(ac => (ac.InTag?.Value.Address, ac.OutTag?.Value.Address))))));
 
     public List<Call> GetAllCalls()
     {

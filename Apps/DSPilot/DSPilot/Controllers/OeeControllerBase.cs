@@ -30,25 +30,24 @@ public abstract class OeeControllerBase : ControllerBase
     protected readonly ILogger _logger;
 
     /// <summary>
-    /// 비가동(정지) 사이클 판정 SQL — 두 축을 <b>OR</b> 로 본다.
+    /// 비가동(정지) 사이클 판정 SQL — 두 축을 <b>OR</b> 로 본다 (2026-09-09 WT/MT 2축, doc/27).
     /// <list type="bullet">
-    ///   <item><c>@Thr</c>   = CT 축 경계(flow별 14일 평균 CT × 비가동 배수) — "이 사이클이 얼마나 길었나"</item>
-    ///   <item><c>@MtThr</c> = MT 축 경계(flow별 14일 중앙 MT × 고장 배수)   — "이 설비가 평소보다 늘어졌나"</item>
+    ///   <item><c>@WtThr</c> = WT 축 경계(flow별 14일 중앙 WT × 정지 배수, 하한 중앙 CT×1) — "사이클 사이에 얼마나 서 있었나".
+    ///         비교값은 <c>COALESCE(wt, ct)</c>: wt 가 없는 행(tail 미완료 mt NULL / tail 미정의 flow)은 사이클 전체를 대기로 본다.</item>
+    ///   <item><c>@MtThr</c> = MT 축 경계(flow별 14일 중앙 MT × 고장 배수, 절대 하한 1s) — "이 설비가 평소보다 늘어졌나"</item>
     /// </list>
-    /// <para>2026-08-19 ct 기준 추가 — 종전 mt-only 판정은 정지 후 재개 사이클(mt=정상, wt=정지 전체)을 정상으로
-    /// 삼켰다(실측: ct&gt;10×CT 559건 전부 정상 통과, 최대 5.8일 정지가 '사이클 1개'). CT=MT+WT 이므로 완료
-    /// 사이클도 ct 초과면 정지를 머금은 것 — <see cref="OeeMath.ClassifyCycle"/>(doc/22 §3)과 같은 규칙.</para>
-    /// <para><b>2026-08-24 mt 절을 MT 축으로 분리.</b> 종전엔 mt 도 <c>@Thr</c>(CT 축)와 비교해서, MT 축 고장 배수는
-    /// 유발자 <i>귀속</i>(LineHasMtOverrun/OwnMtOverrun)에만 쓰이고 고장 <i>생성</i>엔 전혀 관여하지 못했다.
-    /// 그 결과 "평소 MT 의 17배로 늘어졌지만 CT 는 임계 미달"인 사이클이 <b>정상 가동으로 계상되면서 동시에
-    /// 다른 flow 의 정지를 대기로 강등</b>시켰다 — 문제 설비는 무죄가 되고 여파를 받은 설비의 고장만 지워지는
-    /// 역전. 두 축을 같은 조건에 나란히 두어 "MT 지연이면 고장"과 "MT 지연이면 유발자"를 일치시킨다.</para>
-    /// <para>MT 기준을 못 구한 flow(표본 없음)는 호출측이 <c>@MtThr = @Thr</c> 로 바인딩해 종전 동작을 유지한다 —
-    /// 0 을 넣으면 <c>mt &gt; 0</c> 이 항상 참이라 전 사이클이 비가동이 된다.</para>
+    /// <para>종전 CT 축(<c>ct &gt; 평균 CT × 배수</c>, 2026-08-19)은 정지와 늘어진 동작을 한 숫자에 섞어 봤다. CT = MT + WT
+    /// 이므로 축을 성분별로 나누면 "MT 초과 = 고장(유발자, 길어도 비생산 승격 없음)" / "WT 초과 = 정지 → 길면 비생산"
+    /// 이 한 번에 갈린다. 정지 후 재개 사이클(mt 정상·wt=정지 전체)은 WT 절이 그대로 잡는다.</para>
+    /// <para><b>2026-08-24 MT 축 분리</b>의 취지(MT 지연이면 고장이자 유발자)는 유지된다 — 종전 주석 참조:
+    /// MT 배수를 귀속에만 쓰면 문제 설비는 무죄가 되고 여파를 받은 설비의 고장만 지워지는 역전이 난다.</para>
+    /// <para>WT 기준선을 못 구한 flow(tail 미정의 → wt 항상 NULL)는 호출측이 <c>@WtThr = 평균 CT × 정지 배수</c>(CT 폴백)로
+    /// 바인딩한다 — 비교값도 ct 라 종전 규칙과 같다. MT 기준 미보유 flow 는 <c>@MtThr = @WtThr</c> — 0 을 넣으면
+    /// <c>mt &gt; 0</c> 이 항상 참이라 전 사이클이 비가동이 된다.</para>
     /// <para>SSOT — 집계(<c>ComputeCycleAggregateAsync</c>)와 계측 품질(<c>/api/oee/measurement-quality</c>)이
     /// 같은 문자열을 공유한다. 바꾸면 <see cref="OeeMath.ClassifyCycle"/> 도 같이 바꿀 것.</para>
     /// </summary>
-    protected const string DtCondSql = "ct > 0 AND (ct > @Thr OR (mt IS NOT NULL AND mt > @MtThr))";
+    protected const string DtCondSql = "ct > 0 AND (COALESCE(wt, ct) > @WtThr OR (mt IS NOT NULL AND mt > @MtThr))";
 
     protected OeeControllerBase(
         IOeeRepository repo,
@@ -209,27 +208,55 @@ public abstract class OeeControllerBase : ControllerBase
         var nonProdScoped = agg.NonProdScoped ?? new List<(string? Flow, double S, double E)>();
         var waitScoped = agg.WaitScoped ?? new List<(string? Flow, double S, double E)>();
         var slackScoped = agg.SlackScoped ?? new List<(string? Flow, double S, double E)>();
-        var cycles = agg.DowntimeCycles ?? new List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd, bool Wait)>();
+        var cycles = agg.DowntimeCycles ?? new List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd, bool Wait, long? MtMs, long? WtMs, bool MtOverrun)>();
 
         var sysMap = BuildFlowSystemMap();       // flowName → systemName (AASX 미로드/미매칭이면 빈 문자열)
-        var (idleMult, nonProdMult) = ResolveCtMultipliers();
+        // 판정 근거 문구 — 집계와 같은 경계 함수(OeeMath.ResolveWt*BoundaryMs / ResolveMtFaultBoundaryMs)로 환산한다.
+        //   기준선은 부모(물리 설비) 키 — 분기는 부모 기준선을 공유(집계 MapF 규약과 동일).
+        var (idleMult, nonProdMult) = ResolveWtMultipliers();
+        var faultMult = _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
+        var wtBase = await _ctStats.ComputeWtBaselineAsync();
+        var mtBase = await _ctStats.ComputeMtThresholdAsync();
+        var branchMap = _settings.GetBranchVirtualMap();
+        string Phys(string f) => branchMap.TryGetValue(f, out var bm) ? bm.Parent : f;
+        (double Stop, double NonProd, double BaseMs, bool WtAxis) BoundsFor(string? f)
+        {
+            var thr = f is not null && thresholds.TryGetValue(f, out var t) ? t.AvgMs : 0;
+            if (f is not null && wtBase.TryGetValue(Phys(f), out var wb) && wb.MedianCtMs > 0)
+            {
+                var s = OeeMath.ResolveWtStopBoundaryMs(wb.MedianWtMs, wb.MedianCtMs, idleMult);
+                return (s, OeeMath.ResolveWtNonProdBoundaryMs(wb.MedianWtMs, wb.MedianCtMs, nonProdMult, s), wb.MedianWtMs, true);
+            }
+            return (thr * idleMult, thr * nonProdMult, thr, false);   // WT 기준선 없음 — CT 폴백(비교값 ct)
+        }
+        static string Sec(double ms) => $"{ms / 1000.0:0.0}s";
         var list = new List<OeeDowntimeDto>(cycles.Count + 8);
         var synthId = 0L;
         foreach (var c in cycles)
         {
-            var thrMs = c.Flow is not null && thresholds.TryGetValue(c.Flow, out var t) ? t.AvgMs : 0;
-            var durS = (c.EndMs - c.StartMs) / 1000.0;
+            var (stopB, npB, baseMs, wtAxis) = BoundsFor(c.Flow);
+            var waitMs = OeeMath.ResolveWaitMs(c.WtMs is long wl ? (int?)Math.Min(wl, int.MaxValue) : null, c.CtMs);
+            var axisWord = wtAxis ? "평소 대기(WT)" : "평균 CT";       // 기준선 어휘 — 폴백 flow 는 정직하게 CT 라고 쓴다
+            var waitWord = wtAxis && c.WtMs is not null ? "대기(WT)" : "사이클";
             string note;
             if (c.Wait && c.NonProd)
-                note = $"라인 고장 여파 대기 — 비생산 처리 (지속 {durS:0.0}s ≥ 평균CT {(thrMs / 1000.0):0.0}s × {nonProdMult:0.#}배, 고장 건수 미반영)";
+                note = $"라인 고장 여파 대기 — 비생산 처리 ({waitWord} {Sec(waitMs)} ≥ 비생산 기준 {Sec(npB)} = {axisWord} {Sec(baseMs)} × {nonProdMult:0.#}배, 고장 건수 미반영)";
             else if (c.Wait)
-                note = $"라인 고장 여파 대기 — 공백 처리 (지속 {durS:0.0}s < 비생산 기준, 고장 건수 미반영)";
+                note = $"라인 고장 여파 대기 — 공백 처리 ({waitWord} {Sec(waitMs)} < 비생산 기준 {Sec(npB)}, 고장 건수 미반영)";
             else if (c.NonProd)
-                note = $"장시간 정지 자동 비생산 (지속 {durS:0.0}s ≥ 평균CT {(thrMs / 1000.0):0.0}s × {nonProdMult:0.#}배)";
+                note = $"장시간 정지 자동 비생산 ({waitWord} {Sec(waitMs)} ≥ 비생산 기준 {Sec(npB)} = {axisWord} {Sec(baseMs)} × {nonProdMult:0.#}배)";
+            else if (c.MtOverrun && c.MtMs is long mtv)
+            {
+                var medMt = c.Flow is not null && mtBase.TryGetValue(Phys(c.Flow), out var mm) ? mm : 0;
+                var mtB = OeeMath.ResolveMtFaultBoundaryMs(medMt, faultMult);
+                note = $"동작시간(MT) 초과 → 고장 유발 (MT {Sec(mtv)} > 고장 기준 {Sec(mtB)} = 평소 동작(MT) {Sec(medMt)} × {faultMult:0.#}배 · 움직인 증거가 있어 길어도 비생산으로 바뀌지 않음)";
+            }
+            else if (c.MtMs is null && wtAxis)
+                note = $"동작을 마치지 못한 채 정지 (미완료 사이클 {Sec(c.CtMs)} > 정지 기준 {Sec(stopB)} — 일감을 쥔 자세 = 유발자)";
             else
-                note = thrMs > 0
-                    ? $"가동시간 기준 초과 (CT {(c.CtMs / 1000.0):0.0}s > 기준 {(thrMs * idleMult / 1000.0):0.0}s = 평균CT {(thrMs / 1000.0):0.0}s × {idleMult:0.#}배)"
-                    : "가동시간 기준 초과";
+                note = stopB > 0
+                    ? $"{(wtAxis ? "대기시간(WT)" : "가동시간")} 기준 초과 ({waitWord} {Sec(waitMs)} > 정지 기준 {Sec(stopB)} = {axisWord} {Sec(baseMs)} × {idleMult:0.#}배)"
+                    : "대기시간 기준 초과";
             list.Add(new OeeDowntimeDto(
                 Id: --synthId,                   // -1,-2,… : 합성(DB 없음) 표식 + x-for 고유 key
                 SystemName: c.Flow is not null && sysMap.TryGetValue(c.Flow, out var s) ? s : "",
@@ -250,23 +277,27 @@ public abstract class OeeControllerBase : ControllerBase
                 IsWait: c.Wait));
         }
 
-        // ── 진행 중(열린 사이클) 행 (2026-09-08, doc/26) — 정지 기준(평균CT × 비가동 배수)을 넘긴 것만, 물리 설비당 1행. ──
+        // ── 진행 중(열린 사이클) 행 (2026-09-08, doc/26) — 정지 기준을 넘긴 것만, 물리 설비당 1행. ──
         //   종전 무가동 상태머신의 '진행중' 이벤트 자리. 구분(고장/비생산)·건수·MTBF 어디에도 안 들어가고(분모 밖),
         //   다음 head 가 오면 완료 행(이상치 초과 사이클)으로 바뀌어 그때 분류된다. 분기 소속은 완료 후에야 정해지므로
         //   부모(물리 설비) 이름으로 한 줄만 낸다.
+        //   기준(2026-09-09 WT 축): 열린 사이클의 경과 = 동작(MT) + 대기(WT) 인데 어디까지가 동작인지 모른다 → 평소 동작
+        //   (중앙 MT)을 빼고 남은 만큼을 대기로 보아 WT 정지 경계와 비교한다. 즉 표시 기준 = 중앙 MT + WT 정지 경계.
         if (agg.InProgressScoped is { Count: > 0 } ipRows)
         {
-            var branchMap = _settings.GetBranchVirtualMap();
             var seenPhysical = new HashSet<string>(StringComparer.Ordinal);
             foreach (var (ipFlow, ipS, ipE) in ipRows)
             {
                 if (ipFlow is null) continue;
                 var thrMs = thresholds.TryGetValue(ipFlow, out var t) ? t.AvgMs : 0;
                 if (thrMs <= 0) continue;
-                var boundary = thrMs * idleMult;
+                var physical = Phys(ipFlow);
+                var (ipStop, _, ipBase, ipWtAxis) = BoundsFor(ipFlow);
+                var ipMedMt = mtBase.TryGetValue(physical, out var ipmm) ? ipmm : 0;
+                var boundary = ipStop + ipMedMt;
+                if (boundary <= 0) continue;
                 var elapsed = ipE - ipS;
                 if (elapsed < boundary) continue;
-                var physical = branchMap.TryGetValue(ipFlow, out var bm) ? bm.Parent : ipFlow;
                 if (!seenPhysical.Add(physical)) continue;
                 list.Add(new OeeDowntimeDto(
                     Id: --synthId,
@@ -281,7 +312,7 @@ public abstract class OeeControllerBase : ControllerBase
                     IsFailure: false,
                     DetectSource: "in-progress",
                     SourceLogId: null,
-                    Note: $"진행 중 — 마지막 사이클 완료 후 {(elapsed / 1000.0):0}s 경과(정지 기준 {(boundary / 1000.0):0.0}s = 평균CT {(thrMs / 1000.0):0.0}s × {idleMult:0.#}배 초과). "
+                    Note: $"진행 중 — 마지막 사이클 완료 후 {(elapsed / 1000.0):0}s 경과(표시 기준 {Sec(boundary)} = 평소 동작(MT) {Sec(ipMedMt)} + 정지 기준 {Sec(ipStop)}[{(ipWtAxis ? "평소 대기(WT)" : "평균 CT")} {Sec(ipBase)} × {idleMult:0.#}배] 초과). "
                           + "다음 사이클이 시작되면 완료 행으로 확정·분류됩니다. 집계 미반영(분모 밖)."
                           + (physical != ipFlow ? " 분기 소속은 완료 후 확정." : ""),
                     Status: "open",
@@ -981,7 +1012,8 @@ public abstract class OeeControllerBase : ControllerBase
         // NonProd=true 는 당일 승격으로 '비생산' 처리된 사이클(건수·MTBF 미반영) — 팝업 비생산 탭 표시용.
         // Wait=true 는 대기(고장 여파, doc/25 §1) — NonProd 와 조합: (NonProd,Wait)=(T,T) 대기 비생산 /
         // (F,T) 대기 공백(건수·고장 미반영, 로그 표시만) / (T,F) 일반 비생산 / (F,F) 고장.
-        List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd, bool Wait)>? DowntimeCycles = null,
+        // MtMs/WtMs = 행 원값(정지 로그 판정 근거 문구용), MtOverrun = MT 축으로 걸린 고장(유발자) 행 — 비생산 승격 대상이 아님.
+        List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd, bool Wait, long? MtMs, long? WtMs, bool MtOverrun)>? DowntimeCycles = null,
         // ── 신호 기반 분류 (doc/25) — flow 귀속 구간·대기 분화 ──
         List<(string? Flow, double S, double E)>? NonProdScoped = null,  // flow 귀속 비생산(지정창+승격+강제) — 로그 구분/스코프 판정용
         List<(string? Flow, double S, double E)>? WaitScoped = null,     // 그 중 대기(고장 여파) 부분
@@ -1002,7 +1034,7 @@ public abstract class OeeControllerBase : ControllerBase
         List<(string? Flow, double S, double E)>? InProgressScoped = null); // 로그용 — (flow, 마지막 사이클 끝, 지금) 클립 전
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } public long NonProdNormalCt { get; set; } }
-    private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } }
+    private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } public long? Wt { get; set; } }
 
     // ── 사이클 집계 TTL 캐시 + single-flight ─────────────────────────────────
     // 폴링 엔드포인트 4종(summary/daily/actual/teep)과 ranking 의 flow별 루프가 같은 (기간,flow) 집계를
@@ -1022,10 +1054,12 @@ public abstract class OeeControllerBase : ControllerBase
         bool collectNormalCycles, bool collectDowntimeCycles,
         double idleMult, double nonProdMult,
         double faultMult, IReadOnlyDictionary<string, double> mtThresholds,
+        IReadOnlyDictionary<string, (double MedianWtMs, double MedianCtMs, int Sample)> wtBaselines,
         IReadOnlySet<string>? flowFilter)
     {
         var sb = new System.Text.StringBuilder(256);
-        sb.Append("v31|");   // 분모/분류 모델 버전(v31 = 분기 최소 위반 판별 2026-09-08) — 모델 변경 배포 직후 L1 캐시 혼재 방지
+        sb.Append("v32|");   // 분모/분류 모델 버전(v32 = 정지·비생산 판정 CT축→WT축 전환 2026-09-09, doc/27) — 모델 변경 배포 직후 L1 캐시 혼재 방지
+                             // v31(2026-09-08): 분기 최소 위반 판별
                              // v29(2026-08-27): 사이클 분기(branch) — 가상 flow("부모_분기") 스코프 집계 +
                              //                  형제가동 카빙(분모 사슬 미계측▸비생산▸형제가동▸비가동) +
                              //                  무사이클 이벤트 분기 복제
@@ -1047,6 +1081,12 @@ public abstract class OeeControllerBase : ControllerBase
         sb.Append('|');
         foreach (var k in mtThresholds.Keys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
             sb.Append(k).Append(':').Append(mtThresholds[k]).Append(';');   // MT 기준 — CT 임계와 같은 이유로 서명
+        sb.Append('|');
+        foreach (var k in wtBaselines.Keys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+        {
+            var w = wtBaselines[k];
+            sb.Append(k).Append(':').Append(w.MedianWtMs).Append(':').Append(w.MedianCtMs).Append(';');   // WT 기준선(정지/비생산 경계 소스) — 같은 이유로 서명
+        }
         sb.Append('|');
         foreach (var w in plannedWindows) sb.Append(w.StartMin).Append('-').Append(w.EndMin).Append(';');
         sb.Append('|');
@@ -1073,15 +1113,15 @@ public abstract class OeeControllerBase : ControllerBase
         RunWallIntervals = v.RunWallIntervals is null ? null : new List<(double S, double E)>(v.RunWallIntervals),
         DownMaintWallIntervals = v.DownMaintWallIntervals is null ? null : new List<(double S, double E)>(v.DownMaintWallIntervals),
         DownFaultWallIntervals = v.DownFaultWallIntervals is null ? null : new List<(double S, double E)>(v.DownFaultWallIntervals),
-        DowntimeCycles = v.DowntimeCycles is null ? null : new List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd, bool Wait)>(v.DowntimeCycles),
+        DowntimeCycles = v.DowntimeCycles is null ? null : new List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd, bool Wait, long? MtMs, long? WtMs, bool MtOverrun)>(v.DowntimeCycles),
         NonProdScoped = v.NonProdScoped is null ? null : new List<(string? Flow, double S, double E)>(v.NonProdScoped),
         WaitScoped = v.WaitScoped is null ? null : new List<(string? Flow, double S, double E)>(v.WaitScoped),
         SlackScoped = v.SlackScoped is null ? null : new List<(string? Flow, double S, double E)>(v.SlackScoped),
     };
 
     /// <summary>판정 배수 (비가동, 비생산) — 사용자 설정(설비효율 현황) 정규화 값. 집계·문구·DTO 공용.</summary>
-    protected (double IdleMult, double NonProdMult) ResolveCtMultipliers()
-        => _settings.LoadSettings().OeeManual.ResolveCtMultipliers();
+    protected (double IdleMult, double NonProdMult) ResolveWtMultipliers()
+        => _settings.LoadSettings().OeeManual.ResolveWtMultipliers();
 
     protected async Task<CycleAgg> ComputeCycleAggregateAsync(
         string? flowName, DateTime fromUtc, DateTime toUtc,
@@ -1099,7 +1139,7 @@ public abstract class OeeControllerBase : ControllerBase
         //   스코프를 시야까지 좁히면 같은 정지가 라인/설비 조회와 시스템 조회에서 다르게 분류된다(doc/25 §3.2 함정).
         IReadOnlySet<string>? flowFilter = null)
     {
-        var (idleMult, nonProdMult) = ResolveCtMultipliers();
+        var (idleMult, nonProdMult) = ResolveWtMultipliers();
         // 오버라이드(미리보기)는 저장 전 what-if 계산 — 결과는 정상 계산과 동일 경로지만, 감지로그 materialize 는
         // 막는다(제안 배수의 판정이 oeeNonProdDetectionLog 에 영구 기록되면 TEEP/actual 이 오염).
         // 시스템 스코프 패스도 읽기 전용 — 라인 패스(flowName=null·필터 없음)의 자가치유(라인 스코프 invalidate)와
@@ -1118,10 +1158,12 @@ public abstract class OeeControllerBase : ControllerBase
             ? Math.Clamp(fo, OeeManualSettings.FaultMultMin, OeeManualSettings.FaultMultMax)
             : _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
         var mtThresholds = await _ctStats.ComputeMtThresholdAsync();
+        // WT 기준선(중앙 WT·중앙 CT, 부모 키) — 정지/비생산 경계 소스(2026-09-09). 바뀌면 경계가 바뀌므로 키에 서명.
+        var wtBaselines = await _ctStats.ComputeWtBaselineAsync();
 
         var key = BuildAggKey(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop,
             collectRunIntervals, maintIntervals, collectNormalCycles, collectDowntimeCycles, idleMult, nonProdMult,
-            faultMult, mtThresholds, flowFilter);
+            faultMult, mtThresholds, wtBaselines, flowFilter);
 
         if (s_aggCache.TryGetValue(key, out var hit) && hit.ExpiresUtc > DateTime.UtcNow)
             return CloneAgg(hit.Value);
@@ -1129,7 +1171,7 @@ public abstract class OeeControllerBase : ControllerBase
         Task<CycleAgg> ComputeSelfAsync() => ComputeCycleAggregateCoreAsync(
             flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
             collectRunIntervals, maintIntervals, collectNormalCycles, collectDowntimeCycles,
-            idleMult, nonProdMult, suppressDetectionLog, faultMult, mtThresholds, flowFilter);
+            idleMult, nonProdMult, suppressDetectionLog, faultMult, mtThresholds, flowFilter, wtBaselines);
 
         var lazy = new Lazy<Task<CycleAgg>>(ComputeSelfAsync);
         var winner = s_aggInflight.GetOrAdd(key, lazy);
@@ -1173,25 +1215,56 @@ public abstract class OeeControllerBase : ControllerBase
         IReadOnlyList<(double S, double E, string? Flow)>? maintIntervals = null,
         bool collectNormalCycles = false,
         bool collectDowntimeCycles = false,
-        // 판정 배수(호출측 ComputeCycleAggregateAsync 가 정규화해 전달) — 비가동 경계 = thr×idleMult(@Thr 바인딩만),
-        // 비생산 승격 = thr×nonProdMult. 성능 P 표준치(perfNumerator)·onset/repair 는 원 thr(1×) 유지(doc/22 §3/§4).
-        double idleMult = 1.0,
-        double nonProdMult = OeeMath.NonProductionCtMultiplier,
+        // 판정 배수(호출측 ComputeCycleAggregateAsync 가 정규화해 전달) — WT 축(2026-09-09): 정지 경계 = 중앙 WT×idleMult
+        // (@WtThr 바인딩), 비생산 승격 = 중앙 WT×nonProdMult(각각 중앙 CT 1·10 사이클 하한). WT 기준선 미보유 flow 는
+        // 평균 CT×배수 폴백. 성능 P 표준치(perfNumerator)·onset/repair 는 원 thr(1×평균 CT) 유지(doc/22 §3/§4).
+        double idleMult = OeeMath.IdleWtMultiplierDefault,
+        double nonProdMult = OeeMath.NonProductionWtMultiplier,
         // 미리보기(배수 오버라이드) 계산 — 감지로그 materialize 금지(제안 배수 판정의 영구 기록 방지).
         bool suppressDetectionLog = false,
         // 고장(MT축) 배수 + flow별 14일 중앙 MT — 호출측(wrapper)이 캐시 키에 서명한 뒤 전달(§3 배수와 동일 규약).
         double faultMult = OeeMath.FaultMtMultiplierDefault,
         IReadOnlyDictionary<string, double>? mtThresholds = null,
         // 시스템 스코프 — 모집단(targetFlows·갭 귀속)만 축소. 신호 시야는 라인 유지(wrapper 주석 참조).
-        IReadOnlySet<string>? flowFilter = null)
+        IReadOnlySet<string>? flowFilter = null,
+        // flow(부모 키)별 14일 중앙 WT·중앙 CT — WT 축 경계 소스(2026-09-09). wrapper 가 키에 서명한 뒤 전달.
+        IReadOnlyDictionary<string, (double MedianWtMs, double MedianCtMs, int Sample)>? wtBaselines = null)
     {
         mtThresholds ??= new Dictionary<string, double>();
+        wtBaselines ??= new Dictionary<string, (double MedianWtMs, double MedianCtMs, int Sample)>();
         // ── 사이클 분기(2026-08-27) — 가상 이름("부모_분기") 해석. targetFlows/내부 귀속 키는 가상 이름을
         //    그대로 쓰고, "부모 이름 세계"와 만나는 지점(DB flowName 바인딩·신호·유지보수·수동재분류·
         //    무사이클 이벤트·MT 임계)만 dbFlow 로 번역한다. 분기 미사용이면 빈 맵 = 종전 경로와 완전 동일.
         var branchMap = _settings.GetBranchVirtualMap();
         (string DbFlow, string? Branch) MapF(string f)
             => branchMap.TryGetValue(f, out var m) ? (m.Parent, m.Branch) : (f, null);
+        // ── WT 축 경계 (2026-09-09, doc/27) — thresholds 키(가상 flow 포함)별 정지/비생산 경계·기준선. ──
+        //   WT 기준선은 부모(물리) 키라 MapF 로 번역해 찾는다(분기는 부모 기준선 공유 — MT 와 동일 규약).
+        //   미보유(tail 미정의 → wt 항상 NULL) flow 는 평균 CT × 배수 폴백 — 그 flow 는 비교값도 ct(COALESCE)라 종전 규칙과 같다.
+        //   dtCond @WtThr·행 판정·적립·lookback·tail 미완료 사전수집·비생산 판정이 전부 이 두 맵을 쓴다(경계 SSOT).
+        var wtStopByFlow = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var wtNonProdByFlow = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var wtBaseByFlow = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);   // 감지 로그 스냅샷용 기준선(중앙 WT 또는 폴백 평균 CT)
+        foreach (var (fk, th) in thresholds)
+        {
+            if (th.AvgMs <= 0) continue;
+            if (wtBaselines.TryGetValue(MapF(fk).DbFlow, out var wb) && wb.MedianCtMs > 0)
+            {
+                var s = OeeMath.ResolveWtStopBoundaryMs(wb.MedianWtMs, wb.MedianCtMs, idleMult);
+                wtStopByFlow[fk] = s;
+                wtNonProdByFlow[fk] = OeeMath.ResolveWtNonProdBoundaryMs(wb.MedianWtMs, wb.MedianCtMs, nonProdMult, s);
+                wtBaseByFlow[fk] = wb.MedianWtMs;
+            }
+            else
+            {
+                wtStopByFlow[fk] = th.AvgMs * idleMult;
+                wtNonProdByFlow[fk] = th.AvgMs * nonProdMult;
+                wtBaseByFlow[fk] = th.AvgMs;
+            }
+        }
+        double WtStopFor(string f) => wtStopByFlow.TryGetValue(f, out var v) ? v : 0;
+        double WtNonProdFor(string f) => wtNonProdByFlow.TryGetValue(f, out var v) ? v : 0;
+        double WtBaseFor(string f) => wtBaseByFlow.TryGetValue(f, out var v) ? v : 0;
         var onsets = new List<double>();
         var repairs = new List<double>();
         // 미계측(수신 공백, doc/22 §3.4) — 통신 헬스 심박이 보증하지 못한 구간. 가동/비가동/비생산 어디에도
@@ -1262,7 +1335,7 @@ public abstract class OeeControllerBase : ControllerBase
         // 동일하게 비생산 시간대 시작분은 제외해, 버킷 합계 ≈ KPI 가동(NormalCtMs)이 되게 한다.
         var normalCycles = collectNormalCycles ? new List<(double StartMs, double CtMs)>() : null;
         // 이상치 초과 사이클/무사이클 이벤트 — 정지 로그 내역 정합용. Wait 행(대기)은 dtEventCount 미반영(doc/25 §1).
-        var downtimeCycles = collectDowntimeCycles ? new List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd, bool Wait)>() : null;
+        var downtimeCycles = collectDowntimeCycles ? new List<(string? Flow, double StartMs, double EndMs, double CtMs, bool NonProd, bool Wait, long? MtMs, long? WtMs, bool MtOverrun)>() : null;
 
         // ── 사용자 오버라이드(2026-07-08) — 정지 이벤트 로그의 '비생산↔비가동 보내기'(classifySource='manual'). ──
         //   toNonProdIv : 비생산 강제 구간(reasonCode='non_production') — 자동 판정과 무관하게 A 분모 밖으로 카빙.
@@ -1359,7 +1432,7 @@ public abstract class OeeControllerBase : ControllerBase
             double maxLookbackMs = 60_000;
             foreach (var f in signalFlows)
                 if (thresholds.TryGetValue(f, out var thLb) && thLb.AvgMs > 0)
-                    maxLookbackMs = Math.Max(maxLookbackMs, thLb.AvgMs * idleMult);
+                    maxLookbackMs = Math.Max(maxLookbackMs, WtStopFor(f));   // 정지 경계(WT 축) — 감지 지연만큼 신호를 흡수
             if (applyLongStop && _settings.LoadSettings().OeeManual.SignalClassifyEnabled)
             {
                 try
@@ -1425,7 +1498,7 @@ public abstract class OeeControllerBase : ControllerBase
                 }
             }
             double LookbackMsFor(string? f) => f is not null && thresholds.TryGetValue(f, out var thF) && thF.AvgMs > 0
-                ? Math.Max(60_000, thF.AvgMs * idleMult)
+                ? Math.Max(60_000, WtStopFor(f))
                 : maxLookbackMs;
             // ── 자세(tail 미완료) 증거 = 사이클 행 자체 (2026-09-08, doc/26) ─────────────────────
             //   종전엔 무가동 상태머신이 라이브로 찍은 midCycle 도장(oeeDowntimeEvent)을 읽었다 — 행 밖의 시간 소스라
@@ -1513,8 +1586,9 @@ public abstract class OeeControllerBase : ControllerBase
                         }
                 }
                 catch (Exception ex) { _logger.LogDebug(ex, "[OEE] MT 과주행 사전 수집 실패: {Flow}", fPreDb); }
-                // tail 미완료(mt NULL) 임계 초과 행 — 자세 증거(postureByFlow 주석). CT 경계 = 그 flow 평균CT × 비가동 배수.
-                var ctThrPre = thresholds.TryGetValue(fPre, out var thPre) && thPre.AvgMs > 0 ? thPre.AvgMs * idleMult : 0;
+                // tail 미완료(mt NULL) 임계 초과 행 — 자세 증거(postureByFlow 주석). 경계 = 그 flow 의 WT 정지 경계
+                //   (wt 가 없는 행은 ct 가 비교값 — dtCond COALESCE(wt, ct) 와 같은 규약).
+                var ctThrPre = thresholds.TryGetValue(fPre, out var thPre) && thPre.AvgMs > 0 ? WtStopFor(fPre) : 0;
                 if (ctThrPre > 0)
                 {
                     var pStall = new DynamicParameters();
@@ -1551,16 +1625,18 @@ public abstract class OeeControllerBase : ControllerBase
                 var branchCond = branch is null ? "" : " AND branchName = @Branch ";
 
                 var p = new DynamicParameters();
-                // @Thr = 비가동 판정 경계(thr×배수, 2026-07-13 사용자 설정화) — dtCond 3개 쿼리(정상 집계/정상 구간/
-                // 비가동 행)가 이 파라미터 하나를 공유해 KPI·정지 내역이 함께 움직인다. 경계 아래 느린 사이클은
-                // 정상으로 편입돼 성능 P(표준=1×thr, perfNumerator)가 속도 손실로 흡수한다.
-                p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", dbFlow); p.Add("Thr", thr * idleMult);
+                // @WtThr = 정지 판정 경계(WT 축, 2026-09-09 — 중앙 WT×배수, 1사이클 하한; 기준선 미보유면 평균 CT×배수 폴백)
+                // — dtCond 3개 쿼리(정상 집계/정상 구간/비가동 행)가 이 파라미터 하나를 공유해 KPI·정지 내역이 함께 움직인다.
+                // 경계 아래 느린 사이클은 정상으로 편입돼 성능 P(표준=1×thr, perfNumerator)가 속도 손실로 흡수한다.
+                var wtStopMs = WtStopFor(f);
+                var wtNonProdMs = WtNonProdFor(f);
+                p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", dbFlow); p.Add("WtThr", wtStopMs);
                 if (branch is not null) p.Add("Branch", branch);
-                // MT 축 경계 — 기준 미보유 flow 는 CT 축으로 폴백(종전 동작 유지). 0 바인딩 금지(전 사이클 비가동).
+                // MT 축 경계 — 기준 미보유 flow 는 WT 경계로 폴백(종전 동작 유지). 0 바인딩 금지(전 사이클 비가동).
                 //   분기는 부모(물리 축) MT 기준을 공유한다.
                 p.Add("MtThr", mtThresholds.TryGetValue(dbFlow, out var mtThrRow) && mtThrRow > 0
                     ? OeeMath.ResolveMtFaultBoundaryMs(mtThrRow, faultMult)
-                    : thr * idleMult);
+                    : wtStopMs);
 
                 var aggRow = await conn.QueryFirstOrDefaultAsync<CycleAggRow>($@"
                     SELECT
@@ -1659,7 +1735,7 @@ public abstract class OeeControllerBase : ControllerBase
                 }
 
                 var rows = await conn.QueryAsync<DtCycleRaw>($@"
-                    SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
+                    SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt, wt AS Wt
                     FROM dspFlowHistory
                     WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow{branchCond} AND {dtCond}
                     ORDER BY recordedAt", p);
@@ -1675,9 +1751,9 @@ public abstract class OeeControllerBase : ControllerBase
                     if (!cycleIdleByFlow.TryGetValue(f, out var cif)) cycleIdleByFlow[f] = cif = new List<(double S, double E)>();
                     cif.Add((startMs, rec));
 
-                    // ── 적립 범위 결정 (2026-08-24) ────────────────────────────────────────────────
-                    // dtCond 는 CT 축·MT 축 OR 로 행을 고른다. 두 축은 잃은 시간의 의미가 다르다:
-                    //   · CT 초과   = 사이클 자체가 비정상적으로 길었다  → 사이클 전체가 손실
+                    // ── 적립 범위 결정 (2026-08-24, 2026-09-09 WT 축) ────────────────────────────────
+                    // dtCond 는 WT 축·MT 축 OR 로 행을 고른다. 두 축은 잃은 시간의 의미가 다르다:
+                    //   · WT 초과   = 사이클 사이에 서 있었다(정지를 머금은 사이클) → 사이클 전체가 손실(종전 CT 초과와 동일)
                     //   · MT 만 초과 = 설비는 늘어졌지만 여유(wt)가 흡수해 <b>제때 산출</b>했다
                     //                 → 사이클 전체를 비가동으로 넣으면 "제때 생산했는데 100% 비가동"이 된다.
                     //                   실측 2026-08-24 이송 12:43:35 — ct 40,823ms(중앙 40,754ms 와 동일)인데
@@ -1686,12 +1762,14 @@ public abstract class OeeControllerBase : ControllerBase
                     //                   와도 정면 충돌한다. 그래서 <b>평소 대비 초과분만</b> 적립한다.
                     // 초과분은 사이클 끝(rec)에 붙인다 — mt 가 사이클 안 어디서 났는지는 알 수 없고, 행 구간이
                     // rec 기준으로 잡히는 기존 규약과 맞춘다. 분류·신호 매칭 창은 startMs~rec 원값을 그대로 쓴다.
-                    var ctBoundaryMs = thr * idleMult;
                     var mtBoundaryMs = mtThresholds.TryGetValue(dbFlow, out var mtMedianMs) && mtMedianMs > 0
                         ? OeeMath.ResolveMtFaultBoundaryMs(mtMedianMs, faultMult)
-                        : ctBoundaryMs;
+                        : wtStopMs;
                     var accrualStartMs = rec - OeeMath.ResolveDowntimeAccrualMs(
-                        cMs, (int?)r.Mt, ctBoundaryMs, mtBoundaryMs, mtMedianMs);
+                        cMs, (int?)r.Mt, (int?)r.Wt, wtStopMs, mtBoundaryMs, mtMedianMs);
+                    // 비생산 판정에 쓰는 길이 = 대기 성분(COALESCE(wt, ct))과 계측 잔여의 min — 동작한 시간은 "서 있던 시간"이 아니다.
+                    //   (미계측 카빙 규약 유지: 모르는 시간이 임계를 채워 승격시키지 않게 계측 잔여를 상한으로.)
+                    var waitRowMs = OeeMath.ResolveWaitMs((int?)r.Wt, cMs);
                     // 미계측 겹침 카빙(§3.4) — 수신 공백과 겹친 부분은 어떤 상태도 주장하지 않는다. 비생산 10× 판정도
                     // 계측된 잔여 길이로만 한다(보수 — 모르는 시간이 임계를 채워 정지를 비생산으로 승격시키지 않게).
                     // 기간 클립 먼저 — 창 밖으로 뻗은 부분은 이 기간의 시간이 아니다(①과 같은 이유).
@@ -1725,10 +1803,10 @@ public abstract class OeeControllerBase : ControllerBase
                         if (measuredMs <= 0) continue;              // 전 구간 비생산 확정 — 정지 미계상
                     }
                     // 무변화 정지 분류 — 신호 기반(doc/25 §1) + 사용자 오버라이드 ② 비가동 확정(고장/유지보수
-                    // 수동 분류 겹침 = 승격/강등 억제). MT 과주행(mt > 경계)은 움직인 증거이므로 무조건 고장
-                    // 유지(아래 폴스루). 완료됐지만 wt 폭주로 걸린 사이클(mt 정상·ct 초과, 2026-08-19 dtCond
-                    // ct 기준 신설분)은 정지가 사이클 사이에 있는 무변화 정지 — 미완료(Mt=null)와 동일하게
-                    // 분류를 태운다(없으면 주말/야간 장기정지가 전부 '고장'으로 계상돼 10× 비생산 승격이 죽는다).
+                    // 수동 분류 겹침 = 승격/강등 억제). MT 과주행(mt > 경계)은 움직인 증거이므로 <b>길이 무관 무조건 고장</b>
+                    // 유지(아래 폴스루 — 비생산 경계를 넘어도 승격하지 않는다, 2026-09-09 규칙 명문화). WT 축으로 걸린
+                    // 사이클(mt 정상·wt 초과 = 정지 후 재개 행)은 정지가 사이클 사이에 있는 무변화 정지 — 미완료(Mt=null)와
+                    // 동일하게 분류를 태운다(없으면 주말/야간 장기정지가 전부 '고장'으로 계상돼 비생산 승격이 죽는다).
                     // 유발자 판별 — 위 적립 범위 결정과 같은 경계를 재사용한다(두 곳이 어긋나면
                     // "적립은 초과분인데 분류는 정상" 같은 불일치가 난다).
                     var mtOverrun = r.Mt is long mtOv && mtOv > mtBoundaryMs && mtMedianMs > 0;
@@ -1745,7 +1823,7 @@ public abstract class OeeControllerBase : ControllerBase
                             HasOwnSignal(dbFlow, startMs, rec) || OwnMidCycleStall(dbFlow, startMs, rec),
                             LineHasCulprit(dbFlow, startMs, rec),
                             LineHasUnresolvedUsertag(startMs, rec),
-                            measuredMs, thr, nonProdMult,
+                            Math.Min(measuredMs, waitRowMs), wtNonProdMs,
                             lineHasMtOverrun: LineHasMtOverrun(dbFlow, startMs, rec)
                                               || LineHasMidCycleStall(dbFlow, startMs, rec));
                         if (cls is OeeMath.StopClass.NonProduction or OeeMath.StopClass.WaitNonProd)
@@ -1756,9 +1834,9 @@ public abstract class OeeControllerBase : ControllerBase
                             {
                                 AddNonProdFor(f, seg, wait);        // 유휴 사이클 → 비생산/대기(분모 밖) 시각화
                                 nonProdDetections.Add(NewNonProdDetection(
-                                    dbFlow, seg.S, seg.E, thr, wait ? "wait-starve" : "idle-cycle", nonProdMult));
+                                    dbFlow, seg.S, seg.E, WtBaseFor(f), wait ? "wait-starve" : "idle-cycle", nonProdMult));
                             }
-                            downtimeCycles?.Add((f, startMs, rec, cMs, true, wait));   // 팝업 비생산 탭(건수·MTBF 미반영)
+                            downtimeCycles?.Add((f, startMs, rec, cMs, true, wait, r.Mt, r.Wt, false));   // 팝업 비생산 탭(건수·MTBF 미반영)
                             continue;
                         }
                         if (cls == OeeMath.StopClass.WaitSlack)
@@ -1767,7 +1845,7 @@ public abstract class OeeControllerBase : ControllerBase
                             // 벽시계 미반영. idle 적립을 전부 스킵하면 패스 2에서 자동으로 '가동간 공백'이 된다.
                             waitSlackCtMs += measuredMs;
                             foreach (var seg in rowSegs) AddSlackFor(f, seg);   // 로그 '대기(공백)' 표시 + 사이클당 환산 제외
-                            downtimeCycles?.Add((f, startMs, rec, cMs, false, true));  // 로그 표시용(건수 미반영)
+                            downtimeCycles?.Add((f, startMs, rec, cMs, false, true, r.Mt, r.Wt, false));  // 로그 표시용(건수 미반영)
                             continue;
                         }
                         // Fault(유발/usertag-only) / Down(무신호 기준 미만) → 아래 기존 비가동 적립으로 폴스루.
@@ -1788,7 +1866,7 @@ public abstract class OeeControllerBase : ControllerBase
                     double repair = mtOverrun && r.Mt is long mtL && measuredMs >= cMs ? (mtL - thr) : (measuredMs - thr);
                     if (repair >= 0) repairs.Add(repair);
                     dtEventCount++;
-                    downtimeCycles?.Add((f, startMs, rec, cMs, false, false));   // 정지 로그 내역 정합 — dtEventCount 와 1:1(대기 행 제외)
+                    downtimeCycles?.Add((f, startMs, rec, cMs, false, false, r.Mt, r.Wt, mtOverrun));   // 정지 로그 내역 정합 — dtEventCount 와 1:1(대기 행 제외)
                 }
             }
 
@@ -1948,7 +2026,7 @@ public abstract class OeeControllerBase : ControllerBase
             DurationMs = (long)(clearMs - onsetMs),
             DetectionSource = "auto-10xct",   // 감지 규칙 식별자(dedup 키 일부) — 배수가 바뀌어도 규칙명은 유지, 적용 배수는 CtMultiplier 스냅샷
             DetectionReason = reason,
-            CtThresholdMs = thrMs,
+            CtThresholdMs = thrMs,            // 2026-09-09 부터 기준선 = 중앙 WT(미보유 flow 는 폴백 평균 CT) — 컬럼명은 호환 유지
             CtMultiplier = nonProdMult,
         };
 
@@ -2241,10 +2319,13 @@ public abstract class OeeControllerBase : ControllerBase
         CancellationToken ct,
         IReadOnlySet<string>? flowFilter = null)
     {
-        var (idleMult, _) = ResolveCtMultipliers();
-        // dtCond 의 MT 축 경계 — 집계 경로와 같은 소스(SSOT). 미보유 flow 는 CT 축 폴백.
+        var (idleMult, _) = ResolveWtMultipliers();
+        // dtCond 의 두 축 경계 — 집계 경로와 같은 소스(SSOT). WT 기준선 미보유 flow 는 평균 CT 폴백, MT 미보유는 WT 경계 폴백.
         var mqFaultMult = _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
         var mqMtThresholds = await _ctStats.ComputeMtThresholdAsync();
+        var mqWtBaselines = await _ctStats.ComputeWtBaselineAsync();
+        var mqBranchMap = _settings.GetBranchVirtualMap();
+        string MqPhys(string f) => mqBranchMap.TryGetValue(f, out var bm) ? bm.Parent : f;
         var branchedParentsMq = _settings.GetBranchedParentFlows();   // 분기 활성 flow — 미분류 계수 대상
         var rows = new List<OeeMeasureQualityRowDto>();
 
@@ -2334,7 +2415,10 @@ public abstract class OeeControllerBase : ControllerBase
                                 HeadGoingCount: dg0.HG, TailGoingCount: dg0.TG));
                             continue;
                         }
-                        var thrMs = thresholds[f].AvgMs * idleMult;
+                        // 정지 경계(WT 축) — ThresholdMs 로도 노출(제외율의 기준이 몇 초였는지).
+                        var thrMs = mqWtBaselines.TryGetValue(MqPhys(f), out var mqWb) && mqWb.MedianCtMs > 0
+                            ? OeeMath.ResolveWtStopBoundaryMs(mqWb.MedianWtMs, mqWb.MedianCtMs, idleMult)
+                            : thresholds[f].AvgMs * idleMult;
                         // 분기 활성 flow — 미분류(branchName NULL) 사이클을 함께 계수한다. 분기 미사용이면
                         // 컬럼을 참조하지 않아(상수 0) branchName 없는 옛 DB/미러에서도 안전.
                         var isBranched = branchedParentsMq.Contains(f);
@@ -2342,9 +2426,9 @@ public abstract class OeeControllerBase : ControllerBase
                             ? "COALESCE(SUM(CASE WHEN branchName IS NULL THEN 1 ELSE 0 END),0)"
                             : "0";
                         var p = new DynamicParameters();
-                        p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", f); p.Add("Thr", thrMs);
-                        p.Add("MtThr", mqMtThresholds.TryGetValue(f, out var mqMt) && mqMt > 0
-                            ? mqMt * mqFaultMult
+                        p.Add("From", fromStr); p.Add("To", toStr); p.Add("Flow", f); p.Add("WtThr", thrMs);
+                        p.Add("MtThr", mqMtThresholds.TryGetValue(MqPhys(f), out var mqMt) && mqMt > 0
+                            ? OeeMath.ResolveMtFaultBoundaryMs(mqMt, mqFaultMult)
                             : thrMs);
                         var q = await conn.QueryFirstOrDefaultAsync<MeasureQualityRow>($@"
                             SELECT

@@ -237,4 +237,170 @@ public class CallRefReconcilerTests
         Assert.True(lookup.TryGetName(A.ToString("D").ToUpperInvariant(), out var name));
         Assert.Equal("A.up", name);
     }
+
+    // ── ④ 배선 지문(2026-09-11) — 이름·GUID 둘 다 바뀌어도 주소가 같으면 같은 call ──────────
+    private static FlowCallLookup ModelSig(params (Guid, string, string?)[] calls) => FlowCallLookup.From(calls);
+
+    [Fact]
+    public void Signature_build_is_order_independent_and_null_when_unwired()
+    {
+        var a = CallSignature.Build([("%IW1.0", "%QW2.0"), ("%IW1.1", null)]);
+        var b = CallSignature.Build([(null, "%QW2.0"), ("%IW1.1", null), ("%IW1.0", null)]);
+        Assert.Equal(a, b);
+        Assert.Equal("I:%IW1.0;I:%IW1.1;O:%QW2.0", a);
+        Assert.Null(CallSignature.Build([(null, null), ("", " ")]));
+    }
+
+    [Fact]
+    public void Rename_with_guid_reissue_is_rematched_by_signature()
+    {
+        var newId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        var set = new FlowBranchSet
+        {
+            FlowName = "F",
+            Branches =
+            [
+                new FlowBranchDef
+                {
+                    Name = "X",
+                    StartCallName = "OLD.up", StartCallId = A.ToString("D"), StartCallSig = "I:%IW1.0;O:%QW2.0",
+                    EndCallName = "B.down", EndCallId = B.ToString("D"), ExcludedCallNames = [],
+                },
+            ],
+        };
+        var lookup = ModelSig((newId, "NEW.up", "I:%IW1.0;O:%QW2.0"), (B, "B.down", "O:%QW9.9"));
+        var report = new CallRefReconcileReport();
+
+        CallRefReconciler.ReconcileBranchSet(set, lookup, report);
+
+        var b = set.Branches[0];
+        Assert.Equal("NEW.up", b.StartCallName);
+        Assert.Equal(newId.ToString("D"), b.StartCallId);
+        Assert.Single(report.Rematched);
+        Assert.Equal("OLD.up", report.Rematched[0].OldName);
+        Assert.Equal("NEW.up", report.Rematched[0].NewName);
+        Assert.Empty(report.Ghosts);
+        Assert.True(report.Changed);
+    }
+
+    [Fact]
+    public void Ambiguous_signature_stays_ghost()
+    {
+        var set = new FlowBranchSet
+        {
+            FlowName = "F",
+            Branches =
+            [
+                new FlowBranchDef
+                {
+                    Name = "X", StartCallName = "GONE.up", StartCallSig = "O:%QW1.0",
+                    EndCallName = "B.down", EndCallId = B.ToString("D"), ExcludedCallNames = [],
+                },
+            ],
+        };
+        // 공용 주소 — 두 call 이 같은 지문. 자동 확정하면 오분류가 조용히 생기므로 유령으로 남긴다.
+        var lookup = ModelSig((A, "A.up", "O:%QW1.0"), (C, "C.up", "O:%QW1.0"), (B, "B.down", null));
+        var report = new CallRefReconcileReport();
+
+        CallRefReconciler.ReconcileBranchSet(set, lookup, report);
+
+        Assert.Equal("GONE.up", set.Branches[0].StartCallName);
+        Assert.Single(report.Ghosts);
+        Assert.Empty(report.Rematched);
+        Assert.Equal(2, lookup.SigCandidates("O:%QW1.0"));
+    }
+
+    [Fact]
+    public void Signature_is_backfilled_and_follows_rewiring()
+    {
+        var set = new FlowBranchSet
+        {
+            FlowName = "F",
+            Branches =
+            [
+                new FlowBranchDef
+                {
+                    Name = "X",
+                    StartCallName = "A.up", StartCallId = A.ToString("D"),
+                    EndCallName = "B.down", EndCallId = B.ToString("D"), EndCallSig = "O:%QW0.0",
+                    ExcludedCallNames = ["C.up"], ExcludedCallIds = [C.ToString("D")],
+                },
+            ],
+        };
+        var lookup = ModelSig((A, "A.up", "O:%QW1.0"), (B, "B.down", "O:%QW2.0"), (C, "C.up", "O:%QW3.0"));
+        var report = new CallRefReconcileReport();
+
+        CallRefReconciler.ReconcileBranchSet(set, lookup, report);
+
+        var b = set.Branches[0];
+        Assert.Equal("O:%QW1.0", b.StartCallSig);      // 백필
+        Assert.Equal("O:%QW2.0", b.EndCallSig);        // 배선 변경 추종(이름·GUID 는 그대로)
+        Assert.Equal(["O:%QW3.0"], b.ExcludedCallSigs);
+        Assert.Equal(2, report.FilledSigs);
+        Assert.Equal(1, report.Rewired);
+        Assert.Equal(0, report.FilledIds);
+        Assert.True(report.Changed);
+        Assert.Empty(report.Ghosts);
+    }
+
+    [Fact]
+    public void Unwired_model_keeps_existing_signature()
+    {
+        var set = new FlowBranchSet
+        {
+            FlowName = "F",
+            Branches = [new FlowBranchDef { Name = "X", StartCallName = "A.up", StartCallId = A.ToString("D"), StartCallSig = "O:%QW1.0", EndCallName = "B.down", EndCallId = B.ToString("D"), ExcludedCallNames = [] }],
+        };
+        var lookup = ModelSig((A, "A.up", null), (B, "B.down", null));   // 미결선 모델
+        var report = new CallRefReconcileReport();
+
+        CallRefReconciler.ReconcileBranchSet(set, lookup, report);
+
+        Assert.Equal("O:%QW1.0", set.Branches[0].StartCallSig);
+        Assert.False(report.Changed);
+    }
+
+    [Fact]
+    public void StampIds_also_stamps_signatures_and_inherits_keys_for_unresolved()
+    {
+        var def = new FlowBranchDef { Name = "X", StartCallName = "A.up", EndCallName = "B.down", ExcludedCallNames = ["C.up", "GONE"] };
+        var lookup = ModelSig((A, "A.up", "O:%QW1.0"), (B, "B.down", null), (C, "C.up", "O:%QW3.0"));
+
+        CallRefReconciler.StampIds(def, lookup);
+
+        Assert.Equal("O:%QW1.0", def.StartCallSig);
+        Assert.Null(def.EndCallSig);
+        Assert.Equal(["O:%QW3.0", null], def.ExcludedCallSigs);
+        Assert.Equal([C.ToString("D"), null], def.ExcludedCallIds);
+
+        // 이전 저장분이 'GONE' 을 다른 분기에서 GUID·지문과 함께 들고 있었다 → 격리 보존 시 그 키를 승계.
+        var gone = Guid.Parse("55555555-5555-5555-5555-555555555555");
+        var existing = new FlowBranchSet
+        {
+            FlowName = "F",
+            Branches =
+            [
+                new FlowBranchDef
+                {
+                    Name = "Y", StartCallName = "GONE", StartCallId = gone.ToString("D"), StartCallSig = "O:%QW7.7",
+                    EndCallName = "B.down", ExcludedCallNames = [],
+                },
+            ],
+        };
+        CallRefReconciler.InheritUnresolved(def, existing);
+
+        Assert.Equal(gone.ToString("D"), def.ExcludedCallIds![1]);
+        Assert.Equal("O:%QW7.7", def.ExcludedCallSigs![1]);
+        Assert.Equal(C.ToString("D"), def.ExcludedCallIds[0]);   // 해석된 것은 그대로
+        Assert.Equal("O:%QW3.0", def.ExcludedCallSigs[0]);
+    }
+
+    [Fact]
+    public void InheritUnresolved_without_existing_set_is_noop()
+    {
+        var def = new FlowBranchDef { Name = "X", StartCallName = "GONE", EndCallName = "B.down", ExcludedCallNames = ["Z"], ExcludedCallIds = [null], ExcludedCallSigs = [null] };
+        CallRefReconciler.InheritUnresolved(def, null);
+        Assert.Null(def.StartCallId);
+        Assert.Equal([null], def.ExcludedCallIds);
+    }
 }

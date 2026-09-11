@@ -136,11 +136,14 @@
                 // windows=수동 지정 창(추가로 무조건 비생산, 매일 반복). source: auto(지정 없음)/both. editing=[수동 편집] 모드(addMode=[시간 추가] 드래그 무장).
                 // actualNonProd=이번 기간 실제 제외된 비생산(자동+지정 합산 실측 — 통합 타임라인의 자동(점선) 소스).
                 // (구 auto/pendingManual 배타 토글, excludedWeekdays/xw*[생산 요일] 는 병행 모델 전환으로 제거.)
-                ps: { source: 'auto', ctMultiplier: 10, windows: [], selected: -1, addMode: false, editing: false, msg: '', err: '', busy: false, actualNonProd: null, dirty: false },
+                ps: { source: 'auto', ctMultiplier: 30, windows: [], selected: -1, addMode: false, editing: false, msg: '', err: '', busy: false, actualNonProd: null, dirty: false },
                 _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
                 // 정지·비생산 판정 기준 (doc/22 §3/§3.3, 2026-07-13 사용자 설정화) — 비가동=평균CT×idle 초과 사이클,
                 // 비생산=평균CT×nonProd 이상 무변화 정지(분모 밖). preview=저장 전 what-if 재분류(서버 오버라이드 계산, 저장·기록 없음).
-                cm: { idle: 2.5, nonProd: 15, fault: 2.5, origIdle: 2.5, origNonProd: 15, origFault: 2.5, flows: [], busy: false, msg: '', err: '', preview: null, previewBusy: false },
+                // 판정 배수(2026-09-09 WT/MT 2축): idle/nonProd = 중앙 WT 배수, fault = 중앙 MT 배수. stopFloor/nonProdFloor/faultFloorMs 는
+                // 서버 하한 상수(GET ct-multipliers) — 화면 환산(cmBound)이 서버 경계 함수와 같은 값을 내도록 서버가 내려준다.
+                cm: { idle: 5, nonProd: 30, fault: 2.5, origIdle: 5, origNonProd: 30, origFault: 2.5, flows: [], busy: false, msg: '', err: '', preview: null, previewBusy: false,
+                      stopFloor: 1, nonProdFloor: 10, faultFloorMs: 1000 },
                 _cmSeq: 0, _cmPrevTimer: null, _cmMultMsgTimer: null,
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
@@ -360,7 +363,7 @@
                     try {
                         const r = await this.apiGet('/api/oee/planned-stops');
                         this.ps.source = r.source || 'auto';
-                        this.ps.ctMultiplier = r.ctMultiplier || 10;
+                        this.ps.ctMultiplier = r.nonProdWtMultiplier || 30;   // 비생산 자동판정 배수(WT 축) — 칩 표기용
                         this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
                         this.ps.selected = -1; this.ps.addMode = false; this.ps.dirty = false; this.ps.editing = false;
                     } catch (e) { this.ps.err = '비생산 시간대를 불러오지 못했습니다: ' + e.message; }
@@ -553,44 +556,63 @@
                     finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 5000); }
                 },
 
-                // ── 정지·비생산 판정 기준 (GET/PUT /api/oee/ct-multipliers) — 슬라이더 + flow 임계 환산 + 저장 전 재분류 미리보기 ──
+                // ── 정지·비생산·고장 판정 기준 (GET/PUT /api/oee/ct-multipliers, WT/MT 2축) — 레인 밴드 + 슬라이더 + flow 환산 + 저장 전 재분류 미리보기 ──
                 cmDirty() {
                     return this.cm.idle !== this.cm.origIdle || this.cm.nonProd !== this.cm.origNonProd
                         || this.cm.fault !== this.cm.origFault;
                 },
-                async loadCtMultipliers() {
-                    try {
-                        const r = await this.apiGet('/api/oee/ct-multipliers');
-                        this.cm.idle = this.cm.origIdle = Math.round((r.idleCtMultiplier || 2.5) * 10) / 10;
-                        this.cm.nonProd = this.cm.origNonProd = Math.round((r.nonProdCtMultiplier || 15) * 10) / 10;
-                        this.cm.fault = this.cm.origFault = Math.round((r.faultMtMultiplier || 2.5) * 10) / 10;
-                        this.cm.flows = r.flows || [];
-                        this.cm.preview = null;
-                    } catch (e) { this.cm.err = '판정 기준을 불러오지 못했습니다: ' + e.message; }
+                cmReadDto(r) {
+                    this.cm.idle = this.cm.origIdle = Math.round((r.idleWtMultiplier || 5) * 10) / 10;
+                    this.cm.nonProd = this.cm.origNonProd = Math.round((r.nonProdWtMultiplier || 30) * 10) / 10;
+                    this.cm.fault = this.cm.origFault = Math.round((r.faultMtMultiplier || 2.5) * 10) / 10;
+                    this.cm.flows = r.flows || [];
+                    if (r.stopFloorCtMultiples > 0) this.cm.stopFloor = r.stopFloorCtMultiples;
+                    if (r.nonProdFloorCtMultiples > 0) this.cm.nonProdFloor = r.nonProdFloorCtMultiples;
+                    if (r.faultFloorMs > 0) this.cm.faultFloorMs = r.faultFloorMs;
+                    this.cm.preview = null;
                 },
-                // 배수 × flow 평균 CT → 임계 환산 표시 (10s 미만은 소수 1자리, 90s↑ 분, 90분↑ 시간)
-                cmSecs(avgMs, mult) {
-                    const s = ((avgMs || 0) * mult) / 1000;
+                async loadCtMultipliers() {
+                    try { this.cmReadDto(await this.apiGet('/api/oee/ct-multipliers')); }
+                    catch (e) { this.cm.err = '판정 기준을 불러오지 못했습니다: ' + e.message; }
+                },
+                // flow별 경계(ms) — 서버 OeeMath.ResolveWtStopBoundaryMs / ResolveWtNonProdBoundaryMs / ResolveMtFaultBoundaryMs 와 같은 식.
+                //   대기(WT) 기준선 없는 flow(medianCtMs=0)는 평균 CT × 배수 폴백(서버와 동일).
+                cmBound(f, kind) {
+                    const hasWt = (f.medianCtMs || 0) > 0;
+                    const stop = hasWt
+                        ? Math.max((f.medianWtMs || 0) * Math.max(this.cm.idle, 1), f.medianCtMs * this.cm.stopFloor)
+                        : (f.avgCtMs || 0) * this.cm.idle;
+                    if (kind === 'stop') return stop;
+                    if (kind === 'nonprod') return hasWt
+                        ? Math.max((f.medianWtMs || 0) * this.cm.nonProd, f.medianCtMs * this.cm.nonProdFloor, stop)
+                        : (f.avgCtMs || 0) * this.cm.nonProd;
+                    if (kind === 'fault') return (f.medianMtMs || 0) > 0 ? Math.max(f.medianMtMs * this.cm.fault, this.cm.faultFloorMs) : 0;
+                    return 0;
+                },
+                // ms → 사람 단위 (10s 미만은 소수 1자리, 90s↑ 분, 90분↑ 시간)
+                cmFmtMs(ms) {
+                    const s = (ms || 0) / 1000;
                     if (s >= 5400) return (s / 3600).toFixed(1) + '시간';
                     if (s >= 90) return (s / 60).toFixed(1) + '분';
                     return (s >= 10 ? String(Math.round(s)) : s.toFixed(1)) + '초';
                 },
+                cmSecs(avgMs, mult) { return this.cmFmtMs((avgMs || 0) * mult); },
                 cmFmtH(ms) { const h = (ms || 0) / 3600000; return (h >= 10 ? Math.round(h) : h.toFixed(1)) + '시간'; },
                 cmFmtPct(v) { return (v === null || v === undefined) ? '—' : (v * 100).toFixed(1) + '%'; },
-                // 슬라이더 입력 — 역전 차단(비가동 + 0.5 ≤ 비생산 유지) 후 미리보기 디바운스
+                // 슬라이더 입력 — 역전 차단(정지 + 0.5 ≤ 비생산 유지) 후 미리보기 디바운스. 범위는 서버(OeeManualSettings.*Mult*)와 동일.
                 cmSetIdle(v) {
                     const x = Math.round(parseFloat(v) * 10) / 10;
                     if (!isFinite(x)) return;
-                    this.cm.idle = Math.max(1, Math.min(x, this.cm.nonProd - 0.5));
+                    this.cm.idle = Math.max(1.5, Math.min(x, this.cm.nonProd - 0.5));
                     this.cmQueuePreview();
                 },
                 cmSetNonProd(v) {
                     const x = Math.round(parseFloat(v) * 10) / 10;
                     if (!isFinite(x)) return;
-                    this.cm.nonProd = Math.min(100, Math.max(x, this.cm.idle + 0.5));
+                    this.cm.nonProd = Math.min(300, Math.max(5, Math.max(x, this.cm.idle + 0.5)));
                     this.cmQueuePreview();
                 },
-                // 고장(MT축) 배수 — CT축 두 배수와 축이 달라 역전 제약이 없다(비교 자체가 무의미).
+                // 고장(MT축) 배수 — WT축 두 배수와 축이 달라 역전 제약이 없다(비교 자체가 무의미).
                 cmSetFault(v) {
                     const x = Math.round(parseFloat(v) * 10) / 10;
                     if (!isFinite(x)) return;
@@ -615,19 +637,15 @@
                     } catch (e) { if (seq === this._cmSeq) { this.cm.preview = null; this.cm.err = '미리보기 실패: ' + e.message; } }
                     finally { if (seq === this._cmSeq) this.cm.previewBusy = false; }
                 },
-                cmReset() { this.cm.idle = 2.5; this.cm.nonProd = 15; this.cm.fault = 2.5; this.cmQueuePreview(); },
+                cmReset() { this.cm.idle = 5; this.cm.nonProd = 30; this.cm.fault = 2.5; this.cmQueuePreview(); },
                 async cmApply() {
-                    if (this.cm.idle >= this.cm.nonProd) { this.cm.err = '비가동 배수는 비생산 배수보다 작아야 합니다.'; return; }
+                    if (this.cm.idle >= this.cm.nonProd) { this.cm.err = '정지 배수는 비생산 배수보다 작아야 합니다.'; return; }
                     this.cm.busy = true; this.cm.msg = ''; this.cm.err = '';
                     try {
                         const r = await this.apiPut('/api/oee/ct-multipliers',
-                            { idleCtMultiplier: this.cm.idle, nonProdCtMultiplier: this.cm.nonProd, faultMtMultiplier: this.cm.fault });
-                        this.cm.idle = this.cm.origIdle = Math.round(r.idleCtMultiplier * 10) / 10;
-                        this.cm.nonProd = this.cm.origNonProd = Math.round(r.nonProdCtMultiplier * 10) / 10;
-                        this.cm.fault = this.cm.origFault = Math.round((r.faultMtMultiplier || 2.5) * 10) / 10;
-                        this.cm.flows = r.flows || [];
-                        this.cm.preview = null;
-                        this.cm.msg = `판정 기준 적용 — 비가동 ${this.cm.idle}×CT / 비생산 ${this.cm.nonProd}×CT / 고장 ${this.cm.fault}×MT (조회 시 재계산이라 과거 기간에도 즉시 반영)`;
+                            { idleWtMultiplier: this.cm.idle, nonProdWtMultiplier: this.cm.nonProd, faultMtMultiplier: this.cm.fault });
+                        this.cmReadDto(r);
+                        this.cm.msg = `판정 기준 적용 — 고장 ${this.cm.fault}×MT / 정지 ${this.cm.idle}×WT / 비생산 ${this.cm.nonProd}×WT (조회 시 재계산이라 과거 기간에도 즉시 반영)`;
                         // KPI + 비생산 카드의 자동 칩(배수 표기) + 실측 타임라인 갱신
                         await Promise.all([this.loadOee(), this.loadPlannedStops()]);
                     } catch (e) { this.cm.err = '적용 실패: ' + e.message; }
@@ -637,12 +655,17 @@
                         this._cmMultMsgTimer = setTimeout(() => { this.cm.msg = ''; }, 6000);
                     }
                 },
-                // 분류 밴드 세그먼트 폭(%) — 0 ~ 비생산×1.15 선형 스케일(정상 | 비가동 | 비생산)
+                // 레인 밴드 세그먼트 폭(%). WT 레인: 0 ~ 비생산×1.15 스케일(정상 | 정지 | 비생산) — 비생산 배수가 커서 정지 구간이
+                // 사라지지 않게 정상 구간엔 최소 폭(18%)을 보장한다. MT 레인: 0 ~ 고장×1.8 스케일(정상 | 고장).
                 cmBandW(kind) {
+                    if (kind === 'mt-normal') return '46%';
+                    if (kind === 'mt-fault') return '54%';
                     const max = this.cm.nonProd * 1.15;
-                    if (kind === 'normal') return (this.cm.idle / max * 100) + '%';
-                    if (kind === 'idle') return ((this.cm.nonProd - this.cm.idle) / max * 100) + '%';
-                    return (100 - this.cm.nonProd / max * 100) + '%';
+                    const normal = Math.max(18, this.cm.idle / max * 100);
+                    const nonprod = Math.max(22, 100 - this.cm.nonProd / max * 100);
+                    if (kind === 'normal') return normal + '%';
+                    if (kind === 'idle') return Math.max(14, 100 - normal - nonprod) + '%';
+                    return nonprod + '%';
                 },
 
                 // 현재 기간 → OEE 엔드포인트용 from/to (로컬 ISO, UserTagsController.ResolvePeriod 와 동일 의미)
@@ -1529,6 +1552,9 @@
                         if (document.hidden) return;
                         const since = Date.now() - (this._lastTrigLoad || 0);
                         if (since >= 2000) {
+                            // 예약된 트레일링 취소 — 만료 시점과 선행 호출이 겹치면 재조회가 2배로 나간다.
+                            clearTimeout(this._dt);
+                            this._dt = null;
                             this._lastTrigLoad = Date.now();
                             this.load(true);
                         } else if (!this._dt) {

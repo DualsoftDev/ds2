@@ -157,11 +157,11 @@ public class AppSettingsService
         => Update(settings => settings.OeeManual.AutoPatternCache = cache);
 
     /// <summary>
-    /// 정지·비생산 판정 배수 저장 (2026-07-13, doc/22 §3/§3.3 사용자 설정화). 호출측(컨트롤러)이 범위·역전
+    /// 정지·비생산 판정 배수 저장 (2026-07-13 사용자 설정화 → 2026-09-09 WT 축, doc/27). 호출측(컨트롤러)이 범위·역전
     /// 검증을 마친 값을 받는다(여기서도 클램프 방어). 배수가 바뀌면 학습기(§3.5)의 장시간 정지 문턱도 바뀌므로
     /// AutoPatternCache(24h)를 함께 폐기 — 다음 조회가 새 문턱으로 즉시 재학습한다.
     /// </summary>
-    public void SaveCtMultipliers(double idleMult, double nonProdMult, double? faultMtMult = null)
+    public void SaveStopMultipliers(double idleMult, double nonProdMult, double? faultMtMult = null)
     {
         var idle = Math.Clamp(idleMult, OeeManualSettings.IdleMultMin, OeeManualSettings.IdleMultMax);
         var nonProd = Math.Clamp(nonProdMult, OeeManualSettings.NonProdMultMin, OeeManualSettings.NonProdMultMax);
@@ -170,8 +170,8 @@ public class AppSettingsService
             : (double?)null;
         Update(settings =>
         {
-            settings.OeeManual.IdleCtMultiplier = idle;
-            settings.OeeManual.NonProdCtMultiplier = nonProd;
+            settings.OeeManual.IdleWtMultiplier = idle;
+            settings.OeeManual.NonProdWtMultiplier = nonProd;
             if (fault is double f) settings.OeeManual.FaultMtMultiplier = f;
             settings.OeeManual.AutoPatternCache = null;
         });
@@ -260,6 +260,8 @@ public class AppSettingsService
 
         string? IdOf(string? name) =>
             lookup is not null && lookup.TryGetId(name, out var id) ? CallRefReconciler.IdText(id) : null;
+        string? SigOf(string? name) =>
+            lookup is not null && lookup.TryGetId(name, out var id) ? lookup.SigOf(id) : null;
 
         if (existing is null)
         {
@@ -272,6 +274,8 @@ public class AppSettingsService
                     EndCallName = normalizedEnd,
                     StartCallId = IdOf(normalizedStart),
                     EndCallId = IdOf(normalizedEnd),
+                    StartCallSig = SigOf(normalizedStart),
+                    EndCallSig = SigOf(normalizedEnd),
                     ChatterFilterMs = normalizedChatter,
                 });
             }
@@ -282,6 +286,8 @@ public class AppSettingsService
             existing.EndCallName = normalizedEnd;
             existing.StartCallId = IdOf(normalizedStart);
             existing.EndCallId = IdOf(normalizedEnd);
+            existing.StartCallSig = SigOf(normalizedStart);
+            existing.EndCallSig = SigOf(normalizedEnd);
             existing.ChatterFilterMs = normalizedChatter;
             // 종전엔 Head/Tail 이 기본값으로 돌아가면 항목을 통째로 지워 IdealCycleTimeMs 까지 유실됐다 —
             // 이제 모든 override 필드가 비었을 때만 제거(SaveFlowIdealCycleTime 과 동일 원칙).
@@ -315,6 +321,64 @@ public class AppSettingsService
 
     /// <summary>마지막 재해석 결과(유령 목록 포함) — 화면/API 가 "모델에 없는 call" 안내에 쓴다. null=아직 안 돌았음.</summary>
     public CallRefReconcileReport? LastCallRefReport { get; private set; }
+
+    /// <summary>flow 리네임 승계 기록(최근 50건, 최신순) — 설정 화면 '참조 재해석' 안내용. DB 승계는 DspDatabaseServiceAdapter 가 하고 결과만 남긴다.</summary>
+    public IReadOnlyList<FlowRenameRecord> LastFlowRenames { get; private set; } = [];
+
+    public void RecordFlowRenames(IEnumerable<FlowRenameRecord> records)
+        => LastFlowRenames = LastFlowRenames.Concat(records).OrderByDescending(r => r.AtUtc).Take(50).ToList();
+
+    /// <summary>
+    /// flow 이름 변경 승계(2026-09-11) — flow 이름을 키로 든 설정 전부를 옛 이름에서 새 이름으로: 분기 정의·경계 override·
+    /// CT 제외 범위·OEE 신호맵·출력 flow 목록·시프트 대상. 새 이름 항목이 이미 있으면 그쪽을 정본으로 두고 옛 항목은 제거한다
+    /// (두 설정을 병합하지 않는다). 반환 = 바뀐 섹션 수, 0 이면 저장하지 않는다.
+    /// </summary>
+    public int RenameFlowInSettings(string oldName, string newName)
+    {
+        if (string.IsNullOrWhiteSpace(oldName) || string.IsNullOrWhiteSpace(newName)
+            || string.Equals(oldName, newName, StringComparison.Ordinal))
+            return 0;
+
+        var settings = LoadSettings();
+        var sections = 0;
+        bool IsOld(string? s) => string.Equals(s, oldName, StringComparison.OrdinalIgnoreCase);
+        bool IsNew(string? s) => string.Equals(s, newName, StringComparison.OrdinalIgnoreCase);
+
+        // 이름 키 리스트 공통 처리 — 새 이름 항목이 있으면 옛 항목 제거, 없으면 이름만 갱신.
+        int Carry<T>(List<T> list, Func<T, string?> get, Action<T, string> set)
+        {
+            if (!list.Any(x => IsOld(get(x)))) return 0;
+            if (list.Any(x => IsNew(get(x)))) list.RemoveAll(x => IsOld(get(x)));
+            else foreach (var x in list) if (IsOld(get(x))) set(x, newName);
+            return 1;
+        }
+
+        sections += Carry(settings.FlowCycle.BranchSets, s => s.FlowName, (s, n) => s.FlowName = n);
+        sections += Carry(settings.FlowCycle.Overrides, o => o.FlowName, (o, n) => o.FlowName = n);
+        sections += Carry(settings.CycleExclusion.Ranges, r => r.FlowName, (r, n) => r.FlowName = n);
+        sections += Carry(settings.OeeSignals.Flows, m => m.FlowName, (m, n) => m.FlowName = n);
+
+        if (settings.OeeManual.OutputFlows.Any(IsOld))
+        {
+            settings.OeeManual.OutputFlows = settings.OeeManual.OutputFlows
+                .Select(f => IsOld(f) ? newName : f)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            sections++;
+        }
+        if (IsOld(settings.Shift.TargetFlow))
+        {
+            settings.Shift.TargetFlow = newName;
+            sections++;
+        }
+
+        if (sections > 0)
+        {
+            SaveSettings(settings);
+            _logger.LogInformation("[FlowRename] 설정 승계 '{Old}' -> '{New}': {N}개 섹션", oldName, newName, sections);
+        }
+        return sections;
+    }
 
     /// <summary>
     /// AASX (재)로드 직후: 분기 정의·flow 경계 override 의 Call 참조(GUID+이름)를 현재 모델에 맞춘다.
@@ -360,8 +424,13 @@ public class AppSettingsService
                 foreach (var r in report.Renamed)
                     _logger.LogInformation("[CallRef] '{Flow}'{Branch} {Role}: '{Old}' -> '{New}' (GUID 동일 - 이름 추종)",
                         r.FlowName, r.BranchName is null ? "" : $" 분기 '{r.BranchName}'", r.Role, r.OldName, r.NewName);
+                foreach (var r in report.Rematched)
+                    _logger.LogInformation("[CallRef] '{Flow}'{Branch} {Role}: '{Old}' -> '{New}' (배선 지문 일치 - 이름·GUID 재매칭)",
+                        r.FlowName, r.BranchName is null ? "" : $" 분기 '{r.BranchName}'", r.Role, r.OldName, r.NewName);
                 if (report.FilledIds > 0)
                     _logger.LogInformation("[CallRef] Call GUID {N}건 채움(구 데이터/재생성 - 이름으로 해석)", report.FilledIds);
+                if (report.FilledSigs > 0 || report.Rewired > 0)
+                    _logger.LogInformation("[CallRef] 배선 지문 채움 {Filled}건 · 배선 변경 추종 {Rewired}건", report.FilledSigs, report.Rewired);
             }
             foreach (var g in report.Ghosts)
                 _logger.LogWarning("[CallRef] '{Flow}'{Branch} {Role}: '{Name}' 이 현재 모델에 없음 - 화면에서 제거/재지정 필요",
@@ -458,6 +527,14 @@ public class AppSettingsService
                 ExcludedCallIds = b.ExcludedCallIds is { } ids
                     && ids.Count == (b.ExcludedCallNames?.Count ?? 0)
                     && excludedNames.Count == ids.Count ? ids : null,
+                StartCallSig = b.StartCallSig,
+                EndCallSig = b.EndCallSig,
+                ExcludedCallSigs = b.ExcludedCallSigs is { } sigs
+                    && sigs.Count == (b.ExcludedCallNames?.Count ?? 0)
+                    && excludedNames.Count == sigs.Count ? sigs : null,
+                // 미지의 확장 필드 보존(2026-09-11) — 구버전/신버전 혼재 시 다른 쪽이 기록한 필드가 이 저장으로 사라지지 않게.
+                // 다른 설정 모델은 [JsonExtensionData] 로 자동 보존되지만 이 경로만 새 객체를 만들어 예외였다.
+                ExtensionData = b.ExtensionData,
             });
         }
 

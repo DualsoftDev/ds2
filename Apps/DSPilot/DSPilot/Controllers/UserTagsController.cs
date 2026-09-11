@@ -102,11 +102,9 @@ public class UserTagsController : ControllerBase
         var latest = await _repo.GetLatestAlertsAsync(1, ct);
         var lastAlertAtLocal = latest.Count > 0 ? latest[0].OccurredAt.ToLocalTime().ToString("MM-dd HH:mm:ss") : null;
 
-        var definitions = _alertService.GetDefinitions();
-        var defDtos = definitions
-            .Select(d => new UtDefinitionDto(d.SystemName, d.Name, d.LogLevel, d.TagAddress, d.ValueType, d.MatchOp, d.MatchValue))
-            .ToList();
-        var systemOptions = definitions.Select(d => d.SystemName).Distinct().OrderBy(s => s).ToList();
+        // System 드롭다운 옵션만 정의에서 뽑는다. 정의 원본은 스냅샷에 싣지 않는다(GET definitions 사용).
+        var systemOptions = _alertService.GetDefinitions()
+            .Select(d => d.SystemName).Distinct().OrderBy(s => s).ToList();
 
         return new UserTagSnapshotDto(
             period, startLocal.ToString("yyyy-MM-dd HH:mm"), endLocal.ToString("yyyy-MM-dd HH:mm"),
@@ -118,7 +116,7 @@ public class UserTagsController : ControllerBase
             topByPath.Select(t => new UtTopDto(t.Name, t.LogLevel, t.Count, t.AltName)).ToList(),
             new Dictionary<string, int>(categoryCounts),
             activeError, todayError, lastAlertAtLocal,
-            defDtos, systemOptions,
+            systemOptions,
             _settings.LoadSettings().Ui.AlarmTickerIntervalSec);
         });
     }

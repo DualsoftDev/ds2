@@ -384,6 +384,83 @@ public sealed class OeeCtStatsService
     }
 
     /// <summary>
+    /// flow별 14일 <b>중앙 WT·중앙 CT</b> — 정지/비생산 판정(WT 축, 2026-09-09 doc/27)의 기준선.
+    /// <see cref="Models.OeeManualSettings.IdleWtMultiplier"/>·<see cref="Models.OeeManualSettings.NonProdWtMultiplier"/> 가
+    /// 중앙 WT 에 곱해지고, 중앙 CT 는 경계 하한(1사이클·10사이클, <see cref="OeeMath.ResolveWtStopBoundaryMs"/>)의 기준이다.
+    ///
+    /// <para>중앙값을 쓰는 이유는 MT 와 같다 — 정지는 WT 에 그대로 실려서 평균이 심하게 오염된다(실측 kit 라인:
+    /// 중앙 WT 5.0초 vs 평균 WT 1,000초). 모집단은 MT 기준과 동일(IsIdle=0, mt·wt 모두 기록된 완료 사이클)이고
+    /// 키는 <b>부모(물리 설비) flowName</b> 이다 — 분기는 부모 기준선을 공유한다(MT 와 같은 규약).</para>
+    ///
+    /// <para>표본이 없는 flow(tail 미정의 → mt·wt 항상 NULL)는 맵에서 빠진다 — 호출측은 "기준선 없음 = CT 폴백
+    /// (평균 CT × 배수, 비교값 ct)"으로 다룬다. 0 을 경계로 쓰면 모든 사이클이 정지가 된다.</para>
+    /// </summary>
+    public Task<Dictionary<string, (double MedianWtMs, double MedianCtMs, int Sample)>> ComputeWtBaselineAsync(int windowDays = 14)
+        => GetOrComputeCachedAsync($"wtbase|{windowDays}", () => ComputeWtBaselineCoreAsync(windowDays));
+
+    private async Task<Dictionary<string, (double MedianWtMs, double MedianCtMs, int Sample)>> ComputeWtBaselineCoreAsync(int windowDays)
+    {
+        var result = new Dictionary<string, (double MedianWtMs, double MedianCtMs, int Sample)>(StringComparer.OrdinalIgnoreCase);
+        var dbPath = _pathResolver.GetSharedDbPath();
+        if (!File.Exists(dbPath)) return result;
+        try
+        {
+            var conn = await _mirror.TryOpenPlcReadAsync(DateTime.UtcNow.AddDays(-Math.Max(1, windowDays)), layerB: true);
+            if (conn is null)
+            {
+                conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate;Default Timeout=20");
+                await conn.OpenAsync();
+            }
+            await using var _ = conn;
+
+            var histExists = await conn.ExecuteScalarAsync<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='dspFlowHistory'");
+            if (histExists == 0) return result;
+
+            var since = DateTime.UtcNow.AddDays(-Math.Max(1, windowDays))
+                .ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+
+            // wt 는 mt 와 함께만 기록된다(CycleRecomputeService: WT = CT − MT). wt ≥ 0 만 — 시계 역행 등 음수 방어.
+            var raw = await conn.QueryAsync<(string? FlowName, long Wt, long Ct)>(@"
+                SELECT flowName AS FlowName, wt AS Wt, ct AS Ct
+                FROM dspFlowHistory
+                WHERE COALESCE(IsIdle,0) = 0 AND wt IS NOT NULL AND wt >= 0 AND ct IS NOT NULL AND ct > 0
+                  AND recordedAt >= @Since", new { Since = since });
+
+            var modelFlows = _project.GetModelFlowNames();
+            var grouped = new Dictionary<string, (List<long> Wt, List<long> Ct)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in raw)
+            {
+                if (string.IsNullOrEmpty(r.FlowName)) continue;
+                if (modelFlows is not null && !modelFlows.Contains(r.FlowName)) continue;
+                if (!grouped.TryGetValue(r.FlowName, out var l)) grouped[r.FlowName] = l = (new List<long>(), new List<long>());
+                l.Wt.Add(r.Wt); l.Ct.Add(r.Ct);
+            }
+            static double Median(List<long> list)
+            {
+                list.Sort();
+                return list.Count % 2 == 1
+                    ? list[list.Count / 2]
+                    : (list[list.Count / 2 - 1] + list[list.Count / 2]) / 2.0;
+            }
+            foreach (var (flow, (wt, ctl)) in grouped)
+            {
+                if (wt.Count == 0) continue;
+                var medWt = Median(wt);
+                var medCt = Median(ctl);
+                // 중앙 WT 0(항상 즉시 재시작하는 설비)도 기준선으로 인정한다 — 경계는 하한(중앙 CT×1)이 맡는다.
+                //   맵에서 빼면 CT 폴백(평균 CT × 배수)으로 가서 WT 축 전환의 의미가 사라진다. 단 중앙 CT 도 0 이면 무의미.
+                if (medCt > 0) result[flow] = (Math.Max(0, medWt), medCt, wt.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[OEE] 중앙 WT 기준선 산출 실패 — 정지 판정 CT 폴백");
+        }
+        return result;
+    }
+
+    /// <summary>
     /// flow별 14일 <b>평균(중앙값) MT</b> — 고장 유발자 판별(<see cref="Models.OeeManualSettings.FaultMtMultiplier"/>)의
     /// 기준값. CT 임계와 같은 창·같은 클린사이클(IsIdle=0) 모집단을 쓰되 열만 mt 다.
     ///

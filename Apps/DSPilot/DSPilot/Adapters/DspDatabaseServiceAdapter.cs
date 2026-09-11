@@ -26,6 +26,7 @@ public class DspDatabaseServiceAdapter : BackgroundService
     private readonly IFlowMetricsService _flowMetricsService;
     private readonly IDspRepository _dspRepository;
     private readonly AppSettingsService _settings;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public DspDatabaseServiceAdapter(
         ILogger<DspDatabaseServiceAdapter> logger,
@@ -34,7 +35,8 @@ public class DspDatabaseServiceAdapter : BackgroundService
         PlcToCallMapperService mapper,
         IFlowMetricsService flowMetricsService,
         IDspRepository dspRepository,
-        AppSettingsService settings)
+        AppSettingsService settings,
+        IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
         _paths = pathResolver.GetDatabasePaths();
@@ -43,6 +45,7 @@ public class DspDatabaseServiceAdapter : BackgroundService
         _flowMetricsService = flowMetricsService;
         _dspRepository = dspRepository;
         _settings = settings;
+        _scopeFactory = scopeFactory;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -142,6 +145,9 @@ public class DspDatabaseServiceAdapter : BackgroundService
             .ToList();
         _logger.LogInformation("Filtered flows (excluding '*_Flow'): {Count}", filteredFlows.Count);
 
+        // flow 이름만 바뀐 경우 옛 이름의 행·설정을 새 이름으로 승계 — UPSERT 가 새 이름 행을 만들기 전에(2026-09-11).
+        await ApplyFlowRenamesAsync();
+
         var flowEntities = CreateFlowEntities(allFlows);
         var flowCount = await _dspRepository.BulkInsertFlowsAsync(flowEntities);
         _logger.LogInformation("BulkInsertFlowsAsync returned: {Count} flows (expected: {Expected})", flowCount, flowEntities.Count);
@@ -153,6 +159,56 @@ public class DspDatabaseServiceAdapter : BackgroundService
         return (flowCount, callCount);
     }
 
+    /// <summary>
+    /// AASX 에서 flow 이름만 바뀐 경우(GUID 동일) 옛 이름의 DB 행(plc.db 정의·이력, oee.db)과 flow 이름 키 설정을 새 이름으로
+    /// 승계한다(2026-09-11). 종전엔 ReloadAndResync 가 옛 이름을 "사라진 flow" 로 보고 이력을 삭제했다.
+    /// 판정 근거 = dspFlow.flowId — 첫 배포 부팅에는 비어 있어 판정 불가, UPSERT 가 채운 뒤부터 유효.
+    /// 어떤 예외도 부팅을 막지 않는다.
+    /// </summary>
+    private async Task ApplyFlowRenamesAsync()
+    {
+        try
+        {
+            var rows = await _dspRepository.GetFlowIdRowsAsync();
+            if (rows.Count == 0) return;
+
+            var model = _projectService.GetAllFlowsIncludingDisabled()
+                .Where(f => !f.Name.EndsWith("_Flow", StringComparison.OrdinalIgnoreCase))
+                .Select(f => (f.Id, f.Name));
+            var result = FlowRenameDetector.Detect(
+                model, rows.Select(r => new FlowRenameDetector.DbFlow(r.FlowName, r.FlowId)));
+            foreach (var w in result.Warnings)
+                _logger.LogWarning("[FlowRename] {Warning}", w);
+            if (result.Renames.Count == 0) return;
+
+            var applied = new List<FlowRenameRecord>();
+            foreach (var r in result.Renames)
+            {
+                var (flows, calls, hist) = await _dspRepository.RenameFlowAsync(r.OldName, r.NewName);
+                var oee = 0;
+                try
+                {
+                    using var scope = _scopeFactory.CreateScope();
+                    oee = await scope.ServiceProvider.GetRequiredService<IOeeRepository>().RenameFlowAsync(r.OldName, r.NewName);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[FlowRename] oee.db 승계 실패 '{Old}' -> '{New}' (plc.db 승계는 유효)", r.OldName, r.NewName);
+                }
+                var settingsChanged = _settings.RenameFlowInSettings(r.OldName, r.NewName);
+                _logger.LogInformation(
+                    "[FlowRename] '{Old}' -> '{New}' (GUID {Id}) 승계: dspFlow={F} dspCall={C} history={H} oee={O} 설정 {S}개 섹션",
+                    r.OldName, r.NewName, r.Id, flows, calls, hist, oee, settingsChanged);
+                applied.Add(new FlowRenameRecord(DateTime.UtcNow, r.OldName, r.NewName, r.Id, flows, calls, hist, oee, settingsChanged));
+            }
+            _settings.RecordFlowRenames(applied);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[FlowRename] flow 리네임 승계 실패(로드는 계속)");
+        }
+    }
+
     private static List<DspFlowEntity> CreateFlowEntities(IEnumerable<Flow> flows)
     {
         var now = DateTime.UtcNow;
@@ -161,6 +217,7 @@ public class DspDatabaseServiceAdapter : BackgroundService
             .Select(f => new DspFlowEntity
             {
                 FlowName = f.Name,
+                FlowId = f.Id.ToString("D"),   // 리네임 판정 근거(FlowRenameDetector) — 첫 UPSERT 에서 구 행에도 채워진다
                 State = "Ready",
                 CreatedAt = now,
                 UpdatedAt = now,

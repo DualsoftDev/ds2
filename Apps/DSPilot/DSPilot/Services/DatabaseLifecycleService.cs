@@ -352,14 +352,12 @@ public sealed class DatabaseLifecycleService
             var flowsAdded = keepSet.Except(priorSet, StringComparer.OrdinalIgnoreCase).ToList();
             var flowsRemoved = priorSet.Except(keepSet, StringComparer.OrdinalIgnoreCase).ToList();
 
-            // 3) stale 행 prune — 새 모델에 없는 Flow 의 dspFlow / dspCall / dspFlowHistory 삭제
-            //    Bootstrap UPSERT 보다 먼저 — UPSERT 가 같은 row 를 다시 살리지는 않으니 순서는 무관하지만,
-            //    prune 후 UPSERT 가 깔끔.
+            // 3) 모델에 없는 Flow 의 잔존 행 — 더 이상 여기서 삭제하지 않는다(2026-09-11, 보존 정책).
+            //    종전엔 무조건 PruneByFlowNamesAsync 를 돌려 flow 이름 한 글자만 바뀌어도 "사라진 flow" 로 보고 그 설비의
+            //    사이클 이력을 확인 없이 지웠다. 이름 변경은 UPSERT 직전 flowId 로 판정해 승계하고(DspDatabaseServiceAdapter
+            //    .ApplyFlowRenamesAsync), 진짜 유령의 삭제는 사용자가 누르는 "유령 설비 정리"(PruneStaleFlowsAsync) 에만 남긴다.
+            //    화면은 읽기 필터로 유령을 이미 숨기므로 행이 남아도 보이지 않는다. 아래 4-b 에서 세어 보고만 한다.
             var pruned = (Flows: 0, Calls: 0, History: 0);
-            if (keepNames.Count > 0)
-            {
-                pruned = await _dspRepository.PruneByFlowNamesAsync(keepNames);
-            }
 
             // 4) UPSERT — 새/변경된 정의 반영 + Mapper / FlowMetrics 재초기화
             //    살아남은 행은 ON CONFLICT DO UPDATE 로 정의만 갱신되고 통계 컬럼은 COALESCE 로 보존됨.
@@ -369,6 +367,11 @@ public sealed class DatabaseLifecycleService
                 _logger.LogWarning("[DBLifecycle] Bootstrap UPSERT after reload failed");
                 return new RebuildResult(false, "AASX reload 후 DB 동기화 실패 — 로그 확인");
             }
+
+            // 4-b) 모델에 없는 Flow 의 잔존 행 — 세기만(보존). 리네임 승계가 끝난 뒤라 여기 남는 것이 진짜 유령이다.
+            var stale = keepNames.Count > 0
+                ? await _dspRepository.CountStaleByFlowNamesAsync(keepNames)
+                : (Flows: 0, Calls: 0, History: 0);
 
             // 5) Engine 재초기화 — 모델 정의(SimIndex / IOMap / UserTag 주소)가 바뀌었을 수 있으므로
             //    teardown 후 새 store 로 재빌드해야 한다. TryEnsureInitialized() 만으로는 이미 초기화된
@@ -427,7 +430,7 @@ public sealed class DatabaseLifecycleService
                     pruneFlows: pruned.Flows,
                     pruneCalls: pruned.Calls,
                     pruneHistory: pruned.History,
-                    notes: layoutChanged ? "layout auto-resynced" : null);
+                    notes: BuildResyncNotes(layoutChanged, stale));
             }
             catch (Exception ex) { _logger.LogDebug(ex, "[DBLifecycle] aasxChangeLog INSERT 실패 (비중요)"); }
 
@@ -439,13 +442,14 @@ public sealed class DatabaseLifecycleService
             OeeChangeSignal.NotifyInvalidate();
 
             _logger.LogInformation(
-                "[DBLifecycle] ReloadAndResync complete (pruned: flow={F} call={C} hist={H}, layout={Layout})",
-                pruned.Flows, pruned.Calls, pruned.History, layoutChanged);
+                "[DBLifecycle] ReloadAndResync complete (stale kept: flow={F} call={C} hist={H}, layout={Layout})",
+                stale.Flows, stale.Calls, stale.History, layoutChanged);
 
             var msgParts = new List<string> { "AASX 모델을 다시 불러왔습니다." };
-            var totalPruned = pruned.Flows + pruned.Calls + pruned.History;
-            if (totalPruned > 0)
-                msgParts.Add($"사라진 Flow 정리: dspFlow={pruned.Flows}, dspCall={pruned.Calls}, history={pruned.History}.");
+            var totalStale = stale.Flows + stale.Calls + stale.History;
+            if (totalStale > 0)
+                msgParts.Add($"모델에 없는 Flow 의 데이터 보존: dspFlow={stale.Flows}, dspCall={stale.Calls}, history={stale.History} " +
+                             "(삭제는 설정 ▸ 유령 설비 정리).");
             if (layoutChanged)
                 msgParts.Add("레이아웃 자동 재배치 (이전 layout 은 백업).");
             return new RebuildResult(true, string.Join(" ", msgParts));
@@ -464,6 +468,16 @@ public sealed class DatabaseLifecycleService
     /// <summary>AASX 변경 이력 목록 (연표 다이얼로그용).</summary>
     public Task<IReadOnlyList<AasxChangeLogEntry>> GetAasxChangeLogAsync(int limit = 100)
         => _dspRepository.GetAasxChangeLogAsync(limit);
+
+    /// <summary>aasxChangeLog.notes — 레이아웃 재배치 여부 + 보존된 유령 행 수(종전 prune 수 자리, 2026-09-11부터 삭제 안 함).</summary>
+    private static string? BuildResyncNotes(bool layoutChanged, (int Flows, int Calls, int History) stale)
+    {
+        var parts = new List<string>();
+        if (layoutChanged) parts.Add("layout auto-resynced");
+        if (stale.Flows + stale.Calls + stale.History > 0)
+            parts.Add($"stale kept: flow={stale.Flows} call={stale.Calls} hist={stale.History}");
+        return parts.Count == 0 ? null : string.Join("; ", parts);
+    }
 
     /// <summary>
     /// 현재 AASX 에 없는 flow('유령 설비')가 데이터에 얼마나 남아 있는지 — 정리 미리보기.

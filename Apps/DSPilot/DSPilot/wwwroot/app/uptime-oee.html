@@ -19,7 +19,7 @@
 </head>
 
 <body>
-    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="uptimeApp()" x-init="init()" x-cloak>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="uptimeApp()" x-cloak>
 
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
@@ -653,7 +653,7 @@
                         <!-- 병행 모델(2026-07-08): 자동 판정 상시 + 수동 지정은 추가 확정 창 — 배타 토글 없음 -->
                         <span class="up-oee-chip" :class="ps.editing ? '' : 'auto'"
                               x-text="ps.editing ? ('수동 지정 편집 중' + (ps.dirty ? ' · 미저장' : ''))
-                                                 : ('자동 · ' + ps.ctMultiplier + '×가동시간 장시간정지' + (ps.windows.length ? (' + 수동 지정 ' + ps.windows.length + '개') : ''))"></span>
+                                                 : ('자동 · 평소 대기의 ' + ps.ctMultiplier + '× 장시간정지' + (ps.windows.length ? (' + 수동 지정 ' + ps.windows.length + '개') : ''))"></span>
                         <!-- [수동 편집] = 편집 모드 진입(기존 창 이동/조절/삭제). 새 창 추가는 편집 모드 안의 [시간 추가]. -->
                         <button class="btn btn-sm" :class="ps.editing ? 'btn-outlined' : 'btn-filled'"
                                 :disabled="ps.busy"
@@ -755,59 +755,57 @@
                     <div class="up-form-hint" style="margin-top:8px;">비생산 시간(점심·교대·정기정비·무오더 등)은 생산하지 않는 시간이라 <b>OEE 산출에서 통째로 제외</b>됩니다.</div>
                 </section>
 
-                <!-- ════ 정지·비생산 판정 기준 (doc/22 §3/§3.3, 2026-07-13 사용자 설정화) — 평균 CT 배수 슬라이더 2개 +
-                     분류 밴드 + flow별 임계 환산 칩 + 저장 전 재분류 미리보기(서버 what-if 계산, 저장·기록 없음). 라인 전역 설정. ════ -->
+                <!-- ════ 정지·비생산·고장 판정 기준 (doc/27, 2026-09-09 WT/MT 2축) — 사이클 해부도 + 판정 순서 4단계 +
+                     축별 2레인(동작 MT / 대기 WT) 슬라이더 + flow별 기준선·환산 칩 + 저장 전 재분류 미리보기(서버 what-if, 저장·기록 없음).
+                     라인 전역 설정. 화면 환산식은 서버 경계 함수(OeeMath.ResolveWt*BoundaryMs / ResolveMtFaultBoundaryMs)와 동일해야 한다. ════ -->
                 <section class="card up-section" id="ct-mult-section" x-show="!curFlow" x-cloak>
                     <div class="ds-card-h">
                         <h4>정지·비생산·고장 판정 기준</h4>
                         <span style="flex:1;"></span>
                         <span class="up-oee-chip" :class="cmDirty() ? 'warn' : 'auto'"
-                              x-text="cmDirty() ? '미적용 변경 — [적용]을 눌러 저장' : ('비가동 ' + cm.idle + '× · 비생산 ' + cm.nonProd + '×CT · 고장 ' + cm.fault + '×MT')"></span>
+                              x-text="cmDirty() ? '미적용 변경 — [적용]을 눌러 저장' : ('고장 ' + cm.fault + '×MT · 정지 ' + cm.idle + '×WT · 비생산 ' + cm.nonProd + '×WT')"></span>
                     </div>
 
-                    <!-- 분류 밴드 — 사이클 길이(평균 CT 배수) 축 위 3구간, 슬라이더와 실시간 동기 -->
-                    <div class="up-cm-band" title="사이클(정지) 길이가 14일 평균 가동시간(CT)의 몇 배인가에 따라 분류됩니다 — 고장 유발 판정(MT 축)은 아래 별도 기준">
-                        <div class="seg normal" :style="'width:' + cmBandW('normal')">
-                            <span class="nm">정상</span><span class="rg">≤ <b x-text="cm.idle"></b>×</span>
+                    <!-- ① 사이클 해부도 — 한 사이클이 동작(MT)과 대기(WT)로 나뉘고, 두 성분이 각각 다른 판정을 맡는다는 것을 한 줄로 -->
+                    <div class="up-cm-anatomy">
+                        <span class="lbl">한 사이클 =</span>
+                        <div class="bar" title="사이클(CT) = 동작(MT) + 대기(WT). 두 시간은 14일 실측에서 flow마다 자동으로 잡힙니다.">
+                            <span class="mt"><b>동작 <em>MT</em></b><small>설비가 움직인 시간</small></span>
+                            <span class="plus">+</span>
+                            <span class="wt"><b>대기 <em>WT</em></b><small>동작을 마치고 다음 사이클까지 서 있던 시간</small></span>
                         </div>
-                        <div class="seg idle" :style="'width:' + cmBandW('idle')">
-                            <span class="nm">비가동 (정지)</span><span class="rg"><b x-text="cm.idle"></b>× – <b x-text="cm.nonProd"></b>×</span>
-                        </div>
-                        <div class="seg nonprod" :style="'width:' + cmBandW('nonprod')">
-                            <span class="nm">비생산 (제외)</span><span class="rg">≥ <b x-text="cm.nonProd"></b>×</span>
-                        </div>
+                        <span class="rule">동작이 길어지면 → <b class="c-fault">고장</b> &nbsp;·&nbsp; 대기가 길어지면 → <b class="c-idle">정지</b> → 더 길면 <b class="c-np">비생산</b></span>
                     </div>
 
-                    <div class="up-cm-rows">
-                        <div class="up-cm-row">
-                            <div class="up-cm-head">
-                                <b>비가동(정지) 판정</b>
-                                <span>가동시간이 14일 평균의 <b x-text="cm.idle + '배'"></b>를 넘긴 사이클을 정지로 계상합니다. 그 미만의 느린 사이클은 정상 — 속도 저하는 성능(P)이 흡수합니다.
-                                    <b>아직 끝나지 않은 사이클이 이 시간을 넘기면 정지 로그에 '진행 중'으로 표시되고</b>, 다음 사이클이 시작되는 순간 완료 행으로 확정·계상됩니다 — 표시와 계상 기준이 같습니다.</span>
+                    <!-- ② 판정 순서 — 정지 하나가 어떤 순서로 라벨을 받는지. 숫자는 슬라이더와 실시간 동기 -->
+                    <ol class="up-cm-steps" aria-label="판정 순서">
+                        <li><span class="n c-fault">1</span><div><b>동작(MT)</b>이 평소의 <i x-text="cm.fault + '배'"></i> 초과 → <b class="c-fault">고장(유발자)</b><small>움직인 증거가 있는 정지 — 아무리 길어도 비생산으로 바뀌지 않음. 같은 창의 다른 설비는 여파(대기)로.</small></div></li>
+                        <li><span class="n c-idle">2</span><div>아니면 <b>대기(WT)</b>가 평소의 <i x-text="cm.idle + '배'"></i> 초과 → <b class="c-idle">정지(비가동)</b><small>그 미만의 긴 대기는 정상 — 속도 저하는 성능(P)이 흡수.</small></div></li>
+                        <li><span class="n c-np">3</span><div>그 정지의 대기가 평소의 <i x-text="cm.nonProd + '배'"></i> 이상 → <b class="c-np">비생산</b><small>생산 계획이 없던 시간(무오더·교대·주말)으로 보고 가용성 분모에서 제외.</small></div></li>
+                        <li><span class="n c-wait">4</span><div>정지의 원인이 <b>다른 설비</b>면 → <b class="c-wait">대기(여파)</b><small>가용성엔 손실로 남지만 고장 건수·MTBF에는 세지 않음. 자동감지(abnormal) 신호도 유발자 판별에 함께 쓰임.</small></div></li>
+                    </ol>
+
+                    <!-- ③ 축별 레인 — 스케일이 다른 두 축을 한 막대에 그리지 않는다. 레인마다 밴드 + 담당 슬라이더 -->
+                    <div class="up-cm-lane fault">
+                        <div class="up-cm-lane-head">
+                            <b>동작시간(MT) 축</b>
+                            <span class="up-codeish">고장 유발 판정</span>
+                            <span class="up-cm-info" title="라인이 서면 모든 설비의 대기가 함께 늘어나 누가 원인인지 못 가리지만, 동작시간은 실제로 늘어진 설비만 커집니다. 그래서 유발자는 MT로만 가립니다. 기준선 = 14일 중앙 MT(정지 사이클에 끌려가지 않게 평균 대신 중앙값).">ⓘ</span>
+                        </div>
+                        <div class="up-cm-band mt">
+                            <div class="seg normal" :style="'width:' + cmBandW('mt-normal')">
+                                <span class="nm">정상</span><span class="rg">≤ <b x-text="cm.fault"></b>× 평소 MT</span>
                             </div>
-                            <input class="up-cm-slider idle" type="range" min="1" max="5" step="0.1"
-                                   :value="cm.idle" @input="cmSetIdle($event.target.value)" :disabled="cm.busy"
-                                   aria-label="비가동 판정 배수">
-                            <span class="up-cm-val" x-text="cm.idle.toFixed(1) + '×'"></span>
+                            <div class="seg fault" :style="'width:' + cmBandW('mt-fault')">
+                                <span class="nm">고장 (유발자)</span><span class="rg">&gt; <b x-text="cm.fault"></b>×</span>
+                                <span class="badge" title="MT 초과로 잡힌 정지는 길이가 비생산 기준을 넘어도 고장으로 남습니다">비생산 전환 없음</span>
+                            </div>
                         </div>
                         <div class="up-cm-row">
                             <div class="up-cm-head">
-                                <b>비생산(제외) 판정</b>
-                                <span>변화 없는 정지가 평균의 <b x-text="cm.nonProd + '배'"></b> 이상 이어지면 생산 계획이 없던 시간(무오더·교대·주말)으로 보고 가용성 분모에서 제외합니다.</span>
-                            </div>
-                            <input class="up-cm-slider nonprod" type="range" min="3" max="100" step="0.5"
-                                   :value="cm.nonProd" @input="cmSetNonProd($event.target.value)" :disabled="cm.busy"
-                                   aria-label="비생산 판정 배수">
-                            <span class="up-cm-val" x-text="cm.nonProd.toFixed(1) + '×'"></span>
-                        </div>
-                        <!-- 고장 유발 판정 — 축이 다르다: 위 두 배수는 평균 CT(사이클 길이), 이 배수만 중앙 MT(동작시간).
-                             라인이 서면 모든 설비의 CT 가 함께 늘어나 유발자를 못 가리지만 MT 는 유발자만 늘어난다.
-                             그래서 상단 분류 밴드(CT 축)에는 얹지 않는다 — 스케일이 달라 한 막대에 그리면 거짓말이 된다. -->
-                        <div class="up-cm-row fault">
-                            <div class="up-cm-head">
-                                <b>고장 유발 판정 <span class="up-codeish" title="위 두 기준은 사이클 길이(CT), 이 기준만 실제 동작시간(MT) 축입니다">동작시간(MT) 기준</span></b>
-                                <span>정지 중 <b>동작시간(MT)이 14일 평소의 <b x-text="cm.fault + '배'"></b></b>를 넘긴 설비를 그 정지의 <b>유발자(고장)</b>로 봅니다.
-                                    넘지 않은 설비는 여파(대기)로 분류해 고장 건수·MTBF에서 뺍니다. 초과분만 비가동으로 계상합니다.</span>
+                                <b>고장 유발 배수</b>
+                                <span>정지 중 <b>동작시간이 14일 평소(중앙값)의 <b x-text="cm.fault + '배'"></b></b>를 넘긴 설비를 그 정지의 <b>유발자(고장)</b>로 봅니다.
+                                    비가동 계상은 평소 대비 <b>초과분만</b>(제때 산출된 사이클은 전부 손실로 보지 않음). 1초 미만은 지터로 보고 무시합니다.</span>
                             </div>
                             <input class="up-cm-slider fault" type="range" min="1" max="10" step="0.1"
                                    :value="cm.fault" @input="cmSetFault($event.target.value)" :disabled="cm.busy"
@@ -816,14 +814,62 @@
                         </div>
                     </div>
 
-                    <!-- flow별 임계 환산 — "이 배수가 우리 라인에선 몇 초/분인가" -->
+                    <div class="up-cm-lane wt">
+                        <div class="up-cm-lane-head">
+                            <b>대기시간(WT) 축</b>
+                            <span class="up-codeish">정지 · 비생산 판정</span>
+                            <span class="up-cm-info" :title="'기준선 = 14일 중앙 WT. 하한: 정지 기준은 최소 한 사이클(중앙 CT×' + cm.stopFloor + '), 비생산 기준은 최소 ' + cm.nonProdFloor + '사이클 — 평소 대기가 거의 0인 설비에서 몇 초 대기가 정지·비생산이 되는 것을 막습니다. 대기 기준선이 없는 flow(완료 신호 미정의)는 평균 CT×배수로 판정합니다.'">ⓘ</span>
+                        </div>
+                        <div class="up-cm-band">
+                            <div class="seg normal" :style="'width:' + cmBandW('normal')">
+                                <span class="nm">정상</span><span class="rg">≤ <b x-text="cm.idle"></b>× 평소 WT</span>
+                            </div>
+                            <div class="seg idle" :style="'width:' + cmBandW('idle')">
+                                <span class="nm">정지 (비가동)</span><span class="rg"><b x-text="cm.idle"></b>× – <b x-text="cm.nonProd"></b>×</span>
+                            </div>
+                            <div class="seg nonprod" :style="'width:' + cmBandW('nonprod')">
+                                <span class="nm">비생산 (제외)</span><span class="rg">≥ <b x-text="cm.nonProd"></b>×</span>
+                            </div>
+                        </div>
+                        <div class="up-cm-rows">
+                            <div class="up-cm-row">
+                                <div class="up-cm-head">
+                                    <b>정지(비가동) 배수</b>
+                                    <span>대기시간이 14일 평소(중앙값)의 <b x-text="cm.idle + '배'"></b>를 넘긴 사이클을 정지로 계상합니다.
+                                        <b>아직 끝나지 않은 사이클이 평소 동작 + 이 대기 기준을 넘기면 정지 로그에 '진행 중'으로 표시되고</b>, 다음 사이클이 시작되는 순간 완료 행으로 확정·분류됩니다.</span>
+                                </div>
+                                <input class="up-cm-slider idle" type="range" min="1.5" max="20" step="0.5"
+                                       :value="cm.idle" @input="cmSetIdle($event.target.value)" :disabled="cm.busy"
+                                       aria-label="정지 판정 배수">
+                                <span class="up-cm-val" x-text="cm.idle.toFixed(1) + '×'"></span>
+                            </div>
+                            <div class="up-cm-row">
+                                <div class="up-cm-head">
+                                    <b>비생산(제외) 배수</b>
+                                    <span>정지로 잡힌 사이클의 대기가 평소의 <b x-text="cm.nonProd + '배'"></b> 이상이면 비생산으로 승격해 가용성 분모에서 뺍니다.
+                                        낮출수록 정지가 분모 밖으로 빠져 가용성이 후해지니 주의 — 정지 로그의 <b>비생산↔비가동 보내기</b>(수동 확정)는 항상 이 기준보다 우선합니다.</span>
+                                </div>
+                                <input class="up-cm-slider nonprod" type="range" min="5" max="300" step="1"
+                                       :value="cm.nonProd" @input="cmSetNonProd($event.target.value)" :disabled="cm.busy"
+                                       aria-label="비생산 판정 배수">
+                                <span class="up-cm-val" x-text="cm.nonProd.toFixed(0) + '×'"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ④ flow별 환산 — "이 배수가 우리 라인에선 몇 초/분인가". 기준선(평소 MT/WT)과 경계를 함께 보인다 -->
                     <div class="up-cm-flows" x-show="cm.flows.length" x-cloak>
                         <template x-for="f in cm.flows" :key="f.flowName">
-                            <span class="up-cm-flowchip" :title="f.flowName + ' · 14일 평균 가동시간(CT) ' + cmSecs(f.avgCtMs, 1) + (f.medianMtMs > 0 ? ' · 평소 동작시간(MT) ' + cmSecs(f.medianMtMs, 1) : '')">
+                            <span class="up-cm-flowchip" :class="{ fb: !(f.medianCtMs > 0) }"
+                                  :title="f.flowName + ' · 14일 실측 — 평균 CT ' + cmFmtMs(f.avgCtMs)
+                                          + (f.medianMtMs > 0 ? ' · 평소 동작(MT) ' + cmFmtMs(f.medianMtMs) : ' · 동작(MT) 기준 없음(완료 신호 미정의 → 유발자 판별 불가)')
+                                          + (f.medianCtMs > 0 ? ' · 평소 대기(WT) ' + cmFmtMs(f.medianWtMs) : ' · 대기(WT) 기준 없음 → 평균 CT × 배수로 판정')">
                                 <b x-text="f.flowName"></b>
-                                <span class="th">정지 &gt; <i x-text="cmSecs(f.avgCtMs, cm.idle)"></i></span>
-                                <span class="th np">비생산 ≥ <i x-text="cmSecs(f.avgCtMs, cm.nonProd)"></i></span>
-                                <span class="th fault" x-show="f.medianMtMs > 0">유발 &gt; <i x-text="cmSecs(f.medianMtMs, cm.fault)"></i></span>
+                                <span class="base" x-show="f.medianCtMs > 0">동작 <i x-text="cmFmtMs(f.medianMtMs)"></i> · 대기 <i x-text="cmFmtMs(f.medianWtMs)"></i></span>
+                                <span class="base" x-show="!(f.medianCtMs > 0)" title="대기 기준선 없음 — 평균 CT 기준으로 판정">CT <i x-text="cmFmtMs(f.avgCtMs)"></i> 기준</span>
+                                <span class="th fault" x-show="f.medianMtMs > 0">고장 &gt; <i x-text="cmFmtMs(cmBound(f, 'fault'))"></i></span>
+                                <span class="th">정지 &gt; <i x-text="cmFmtMs(cmBound(f, 'stop'))"></i></span>
+                                <span class="th np">비생산 ≥ <i x-text="cmFmtMs(cmBound(f, 'nonprod'))"></i></span>
                             </span>
                         </template>
                     </div>
@@ -850,15 +896,15 @@
                         <span class="up-blk-msg err" x-show="cm.err" x-text="cm.err"></span>
                         <span style="flex:1;"></span>
                         <button class="btn btn-sm btn-outlined" @click="cmReset()" :disabled="cm.busy"
-                                title="기본값(비가동 2.5×CT · 비생산 15×CT · 고장 2.5×MT)으로 되돌린 뒤 [적용]으로 저장">기본값</button>
+                                title="기본값(고장 2.5×MT · 정지 5×WT · 비생산 30×WT)으로 되돌린 뒤 [적용]으로 저장">기본값</button>
                         <button class="btn btn-sm" :class="cmDirty() ? 'btn-primary' : ''" @click="cmApply()" :disabled="cm.busy || !cmDirty()">
                             <span class="material-icons" style="font-size:15px;">save</span>
                             <span x-text="cmDirty() ? '적용 *' : '적용'"></span>
                         </button>
                     </div>
                     <div class="up-form-hint" style="margin-top:8px;">
-                        기준은 <b>14일 평균 가동시간(CT) × 배수</b>로 flow마다 자동 환산되고, 정지 로그의 <b>'진행 중' 표시 시점</b>도 같은 값을 씁니다. 조회 시 재계산이라 과거 기간에도 즉시
-                        소급 적용되며, 정지 이벤트 로그의 <b>비생산↔비가동 보내기</b>(수동 확정)는 이 기준과 무관하게 항상 우선합니다.
+                        기준은 flow마다 <b>14일 중앙 동작시간(MT) · 중앙 대기시간(WT) × 배수</b>로 자동 환산되고, 정지 로그의 판정 근거 문구와 <b>'진행 중' 표시 시점</b>도 같은 값을 씁니다.
+                        조회 시 재계산이라 과거 기간에도 즉시 소급 적용되며, 정지 이벤트 로그의 <b>비생산↔비가동 보내기</b>(수동 확정)는 이 기준과 무관하게 항상 우선합니다.
                     </div>
                 </section>
 

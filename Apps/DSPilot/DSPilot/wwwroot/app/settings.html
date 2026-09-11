@@ -243,7 +243,7 @@
 </head>
 
 <body>
-    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="settingsApp()" x-init="init()" x-cloak>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="settingsApp()" x-cloak>
 
         <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
         <header class="dsp-appbar">
@@ -329,6 +329,10 @@
 
                                         <span class="lbl">동기화</span>
                                         <span class="val" :style="`color:${aasx.syncColor};`" x-text="aasx.syncText"></span>
+
+                                        <span class="lbl">참조 재해석</span>
+                                        <span class="val" :style="reconcileGhosts() ? 'color:var(--color-error);' : ''"
+                                              :title="reconcileTitle()" x-text="reconcileText()"></span>
                                     </div>
 
                                     <button class="btn btn-outlined w-100" @click="downloadAasx()" :disabled="!aasx.exists">
@@ -1634,7 +1638,7 @@
     <script>
         function settingsApp() {
             return {
-                s: null, aasx: {}, loading: true, busy: false, dark: false, contentWidth: 'auto',
+                s: null, aasx: {}, reconcile: null, loading: true, busy: false, dark: false, contentWidth: 'auto',
                 settingsDirty: false,
                 _baseline: null, // 로드 직후 s 스냅샷(JSON) — 내용 비교식 dirty 판정 기준
                 toast: { show: false, msg: '', type: 'success' },
@@ -1702,8 +1706,8 @@
                     this.loadOpcUaRejected();
                     this.loadAppInfo();
                     // 가동 시간은 서버 재조회 없이 클라이언트에서 1초씩 증가시켜 표시(새로고침 시 서버값으로 재동기화).
-                    // clearInterval 선행: 이 페이지는 x-init="init()" 과 Alpine 자동 init() 로 init 이 두 번 실행되므로
-                    // 가드가 없으면 티커가 2개 붙어 가동 시간이 2배속으로 흐른다.
+                    // clearInterval 선행: init 이 두 번 돌면(과거 x-init="init()" 중복 호출, 지금은 제거)
+                    // 티커가 2개 붙어 가동 시간이 2배속으로 흐른다 — 재진입 가드는 남겨 둔다.
                     // 접혀 있을 땐 틱을 멈춘다(펼칠 때 toggleAppInfo 가 서버값으로 재동기화).
                     clearInterval(this._uptimeTimer);
                     this._uptimeTimer = setInterval(() => { if (this.info.d && this.appInfoOpen) this.info.uptimeSec++; }, 1000);
@@ -2297,6 +2301,36 @@
                 async refreshAasxStatus() {
                     try { this.aasx = await this.apiGet('/api/settings/aasx-status'); }
                     catch (e) { /* 503 already flagged */ }
+                    // 모델 (재)로드 후 참조 재해석 결과 — 리네임 추종/배선 재매칭/모델에 없는 참조/flow 이름 승계(2026-09-11).
+                    try { this.reconcile = await this.apiGet('/api/settings/model-reconcile'); }
+                    catch (e) { this.reconcile = null; }
+                },
+                reconcileGhosts() {
+                    const c = this.reconcile && this.reconcile.callRef;
+                    return c && c.ghosts ? c.ghosts.length : 0;
+                },
+                reconcileText() {
+                    const r = this.reconcile;
+                    if (!r || !r.callRef) return '—';
+                    const c = r.callRef, parts = [];
+                    if ((c.renamed || []).length) parts.push('이름 추종 ' + c.renamed.length);
+                    if ((c.rematched || []).length) parts.push('배선 재매칭 ' + c.rematched.length);
+                    if (c.rewired) parts.push('배선 변경 ' + c.rewired);
+                    if ((c.ghosts || []).length) parts.push('모델에 없는 참조 ' + c.ghosts.length);
+                    if ((r.flowRenames || []).length) parts.push('flow 이름 승계 ' + r.flowRenames.length);
+                    return parts.length ? parts.join(' · ') : '이상 없음';
+                },
+                reconcileTitle() {
+                    const r = this.reconcile;
+                    if (!r || !r.callRef) return '';
+                    const c = r.callRef, lines = [];
+                    (c.ghosts || []).forEach(g => lines.push('모델에 없음: ' + g.flowName + (g.branchName ? ' / ' + g.branchName : '') + ' / ' + g.name));
+                    (c.rematched || []).forEach(x => lines.push('배선 재매칭: ' + x.flowName + ' / ' + x.oldName + ' → ' + x.newName));
+                    (c.renamed || []).forEach(x => lines.push('이름 추종: ' + x.flowName + ' / ' + x.oldName + ' → ' + x.newName));
+                    (r.flowRenames || []).forEach(x => lines.push('flow 승계: ' + x.oldName + ' → ' + x.newName + ' (이력 ' + x.history + '행)'));
+                    if (!lines.length) return '마지막 AASX 로드에서 참조가 전부 현재 모델과 일치했습니다.';
+                    lines.unshift('마지막 AASX 로드 기준. 모델에 없는 참조는 가동시간 분석 ▸ 해당 flow ▸ 분기 탭에서 정리합니다.');
+                    return lines.join('\n');
                 },
 
                 // ── project.aasx 다운로드 (Content-Disposition: attachment → 브라우저가 저장) ──

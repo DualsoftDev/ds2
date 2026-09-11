@@ -21,6 +21,16 @@ public interface IDspRepository
     /// </summary>
     Task<int> BulkInsertFlowsAsync(List<DspFlowEntity> flows);
 
+    /// <summary>dspFlow 의 (flowName, flowId) 전 행 — flow 리네임 판정용. flowId 컬럼이 없으면(구 스키마) 빈 목록.</summary>
+    Task<List<(string FlowName, string? FlowId)>> GetFlowIdRowsAsync();
+
+    /// <summary>
+    /// flow 이름 변경 승계(2026-09-11) — plc.db 의 옛 이름 행(dspFlow·dspCall·dspFlowHistory·flowBoundaryChangeLog)을 새 이름으로.
+    /// 종전엔 리네임된 flow 가 "사라진 flow" 로 보여 이력이 삭제됐다. 새 이름 dspFlow 행이 이미 있으면 정의 행은 건너뛰고
+    /// 이력·call 만 이관한다. 반환 = (dspFlow, dspCall, dspFlowHistory) 갱신 행 수.
+    /// </summary>
+    Task<(int Flows, int Calls, int History)> RenameFlowAsync(string oldName, string newName);
+
     /// <summary>
     /// Call 대량 삽입 (AASX 초기 로드용)
     /// </summary>

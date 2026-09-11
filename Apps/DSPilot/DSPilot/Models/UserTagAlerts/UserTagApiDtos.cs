@@ -24,7 +24,9 @@ public record UserTagSnapshotDto(
     int ActiveErrorCount,
     int TodayErrorCount,
     string? LastAlertAtLocal,
-    List<UtDefinitionDto> Definitions,
+    // 정의 목록(UtDefinitionDto)은 여기 싣지 않는다 — 응답의 99%(2,933건 555KB)를 차지하면서
+    // 화면에서 쓰는 곳이 없었고, OEE 페이지가 사전계산 push 마다 이 스냅샷을 재조회한다.
+    // 정의가 필요한 화면은 GET /api/user-tags/definitions 를 따로 호출할 것(2026-09-09).
     List<string> SystemOptions,
     // 이상 띠(진행중/오늘 최근) 세로 티커 전환 간격(초) — 서버설정 Ui.AlarmTickerIntervalSec.
     // 대시보드 알람 배너와 동일 속도를 쓰도록 클라가 스냅샷에서 읽어 사용한다.
