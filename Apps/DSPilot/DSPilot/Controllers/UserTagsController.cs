@@ -386,7 +386,12 @@ public class UserTagsController : ControllerBase
 
     private static UtAlertDto ToAlertDto(UserTagAlertRecord a) => new(
         a.OccurredAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss.fff"),
-        a.LogLevel, a.SystemName, a.Name, a.TagAddress, a.ValueType, a.MatchOp, a.MatchValue, a.ActualValue);
+        a.LogLevel, a.SystemName, a.Name, a.TagAddress, a.ValueType, a.MatchOp, a.MatchValue, a.ActualValue,
+        // 해소 시각 — 조건이 풀린(Bit 1→0 등) 시점. 미해소면 null → UI 가 "진행 중" 으로 표시.
+        a.ClearedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss.fff"),
+        a.ClearedAt is { } clr && clr > a.OccurredAt
+            ? (long)(clr - a.OccurredAt).TotalMilliseconds
+            : null);
 
     private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 

@@ -325,10 +325,11 @@
         .flow-alarm-idx b { font-size: 1.1rem; }
         .flow-alarm-btn { flex-shrink: 0; margin-left: 16px; z-index: 10; padding: 7px 18px; border: none; border-radius: 9999px; background: #000; color: #fff; font-size: 0.85rem; font-weight: 700; cursor: pointer; white-space: nowrap; box-shadow: 0 8px 14px -4px rgba(0,0,0,0.35); transition: background 0.15s; }
         .flow-alarm-btn:hover { background: #1f2937; }
-        /* 알람 배너를 KPI 카드 위에 겹쳐 띄운다 — 아래 요소(최대시간/최대대기율/시프트)를 밀어내지 않고 그 위를 덮는다.
-           기준은 바로 위 .flow-alarm-overlay(position:relative) 래퍼. 전체화면 배너(.flow-alarm-fs)는 자체 규칙이 있어 제외. */
+        /* 알람 배너는 KPI 카드 "위쪽"에 흐름 안에서 쌓는다 — 겹쳐 띄우면(구 position:absolute) 상단 KPI
+           카드가 가려져 값을 읽을 수 없다(2026-09-11). .flow-alarm-overlay 는 배너+KPI 행을 한 덩어리로
+           묶는 래퍼로만 남는다(viewport-fill 의 flex-shrink:0 기준 · 전체화면 배너 .flow-alarm-fs 는 자체 규칙). */
         .flow-alarm-overlay { position: relative; }
-        .flow-alarm-overlay > .flow-alarm:not(.flow-alarm-fs) { position: absolute; top: -34px; left: 0; right: 0; z-index: 30; margin-bottom: 0; box-shadow: 0 8px 20px -6px rgba(0,0,0,0.32), 0 1px 2px 0 rgba(0,0,0,0.06); }
+        .flow-alarm-overlay > .flow-alarm:not(.flow-alarm-fs) { box-shadow: 0 8px 20px -6px rgba(0,0,0,0.32), 0 1px 2px 0 rgba(0,0,0,0.06); }
 
         /* ── KPI 시프트 셀 상태색 (Tailwind 카드 셸 위 보조) ── */
         .kpi-shift .kp-pct { font-variant-numeric: tabular-nums; }
@@ -565,11 +566,11 @@
             <div class="alert alert-error mb-4" x-show="error" x-cloak><span class="material-icons">error</span><span x-text="error" :title="error"></span></div>
             <div class="alert alert-info mb-4" x-show="!loading && !error && !hasData" x-cloak><span class="material-icons">info</span><span>PLC 데이터가 수집되면 자동으로 표시됩니다.</span></div>
 
-            <!-- 알람 배너 + KPI 행 래퍼: 배너를 KPI 카드 위에 겹쳐 띄우기 위한 position:relative 기준(.flow-alarm-overlay) -->
+            <!-- 알람 배너 + KPI 행 래퍼(.flow-alarm-overlay): 배너와 KPI 행을 한 덩어리로 묶는다(viewport-fill 고정 크기 기준) -->
             <div class="flow-alarm-overlay">
 
             <!-- ── 경로이탈 이상감지 알람 배너 (fliptext 참고) ── abnormals[] → 세로 티커(한 건씩 전환) + 분자/분모 인디케이터, SignalR "AbnormalDetected" 라이브 갱신 -->
-            <!-- 평소 흐름에서 빠져 KPI 카드 위에 떠서 덮는다(아래 요소를 밀어내지 않음) -->
+            <!-- 흐름 안에서 KPI 카드 바로 위에 쌓인다 — 카드를 덮지 않는다 -->
             <div class="flow-alarm" x-show="abnormals.length" x-cloak x-transition.opacity>
                 <div class="flow-alarm-icon">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
@@ -1395,7 +1396,9 @@
                 return n(1) + '월 ' + n(2) + '일 ' + n(3) + '시 ' + n(4) + '분';
             },
 
-            // 알람 한 건의 표시 문구 — "M월 D일 H시 M분 · 경로: 내용 (종류)" (시간을 맨 앞에). 세로 티커가 한 건씩 소비한다.
+            // 알람 한 건의 표시 문구 — "M월 D일 H시 M분 · 경로: 내용" (시간을 맨 앞에). 세로 티커가 한 건씩 소비한다.
+            // ⚠ kindName 은 붙이지 않는다 — 자동감지는 'SensorOpen', 수동등록TAG 는 매칭연산('RisingEdge')이
+            //   그대로 들어오는 내부 토큰이라 현장에서 읽을 값이 아니고, label 이 이미 사람이 읽는 문구다(2026-09-11).
             abnMsgText(a) {
                 if (!a) return '';
                 // 경로 = Work / 대상(Call) — Work 이름이 이미 "flow.worklocal" 형태라 Flow 세그먼트 제거. 예: "투입.투입 / Conveyor1.MOVE"
@@ -1404,7 +1407,7 @@
                     .filter((s, i, arr) => i === 0 || s !== arr[i - 1])
                     .join(' / ') || a.flowName || a.sensorTag || '위치미상';
                 const ts = this.fmtKoTime(a.occurredAtLocal);
-                const body = loc + ': ' + a.label + (a.kindName ? ' (' + a.kindName + ')' : '');
+                const body = loc + ': ' + a.label;
                 return (ts ? ts + ' · ' : '') + body;
             },
 
@@ -1466,7 +1469,8 @@
             },
 
             // 알람 배너 [상세 확인] → 가동시간·이상 페이지로 바로가기. 시스템/구분 필터를 시드(사이드바 이상코드 피드와 동일 형상).
-            // 레벨은 알람 페이지가 Error 로 통일했으므로 시드하지 않는다. 구분(ABNORMAL/USERTAG)은 kindName 유무로 판별.
+            // 레벨은 알람 페이지가 Error 로 통일했으므로 시드하지 않는다. 구분(ABNORMAL/USERTAG)은 source 로 판별
+            // — kindName 유무로는 갈리지 않는다(usertag 도 매칭연산이 실려 비어있지 않아 전부 abnormal 로 샜다).
             // 도넛 슬라이스/범례 클릭 → 해당 flow 의 가동시간 분석 페이지
             gotoFlowCycle(name) {
                 if (!name) return;
@@ -1476,7 +1480,7 @@
                 if (!a) return;
                 const q = [];
                 if (a.systemName) q.push('utSystem=' + encodeURIComponent(a.systemName));
-                q.push('category=' + (a.kindName ? 'abnormal' : 'usertag'));
+                q.push('category=' + (a.source === 'usertag' ? 'usertag' : 'abnormal'));
                 location.href = '/uptime-alarm' + (q.length ? '?' + q.join('&') : '');
             },
 

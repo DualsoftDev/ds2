@@ -14,11 +14,12 @@ public interface IUserTagAlertRepository
     Task<long> InsertAlertAsync(UserTagAlertRecord record, CancellationToken ct = default);
 
     /// <summary>
-    /// 해소 처리 — 이 주소들의 <b>아직 해소되지 않은</b> 알림 행에 해소 시각을 찍는다.
-    /// 정지 분류가 "미해소 usertag = 라인 고장"을 과거 기간에도 재현할 수 있게 하는 유일한 근거다.
+    /// 해소 처리 — 지목한 발생 행(<see cref="UserTagClearKey"/>: 주소 + System + 발생시각 이후)의
+    /// <b>아직 해소되지 않은</b> 알림 행에 해소 시각을 찍는다.
+    /// 정지 분류가 "미해소 usertag = 라인 고장"을 과거 기간에도 재현할 수 있게 하는 유일한 근거이며,
+    /// 이상·알람 목록/Excel 의 "해소 시각·지속시간" 칸도 이 값을 읽는다.
     /// </summary>
-    Task<int> MarkClearedAsync(IReadOnlyCollection<string> tagAddresses, DateTime clearedAtUtc,
-        CancellationToken ct = default);
+    Task<int> MarkClearedAsync(IReadOnlyCollection<UserTagClearKey> keys, CancellationToken ct = default);
 
     /// <summary>주어진 기간의 알림을 최신순으로 반환 (페이지네이션 + 필터).
     /// categoryFilter: "abnormal"(경로이탈 이상감지) | "usertag"(사용자정의) | null(전체).

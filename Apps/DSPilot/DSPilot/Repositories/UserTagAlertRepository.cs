@@ -46,25 +46,47 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
     private static DateTime ParseIso(string s)
         => SqliteDateTimeHelpers.FromSqliteUtcString(s) ?? DateTime.MinValue;
 
-    public async Task<int> MarkClearedAsync(IReadOnlyCollection<string> tagAddresses, DateTime clearedAtUtc,
-        CancellationToken ct = default)
+    public async Task<int> MarkClearedAsync(IReadOnlyCollection<UserTagClearKey> keys, CancellationToken ct = default)
     {
-        if (tagAddresses is null || tagAddresses.Count == 0) return 0;
+        if (keys is null || keys.Count == 0) return 0;
+        var touched = new List<long>();
         try
         {
             await using var conn = await OpenAsync();
-            // 같은 주소가 여러 번 발화했어도 미해소 행만 찍는다 — 과거에 이미 해소된 행은 그대로 둔다.
-            var n = await conn.ExecuteAsync(@"
-                UPDATE userTagAlertLog SET clearedAt = @Cleared
-                WHERE clearedAt IS NULL AND tagAddress IN @Addrs",
-                new { Cleared = Iso(clearedAtUtc), Addrs = tagAddresses });
-            return n;
+            foreach (var k in keys)
+            {
+                if (string.IsNullOrWhiteSpace(k.TagAddress)) continue;
+                // 같은 주소가 여러 번 발화했어도 미해소 행만 찍는다 — 이미 해소된 행은 그대로 둔다.
+                // systemName 동시 한정 = 같은 주소를 정의한 다른 PLC 의 행 오염 방지(멀티 PLC 복합키 규약).
+                // occurredAt >= 발생시각 = 재시작으로 남은 과거 미해소 행이 엉뚱한 시각으로 소급 마감되는 것 방지.
+                // RETURNING id — 갱신된 행을 인메모리 미러에 재복제해야 최근 구간 조회가 미러의
+                //   옛 값(clearedAt NULL)을 계속 내려보내지 않는다(63일 미러가 읽기 경로를 가로챔).
+                var ids = await conn.QueryAsync<long>(@"
+                    UPDATE userTagAlertLog SET clearedAt = @Cleared
+                    WHERE clearedAt IS NULL
+                      AND tagAddress = @Addr
+                      AND (@Sys IS NULL OR systemName = @Sys)
+                      AND occurredAt >= @Since
+                    RETURNING id",
+                    new
+                    {
+                        Cleared = Iso(k.ClearedAt),
+                        Addr = k.TagAddress,
+                        Sys = string.IsNullOrWhiteSpace(k.SystemName) ? null : k.SystemName,
+                        Since = Iso(k.OccurredAt),
+                    });
+                touched.AddRange(ids);
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[UserTagAlert] 해소 시각 기록 실패 ({N}개 주소)", tagAddresses.Count);
+            _logger.LogWarning(ex, "[UserTagAlert] 해소 시각 기록 실패 ({N}건)", keys.Count);
             return 0;
         }
+
+        if (touched.Count > 0)
+            await _mirror.ReplicatePlcAsync("userTagAlertLog", "id IN @Ids", new { Ids = touched });
+        return touched.Count;
     }
 
     public async Task<long> InsertAlertAsync(UserTagAlertRecord r, CancellationToken ct = default)
@@ -224,7 +246,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         var dir = sortDesc ? "DESC" : "ASC";
 
         var sql = $@"
-            SELECT id, occurredAt, systemId, systemName, name, logLevel, tagAddress, valueType, matchOp, matchValue, actualValue, sourceLogId
+            SELECT id, occurredAt, systemId, systemName, name, logLevel, tagAddress, valueType, matchOp, matchValue, actualValue, sourceLogId, clearedAt
             FROM userTagAlertLog
             {where}
             ORDER BY {col} {dir}, id DESC
@@ -345,7 +367,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         AppendDeviceFilterExclusion(sb, p);
         AppendUserTagFilterExclusion(sb, p);
         var sql = $@"
-            SELECT id, occurredAt, systemId, systemName, name, logLevel, tagAddress, valueType, matchOp, matchValue, actualValue, sourceLogId
+            SELECT id, occurredAt, systemId, systemName, name, logLevel, tagAddress, valueType, matchOp, matchValue, actualValue, sourceLogId, clearedAt
             FROM userTagAlertLog
             {sb}
             ORDER BY id DESC
@@ -420,7 +442,8 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         MatchOp: r.MatchOp ?? "RisingEdge",
         MatchValue: r.MatchValue,
         ActualValue: r.ActualValue ?? string.Empty,
-        SourceLogId: r.SourceLogId);
+        SourceLogId: r.SourceLogId,
+        ClearedAt: string.IsNullOrEmpty(r.ClearedAt) ? null : SqliteDateTimeHelpers.FromSqliteUtcString(r.ClearedAt));
 
     private sealed class Row
     {
@@ -436,6 +459,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         public string? MatchValue { get; set; }
         public string? ActualValue { get; set; }
         public long? SourceLogId { get; set; }
+        public string? ClearedAt { get; set; }   // NULL/빈값 = 미해소(진행 중)
     }
 
     // Dapper 가 ValueTuple 을 매핑하지 못해 (TupleElementNamesAttribute 는 컴파일타임만 살아있음 → Item1/Item2 로만 인식),

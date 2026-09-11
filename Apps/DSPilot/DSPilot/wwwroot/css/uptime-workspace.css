@@ -204,6 +204,10 @@
         .ut-table thead th.ut-th-sort { cursor: pointer; user-select: none; white-space: nowrap; }
         .ut-table thead th.ut-th-sort:hover { color: var(--color-primary); }
         .ut-sort { font-size: 14px; vertical-align: middle; opacity: 0.6; }
+        /* 해소 칸 — '해소' 배지 + 시각(모노) + 지속시간. 한 셀에 3요소가 들어가므로 줄바꿈 허용. */
+        .ut-clear { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+        .ut-clear-dur { font-size: 0.72rem; color: var(--color-text-secondary); white-space: nowrap; }
+        .ut-clear-na { color: var(--color-text-disabled); }
         .ut-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
         .ut-pager-info { font-size: 0.75rem; color: var(--color-text-secondary); }
         .ut-pager-nav { display: flex; align-items: center; gap: 4px; }

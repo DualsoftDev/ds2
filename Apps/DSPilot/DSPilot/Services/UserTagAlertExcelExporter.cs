@@ -19,7 +19,7 @@ public static class UserTagAlertExcelExporter
     {
         using var workbook = new XLWorkbook();
         var ws = workbook.Worksheets.Add("알람");
-        const int lastCol = 9;
+        const int lastCol = 12;
 
         var titleText = "이상·알람 조회" + (string.IsNullOrWhiteSpace(flow) ? "" : $" · 설비 {flow} (자동감지만)");
         ExcelExporterBase.ApplyTitleRow(ws, 1, titleText, lastCol, 22);
@@ -28,21 +28,46 @@ public static class UserTagAlertExcelExporter
             lastCol);
 
         const int headerRow = 4;
+        // 상태·해소 시각·지속(초) = 알람이 풀린 기록(Bit 1→0 등). 화면 목록의 "해소" 칸과 같은 원본(clearedAt).
+        // 자동감지(Abnormal)는 점 이벤트라 해소 개념이 없어 '—' 로 비운다.
         ExcelExporterBase.ApplyHeaderRow(ws, headerRow,
-            ["시각", "레벨", "구분", "System", "이름", "경로(주소)", "조건", "매칭값", "실제값"]);
+            ["시각", "레벨", "구분", "System", "이름", "경로(주소)", "조건", "매칭값", "실제값",
+             "상태", "해소 시각", "지속(초)"]);
 
         int row = headerRow + 1;
         foreach (var a in rows)
         {
+            var isAbn = string.Equals(a.ValueType, "Abnormal", StringComparison.Ordinal);
             ws.Cell(row, 1).Value = a.OccurredAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
             ws.Cell(row, 2).Value = a.LogLevel;
-            ws.Cell(row, 3).Value = string.Equals(a.ValueType, "Abnormal", StringComparison.Ordinal) ? "자동감지" : "수동등록TAG";
+            ws.Cell(row, 3).Value = isAbn ? "자동감지" : "수동등록TAG";
             ws.Cell(row, 4).Value = a.SystemName;
             ws.Cell(row, 5).Value = a.Name;
             ws.Cell(row, 6).Value = a.TagAddress;
             ws.Cell(row, 7).Value = a.MatchOp;
             ws.Cell(row, 8).Value = a.MatchValue ?? "";
             ws.Cell(row, 9).Value = a.ActualValue;
+
+            if (isAbn)
+            {
+                ws.Cell(row, 10).Value = "—";
+                ws.Cell(row, 11).Value = "—";
+            }
+            else if (a.ClearedAt is { } clr)
+            {
+                ws.Cell(row, 10).Value = "해소";
+                ws.Cell(row, 11).Value = clr.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+                if (clr > a.OccurredAt)
+                {
+                    ws.Cell(row, 12).Value = Math.Round((clr - a.OccurredAt).TotalSeconds, 1);
+                    ws.Cell(row, 12).Style.NumberFormat.Format = "0.0";
+                }
+            }
+            else
+            {
+                ws.Cell(row, 10).Value = "진행 중";
+                ws.Cell(row, 11).Value = "";
+            }
             row++;
         }
 
@@ -56,6 +81,9 @@ public static class UserTagAlertExcelExporter
         ws.Column(7).Width = 16;
         ws.Column(8).Width = 14;
         ws.Column(9).Width = 16;
+        ws.Column(10).Width = 10;
+        ws.Column(11).Width = 20;
+        ws.Column(12).Width = 10;
         ExcelExporterBase.FreezeAndFooter(ws, headerRow);
 
         return ExcelExporterBase.SaveToBytes(workbook);

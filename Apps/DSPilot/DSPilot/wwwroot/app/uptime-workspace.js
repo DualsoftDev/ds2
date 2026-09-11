@@ -1795,6 +1795,26 @@
                     return '-';
                 },
 
+                // ── 해소(알람 조건 풀림) 셀 ─────────────────────────────────────────
+                // 서버가 발생 행 하나에 clearedAtLocal/durationMs 를 함께 실어 준다(userTagAlertLog.clearedAt).
+                // 해소를 별도 행으로 만들지 않는 이유: 총 건수·시계열·Top10 이 전부 같은 행 집합을 세므로
+                // 행이 늘면 "알람 건수"가 두 배로 뻥튀김한다. 발생 행에 해소 시각을 붙이는 편이 정직하다.
+                // 같은 날 해소면 시각만, 날을 넘겼으면 'MM-DD HH:mm:ss' 로 표기.
+                clearAtText(a) {
+                    const c = (a && a.clearedAtLocal) ? String(a.clearedAtLocal) : '';
+                    if (!c) return '';
+                    const sameDay = String(a.occurredAtLocal || '').slice(0, 10) === c.slice(0, 10);
+                    return sameDay ? c.slice(11, 19) : c.slice(5, 19);
+                },
+                clearTip(a) {
+                    if (!a) return '';
+                    if (this.categoryOf(a) === 'ABNORMAL') return '자동감지는 점 이벤트 — 해소 개념이 없습니다.';
+                    if (!a.clearedAtLocal) return '아직 조건이 풀리지 않았습니다(해소 신호가 들어오면 해소 시각·지속시간이 채워집니다).';
+                    return '발생 ' + String(a.occurredAtLocal || '').slice(0, 19)
+                        + ' → 해소 ' + String(a.clearedAtLocal).slice(0, 19)
+                        + (a.durationMs ? ' · 지속 ' + this.durShort(a.durationMs) : '');
+                },
+
                 // ── 알람 차단 관리 (모달) ──
                 blkKindLabel(kind) { const o = this.blockMgr.kindOptions.find(k => k.kind === kind); return o ? o.label : String(kind); },
                 get blkSelectedCount() { return Object.values(this.blockMgr.selected).filter(Boolean).length; },

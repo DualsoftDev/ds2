@@ -205,6 +205,9 @@
                                             <th>주소</th>
                                             <th class="ut-th-sort" @click="setUtSort('matchOp')">조건 <span class="material-icons ut-sort" x-text="utSortIcon('matchOp')"></span></th>
                                             <th>값</th>
+                                            <!-- 해소 = 알람 조건이 풀린 기록(예: Bit 1→0). 발생 행 한 줄에 발생·해소를 함께 둔다
+                                                 (해소를 별도 행으로 늘리면 총 건수·시계열·Top10 집계가 두 배로 뻥튀김). -->
+                                            <th style="width:186px;" title="알람 조건이 풀린 시각과 발생→해소 지속시간. 자동감지는 점 이벤트라 해소 개념이 없다.">해소</th>
                                             <th style="width:64px;" title="알람 차단(알림해제) 바로가기">알림해제</th>
                                         </tr></thead>
                                         <tbody>
@@ -221,6 +224,22 @@
                                                     <td data-label="조건" x-text="describeOp(a.matchOp, a.matchValue)"></td>
                                                     <!-- 값: AbnormalDetect 시간·주소값 숨김, 나머지 기존 -->
                                                     <td data-label="값"><span :class="a.matchOp !== 'AbnormalDetect' ? 'up-codeish' : ''" x-text="abnVal(a)"></span></td>
+                                                    <!-- 해소: 수동등록TAG 는 해소 시각 + 지속시간 / 미해소는 '진행 중', 자동감지(점 이벤트)는 '—' -->
+                                                    <td data-label="해소" :title="clearTip(a)">
+                                                        <template x-if="categoryOf(a) === 'ABNORMAL'">
+                                                            <span class="ut-clear-na">—</span>
+                                                        </template>
+                                                        <template x-if="categoryOf(a) !== 'ABNORMAL' && a.clearedAtLocal">
+                                                            <span class="ut-clear">
+                                                                <span class="ds-status ok">해소</span>
+                                                                <span class="up-codeish" x-text="clearAtText(a)"></span>
+                                                                <span class="ut-clear-dur" x-text="durShort(a.durationMs)"></span>
+                                                            </span>
+                                                        </template>
+                                                        <template x-if="categoryOf(a) !== 'ABNORMAL' && !a.clearedAtLocal">
+                                                            <span class="ds-status warn">진행 중</span>
+                                                        </template>
+                                                    </td>
                                                     <!-- 차단 바로가기: Abnormal → 자동알람 탭(디바이스+유형), UserTag → 수동등록TAG 탭(주소) 이 선택된 채 열림 -->
                                                     <td data-label="알림해제" style="text-align:center;">
                                                         <template x-if="a.matchOp === 'AbnormalDetect' && rowDevice(a)">

@@ -44,8 +44,13 @@ public sealed class UserTagAlertService : BackgroundService
 
     // 직전 값 — edge / 임계치 전이 평가에 필요. ★키는 (System, 주소) — 주소만으로 묶으면
     // 두 PLC 의 값이 번갈아 덮여 없는 전이가 만들어지거나 진짜 전이가 삼켜진다.
-    private readonly Dictionary<string, string> _lastValueByAddress =
+    // 값과 함께 그 값이 실린 PLC 로그 시각을 보관한다 — 해소 시각을 폴링 시각(UtcNow)이 아니라
+    // 조건이 풀린 신호의 시각으로 기록해야 목록의 "지속시간"이 실제 알람 지속과 일치한다.
+    private readonly Dictionary<string, LastSample> _lastValueByAddress =
         new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>주소 하나의 마지막 샘플 — 값 + 그 값이 실린 plcTagLog 행의 시각.</summary>
+    private sealed record LastSample(string Value, DateTime At);
 
     // 라이브 활성 알람(대시보드/전체화면 배너용) — (System, 주소)별 1건. fire 시 등록, 조건 풀림 시 제거.
     // 히스토리 큐(_alerts)/DB 로그와 별개: 표시 목록에서 자동 해소되는 "현재 걸려 있는 알람" 집합.
@@ -332,8 +337,8 @@ public sealed class UserTagAlertService : BackgroundService
             lock (_stateLock)
             {
                 _lastValueByAddress.TryGetValue(stateKey, out var p);
-                prevValue = p; // null 이면 첫 샘플 (== F# 의 None 와 동치)
-                _lastValueByAddress[stateKey] = newValue;
+                prevValue = p?.Value; // null 이면 첫 샘플 (== F# 의 None 와 동치)
+                _lastValueByAddress[stateKey] = new LastSample(newValue, log.DateTime);
             }
 
             // F# 매칭 평가 — ValueType / MatchOp / MatchValue 에 따라 fire 여부 결정.
@@ -428,7 +433,7 @@ public sealed class UserTagAlertService : BackgroundService
         // ── 활성 알람 조건 해소 — 현재 값이 더 이상 매칭 조건을 만족하지 않으면 배너 표시 목록에서 제거 ──
         // 값이 정상으로 돌아오면 그 주소의 plcTagLog 행이 들어와 _lastValueByAddress 가 갱신되므로 여기서 잡힌다.
         var resolvedCount = 0;
-        List<string> clearedAddrs = [];
+        List<UserTagClearKey> clearKeys = [];
         lock (_stateLock)
         {
             if (_activeUserAlarms.Count > 0)
@@ -439,20 +444,26 @@ public sealed class UserTagAlertService : BackgroundService
                     if (!_lastValueByAddress.TryGetValue(addr, out var cur)) continue;
                     var vt = LoggingHelpers.UserTagHelpers.parseValueType(a.ValueType);
                     var op = LoggingHelpers.UserTagHelpers.parseMatchOp(a.MatchOp);
-                    if (!LoggingHelpers.UserTagHelpers.isConditionActive(vt, op, a.MatchValue ?? string.Empty, cur))
-                        toRemove.Add(addr);
+                    if (LoggingHelpers.UserTagHelpers.isConditionActive(vt, op, a.MatchValue ?? string.Empty, cur.Value))
+                        continue;
+                    toRemove.Add(addr);
+                    // 해소 시각 = 조건을 푼 그 신호의 시각(Bit 1→0 이 찍힌 plcTagLog 행 시각).
+                    // 발생 행을 (주소, System, 발생시각 이후)로 지목해 남의 System·재시작 잔여 행 오염을 막는다.
+                    clearKeys.Add(new UserTagClearKey(a.TagAddress, a.SystemName, a.OccurredAt, cur.At));
+                    _logger.LogInformation(
+                        "[UserTagAlert] 해소 {Name}/{Addr} 발생={At:HH:mm:ss} → 해소={Clr:HH:mm:ss} (현재값={Val})",
+                        a.Name, a.TagAddress, a.OccurredAt, cur.At, cur.Value);
                 }
                 foreach (var addr in toRemove) _activeUserAlarms.Remove(addr);
                 resolvedCount = toRemove.Count;
-                clearedAddrs = toRemove;
             }
         }
 
-        // 해소 시각을 DB 에 남긴다 — 정지 분류(doc/25)가 "미해소 usertag = 라인 고장"을 과거 기간
-        // 조회에서도 재현하려면 이 값이 유일한 근거다(발생 시점만으론 실시간 외엔 알 수 없다).
-        if (clearedAddrs.Count > 0)
+        // 해소 시각을 DB 에 남긴다 — ①정지 분류(doc/25)가 "미해소 usertag = 라인 고장"을 과거 기간
+        // 조회에서 재현하는 유일한 근거이고, ②이상·알람 목록/Excel 의 해소·지속시간 칸이 이 값을 읽는다.
+        if (clearKeys.Count > 0)
         {
-            try { await alertRepo.MarkClearedAsync(clearedAddrs, DateTime.UtcNow, ct); }
+            try { await alertRepo.MarkClearedAsync(clearKeys, ct); }
             catch (Exception ex) { _logger.LogDebug(ex, "[UserTagAlert] 해소 시각 기록 스킵"); }
         }
 

@@ -41,7 +41,11 @@ public record UtAlertDto(
     string ValueType,
     string MatchOp,
     string? MatchValue,
-    string ActualValue);
+    string ActualValue,
+    // 해소(조건 풀림, 예: Bit 1→0) 시각. null = 아직 해소되지 않음(진행 중) 또는 해소 개념이 없는
+    // 자동감지(Abnormal) 점 이벤트. DurationMs = 발생→해소 지속시간(표시 SSOT dspFmt.dur 로 포맷).
+    string? ClearedAtLocal = null,
+    long? DurationMs = null);
 
 // Level 슬롯은 이제 구분(ABNORMAL/USERTAG)을 담는다 — 시계열 스택 막대의 스택 키(레벨 통일 후 구분 스택).
 public record UtBucketDto(string BucketStartIso, string Level, int Count);
