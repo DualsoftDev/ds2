@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -12,7 +13,9 @@ public enum PlcVendorChoice
     LsXgi,
     LsXgk,
     LsXgb,
-    Mitsubishi
+    Mitsubishi,
+    /// <summary>Fuji MICREX-SX (SPH2000 계열) — 로더 프로토콜.</summary>
+    MicrexSx
 }
 
 /// <summary>
@@ -34,8 +37,30 @@ public sealed class PlcVendorProfile
     public static PlcVendorProfile Defaults(PlcVendorChoice vendor) => vendor switch
     {
         PlcVendorChoice.Mitsubishi => new PlcVendorProfile { Port = 5007 },
+        // 509 = 로더 인터페이스 서버(권장). 507 = 로더 명령 서버.
+        PlcVendorChoice.MicrexSx => new PlcVendorProfile { Port = 509 },
         _ => new PlcVendorProfile { Port = 2004 },   // LsXgi, LsXgk
     };
+
+    /// <summary>이 벤더를 AID InterfaceXGT endpoint 로 표현할 수 있는가.
+    ///
+    /// 진실의 출처는 Ds2.Core 의 <c>XgtCpuModel = Xgi | Xgk | Xgb</c> 닫힌 DU 와
+    /// <c>AidXgtEndpointSettings.tryCpuModel</c> 이다 — 비-LS 벤더는 거기서 None 이 되어
+    /// UpdateAll/EnsureBindingForSystem 이 0(변경 없음)을 돌려준다.
+    ///
+    /// 이 판정이 갈라놓는 것: 저장 경로(AID endpoint ↔ 전역 PlcConnection.json)와,
+    /// System 속성 패널이 화면에 무엇을 진실로 삼을지. 한쪽만 틀리면 저장한 벤더가
+    /// 옛 AID endpoint 값으로 되돌아간다.</summary>
+    public static bool IsAidXgtVendor(PlcVendorChoice vendor) =>
+        vendor is PlcVendorChoice.LsXgi or PlcVendorChoice.LsXgk or PlcVendorChoice.LsXgb;
+
+    /// <summary>이 포트 값이 <b>어떤 벤더의 기본 포트</b>인가 — 사용자가 직접 넣은 포트인지
+    /// 판정하는 데 쓴다. 벤더를 바꿀 때 기본 포트 상태면 새 벤더 기본값으로 옮기고, 사용자가
+    /// 손으로 넣은 값은 건드리지 않는다.
+    ///
+    /// 열거는 enum 에서 파생시킨다 — 포트 목록을 손으로 적어 두면 벤더가 늘 때 조용히 낡는다.</summary>
+    public static bool IsAnyVendorDefaultPort(int port) =>
+        port > 0 && Enum.GetValues<PlcVendorChoice>().Any(v => Defaults(v).Port == port);
 
     public PlcVendorProfile Clone() => new()
     {
@@ -71,6 +96,21 @@ public sealed class PlcConnectionSettings
     private const int PreviousDefaultScanIntervalMs = 50;
 
     public string Vendor { get; set; } = nameof(PlcVendorChoice.LsXgi);
+
+    /// <summary>
+    /// MICREX-SX 전용 — D300win 프로젝트에서 뽑은 I/O 매핑표 경로.
+    /// 비워 두면 네이티브 주소만 쓴다(<c>M1.2000.0</c>, <c>IO.42.4</c>).
+    /// IEC 원격 주소(<c>%QX5.43.0.04</c>)를 쓰려면 이 표가 있어야 한다.
+    /// </summary>
+    public string SxIoMapPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// MICREX-SX 전용 — 쓰기를 허용할 영역. 비어 있으면 <b>읽기 전용</b>이다.
+    /// "M1"(사용자 메모리), "IO"(I/O 이미지), "M10"(시스템 메모리).
+    /// 기본을 잠금으로 두는 이유: 현장 PLC 의 메모리 배치는 설비마다 다르고,
+    /// 잘못된 주소에 쓰면 설비를 오동작시킨다.
+    /// </summary>
+    public List<string> SxWritableAreas { get; set; } = new();
     public string Name { get; set; } = "PLC#1";
     public string IpAddress { get; set; } = "192.168.0.10";
     public int Port { get; set; } = 2004;

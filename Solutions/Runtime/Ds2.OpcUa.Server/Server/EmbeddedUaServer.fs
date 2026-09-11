@@ -129,6 +129,10 @@ type EmbeddedUaServer(
                 for interaction in interactions do
                     add "XGT" interaction.SignalId (defaultArg interaction.Unit "")
                         (xsdToBuiltIn interaction.ValueType) interaction.IdShort
+            | MicrexSx (_, interactions) ->
+                for interaction in interactions do
+                    add "MICREX-SX" interaction.SignalId (defaultArg interaction.Unit "")
+                        (xsdToBuiltIn interaction.ValueType) interaction.IdShort
 
     let signalPoliciesForProject (store: DsStore) (project: Project) =
         let result = Dictionary<string, SignalPolicy>(StringComparer.Ordinal)

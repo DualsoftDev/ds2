@@ -180,6 +180,7 @@ let SignalIdExtensionSemanticId = cdId "cd/ext.signal-id/1/0"
 
 /// DualSoft-managed AID binding for LS ELECTRIC XGT endpoints.
 let [<Literal>] XgtInterfaceSemanticId = "urn:dualsoft:smc:aid-interface-xgt:1:0"
+let [<Literal>] MicrexSxInterfaceSemanticId = "urn:dualsoft:smc:aid-interface-micrexsx:1:0"
 
 /// AID EndpointMetadata 의 인증 정보 Vault 참조 필드.
 /// 실제 secret 은 저장하지 않고 `@vault:path` 참조만 (ADR-005).

@@ -93,6 +93,38 @@ module AssetInterfacesDescriptionTypes =
                     AuthReferenceVault = None
                 }
 
+    /// MICREX-SX(Fuji SPH) 로더 프로토콜 endpoint. InterfaceXGT 와 형제인 DualSoft 관리 확장이다 —
+    /// IDTA 02017 v1.1 의 표준 4종 바인딩(OPC UA·Modbus·MQTT·HTTP)에는 로더 프로토콜이 없다.
+    ///
+    /// XGT endpoint 를 재사용하지 않는 이유가 둘 있다.
+    /// * `XgtCpuModel` 은 `Xgi|Xgk|Xgb` 닫힌 DU 이고 base 스킴이 `xgt+tcp://` 다 — SX 를 거기
+    ///   넣으면 AASX 의 규격 서술이 사실과 어긋난다.
+    /// * SX 에는 XGT 에 없는 두 값이 필요하다. 매핑표와 쓰기 허용 영역이다.
+    type MicrexSxEndpointMetadata = {
+        /// `sx+tcp://host:509`. 509 = 로더 인터페이스 서버(권장), 507 = 로더 명령 서버.
+        Base: string
+        /// 이 접속을 소유한 active System.
+        SystemId: Guid option
+        /// D300win 프로젝트에서 뽑은 I/O 매핑표 경로. None 이면 네이티브 주소만 쓴다 —
+        /// IEC 원격 주소(`%QX5.43.0.04`)는 어느 국번이 이미지 몇 번째 워드에 실리는지를
+        /// 프로토콜로 물어볼 수 없어 이 표가 있어야 해석된다.
+        IoMapPath: string option
+        /// 쓰기를 허용할 영역("M1"·"IO"·"M10"). **빈 목록이면 읽기 전용이다** —
+        /// SX 커넥터가 쓰기 권한 발급 자체를 거부한다. 기본을 잠금으로 두는 이유:
+        /// 현장 PLC 의 메모리 배치는 설비마다 다르고 잘못 쓰면 설비를 오동작시킨다.
+        WritableAreas: string list
+        TimeoutMs: int
+        ScanIntervalMs: int
+    }
+        with static member empty = {
+                    Base = "sx+tcp://127.0.0.1:509"
+                    SystemId = None
+                    IoMapPath = None
+                    WritableAreas = []
+                    TimeoutMs = 3000
+                    ScanIntervalMs = 100
+                }
+
     /// Endpoint metadata — the "connection root" for every binding.
     /// Credentials are Vault references, never inline secrets (ADR-005).
     type EndpointMetadata = {
@@ -200,6 +232,9 @@ module AssetInterfacesDescriptionTypes =
         | Http    of endpoint: EndpointMetadata * interactions: HttpInteraction list
         /// XGT interaction의 공통 metadata 모양은 OPC UA interaction과 동일하며 Href만 XGT 주소를 담는다.
         | Xgt     of endpoint: XgtEndpointMetadata * interactions: OpcUaInteraction list
+        /// MICREX-SX interaction 의 metadata 모양도 XGT 와 같고 Href 가 SX 주소를 담는다
+        /// (네이티브 `M1.2000.0` 또는 IEC `%QX3.31.0.00`).
+        | MicrexSx of endpoint: MicrexSxEndpointMetadata * interactions: OpcUaInteraction list
 
     /// AAS Submodel "AssetInterfacesDescription" — IDTA 02017 v1.1.
     type AssetInterfacesDescription() =
@@ -248,39 +283,72 @@ module AssetInterfacesDescriptionTypes =
                 baseUri, vendor, ipAddress, port, isUdp, localEthernet, networkNumber,
                 stationNumber, timeoutMs, scanIntervalMs, None)
 
-    /// Promaker PLC 설정 ↔ AID InterfaceXGT EndpointMetadata 동기화 경계.
-    /// 새 AID 모델은 이 endpoint만 수집 SSOT로 사용한다.
-    [<RequireQualifiedAccess>]
-    module AidXgtEndpointSettings =
-        let private addressHash (address: string) =
+    /// C# 경계에서 AID InterfaceMicrexSx endpoint 를 읽기 위한 평탄화 DTO.
+    [<AllowNullLiteral>]
+    type AidMicrexSxConnectionInfo
+        (baseUri: string, ipAddress: string, port: int, ioMapPath: string,
+         writableAreas: string array, timeoutMs: int, scanIntervalMs: int, systemId: Guid option) =
+        member _.BaseUri = baseUri
+        member _.IpAddress = ipAddress
+        member _.Port = port
+        /// 빈 문자열 = 매핑표 없음(네이티브 주소만).
+        member _.IoMapPath = ioMapPath
+        /// 빈 배열 = 읽기 전용.
+        member _.WritableAreas = writableAreas
+        member _.TimeoutMs = timeoutMs
+        member _.ScanIntervalMs = scanIntervalMs
+        member _.SystemId = systemId |> Option.toNullable
+
+    /// XGT·MICREX-SX endpoint 가 공유하는 interaction 식별자 규칙.
+    ///
+    /// signalId 는 AID **전체**에서 유일해야 한다(OPC UA NodeId·Collector 시계열의 영속 키).
+    /// 두 바인딩 종류가 한 AID 에 공존하므로 점유 집합도 둘을 함께 세야 한다 — 한쪽만 세면
+    /// 서로의 signalId 를 덮어써 활성화가 깨진다.
+    module internal AidInteractionIds =
+        let addressHash (address: string) =
             SHA256.HashData(Encoding.UTF8.GetBytes(address))
             |> Array.take 6
             |> Convert.ToHexString
 
         /// System 별 signalId 한정자. **이름이 아니라 GUID 로 만든다** — System 이름은 사용자가 바꿀 수
-        /// 있는데 signalId 는 다운스트림 영속 키(OPC UA NodeId·Collector 시계열)라 흔들리면 안 된다.
-        let private systemHash (systemId: Guid) =
+        /// 있는데 signalId 는 다운스트림 영속 키라 흔들리면 안 된다.
+        let systemHash (systemId: Guid) =
             SHA256.HashData(systemId.ToByteArray())
             |> Array.take 6
             |> Convert.ToHexString
             |> fun hex -> hex.ToLowerInvariant()
 
-        /// signalId 자동 부여. 기본값은 주소 원문(종전과 완전히 동일)이고,
-        /// **그 값을 다른 endpoint 가 이미 쓰고 있을 때만** System 한정자를 붙여 분화한다.
-        /// 멀티 PLC 에서 서로 다른 System 이 같은 주소를 써도 사용자가 아무것도 하지 않게 하는 장치다.
-        /// (signalId 는 AID 전체에서 유일해야 하며, 예전엔 이 충돌이 곧 활성화 실패였다.)
-        /// 한 번 부여된 id 는 이후 저장에서 그대로 보존되므로(ensureBinding 이 기존 interaction 유지)
-        /// 이미 배포된 signalId 는 이 규칙으로도 절대 움직이지 않는다.
-        let private mintSignalId (claimed: HashSet<string>) (systemId: Guid option) (address: string) =
+        /// signalId 자동 부여. 기본값은 주소 원문이고, **그 값을 다른 endpoint 가 이미 쓰고 있을
+        /// 때만** System 한정자를 붙여 분화한다.
+        let mintSignalId (claimed: HashSet<string>) (systemId: Guid option) (address: string) =
             if not (claimed.Contains address) then address
             else
                 match systemId with
-                // 귀속 미상 endpoint 는 분화 근거가 없다 — 종전대로 두고 상위 검증이 드러내게 한다.
                 | None -> address
-                | Some sid ->
-                    let qualified = $"{address}@{systemHash sid}"
-                    // 한정자까지 겹치는 건 같은 System 안 중복(모델 오류)이라 여기서 더 손대지 않는다.
-                    qualified
+                | Some sid -> $"{address}@{systemHash sid}"
+
+        /// 이 AID 안에서 excludeIndex 를 제외한 **모든** endpoint 가 점유한 signalId 집합.
+        let claimedSignalIdsExcept (aid: AssetInterfacesDescription) (excludeIndex: int) =
+            let claimed = HashSet<string>(StringComparer.Ordinal)
+            aid.Interfaces
+            |> Seq.iteri (fun index binding ->
+                if index <> excludeIndex then
+                    match binding with
+                    | Xgt (_, interactions)
+                    | MicrexSx (_, interactions) ->
+                        for interaction in interactions do
+                            claimed.Add interaction.SignalId.Value |> ignore
+                    | _ -> ())
+            claimed
+
+    /// Promaker PLC 설정 ↔ AID InterfaceXGT EndpointMetadata 동기화 경계.
+    /// 새 AID 모델은 이 endpoint만 수집 SSOT로 사용한다.
+    [<RequireQualifiedAccess>]
+    module AidXgtEndpointSettings =
+        // 식별자 규칙은 AidInteractionIds 가 SSOT 다 — MICREX-SX 바인딩과 같은 규칙을 쓰고,
+        // signalId 점유 집합도 두 바인딩을 함께 센다(한쪽만 세면 서로를 덮어쓴다).
+        let private addressHash = AidInteractionIds.addressHash
+        let private mintSignalId = AidInteractionIds.mintSignalId
 
         /// PLC 주소는 `%QX0.1`처럼 AAS idShort/URN에 허용되지 않는 문자를 포함한다.
         /// 주소 원문은 href/signalId에 보존하고 식별자는 충돌 없는 고정 해시로 분리한다.
@@ -301,18 +369,7 @@ module AssetInterfacesDescriptionTypes =
         let private interactionForAddress (address: string) =
             interactionForAddressIn (HashSet<string>(StringComparer.Ordinal)) None address
 
-        /// 이 AID 안에서 excludeIndex 를 제외한 endpoint 들이 점유한 signalId 집합.
-        let private claimedSignalIdsExcept (aid: AssetInterfacesDescription) (excludeIndex: int) =
-            let claimed = HashSet<string>(StringComparer.Ordinal)
-            aid.Interfaces
-            |> Seq.iteri (fun index binding ->
-                if index <> excludeIndex then
-                    match binding with
-                    | Xgt (_, interactions) ->
-                        for interaction in interactions do
-                            claimed.Add interaction.SignalId.Value |> ignore
-                    | _ -> ())
-            claimed
+        let private claimedSignalIdsExcept = AidInteractionIds.claimedSignalIdsExcept
 
         let private normalizeLegacyGeneratedInteraction (interaction: OpcUaInteraction) =
             // 구버전 자동 생성본은 IdShort/SignalId/Href가 모두 PLC 주소였다. SDF로 먼저 저장된 모델도
@@ -644,6 +701,23 @@ module AssetInterfacesDescriptionTypes =
         /// 그 모델은 지금 아예 활성화가 안 되는 상태라 깨질 다운스트림이 존재하지 않는다 — 안전하다.
         /// 앞선 endpoint 가 선점한 id 는 그대로 두고 뒤에 오는 중복만 바꾼다(기존 id 보존 우선).
         /// 반환 = 바뀐 interaction 수(0 이면 손댈 것이 없었음).
+        /// 이 System 의 XGT 바인딩을 지운다 — 벤더를 LS 에서 다른 종류로 바꿨을 때 옛 endpoint 가
+        /// 남으면 Agent 가 AID 에서 연결을 하나 더 만든다(현장에서 "1대만 설정했는데 2대" 로 나타났다).
+        /// 반환값은 지운 개수.
+        [<CompiledName("RemoveForSystem")>]
+        let removeForSystem (aid: AssetInterfacesDescription, systemId: Guid) : int =
+            if isNull (box aid) || systemId = Guid.Empty then 0
+            else
+                let doomed =
+                    aid.Interfaces
+                    |> Seq.indexed
+                    |> Seq.choose (function
+                        | index, Xgt (endpoint, _) when endpoint.SystemId = Some systemId -> Some index
+                        | _ -> None)
+                    |> List.ofSeq
+                for index in List.rev doomed do aid.Interfaces.RemoveAt index
+                List.length doomed
+
         [<CompiledName("DeduplicateSignalIds")>]
         let deduplicateSignalIds (aid: AssetInterfacesDescription) : int =
             if isNull (box aid) then 0
@@ -670,3 +744,137 @@ module AssetInterfacesDescriptionTypes =
                         if changedHere then aid.Interfaces.[index] <- Xgt (endpoint, next)
                     | _ -> ()
                 repaired
+
+    /// Promaker PLC 설정 ↔ AID InterfaceMicrexSx endpoint 동기화 경계.
+    ///
+    /// XGT 쪽(`AidXgtEndpointSettings`)이 품고 있는 레거시 경로 — systemRef 없는 무주인
+    /// endpoint claim, 구버전 자동생성 interaction 정규화 — 는 여기 없다. SX 바인딩은 신규라
+    /// 그런 파일이 존재하지 않는다. 없는 마이그레이션을 흉내내면 검증할 수 없는 코드가 된다.
+    [<RequireQualifiedAccess>]
+    module AidMicrexSxEndpointSettings =
+
+        /// `sx+tcp://host:port` 로 조립. 스킴을 XGT 와 다르게 두어 AASX 를 읽는 쪽이
+        /// 프로토콜을 착각하지 않게 한다.
+        let private baseUriOf (ipAddress: string) (port: int) =
+            $"sx+tcp://{ipAddress.Trim()}:{port}"
+
+        let private interactionForAddressIn (claimed: HashSet<string>) (systemId: Guid option) (address: string) =
+            let hash = AidInteractionIds.addressHash address
+            let signalId = AidInteractionIds.mintSignalId claimed systemId address
+            claimed.Add signalId |> ignore
+            { IdShort = $"Sx_{hash}"
+              SemanticId = SemanticId $"urn:dualsoft:cd:micrexsx:io:{hash.ToLowerInvariant()}:1:0"
+              ValueType = XsBoolean
+              Unit = None
+              Href = address
+              SignalId = SignalId signalId }
+
+        let private toConnectionInfo (endpoint: MicrexSxEndpointMetadata) =
+            match Uri.TryCreate(endpoint.Base, UriKind.Absolute) with
+            | true, uri when not (String.IsNullOrWhiteSpace uri.Host) && uri.Port > 0 ->
+                Some (AidMicrexSxConnectionInfo(
+                    endpoint.Base,
+                    uri.Host,
+                    uri.Port,
+                    defaultArg endpoint.IoMapPath "",
+                    endpoint.WritableAreas |> List.toArray,
+                    endpoint.TimeoutMs,
+                    endpoint.ScanIntervalMs,
+                    endpoint.SystemId))
+            | _ -> None
+
+        /// 지정 System 이 소유한 SX endpoint 를 읽는다. 없으면 null.
+        [<CompiledName("TryReadForSystem")>]
+        let tryReadForSystem (aid: AssetInterfacesDescription, systemId: Guid) : AidMicrexSxConnectionInfo =
+            if isNull (box aid) || systemId = Guid.Empty then null
+            else
+                aid.Interfaces
+                |> Seq.tryPick (function
+                    | MicrexSx (endpoint, _) when endpoint.SystemId = Some systemId -> toConnectionInfo endpoint
+                    | _ -> None)
+                |> Option.defaultValue null
+
+        /// 지정 System 의 SX 바인딩을 보장한다 — 없으면 주소 목록으로 만들고, 있으면 endpoint 를
+        /// 갱신하고 새 주소만 병합한다(기존 interaction 의 signalId 는 보존 — 다운스트림 영속 키다).
+        /// 반환값은 만들거나 고친 요소 수. 입력이 성립하지 않으면 0 이고 AID 를 건드리지 않는다.
+        [<CompiledName("EnsureBindingForSystem")>]
+        let ensureBindingForSystem
+            (aid: AssetInterfacesDescription,
+             systemId: Guid,
+             ipAddress: string,
+             port: int,
+             ioMapPath: string,
+             writableAreas: seq<string>,
+             timeoutMs: int,
+             scanIntervalMs: int,
+             addresses: seq<string>) : int =
+            if isNull (box aid) || systemId = Guid.Empty
+               || String.IsNullOrWhiteSpace ipAddress || port <= 0 then 0
+            else
+                let normalizedAddresses =
+                    let seen = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    addresses
+                    |> Seq.filter (fun a -> not (String.IsNullOrWhiteSpace a))
+                    |> Seq.map (fun a -> a.Trim())
+                    |> Seq.filter seen.Add
+                    |> List.ofSeq
+
+                let endpointOf systemIdOpt = {
+                    Base = baseUriOf ipAddress port
+                    SystemId = systemIdOpt
+                    IoMapPath = if String.IsNullOrWhiteSpace ioMapPath then None else Some (ioMapPath.Trim())
+                    WritableAreas =
+                        writableAreas
+                        |> Seq.filter (fun a -> not (String.IsNullOrWhiteSpace a))
+                        |> Seq.map (fun a -> a.Trim())
+                        |> Seq.distinct
+                        |> List.ofSeq
+                    TimeoutMs = timeoutMs
+                    ScanIntervalMs = scanIntervalMs
+                }
+
+                let existing =
+                    aid.Interfaces
+                    |> Seq.indexed
+                    |> Seq.tryPick (function
+                        | index, MicrexSx (endpoint, interactions) when endpoint.SystemId = Some systemId ->
+                            Some (index, endpoint, interactions)
+                        | _ -> None)
+
+                match existing with
+                | Some (index, _, interactions) ->
+                    let claimed = AidInteractionIds.claimedSignalIdsExcept aid index
+                    for interaction in interactions do
+                        claimed.Add interaction.SignalId.Value |> ignore
+                    let known =
+                        HashSet<string>(
+                            interactions |> List.map (fun i -> i.Href),
+                            StringComparer.OrdinalIgnoreCase)
+                    let added =
+                        normalizedAddresses
+                        |> List.filter (fun a -> not (known.Contains a))
+                        |> List.map (interactionForAddressIn claimed (Some systemId))
+                    aid.Interfaces.[index] <- MicrexSx (endpointOf (Some systemId), interactions @ added)
+                    1 + List.length added
+                | None ->
+                    let claimed = AidInteractionIds.claimedSignalIdsExcept aid -1
+                    let interactions =
+                        normalizedAddresses |> List.map (interactionForAddressIn claimed (Some systemId))
+                    aid.Interfaces.Add(MicrexSx (endpointOf (Some systemId), interactions))
+                    1 + List.length interactions
+
+        /// 이 System 의 SX 바인딩을 지운다 — 벤더를 SX 에서 LS 로 되돌렸을 때 옛 endpoint 가
+        /// 남아 Agent 가 연결을 하나 더 만드는 것을 막는다. 반환값은 지운 개수.
+        [<CompiledName("RemoveForSystem")>]
+        let removeForSystem (aid: AssetInterfacesDescription, systemId: Guid) : int =
+            if isNull (box aid) || systemId = Guid.Empty then 0
+            else
+                let doomed =
+                    aid.Interfaces
+                    |> Seq.indexed
+                    |> Seq.choose (function
+                        | index, MicrexSx (endpoint, _) when endpoint.SystemId = Some systemId -> Some index
+                        | _ -> None)
+                    |> List.ofSeq
+                for index in List.rev doomed do aid.Interfaces.RemoveAt index
+                List.length doomed

@@ -48,6 +48,10 @@
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.MX.USB.dll</HintPath>
       <Private>true</Private>
     </Reference>
+    <Reference Include="Ev2.PLC.Protocol.SX">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.SX.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <Reference Include="Ev2.PLC.Protocol.S7">
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.S7.dll</HintPath>
       <Private>true</Private>

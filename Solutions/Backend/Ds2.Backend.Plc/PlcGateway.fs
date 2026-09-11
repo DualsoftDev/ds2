@@ -25,6 +25,7 @@ type PlcGateway(config: PlcGatewayConfig) =
         | Ds2.Backend.Plc.PlcVendor.LsXgk      -> "LsXgk"
         | Ds2.Backend.Plc.PlcVendor.LsXgb      -> "LsXgb"
         | Ds2.Backend.Plc.PlcVendor.Mitsubishi -> "Mitsubishi"
+        | Ds2.Backend.Plc.PlcVendor.MicrexSx    -> "MicrexSx"
 
     let adapters : (PlcConnectionConfig * IPlcConnectorAdapter) array =
         config.Connections

@@ -453,15 +453,24 @@ module Queries =
     // Work ↔ Device Duration 쿼리
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// Call 하나의 Device duration(ms): Call → ApiCall → ApiDef → RxGuid → Device Work → Duration
+    /// Call 하나의 Device duration(ms): Call → ApiCall → ApiDef → RxGuid → Device Work → Duration.
+    ///
+    /// Rx Work 에 Duration 이 없으면 Tx Work 로 폴백한다.
+    /// 단일 API 디바이스는 ImportPlan 이 Rx 를 DONE 더미로 재지정하는데(재기동용),
+    /// DONE 에는 Duration 을 주지 않으므로 폴백이 없으면 Tx(=실제 API Work)에 설정된
+    /// 동작 시간이 critical path 계산에서 통째로 누락된다.
+    /// Tx=Rx 인 일반 2-API 디바이스는 폴백이 발동하지 않아 동작이 동일하다.
     let private callDeviceDurationMs (call: Call) (store: DsStore) : int =
+        let durationOfWork (workId: Guid) =
+            getWork workId store |> Option.bind (fun w -> w.Duration)
         call.ApiCalls
         |> Seq.choose (fun apiCall ->
             apiCall.ApiDefId
             |> Option.bind (fun defId -> getApiDef defId store)
-            |> Option.bind (fun def -> def.RxGuid)
-            |> Option.bind (fun rxWorkId -> getWork rxWorkId store)
-            |> Option.bind (fun rxWork -> rxWork.Duration)
+            |> Option.bind (fun def ->
+                match def.RxGuid |> Option.bind durationOfWork with
+                | Some ts -> Some ts
+                | None -> def.TxGuid |> Option.bind durationOfWork)
             |> Option.map (fun ts -> int ts.TotalMilliseconds))
         |> Seq.fold max 0
 

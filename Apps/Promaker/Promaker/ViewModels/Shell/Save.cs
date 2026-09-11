@@ -269,13 +269,36 @@ public partial class MainViewModel
                 poco.ScanIntervalMs = entry.Profile.ScanIntervalMs;
                 poco.WasPersisted = true;
                 var systemAddresses = sim.EnumeratePlcAddressesForSystem(entry.SystemId);
-                if (Promaker.Shared.AidXgtEndpointSynchronizer.EnsureToStore(
-                        _store, entry.SystemId, poco, systemAddresses))
-                    stamped++;
+
+                // 벤더에 따라 어느 바인딩을 재보장하는지가 갈린다. SX 를 XGT 동기화기에 넘기면
+                // AidXgtEndpointSettings 가 비-LS 를 거부해(0 반환) 조용히 아무것도 안 되고,
+                // 모델에 새로 생긴 주소가 SX endpoint 에 병합되지 않는다 — Agent 가 그 주소를
+                // 스캔하지 못하게 된다.
+                bool ok;
+                if (entry.Vendor == PlcVendorChoice.MicrexSx)
+                {
+                    // SX 전용 값의 정본은 endpoint 자신이다. 전역 PlcSettings 로 덮으면
+                    // 패널에서 편집한 매핑표·쓰기 허용이 stale 값에 클로버된다.
+                    var sxConn = Promaker.Shared.AidMicrexSxEndpointSynchronizer.TryReadFromStore(
+                        _store, entry.SystemId);
+                    if (sxConn is not null)
+                    {
+                        poco.SxIoMapPath = sxConn.IoMapPath ?? string.Empty;
+                        poco.SxWritableAreas = sxConn.WritableAreas.ToList();
+                    }
+                    ok = Promaker.Shared.AidMicrexSxEndpointSynchronizer.EnsureToStore(
+                        _store, entry.SystemId, poco, systemAddresses);
+                }
+                else
+                {
+                    ok = Promaker.Shared.AidXgtEndpointSynchronizer.EnsureToStore(
+                        _store, entry.SystemId, poco, systemAddresses);
+                }
+                if (ok) stamped++;
             }
             if (stamped > 0)
             {
-                Log.Info($"AID XGT 바인딩 동기화 — System endpoint {stamped}개 (endpoint 값 기준, 주소 병합)");
+                Log.Info($"AID PLC 바인딩 동기화 — System endpoint {stamped}개 (endpoint 값 기준, 주소 병합)");
                 return;
             }
 

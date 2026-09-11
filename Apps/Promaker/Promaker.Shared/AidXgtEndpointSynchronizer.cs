@@ -15,7 +15,7 @@ namespace Promaker.Shared;
 /// </summary>
 public static class AidXgtEndpointSynchronizer
 {
-    private static Project? FindOwningProject(DsStore? store, Guid systemId) =>
+    internal static Project? FindOwningProject(DsStore? store, Guid systemId) =>
         store?.Projects.Values.FirstOrDefault(project => project.ActiveSystemIds.Contains(systemId));
 
     private static Guid? TryGetOnlyActiveSystemId(Project? project) =>

@@ -15,6 +15,7 @@ public enum PlcVendorChoice
     LsXgk = PromakerShared.PlcVendorChoice.LsXgk,
     LsXgb = PromakerShared.PlcVendorChoice.LsXgb,
     Mitsubishi = PromakerShared.PlcVendorChoice.Mitsubishi,
+    MicrexSx = PromakerShared.PlcVendorChoice.MicrexSx,
 }
 
 /// <summary>
@@ -25,8 +26,7 @@ public enum PlcVendorChoice
 /// 저장 위치는 SharedPaths.PlcConnectionFilePath (공유 ProgramData) 가 SSOT.
 ///
 /// 플랫 필드는 "현재 활성 벤더" 의 값을 항상 반영한다. <see cref="VendorProfiles"/> 는
-/// 세 벤더 (LsXgi, LsXgk, Mitsubishi) 각각의 마지막 입력값을 보관해, 벤더를 토글해도
-/// 양식이 복원된다.
+/// 각 벤더의 마지막 입력값을 보관해, 벤더를 토글해도 양식이 복원된다.
 /// </summary>
 public partial class PlcSettings : ObservableObject
 {
@@ -39,6 +39,18 @@ public partial class PlcSettings : ObservableObject
     [ObservableProperty] private bool _localEthernet = true;     // LS only
     [ObservableProperty] private byte _networkNumber = 0;        // MX only
     [ObservableProperty] private byte _stationNumber = 0xFF;     // MX only
+
+    /// <summary>MICREX-SX 전용 — D300win 프로젝트에서 뽑은 I/O 매핑표 경로.
+    /// 비워 두면 네이티브 주소만 쓴다(<c>M1.2000.0</c>). IEC 원격 주소(<c>%QX5.43.0.04</c>)를
+    /// 쓰려면 이 표가 있어야 한다.
+    ///
+    /// <see cref="VendorProfiles"/> 에 넣지 않는다 — 다른 벤더에는 대응 개념이 없고,
+    /// 플랫으로 두면 벤더를 토글해도 값이 남는다.</summary>
+    [ObservableProperty] private string _sxIoMapPath = string.Empty;   // SX only
+
+    /// <summary>MICREX-SX 전용 — 쓰기를 허용할 영역. 비어 있으면 <b>읽기 전용</b>이다.
+    /// "M1"(사용자 메모리), "IO"(I/O 이미지), "M10"(시스템 메모리).</summary>
+    [ObservableProperty] private List<string> _sxWritableAreas = new();   // SX only
 
     /// <summary>Mitsubishi 전송 방식 — true=UDP, false=TCP. LS 에서는 무시 (LS 는 항상 TCP).
     /// 미쓰비시 MC 프로토콜은 PLC 측 Ethernet 모듈 파라미터(GX Works)에서 TCP/UDP 를 정해두면
@@ -93,6 +105,8 @@ public partial class PlcSettings : ObservableObject
         NetworkNumber = poco.NetworkNumber;
         StationNumber = poco.StationNumber;
         IsUdp = poco.IsUdp;
+        SxIoMapPath = poco.SxIoMapPath ?? string.Empty;
+        SxWritableAreas = poco.SxWritableAreas ?? new List<string>();
         VendorProfiles = poco.Profiles;
     }
 
@@ -163,6 +177,8 @@ public partial class PlcSettings : ObservableObject
         NetworkNumber = NetworkNumber,
         StationNumber = StationNumber,
         IsUdp = IsUdp,
+        SxIoMapPath = SxIoMapPath,
+        SxWritableAreas = SxWritableAreas,
         AutoDurationCalibrate = AutoDurationCalibrate,
         WasPersisted = WasPersisted,
         Profiles = VendorProfiles,
@@ -182,6 +198,10 @@ public partial class PlcSettings : ObservableObject
 
         if (System.Enum.TryParse<PlcVendorChoice>(d.Vendor, ignoreCase: true, out var v))
             s.Vendor = v;
+
+        // SX 전용 값은 프로파일이 아니라 POCO 플랫 필드에 있으므로 ApplyProfile 이 채우지 않는다.
+        s.SxIoMapPath = d.SxIoMapPath ?? string.Empty;
+        s.SxWritableAreas = d.SxWritableAreas ?? new List<string>();
 
         // 활성 벤더 프로파일 (= POCO 의 플랫 필드와 동기) 을 플랫 필드로 적용.
         var key = s.Vendor.ToString();

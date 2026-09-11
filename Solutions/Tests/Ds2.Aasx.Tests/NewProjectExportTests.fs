@@ -8,6 +8,7 @@ open AasCore.Aas3_1
 open Ds2.Aasx
 open Ds2.Aasx.AasxSemantics
 open Ds2.Backend.Plc
+open Microsoft.FSharp.Reflection
 open Ds2.Core.StandardSubmodels
 open Ds2.Core.Store
 open Ds2.Editor
@@ -448,3 +449,77 @@ let ``generic AASX standards shells and concepts survive repeated Promaker saves
     finally
         if File.Exists(sourcePath) then File.Delete(sourcePath)
         if File.Exists(savedPath) then File.Delete(savedPath)
+
+/// 수집기(Pi5) payload 의 vendor 라벨은 Ds2.Backend.Plc 가 내보내고 Ds2.Edge.Scanner 의
+/// `toVendor` 가 되읽는 **문자열 계약**이다. 그 match 에 새 벤더를 빼면 두 가지로 깨진다 —
+/// 내보내는 쪽은 불완전 match 라 MatchFailureException, 받는 쪽은 폴백이라 조용히 다른
+/// 벤더가 된다(SX 설정이 LsXgk 가 되어 509 포트에 LS 프로토콜로 붙는다).
+///
+/// 그래서 DU 케이스를 리플렉션으로 전수 돌려 라벨이 나오는지 확인하고, 그 라벨 집합을
+/// Edge.Scanner 가 파싱하는 값과 문자 그대로 대조한다.
+[<Fact>]
+let ``every PLC vendor produces a collector label the Pi5 parses`` () =
+    // Ds2.Edge.Scanner 의 toVendor 가 받는 값 (Apps/Edge/Ds2.Edge.Scanner/Config.fs).
+    let parsedByScanner = set [ "LsXgi"; "LsXgk"; "LsXgb"; "Mitsubishi"; "Mx"; "MicrexSx"; "Sx" ]
+
+    let labels =
+        FSharpType.GetUnionCases typeof<PlcVendor>
+        |> Array.map (fun case ->
+            let vendor = FSharpValue.MakeUnion(case, [||]) :?> PlcVendor
+            let connection = { PlcConnectionConfig.defaultLs "A" "192.168.0.10" with Vendor = vendor }
+            // 불완전 match 면 여기서 MatchFailureException 이 난다.
+            let payload = CollectorConfig.fromGateway { Connections = [ connection ] }
+            case.Name, payload.Connections.[0].Vendor)
+
+    Assert.NotEmpty labels
+    for caseName, label in labels do
+        Assert.False(String.IsNullOrWhiteSpace label, $"{caseName} 의 수집기 라벨이 비었다")
+        Assert.True(
+            parsedByScanner.Contains label,
+            $"{caseName} → \"{label}\" 는 Edge.Scanner 의 toVendor 가 파싱하지 못한다")
+
+    Assert.Contains(("MicrexSx", "MicrexSx"), labels)
+
+/// SX 는 잠긴 채로 시작해야 한다. 쓰기 허용 영역이 비어 있으면 커넥터가 쓰기 권한 발급을
+/// 거부하므로, 이 기본값이 곧 "현장 PLC 에 아무것도 쓰지 않는다" 는 보장이다.
+[<Fact>]
+let ``MicrexSx default connection is read-only on the loader port`` () =
+    let sx = PlcConnectionConfig.defaultSx "SX" "192.168.9.89"
+    Assert.Equal(PlcVendor.MicrexSx, sx.Vendor)
+    Assert.Equal(509, sx.Port)
+    Assert.Empty sx.SxWritableAreas
+    Assert.Equal("", sx.SxIoMapPath)
+
+/// AID InterfaceXGT endpoint 의 CpuModel 은 `Xgi | Xgk | Xgb` 닫힌 DU 다. 그래서 LS 가 아닌
+/// 벤더는 `tryCpuModel` 이 None 으로 떨어뜨려 UpdateAll/EnsureBinding 이 0(변경 없음)을
+/// 돌려준다 — 저장되지 않는다.
+///
+/// Promaker 는 이 사실을 `PlcVendorProfile.IsAidXgtVendor` 로 복제해 저장 경로를 고르므로,
+/// 여기서 권위 쪽 거동을 고정해 둔다. 이 DU 에 벤더가 늘면 이 시험이 먼저 깨져야 한다.
+[<Fact>]
+let ``AID XGT endpoint accepts only LS vendors`` () =
+    let aid = AssetInterfacesDescription()
+    let created =
+        AidXgtEndpointSettings.ensureBinding(
+            aid, "LsXgi", "192.168.9.102", 2004, false, true,
+            0uy, 255uy, 3000, 100, [ "%QX0.1.13" ])
+    Assert.True(created > 0, "LS endpoint 는 만들어져야 한다")
+
+    let update vendor port =
+        AidXgtEndpointSettings.updateAll(
+            aid, vendor, "192.168.9.103", port, false, true, 0uy, 255uy, 3000, 100)
+
+    // LS 세 종류는 받는다.
+    Assert.True(update "LsXgi" 2004 > 0)
+    Assert.True(update "LsXgk" 2004 > 0)
+    Assert.True(update "LsXgb" 2004 > 0)
+
+    // 비-LS 는 조용히 거부된다(0 = 변경 없음). Promaker 가 이걸 "저장 실패" 로만 보여 주던
+    // 것이 SX 를 UI 로 설정할 수 없던 원인이었다.
+    Assert.Equal(0, update "MicrexSx" 509)
+    Assert.Equal(0, update "Mitsubishi" 5007)
+
+    // 거부가 기존 endpoint 를 훼손하지도 않아야 한다.
+    let connection = AidXgtEndpointSettings.tryReadFirst aid
+    Assert.NotNull connection
+    Assert.Equal("LsXgb", connection.Vendor)

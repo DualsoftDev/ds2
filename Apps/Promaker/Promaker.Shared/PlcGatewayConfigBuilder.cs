@@ -67,6 +67,11 @@ public static class PlcGatewayConfigBuilder
             transport,
             settings.TimeoutMs,
             FSharpOption<TimeSpan>.Some(TimeSpan.FromMilliseconds(settings.ScanIntervalMs)),
+            // MICREX-SX 전용 두 값. 다른 벤더에서는 무시된다.
+            // SxWritableAreas 가 비어 있으면 SX 는 읽기 전용으로 뜨고,
+            // 쓰기 시도는 "설정을 채우라" 는 메시지로 거절된다 — 조용히 열지 않는다.
+            settings.SxIoMapPath ?? string.Empty,
+            Microsoft.FSharp.Collections.ListModule.OfSeq(settings.SxWritableAreas ?? new List<string>()),
             Microsoft.FSharp.Collections.ListModule.OfSeq(tags));
 
         return new PlcGatewayConfig(
@@ -82,6 +87,7 @@ public static class PlcGatewayConfigBuilder
                 PlcVendorChoice.LsXgk => PlcVendor.LsXgk,
                 PlcVendorChoice.LsXgb => PlcVendor.LsXgb,
                 PlcVendorChoice.Mitsubishi => PlcVendor.Mitsubishi,
+                PlcVendorChoice.MicrexSx => PlcVendor.MicrexSx,
                 _ => PlcVendor.LsXgi
             };
         return PlcVendor.LsXgi;

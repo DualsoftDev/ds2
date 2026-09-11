@@ -11,6 +11,8 @@ type PlcVendor =
     | LsXgk
     | LsXgb
     | Mitsubishi
+    /// Fuji MICREX-SX (SPH2000 계열) — 로더 프로토콜.
+    | MicrexSx
 
 /// Hub address ↔ PLC tag 매핑 한 항목.
 /// 게이트웨이는 이 리스트만 주기 스캔/쓰기 라우팅에 사용한다.
@@ -49,6 +51,23 @@ type PlcConnectionConfig = {
     TimeoutMs   : int
     /// 스캔 주기. None 이면 스캔 안 함 (write-only 게이트웨이).
     ScanInterval : TimeSpan option
+    /// SX 전용 — D300win 프로젝트에서 뽑은 I/O 매핑표 경로.
+    ///
+    /// 비워 두면 **네이티브 주소만** 쓴다 (`M1.2000.0`, `IO.42.4`). 이것으로 충분하며
+    /// 하드웨어 구성에 의존하지 않는다. IEC 원격 주소(`%QX5.43.0.04`)를 태그에
+    /// 적으려면 이 표가 있어야 한다 — 어느 국번이 이미지 몇 번째 워드에 실리는지는
+    /// 프로토콜로 물어볼 수 없고 그 프로젝트의 모듈 구성이 정하기 때문이다.
+    SxIoMapPath : string
+    /// SX 전용 — **쓰기를 허용할 영역**. 기본은 비어 있다(= 읽기 전용).
+    ///
+    /// SX 커넥터는 쓰기를 타입 수준에서 막아 두었고, 여기에 영역 이름을 넣어야만
+    /// 풀린다. 기본을 잠금으로 두는 이유: 현장 PLC 의 메모리 배치는 데모와 전혀
+    /// 다르고, 잘못된 주소에 쓰면 설비를 오동작시킨다. 어느 영역을 열지는 그
+    /// 설비를 아는 사람이 명시해야 한다.
+    ///
+    /// 받는 값: "M1" (사용자 메모리), "IO" (I/O 이미지), "M10" (시스템 메모리).
+    /// M10 은 시스템 영역이라 특별한 이유 없이는 넣지 않는다.
+    SxWritableAreas : string list
     Tags        : PlcTagDef list
 }
 
@@ -70,6 +89,8 @@ module PlcConnectionConfig =
         Transport = PlcTransport.Tcp
         TimeoutMs = 3000
         ScanInterval = Some (TimeSpan.FromMilliseconds 100.0)
+        SxIoMapPath = ""
+        SxWritableAreas = []
         Tags = []
     }
 
@@ -85,6 +106,31 @@ module PlcConnectionConfig =
         Transport = PlcTransport.Tcp
         TimeoutMs = 3000
         ScanInterval = Some (TimeSpan.FromMilliseconds 100.0)
+        SxIoMapPath = ""
+        SxWritableAreas = []
+        Tags = []
+    }
+
+    /// MICREX-SX 기본값.
+    ///
+    /// 포트 509 = 로더 인터페이스 서버(권장). 507 = 로더 명령 서버.
+    /// 두 서버가 같은 프레임 형식을 쓰지만 응답의 서버 식별 바이트가 다르다.
+    ///
+    /// **쓰기는 잠긴 채로 시작한다.** 열려면 SxWritableAreas 를 채운다.
+    let defaultSx name ip = {
+        Name = name
+        SystemId = None
+        Vendor = PlcVendor.MicrexSx
+        IpAddress = ip
+        Port = 509
+        LocalEthernet = true
+        NetworkNumber = 0uy
+        StationNumber = 0uy
+        Transport = PlcTransport.Tcp
+        TimeoutMs = 3000
+        ScanInterval = Some (TimeSpan.FromMilliseconds 100.0)
+        SxIoMapPath = ""
+        SxWritableAreas = []
         Tags = []
     }
 
@@ -200,6 +246,11 @@ module PlcGatewayConfig =
 [<RequireQualifiedAccess>]
 module PlcDataTypes =
     let Bool    = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType.Bool
+    // 8/64비트는 SX 주소 표기(SINT/BYTE/LINT/LWORD/LREAL)가 직접 요구한다.
+    let Int8    = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType.Int8
+    let UInt8   = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType.UInt8
+    let Int64   = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType.Int64
+    let UInt64  = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType.UInt64
     let Int16   = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType.Int16
     let UInt16  = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType.UInt16
     let Int32   = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType.Int32
@@ -243,6 +294,42 @@ module PlcAddressInfer =
             | 'L' when hasBitIndex -> PlcDataTypes.Bool
             | 'L' -> PlcDataTypes.Float64
             | _   -> PlcDataTypes.Bool
+        | PlcVendor.MicrexSx ->
+            // **SX 주소는 형을 스스로 담는다** — `M1.200:REAL`, `M1.400:WORD*16`.
+            // 다른 벤더처럼 접두 문자로 추측하지 않는다. 추측하면 주소가 선언한
+            // 형과 어긋나 커넥터가 폭 불일치로 거부한다.
+            //
+            // 표기가 없으면 SX 파서 자신의 기본값을 따른다 —
+            // 하위 필드가 있으면 Bool(`M1.100.3`), 없으면 Word(`M1.100`).
+            // IEC 원격 주소(`%QX5.43.0.04`)는 항상 비트다.
+            let afterColon =
+                match s.IndexOf ':' with
+                | -1 -> None
+                | i ->
+                    let t = s.Substring(i + 1)
+                    let t = match t.IndexOf '*' with | -1 -> t | j -> t.Substring(0, j)
+                    let t = match t.IndexOf '[' with | -1 -> t | j -> t.Substring(0, j)
+                    Some (t.Trim().ToUpperInvariant())
+
+            match afterColon with
+            | Some "BOOL" -> PlcDataTypes.Bool
+            | Some "SINT" | Some "INT8" -> PlcDataTypes.Int8
+            | Some "BYTE" | Some "USINT" | Some "UINT8" -> PlcDataTypes.UInt8
+            | Some "INT" | Some "INT16" -> PlcDataTypes.Int16
+            | Some "WORD" | Some "UINT" | Some "UINT16" -> PlcDataTypes.UInt16
+            | Some "DINT" | Some "INT32" -> PlcDataTypes.Int32
+            | Some "DWORD" | Some "UDINT" | Some "UINT32" -> PlcDataTypes.UInt32
+            | Some "LINT" | Some "INT64" -> PlcDataTypes.Int64
+            | Some "LWORD" | Some "ULINT" | Some "UINT64" -> PlcDataTypes.UInt64
+            | Some "REAL" | Some "FLOAT32" -> PlcDataTypes.Float32
+            | Some "LREAL" | Some "FLOAT64" -> PlcDataTypes.Float64
+            | Some _ -> PlcDataTypes.Bool
+            | None ->
+                if upper.StartsWith "%" then PlcDataTypes.Bool
+                else
+                    // `M1.100.3` 처럼 점이 둘이면 비트, `M1.100` 이면 워드
+                    let dots = s |> Seq.filter ((=) '.') |> Seq.length
+                    if dots >= 2 then PlcDataTypes.Bool else PlcDataTypes.UInt16
         | PlcVendor.Mitsubishi ->
             // Mitsubishi 비트 디바이스: X Y M L F B SB DX DY S TS TC SS SC CS CC
             // 워드 디바이스: D W R ZR T C SD SW
@@ -265,6 +352,7 @@ module CollectorConfig =
         | PlcVendor.LsXgk      -> "LsXgk"
         | PlcVendor.LsXgb      -> "LsXgb"
         | PlcVendor.Mitsubishi -> "Mitsubishi"
+        | PlcVendor.MicrexSx   -> "MicrexSx"
 
     let private dtypeStr (d: CoreDataTypesModule.PlcDataType) =
         match d with

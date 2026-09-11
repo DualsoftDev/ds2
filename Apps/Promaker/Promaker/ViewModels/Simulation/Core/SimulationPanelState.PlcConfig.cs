@@ -64,6 +64,25 @@ public partial class SimulationPanelState
         var entries = new List<PlcSystemEndpointEntry>();
         foreach (var sys in Queries.activeSystemsOf(project.Id, store))
         {
+            // SX endpoint 를 먼저 본다 — 한 System 이 둘을 동시에 갖지 않도록 저장 경로가
+            // 상대 바인딩을 지우지만, 읽는 쪽도 순서를 정해 두어야 결과가 흔들리지 않는다.
+            var sxConn = Promaker.Shared.AidMicrexSxEndpointSynchronizer.TryReadFromStore(store, sys.Id);
+            if (sxConn is not null)
+            {
+                var sxProfile = new Promaker.Shared.PlcVendorProfile
+                {
+                    Name = sys.Name,
+                    IpAddress = sxConn.IpAddress,
+                    Port = sxConn.Port,
+                    TimeoutMs = sxConn.TimeoutMs > 0 ? sxConn.TimeoutMs : 3000,
+                    ScanIntervalMs = sxConn.ScanIntervalMs > 0 ? sxConn.ScanIntervalMs : 100,
+                };
+                entries.Add(new PlcSystemEndpointEntry(
+                    sys.Id, sys.Name, PlcVendorChoice.MicrexSx, sxProfile, HasEndpoint: true,
+                    AddressCount: EnumeratePlcAddressesForSystem(sys.Id).Count));
+                continue;
+            }
+
             var conn = Promaker.Shared.AidXgtEndpointSynchronizer.TryReadFromStore(store, sys.Id);
             if (conn is not null
                 && System.Enum.TryParse<PlcVendorChoice>(conn.Vendor, ignoreCase: true, out var vendor))
@@ -117,7 +136,8 @@ public partial class SimulationPanelState
     /// AID 는 AASX 로 저장되는 모델 데이터이므로 성공 시 dirty 마킹. 단일 System 프로젝트면 전역
     /// PlcSettings(런타임 세팅 푸터·PlcConnection.json)도 endpoint 값으로 동기해 표시/레거시 경로 정합 유지.</summary>
     public bool SavePlcEndpointForSystem(
-        System.Guid systemId, PlcVendorChoice vendor, Promaker.Shared.PlcVendorProfile profile)
+        System.Guid systemId, PlcVendorChoice vendor, Promaker.Shared.PlcVendorProfile profile,
+        string? sxIoMapPath, IEnumerable<string>? sxWritableAreas)
     {
         var store = _storeProvider();
         var poco = PlcSettings.ToPoco();
@@ -131,24 +151,92 @@ public partial class SimulationPanelState
         poco.StationNumber = profile.StationNumber;
         poco.TimeoutMs = profile.TimeoutMs;
         poco.ScanIntervalMs = profile.ScanIntervalMs;
+        poco.SxIoMapPath = sxIoMapPath ?? string.Empty;
+        poco.SxWritableAreas = sxWritableAreas?.ToList() ?? new List<string>();
         poco.WasPersisted = true;
-        var ok = Promaker.Shared.AidXgtEndpointSynchronizer.EnsureToStore(
-            store, systemId, poco, EnumeratePlcAddressesForSystem(systemId));
+
+        var addresses = EnumeratePlcAddressesForSystem(systemId);
+
+        // 벤더에 따라 어느 AID 바인딩에 실리는지가 갈린다. 상대 바인딩은 각 동기화기가 지운다 —
+        // 남겨 두면 Agent 가 AID 에서 연결을 하나 더 만들어 "1대만 설정했는데 2대" 가 된다.
+        bool ok;
+        if (vendor == PlcVendorChoice.MicrexSx)
+        {
+            ok = Promaker.Shared.AidMicrexSxEndpointSynchronizer.EnsureToStore(
+                store, systemId, poco, addresses);
+        }
+        else if (Promaker.Shared.PlcVendorProfile.IsAidXgtVendor(
+                     (Promaker.Shared.PlcVendorChoice)vendor))
+        {
+            ok = Promaker.Shared.AidXgtEndpointSynchronizer.EnsureToStore(
+                store, systemId, poco, addresses);
+            if (ok) Promaker.Shared.AidMicrexSxEndpointSynchronizer.RemoveFromStore(store, systemId);
+        }
+        else
+        {
+            // Mitsubishi — AID 에 표현이 없다. 전역 연결에만 저장하므로 Agent 경로는 여전히
+            // 이 벤더를 수집하지 못한다. SX 처럼 인터페이스를 신설해야 해소된다.
+            return SavePlcConnectionGlobally(vendor, profile, sxIoMapPath, sxWritableAreas);
+        }
         if (!ok) return false;
 
         var project = store.Projects.Values.FirstOrDefault();
         if (project is not null && project.ActiveSystemIds.Count == 1)
         {
-            var conn = Promaker.Shared.AidXgtEndpointSynchronizer.TryReadFromStore(store, systemId);
-            if (conn is not null)
+            if (vendor == PlcVendorChoice.MicrexSx)
             {
-                PlcSettings.ApplyConnection(conn);
-                PlcSettings.Save();
+                // SX 는 AidXgtConnectionInfo 로 읽히지 않는다. 전역 연결도 같은 값으로 맞춰
+                // Promaker 인앱 게이트웨이(BuildPlcGatewayConfig)와 푸터 표시가 어긋나지 않게 한다.
+                SavePlcConnectionGlobally(vendor, profile, sxIoMapPath, sxWritableAreas);
+            }
+            else
+            {
+                var conn = Promaker.Shared.AidXgtEndpointSynchronizer.TryReadFromStore(store, systemId);
+                if (conn is not null)
+                {
+                    PlcSettings.ApplyConnection(conn);
+                    PlcSettings.Save();
+                }
             }
         }
 
         MarkDirty?.Invoke();
         return true;
+    }
+
+    /// <summary>AID InterfaceXGT 로 표현할 수 없는 벤더(MICREX-SX)의 접속을 전역 PLC 연결
+    /// (PlcConnection.json) 에 저장한다.
+    ///
+    /// InterfaceXGT endpoint 의 CpuModel 은 Xgi|Xgk|Xgb 뿐이라 SX 는 그쪽에 실릴 수 없다
+    /// (AidXgtEndpointSettings.tryCpuModel 이 비-LS 를 거부한다). 그런데 Promaker 가 실제로
+    /// 스캔에 쓰는 값은 전역 PlcSettings 다 — <see cref="BuildPlcGatewayConfig"/> 가
+    /// PlcSettings.BuildGatewayConfig 로 위임한다. 그래서 AASX 박제만 건너뛰고 런타임이 읽는
+    /// 곳에 저장하면 SX 도 그대로 동작한다.
+    ///
+    /// 모델 데이터가 아니므로 dirty 마킹하지 않는다 — 저장할 프로젝트 변경이 없다.</summary>
+    public bool SavePlcConnectionGlobally(
+        PlcVendorChoice vendor,
+        Promaker.Shared.PlcVendorProfile profile,
+        string? sxIoMapPath,
+        IEnumerable<string>? sxWritableAreas)
+    {
+        PlcSettings.Vendor = vendor;
+        PlcSettings.Name = profile.Name;
+        PlcSettings.IpAddress = profile.IpAddress;
+        PlcSettings.Port = profile.Port;
+        PlcSettings.TimeoutMs = profile.TimeoutMs;
+        PlcSettings.ScanIntervalMs = profile.ScanIntervalMs;
+        PlcSettings.LocalEthernet = profile.LocalEthernet;
+        PlcSettings.NetworkNumber = profile.NetworkNumber;
+        PlcSettings.StationNumber = profile.StationNumber;
+        PlcSettings.IsUdp = profile.IsUdp;
+        PlcSettings.SxIoMapPath = sxIoMapPath ?? string.Empty;
+        PlcSettings.SxWritableAreas = sxWritableAreas?.ToList() ?? new List<string>();
+
+        // Save() 가 활성 벤더 프로파일을 CaptureActiveProfile 로 갱신하고 파일에 쓴다.
+        // 성공하면 WasPersisted 가 true 가 되고, 그때부터 AID 박제 판정이 이 PC 를 신뢰한다.
+        PlcSettings.Save();
+        return PlcSettings.WasPersisted;
     }
 
     /// <summary>현재 IO 매핑 + UI 의 PlcSettings 로 PlcGatewayConfig 를 빌드.
