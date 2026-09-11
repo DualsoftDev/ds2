@@ -61,25 +61,39 @@ module RuntimeSemantics =
         | WaitOutputPlus   of ApiCall * int          // Virtual T — 출력 발생(Call 시작) 시점 + T(ms) 후 완료 (센서 없음)
 
     /// v16 emitOutput dispatch — ActionType 매트릭스 그대로.
-    /// V1 invariant (≠Virtual ⇒ OutTag required) 미충족 시 invalidOp (V1 Validation 이 사전에 잡아야 함).
-    let emitOutput (def: ApiDef) (call: ApiCall) : OutputEffect =
+    /// V1 invariant (≠Virtual ⇒ OutTag required) 미충족이면 None.
+    /// 예외를 쓰지 않는다 — Call 실행마다 도는 hot path 라 throw/catch 비용과
+    /// 디버거 first-chance 중단을 유발하고, 진짜 오류까지 같이 삼키게 된다.
+    /// 강한 검증은 V10Validation.validateApiCallV1 (모델 검증 시점) 이 담당한다.
+    let tryEmitOutput (def: ApiDef) (call: ApiCall) : OutputEffect option =
         match def.ActionType, call.OutTag with
-        | ActionType.Virtual, _                  -> NoOp
-        | ActionType.Normal None,     Some tag   -> OutCoil tag
-        | ActionType.Normal (Some n), Some tag   -> CoilAfterDelay (tag, n)
-        | ActionType.Pulse None,      Some tag   -> EdgePulse tag
-        | ActionType.Pulse (Some n),  Some tag   -> EdgePulseHold (tag, n)
-        | ActionType.Latch,           Some tag   -> SetCoil tag
-        | _, None ->
-            invalidOp $"E-V1: ApiCall '{call.Name}' — ActionType≠Virtual ⇒ OutTag 필수"
+        | ActionType.Virtual, _                  -> Some NoOp
+        | ActionType.Normal None,     Some tag   -> Some (OutCoil tag)
+        | ActionType.Normal (Some n), Some tag   -> Some (CoilAfterDelay (tag, n))
+        | ActionType.Pulse None,      Some tag   -> Some (EdgePulse tag)
+        | ActionType.Pulse (Some n),  Some tag   -> Some (EdgePulseHold (tag, n))
+        | ActionType.Latch,           Some tag   -> Some (SetCoil tag)
+        | _, None                                -> None
+
+    /// tryEmitOutput 의 엄격 버전 — V1 미충족 시 invalidOp.
+    /// 모델이 V1 을 만족한다고 보장된 경로(검증 후 변환 등)에서만 쓴다.
+    let emitOutput (def: ApiDef) (call: ApiCall) : OutputEffect =
+        match tryEmitOutput def call with
+        | Some effect -> effect
+        | None -> invalidOp $"E-V1: ApiCall '{call.Name}' — ActionType≠Virtual ⇒ OutTag 필수"
 
     /// v16 completionTrigger dispatch — SensingType 매트릭스 그대로.
-    /// V2 invariant (≠Virtual ⇒ InTag required) 미충족 시 invalidOp.
-    let completionTrigger (def: ApiDef) (call: ApiCall) : CompletionTrigger =
+    /// V2 invariant (≠Virtual ⇒ InTag required) 미충족이면 None (tryEmitOutput 과 대칭).
+    let tryCompletionTrigger (def: ApiDef) (call: ApiCall) : CompletionTrigger option =
         match def.SensingType, call.InTag with
-        | SensingType.Virtual n, _               -> WaitOutputPlus (call, n)
-        | SensingType.Normal None,     Some tag  -> WaitInput tag
-        | SensingType.Normal (Some n), Some tag  -> WaitInputStable (tag, n)
-        | SensingType.Latch n,         Some tag  -> WaitInputLatched (tag, n)
-        | _, None ->
-            invalidOp $"E-V2: ApiCall '{call.Name}' — SensingType≠Virtual ⇒ InTag 필수"
+        | SensingType.Virtual n, _               -> Some (WaitOutputPlus (call, n))
+        | SensingType.Normal None,     Some tag  -> Some (WaitInput tag)
+        | SensingType.Normal (Some n), Some tag  -> Some (WaitInputStable (tag, n))
+        | SensingType.Latch n,         Some tag  -> Some (WaitInputLatched (tag, n))
+        | _, None                                -> None
+
+    /// tryCompletionTrigger 의 엄격 버전 — V2 미충족 시 invalidOp.
+    let completionTrigger (def: ApiDef) (call: ApiCall) : CompletionTrigger =
+        match tryCompletionTrigger def call with
+        | Some trigger -> trigger
+        | None -> invalidOp $"E-V2: ApiCall '{call.Name}' — SensingType≠Virtual ⇒ InTag 필수"

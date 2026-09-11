@@ -80,9 +80,16 @@ module EventDrivenExecution =
         | RuntimeMode.Monitoring
         | RuntimeMode.VirtualPlant -> ()
         | _ ->
-            let effect =
-                try RuntimeSemantics.emitOutput apiDef apiCall |> Some
-                with _ -> None
+            // I/O 미설정(V1 미충족)은 여기서 조용히 건너뛴다.
+            // CSV 기본 3열 import 직후 모델은 주소가 아예 없는 것이 정상이며
+            // ("Simulation = Real→Virtual", WorkConditionChecker 의 입력측 정책과 동일),
+            // 시뮬레이션은 실 I/O 없이 Duration 으로 돈다.
+            // Control 은 실 송출이 목적이라 주소 누락이 곧 오작동이므로 로그로 드러낸다.
+            let effect = RuntimeSemantics.tryEmitOutput apiDef apiCall
+            if effect.IsNone && ctx.RuntimeMode = RuntimeMode.Control then
+                log.Error(
+                    sprintf "Control 모드인데 OutTag 가 없어 출력을 건너뜁니다: ApiCall='%s' (ActionType=%A). ApiDef 에 주소를 넣거나 ActionType 을 Virtual 로 지정하세요."
+                        apiCall.Name apiDef.ActionType)
 
             let writeOut (addr: string) (v: string) =
                 // Control: 실제 송출. Simulation: WriteTag 가 시뮬 OutputValues update 위임 (CompositionContext 가 wire).

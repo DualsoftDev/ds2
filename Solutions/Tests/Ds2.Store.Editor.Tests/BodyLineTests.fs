@@ -6,6 +6,8 @@ open Xunit.Abstractions
 open Ds2.Core
 open Ds2.Core.Store
 open Ds2.CSV
+open Ds2.Runtime.Engine
+open Ds2.Runtime.Engine.Core
 
 // 차체 라인 ST01~ST10 — 스테이션마다 다른 차체가 동시에 올라가므로 Flow 10개.
 // 체인은 Flow 경계를 넘어 끝까지 이어져야 한다(스테이션 간 이송 = 파이프라인).
@@ -83,3 +85,50 @@ type BodyLine(out: ITestOutputHelper) =
         Assert.Equal(Some 6000.0, ms "라인컨베이어_Flow.이송")
         Assert.Equal(Some 7000.0, ms "사이드로봇LH_Flow.취출")
         Assert.Equal(Some 1500.0, ms "루프용접슬라이드LH_Flow.전진")
+
+    // CSV 기본 3열 모델은 주소가 아예 없다. 시뮬레이션은 실 I/O 없이 돌아야 하며
+    // ("Simulation = Real→Virtual"), hot path 에서 예외를 던지면 안 된다.
+    [<Fact>]
+    member _.``주소 없는 모델도 예외 없이 시뮬레이션된다`` () =
+        let _, store = load ()
+        // 전제 확인: 모든 ApiCall 에 In/OutTag 가 없고 ApiDef 는 Normal 이다.
+        let apiCalls = store.Calls.Values |> Seq.collect (fun c -> c.ApiCalls) |> List.ofSeq
+        Assert.NotEmpty apiCalls
+        Assert.True(apiCalls |> List.forall (fun ac -> ac.OutTag.IsNone && ac.InTag.IsNone))
+        // V1/V2 를 만족하지 못하는 상태여야 이 테스트가 의미가 있다.
+        let v1Issues =
+            apiCalls
+            |> List.choose (fun ac ->
+                ac.ApiDefId
+                |> Option.bind (fun id -> Queries.getApiDef id store)
+                |> Option.bind (fun def -> V10Validation.validateApiCallV1 def ac))
+        Assert.NotEmpty v1Issues
+        // 그럼에도 dispatch 는 예외 없이 None 을 돌려줘야 한다.
+        for ac in apiCalls do
+            match ac.ApiDefId |> Option.bind (fun id -> Queries.getApiDef id store) with
+            | Some def ->
+                Assert.True((RuntimeSemantics.tryEmitOutput def ac).IsNone)
+                Assert.True((RuntimeSemantics.tryCompletionTrigger def ac).IsNone)
+            | None -> ()
+
+    [<Fact>]
+    member _.``주소 없는 모델로 엔진을 돌려도 사이클이 완주한다`` () =
+        let _, store = load ()
+        let index = SimIndex.build store 10
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        engine.SpeedMultiplier <- 1.0
+        engine.Start()
+        let acts =
+            store.Works.Values |> Seq.filter (fun w -> not (w.Name.Contains "_Flow.")) |> List.ofSeq
+        let start = acts |> List.find (fun w -> w.TokenRole = TokenRole.Source)
+        let clear = acts |> List.find (fun w -> w.TokenRole = TokenRole.Sink)
+        engine.StepWithSourcePriming(start.Id, true) |> ignore
+        let mutable n = 0
+        while n < 4000 && engine.GetWorkState(clear.Id) <> Some Status4.Finish do
+            engine.AdvanceSimulationTo(engine.CurrentTimeMs + 50L)
+            engine.Step() |> ignore
+            n <- n + 1
+        let st = engine.GetWorkState(clear.Id)
+        engine.Stop()
+        let msg = sprintf "주소 없는 모델이 완주하지 못했습니다. Clear=%A" st
+        Assert.True((st = Some Status4.Finish), msg)

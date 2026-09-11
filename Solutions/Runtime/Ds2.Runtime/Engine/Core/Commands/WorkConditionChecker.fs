@@ -244,8 +244,14 @@ module WorkConditionChecker =
         if isSimulation && ioMissingReal then
             virtualWorkCompletion index state callGuid
         else
-            try
-                match RuntimeSemantics.completionTrigger apiDef apiCall with
+            // I/O 미설정이면 예외 대신 None — Control/Monitoring 은 아래 fallback 으로 간다.
+            match RuntimeSemantics.tryCompletionTrigger apiDef apiCall with
+            | None ->
+                // Control/Monitoring(외부 In): trigger 가 없어도 device(rx) 로 Call 완료 금지 — In 만으로.
+                let hasRxWork = SimIndex.rxWorkGuids index callGuid |> List.isEmpty |> not
+                not isExternalIn && hasRxWork && legacyRxCompletion index state callGuid
+            | Some trigger ->
+                match trigger with
                 | RuntimeSemantics.WaitOutputPlus (_, ms) ->
                     // v16 SensingType.Virtual(T): 출력 발생(Call Going 진입) 시점 + T 후 완료 — 센서 없는 설비.
                     //   종료는 SensingType 단독 결정 — Control/Monitoring 도 mode 무관 T 로 Finish.
@@ -279,12 +285,6 @@ module WorkConditionChecker =
                         |> Option.defaultValue 0
                     let sensed = currentEpoch > savedEpoch
                     sensed && SimState.getIOStableMs apiCall.Id state >= ms
-            with
-            | _ ->
-                // Control/Monitoring(외부 In): completionTrigger 실패해도 device(rx) 로 Call 완료 금지 — In 만으로.
-                //   (Simulation/VP 는 not isExternalIn 이라 기존대로 device rxCompletion fallback 유지.)
-                let hasRxWork = SimIndex.rxWorkGuids index callGuid |> List.isEmpty |> not
-                not isExternalIn && hasRxWork && legacyRxCompletion index state callGuid
 
     /// Call 완료 가능 여부.
     /// v10 SensingType 이 Virtual 이면 Duration/RxWork 수명 주기를 따른다.

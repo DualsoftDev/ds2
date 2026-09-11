@@ -52,7 +52,13 @@
                 <MenuItem Header="기타"       Style="{StaticResource ToolbarSectionCheckMenuItem}" IsChecked="{Binding IsToolbarEtcVisible,        Mode=TwoWay}"/>
             </ContextMenu>
         </Border.ContextMenu>
-        <Grid>
+        <!-- DockPanel: 우측 Etc 를 먼저 배치해 폭이 모자라도 잘리지 않게 한다.
+             Grid 만 쓰면 Auto 열이 오른쪽부터 화면 밖으로 밀려 유틸/설정/도움말이 통째로 사라졌다. -->
+        <DockPanel LastChildFill="True">
+        <controls:MainToolbarEtcContent DockPanel.Dock="Right" DataContext="{Binding}"
+                                        IsCompact="{Binding IsCompact, ElementName=ThisControl}"
+                                        Visibility="{Binding IsToolbarEtcVisible, Converter={StaticResource BoolToVis}}"/>
+        <Grid x:Name="RibbonGrid">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/> <!-- 0: File -->
                 <ColumnDefinition Width="Auto"/> <!-- 1: sep -->
@@ -523,8 +529,7 @@
 
             <controls:MainToolbarSimulationContent Grid.Column="8" DataContext="{Binding}"
                                                    Visibility="{Binding IsToolbarSimulationVisible, Converter={StaticResource BoolToVis}}"/>
-            <controls:MainToolbarEtcContent Grid.Column="11" Grid.ColumnSpan="2" DataContext="{Binding}"
-                                            Visibility="{Binding IsToolbarEtcVisible, Converter={StaticResource BoolToVis}}"/>
         </Grid>
+        </DockPanel>
     </Border>
 </UserControl>
