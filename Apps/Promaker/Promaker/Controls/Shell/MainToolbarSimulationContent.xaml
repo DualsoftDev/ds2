@@ -5,13 +5,32 @@
              xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
              xmlns:core="clr-namespace:Ds2.Core;assembly=Ds2.Core"
              xmlns:conv="clr-namespace:Promaker.Presentation"
-             xmlns:res="clr-namespace:Promaker.Resources">
+             xmlns:res="clr-namespace:Promaker.Resources"
+             xmlns:controls="clr-namespace:Promaker.Controls">
     <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="MainToolbarResources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+            <!-- 리본이 compact(아이콘 전용) 로 바뀌면 시뮬레이션 콤보도 함께 좁힌다.
+                 이게 없으면 좁은 창에서 START/RESET 이 잘려 누를 수 없다. -->
+            <Style x:Key="SimCompactWideCombo" TargetType="ComboBox">
+                <Setter Property="Width" Value="130"/>
+                <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsCompact, RelativeSource={RelativeSource AncestorType={x:Type controls:MainToolbar}}}" Value="True">
+                            <Setter Property="Width" Value="86"/>
+                        </DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="SimCompactNarrowCombo" TargetType="ComboBox">
+                <Setter Property="Width" Value="110"/>
+                <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsCompact, RelativeSource={RelativeSource AncestorType={x:Type controls:MainToolbar}}}" Value="True">
+                            <Setter Property="Width" Value="62"/>
+                        </DataTrigger>
+                </Style.Triggers>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -405,7 +424,7 @@
                           x:Name="SimWorkComboBox"
                           ItemsSource="{Binding Simulation.SimWorkItems}"
                           SelectedItem="{Binding Simulation.SelectedSimWork}"
-                          Width="130"
+                          Style="{StaticResource SimCompactWideCombo}"
                           MinHeight="24"
                           FontSize="11"/>
                 <UniformGrid Grid.Column="0" Grid.Row="2" Columns="2" Margin="0,1,0,0">
@@ -455,7 +474,7 @@
                           x:Name="SimSpeedComboBox"
                           SelectedValue="{Binding Simulation.SimSpeed}"
                           SelectedValuePath="Tag"
-                          Width="110"
+                          Style="{StaticResource SimCompactNarrowCombo}"
                           MinHeight="24"
                           FontSize="11"
                           HorizontalContentAlignment="Center"

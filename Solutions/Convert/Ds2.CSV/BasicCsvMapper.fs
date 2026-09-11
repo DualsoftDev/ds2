@@ -8,14 +8,15 @@ open Ds2.Core.Store
 
 /// ds2-basic-csv/v1 → ImportPlan 매퍼.
 /// - '>' 인접쌍 → ArrowBetweenCalls(workId, src, dst, Start)
-/// - 데이터 행 순서 → **Flow 안에서만** Work 를 StartReset 체인 (ArrowBetweenWorks.ParentId=systemId).
-///   Flow = 제품 1개가 도는 단위이므로 Flow 끼리는 동시 진행이다. Flow 경계를 넘어 이으면
-///   동시작업이 직렬화되어 캐파가 1로 줄어든다.
+/// - 데이터 행 순서 → 모든 Work 를 StartReset 체인 (Flow 경계 무시, ArrowBetweenWorks.ParentId=systemId).
+///   Flow = 제품 1개가 머무는 자리이고, 체인은 그 자리 사이의 이송이다.
+///   StartReset 은 다음 Work 가 시작할 때 이전 Work 를 리셋하므로 이전 자리가 곧바로
+///   다음 제품을 받는다 = 파이프라인. 끊으면 스테이션끼리 이어지지 않는다.
 /// - 디바이스 캐스케이드는 기존 linkCallsToDevicesMultiFlow 재사용 (systemNameHint=Some devAlias
 ///   → 여러 Flow 가 같은 디바이스를 공유해도 단일 Passive System 으로 병합)
 /// - SequenceLabel/Position 은 부여하지 않는다(AutoLayout 이 배치).
-/// - autoStartClear=true 면 **Flow 마다** 앞에 Start(TokenRole.Source), 뒤에 Clear(TokenRole.Sink) 를 자동 추가한다.
-///   Flow 가 독립 제품 경로이므로 기동/종료도 Flow 별로 있어야 한다.
+/// - autoStartClear=true 면 첫 Flow 앞에 Start(TokenRole.Source), 마지막 Flow 뒤에 Clear(TokenRole.Sink) 를
+///   하나씩 자동 추가한다. 라인 전체가 하나의 체인이므로 기동/종료도 양 끝에 하나씩이다.
 /// - store 는 변경하지 않는다(plan 생성 계약 — 기존 CsvMapper 와 동일).
 module internal BasicCsvMapper =
 
@@ -43,9 +44,8 @@ module internal BasicCsvMapper =
         let flows = Dictionary<string, Flow>()
         let flowOrder = ResizeArray<string>()
         let callsByFlow = Dictionary<string, ResizeArray<Call * string * string option>>()
-        // Flow 별 첫/마지막 Work — StartReset 체인은 Flow 안에서만 잇는다.
-        let firstWorkOfFlow = Dictionary<string, Work>()
-        let lastWorkOfFlow = Dictionary<string, Work>()
+        let mutable prevWork: Work option = None
+        let mutable firstWork: Work option = None
         // 자동 추가 Work 이름 충돌 방지용 — CSV 가 만든 (Flow, Work) 조합.
         let takenWorkNames = HashSet<string>()
         for w in document.Works do takenWorkNames.Add($"{w.FlowName}\u0000{w.WorkName}") |> ignore
@@ -85,38 +85,37 @@ module internal BasicCsvMapper =
                 let arrow = ArrowBetweenCalls(work.Id, callByKey.[srcKey].Id, callByKey.[dstKey].Id, ArrowType.Start)
                 operations.Add(AddArrowCall arrow)
 
-            // 행 순서 Work StartReset 체인 — 같은 Flow 안에서만 잇는다.
-            match lastWorkOfFlow.TryGetValue(basicWork.FlowName) with
-            | true, prev ->
+            // 행 순서 Work StartReset 체인 — Flow 경계를 넘어 끝까지 잇는다(스테이션 간 이송).
+            match prevWork with
+            | Some prev ->
                 operations.Add(AddArrowWork (ArrowBetweenWorks(systemId, prev.Id, work.Id, ArrowType.StartReset)))
-            | false, _ ->
-                firstWorkOfFlow.[basicWork.FlowName] <- work
-            lastWorkOfFlow.[basicWork.FlowName] <- work
+            | None -> firstWork <- Some work
+            prevWork <- Some work
 
-        // Start / Clear 자동 추가 — Flow 마다 하나씩.
-        // Start : 그 Flow 첫 Work 로 StartReset 1줄만 연결한다.
-        // Clear : 그 Flow 마지막 Work 에서 StartReset + Reset 2줄로 연결해 끝나면 항상 리셋되게 한다.
+        // Start / Clear 자동 추가 — 라인 전체 체인의 양 끝에 하나씩.
+        // Start : 첫 Work 로 StartReset 1줄만 연결한다.
+        // Clear : 마지막 Work 에서 StartReset + Reset 2줄로 연결해 끝나면 항상 리셋되게 한다.
         if autoStartClear then
-            for flowName in flowOrder do
-                match firstWorkOfFlow.TryGetValue flowName, lastWorkOfFlow.TryGetValue flowName with
-                | (true, first), (true, last) ->
-                    let flow = flows.[flowName]
+            match firstWork, prevWork with
+            | Some first, Some last ->
+                let firstFlow = flows.[(List.head document.Works).FlowName]
+                let lastFlow = flows.[(List.last document.Works).FlowName]
 
-                    let startName = uniqueWorkName takenWorkNames flow.Name startWorkName
-                    takenWorkNames.Add($"{flow.Name}\u0000{startName}") |> ignore
-                    let startWork = Work(flow.Name, startName, flow.Id)
-                    startWork.TokenRole <- TokenRole.Source
-                    operations.Add(AddWork startWork)
-                    operations.Add(AddArrowWork (ArrowBetweenWorks(systemId, startWork.Id, first.Id, ArrowType.StartReset)))
+                let startName = uniqueWorkName takenWorkNames firstFlow.Name startWorkName
+                takenWorkNames.Add($"{firstFlow.Name}\u0000{startName}") |> ignore
+                let startWork = Work(firstFlow.Name, startName, firstFlow.Id)
+                startWork.TokenRole <- TokenRole.Source
+                operations.Add(AddWork startWork)
+                operations.Add(AddArrowWork (ArrowBetweenWorks(systemId, startWork.Id, first.Id, ArrowType.StartReset)))
 
-                    let clearName = uniqueWorkName takenWorkNames flow.Name clearWorkName
-                    takenWorkNames.Add($"{flow.Name}\u0000{clearName}") |> ignore
-                    let clearWork = Work(flow.Name, clearName, flow.Id)
-                    clearWork.TokenRole <- TokenRole.Sink
-                    operations.Add(AddWork clearWork)
-                    operations.Add(AddArrowWork (ArrowBetweenWorks(systemId, last.Id, clearWork.Id, ArrowType.StartReset)))
-                    operations.Add(AddArrowWork (ArrowBetweenWorks(systemId, last.Id, clearWork.Id, ArrowType.Reset)))
-                | _ -> ()
+                let clearName = uniqueWorkName takenWorkNames lastFlow.Name clearWorkName
+                takenWorkNames.Add($"{lastFlow.Name}\u0000{clearName}") |> ignore
+                let clearWork = Work(lastFlow.Name, clearName, lastFlow.Id)
+                clearWork.TokenRole <- TokenRole.Sink
+                operations.Add(AddWork clearWork)
+                operations.Add(AddArrowWork (ArrowBetweenWorks(systemId, last.Id, clearWork.Id, ArrowType.StartReset)))
+                operations.Add(AddArrowWork (ArrowBetweenWorks(systemId, last.Id, clearWork.Id, ArrowType.Reset)))
+            | _ -> ()
 
         // 디바이스 캐스케이드: Passive System/Flow/Work + ApiDef(Tx/Rx) + ApiCall + pairwise ResetReset
         let allFlowCalls =

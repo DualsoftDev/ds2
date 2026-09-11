@@ -206,31 +206,29 @@ module StartClearTests =
         Assert.Equal(3, List.length (activeWorks store))
         Assert.DoesNotContain(activeWorks store, fun w -> w.LocalName = "Start" || w.LocalName = "Clear")
 
-    // Flow = 동시작업 제품 단위이므로 기동/종료도 Flow 별로 하나씩 붙는다.
+    // 라인 전체가 하나의 체인이므로 Start/Clear 는 양 끝에 하나씩이다.
     [<Fact>]
-    let ``켜면 Flow 마다 Start 와 Clear 가 생긴다`` () =
+    let ``켜면 첫 Flow 에 Start 마지막 Flow 에 Clear 가 생긴다`` () =
         let store = loadWith true sample
         let works = activeWorks store
-        Assert.Equal(9, List.length works)   // (Work 1 + Start + Clear) x 3 Flow
-        for flow in [ "투입"; "가공"; "반출" ] do
-            let inFlow = works |> List.filter (fun w -> w.FlowPrefix = flow)
-            Assert.Single(inFlow |> List.filter (fun w -> w.LocalName = "Start")) |> ignore
-            Assert.Single(inFlow |> List.filter (fun w -> w.LocalName = "Clear")) |> ignore
+        Assert.Equal(5, List.length works)
+        let start = works |> List.find (fun w -> w.LocalName = "Start")
+        let clear = works |> List.find (fun w -> w.LocalName = "Clear")
+        Assert.Equal("투입", start.FlowPrefix)
+        Assert.Equal("반출", clear.FlowPrefix)
 
     [<Fact>]
     let ``Start 는 Source Clear 는 Sink 역할이다`` () =
         let works = activeWorks (loadWith true sample)
-        for w in works |> List.filter (fun w -> w.LocalName = "Start") do
-            Assert.Equal(TokenRole.Source, w.TokenRole)
-        for w in works |> List.filter (fun w -> w.LocalName = "Clear") do
-            Assert.Equal(TokenRole.Sink, w.TokenRole)
+        Assert.Equal(TokenRole.Source, (works |> List.find (fun w -> w.LocalName = "Start")).TokenRole)
+        Assert.Equal(TokenRole.Sink, (works |> List.find (fun w -> w.LocalName = "Clear")).TokenRole)
 
     [<Fact>]
     let ``Start 는 첫 Work 로 StartReset 1줄만 연결된다`` () =
         let store = loadWith true sample
         let works = activeWorks store
         let w1 = works |> List.find (fun w -> w.LocalName = "W1")
-        let start = works |> List.find (fun w -> w.LocalName = "Start" && w.FlowPrefix = w1.FlowPrefix)
+        let start = works |> List.find (fun w -> w.LocalName = "Start")
         Assert.Equal<ArrowType list>([ ArrowType.StartReset ], arrowsBetween store start.Id w1.Id)
         // 역방향 화살표는 없다
         Assert.Empty(arrowsBetween store w1.Id start.Id)
@@ -240,19 +238,19 @@ module StartClearTests =
         let store = loadWith true sample
         let works = activeWorks store
         let w3 = works |> List.find (fun w -> w.LocalName = "W3")
-        let clear = works |> List.find (fun w -> w.LocalName = "Clear" && w.FlowPrefix = w3.FlowPrefix)
+        let clear = works |> List.find (fun w -> w.LocalName = "Clear")
         Assert.Equal<ArrowType list>(
             List.sort [ ArrowType.Reset; ArrowType.StartReset ],
             arrowsBetween store w3.Id clear.Id)
 
-    // sample 은 Flow 3개 x Work 1개라 Flow 를 넘는 체인은 없어야 한다.
+    // 체인은 Flow 경계를 넘어 이어진다 — 스테이션 간 이송에 해당한다.
     [<Fact>]
-    let ``Flow 를 넘는 Work 체인은 만들지 않는다`` () =
+    let ``Flow 가 바뀌어도 Work 체인이 끊기지 않는다`` () =
         let store = loadWith true sample
         let works = activeWorks store
         let find n = works |> List.find (fun w -> w.LocalName = n)
-        Assert.Empty(arrowsBetween store (find "W1").Id (find "W2").Id)
-        Assert.Empty(arrowsBetween store (find "W2").Id (find "W3").Id)
+        Assert.Equal<ArrowType list>([ ArrowType.StartReset ], arrowsBetween store (find "W1").Id (find "W2").Id)
+        Assert.Equal<ArrowType list>([ ArrowType.StartReset ], arrowsBetween store (find "W2").Id (find "W3").Id)
 
     [<Fact>]
     let ``같은 Flow 안에서는 행 순서대로 StartReset 으로 잇는다`` () =
@@ -310,10 +308,11 @@ module PromptExampleTests =
         let acts = store.Works.Values |> Seq.filter (fun w -> not (w.Name.Contains "_Flow.")) |> List.ofSeq
         Assert.Equal(2, List.length acts)
         Assert.Equal<string list>([ "LH"; "RH" ], acts |> List.map (fun w -> w.FlowPrefix) |> List.sort)
-        // Flow 가 독립이므로 Flow 를 넘는 Work 화살표가 없어야 한다.
+        // Flow 는 제품이 머무는 자리이고, 자리 사이는 행 순서대로 이어진다(이송).
         let ids = acts |> List.map (fun w -> w.Id) |> Set.ofList
         let cross =
             store.ArrowWorks.Values
-            |> Seq.filter (fun a -> ids.Contains a.SourceId && ids.Contains a.TargetId)
+            |> Seq.filter (fun a -> ids.Contains a.SourceId && ids.Contains a.TargetId
+                                    && a.ArrowType = ArrowType.StartReset)
             |> Seq.length
-        Assert.Equal(0, cross)
+        Assert.Equal(1, cross)   // LH작업 → RH작업

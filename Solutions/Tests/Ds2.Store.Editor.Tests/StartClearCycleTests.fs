@@ -70,10 +70,9 @@ let ``Start 를 연속으로 눌러도 사이클이 계속 돈다`` () =
             $"{i}번째 Start 후 Start 가 Ready 로 복귀하지 않았습니다. Start={engine.GetWorkState(start.Id)}")
     engine.Stop()
 
-// ── Flow = 동시작업 제품 단위 ───────────────────────────────────────────────
-// Flow 끼리는 독립이어야 한다. Flow 경계를 넘어 StartReset 으로 이으면
-// 동시작업 캐파가 1로 줄어든다.
-module FlowIndependenceTests =
+// ── Flow 경계를 넘는 체인 ───────────────────────────────────────────────────
+// Flow 는 제품이 머무는 자리다. 자리 사이는 행 순서대로 이어져야 한다(이송).
+module FlowChainTests =
 
     let private twoFlowStore auto =
         let content =
@@ -92,38 +91,23 @@ module FlowIndependenceTests =
         store.Works.Values |> Seq.filter (fun w -> not (w.Name.Contains "_Flow.")) |> List.ofSeq
 
     [<Fact>]
-    let ``Flow 경계를 넘는 Work 화살표가 없다`` () =
-        let store = twoFlowStore true
-        let works = acts store
-        let flowOf id = works |> List.tryFind (fun w -> w.Id = id) |> Option.map (fun w -> w.FlowPrefix)
-        let crossing =
-            store.ArrowWorks.Values
-            |> Seq.choose (fun a ->
-                match flowOf a.SourceId, flowOf a.TargetId with
-                | Some s, Some tt when s <> tt -> Some $"{s} -> {tt}"
-                | _ -> None)
-            |> List.ofSeq
-        let joined = String.concat ", " crossing
-        Assert.True(List.isEmpty crossing, $"Flow 경계를 넘는 화살표: {joined}")
-
-    [<Fact>]
-    let ``Flow 마다 Start 와 Clear 가 하나씩 붙는다`` () =
-        let works = acts (twoFlowStore true)
-        for flow in [ "LH"; "RH" ] do
-            let inFlow = works |> List.filter (fun w -> w.FlowPrefix = flow)
-            Assert.Single(inFlow |> List.filter (fun w -> w.LocalName = "Start")) |> ignore
-            Assert.Single(inFlow |> List.filter (fun w -> w.LocalName = "Clear")) |> ignore
-        Assert.Equal(8, List.length works)   // (셋팅+체결+Start+Clear) x 2 Flow
-
-    [<Fact>]
-    let ``끄면 Flow 마다 체인만 남는다`` () =
+    let ``Flow 경계를 넘어 체인이 이어진다`` () =
         let store = twoFlowStore false
         let works = acts store
-        Assert.Equal(4, List.length works)
-        // Active Work 사이 화살표만 센다 (Passive 디바이스 Work 의 상호리셋 제외).
-        let ids = works |> List.map (fun w -> w.Id) |> Set.ofList
-        let activeArrows =
+        let find n = works |> List.find (fun w -> w.LocalName = n)
+        let arrow s t =
             store.ArrowWorks.Values
-            |> Seq.filter (fun a -> ids.Contains a.SourceId && ids.Contains a.TargetId)
+            |> Seq.filter (fun a -> a.SourceId = s && a.TargetId = t && a.ArrowType = ArrowType.StartReset)
             |> Seq.length
-        Assert.Equal(2, activeArrows)   // Flow 안 체인 1개씩, Flow 를 넘는 연결 없음
+        Assert.Equal(1, arrow (find "LH셋팅").Id (find "LH체결").Id)
+        Assert.Equal(1, arrow (find "LH체결").Id (find "RH셋팅").Id)   // Flow 경계
+        Assert.Equal(1, arrow (find "RH셋팅").Id (find "RH체결").Id)
+
+    [<Fact>]
+    let ``Start 와 Clear 는 라인 양 끝에 하나씩만 붙는다`` () =
+        let works = acts (twoFlowStore true)
+        Assert.Equal(6, List.length works)   // Work 4 + Start + Clear
+        let start = works |> List.find (fun w -> w.LocalName = "Start")
+        let clear = works |> List.find (fun w -> w.LocalName = "Clear")
+        Assert.Equal("LH", start.FlowPrefix)
+        Assert.Equal("RH", clear.FlowPrefix)

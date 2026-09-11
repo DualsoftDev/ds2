@@ -11,6 +11,14 @@
                 <ResourceDictionary Source="MainToolbarResources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+            <!-- compact 일 때 감춰지는 리본 버튼 — 대신 '⋯' 드롭다운에서 같은 명령을 제공한다. -->
+            <Style x:Key="CollapsibleRibbonButton" TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsCompact, ElementName=ThisControl}" Value="True">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -50,6 +58,11 @@
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="CSV 로부터 모델만들기"/></Button>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportFromProjectCommand}" Click="CloseUtilPopup"><TextBlock Text="다른 프로젝트에서 시스템 가져오기"/></Button>
                             <Separator Margin="4,4"/>
+                            <TextBlock Text="파일 내보내기" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <!-- Ds2 표 형식 9열 (Flow,Work,Device,System,Api + In/Out 이름·주소) — IO 리스트 그대로. -->
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ExportCsvCommand}" Click="CloseUtilPopup"
+                                    ToolTip="Flow,Work,Device,System,Api,InName,InAddress,OutName,OutAddress 9열 CSV 로 저장합니다."><TextBlock Text="IO 리스트 CSV 내보내기"/></Button>
+                            <Separator Margin="4,4"/>
                             <TextBlock Text="PLC" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenTagWizardCommand}" Click="CloseUtilPopup"><TextBlock Text="IO 생성"/></Button>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenTagInspectorCommand}" Click="CloseUtilPopup"><TextBlock Text="IO·태그 확인"/></Button>
@@ -71,14 +84,14 @@
             <!-- PR-A3 — '보기' 메뉴 제거. 패널 임의 hide 는 더 이상 지원하지 않으며, dock 변경 후 원위치 복원은
                  설정 다이얼로그 일반 탭의 '레이아웃 초기화' 로 일원화. ThemeButton 도 설정으로 이전. -->
             <!-- PR-A3 — ThemeButton 은 설정 다이얼로그 '일반' 탭으로 이전. 리본 상단에서는 제거. -->
-            <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowApplicationSettingsCommand}" ToolTip="환경 설정 (일반/AASX/PLC/프리셋)">
+            <Button Style="{StaticResource CollapsibleRibbonButton}" Command="{Binding ShowApplicationSettingsCommand}" ToolTip="환경 설정 (일반/AASX/PLC/프리셋)">
                 <StackPanel Orientation="Vertical">
                     <iconPacks:PackIconMaterial Kind="Cog" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="{x:Static res:Strings.Settings}" Style="{StaticResource RibbonIconLabel}"/>
                 </StackPanel>
             </Button>
             <!-- PR-A4 — 도움말 버튼. anchor caption 의 ? 뱃지를 본 단일 버튼으로 통합 (general 페이지). -->
-            <Button Style="{StaticResource RibbonFlatButton}"
+            <Button Style="{StaticResource CollapsibleRibbonButton}"
                     Command="{x:Static help:HelpNavigator.NavigateCommand}"
                     CommandParameter="general"
                     ToolTip="도움말 (F1)">
@@ -88,7 +101,7 @@
                 </StackPanel>
             </Button>
             <!-- 샘플 — Apps/Promaker/Sample/NewProject.json (build output Sample\) 을 로드. -->
-            <Button Style="{StaticResource RibbonFlatButton}"
+            <Button Style="{StaticResource CollapsibleRibbonButton}"
                     Command="{Binding CreateSampleProjectCommand}"
                     ToolTip="샘플 모델 만들기 (Sample\NewProject.json 로드)">
                 <StackPanel Orientation="Vertical">
@@ -96,12 +109,37 @@
                     <TextBlock Text="샘플" Style="{StaticResource RibbonIconLabel}"/>
                 </StackPanel>
             </Button>
-            <Button x:Name="AboutButton" Style="{StaticResource RibbonFlatButton}" Click="AboutButton_Click" ToolTip="프로그램 정보">
+            <Button x:Name="AboutButton" Style="{StaticResource CollapsibleRibbonButton}" Click="AboutButton_Click" ToolTip="프로그램 정보">
                 <StackPanel Orientation="Vertical">
                     <iconPacks:PackIconMaterial Kind="Information" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="정보" Style="{StaticResource RibbonIconLabel}"/>
                 </StackPanel>
             </Button>
+
+            <!-- 오버플로 — 폭이 모자라면 위 4개 버튼이 접히고 여기서 같은 명령을 고른다.
+                 리본 우측 끝이 화면 밖으로 밀려도 이 버튼은 Etc 섹션 안이라 함께 접히지 않는다. -->
+            <Grid Visibility="{Binding IsCompact, ElementName=ThisControl, Converter={StaticResource BoolToVis}}">
+                <ToggleButton x:Name="OverflowToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="더 보기">
+                    <StackPanel Orientation="Vertical">
+                        <iconPacks:PackIconMaterial Kind="DotsHorizontal" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
+                        <TextBlock Text="더보기" Style="{StaticResource RibbonIconLabel}"/>
+                    </StackPanel>
+                </ToggleButton>
+                <Popup IsOpen="{Binding IsChecked, ElementName=OverflowToggle, Mode=TwoWay}"
+                       PlacementTarget="{Binding ElementName=OverflowToggle}"
+                       Placement="Bottom" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                    <Border Background="{DynamicResource PopupBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                            Padding="0,4" MinWidth="180">
+                        <StackPanel>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ShowApplicationSettingsCommand}" Click="CloseOverflowPopup"><TextBlock Text="환경 설정"/></Button>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{x:Static help:HelpNavigator.NavigateCommand}" CommandParameter="general" Click="CloseOverflowPopup"><TextBlock Text="도움말 (F1)"/></Button>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding CreateSampleProjectCommand}" Click="CloseOverflowPopup"><TextBlock Text="샘플 모델 만들기"/></Button>
+                            <Button Style="{StaticResource AddMenuItemButton}" Click="OverflowAbout_Click"><TextBlock Text="프로그램 정보"/></Button>
+                        </StackPanel>
+                    </Border>
+                </Popup>
+            </Grid>
         </WrapPanel>
         <TextBlock Grid.Row="1" Text="기타" Style="{StaticResource RibbonSectionLabel}"/>
     </Grid>

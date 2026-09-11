@@ -72,7 +72,8 @@ Assembly,PartOut,Ejector,Assembly_Ejector,Return,,X20E1,,Y20F1";
 - 설명, 마크다운, 코드 펜스 없이 CSV 본문만 출력한다.
 - 헤더는 정확히 FLOW,WORK,CALL 3열이다.
 - 한 행은 Work 하나이며 같은 Flow도 매 행 FLOW 값을 반복한다.
-- 데이터 행 순서 = Work 실행 순서다. 인접 Work는 자동으로 StartReset 연결된다.
+- 데이터 행 순서 = Work 실행 순서다. 인접 Work는 Flow 가 바뀌어도 끊기지 않고 StartReset 으로 이어진다.
+  이 체인이 스테이션 사이의 이송이다. 다음 Work 가 시작하면 이전 Work 가 리셋되어 다음 제품을 받는다.
 - 모든 구분자는 반각이다. 전각 문자(＞ ； ，)를 쓰지 않는다.
 
 [FLOW 정하기 — 가장 자주 틀리는 부분]
@@ -88,6 +89,8 @@ Assembly,PartOut,Ejector,Assembly_Ejector,Return,,X20E1,,Y20F1";
     같은 제품의 앞뒤 단계다  → 같은 Flow, Work 를 나눈다
     동시에 다른 제품이 올라간다 → Flow 를 나눈다
 - 라인에 제품이 몇 개 동시에 올라가는지 설명에 없으면 Flow 1개로 만든다. 임의로 늘리지 않는다.
+- 이송라인(스테이션 ST01→ST02→…)은 스테이션 수 = 동시에 올라간 차체 수이므로 Flow 를 그만큼 만든다.
+  Flow 끼리는 행 순서대로 자동으로 이어지므로 따로 연결 지시를 쓰지 않는다.
 
 [WORK 정하기 — Work 는 최소로]
 - Work 는 '스텝' 이다. Work 가 바뀔 때마다 리셋 경계가 생긴다(인접 Work 는 StartReset 으로 이어짐).
@@ -200,6 +203,7 @@ FLOW,WORK,CALL
 LH,LH작업,LH클램프1.전진=800MS>LH슬라이드.전진=1S>LH런너1.체결=5S>LH슬라이드.후진=1S>LH클램프1.후진=800MS;LH클램프2.전진=800MS>LH슬라이드.전진=1S>LH런너2.체결=5S>LH슬라이드.후진=1S>LH클램프2.후진=800MS
 RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=5S>RH슬라이드.후진=1S>RH클램프1.후진=800MS;RH클램프2.전진=800MS>RH슬라이드.전진=1S>RH런너2.체결=5S>RH슬라이드.후진=1S>RH클램프2.후진=800MS
 → 동시에 서로 다른 제품이 올라가므로 Flow 2개. 지그가 3대면 Flow 3개다.
+→ Flow 는 행 순서대로 StartReset 으로 이어진다(LH작업 → RH작업). 제품이 자리에서 자리로 넘어가는 이송이다.
 → Flow 당 Work 1개: 되돌아오는 Call 도 위상 변화도 없으니 나눌 근거가 없다. 전부 Work 안 DAG 로 넣는다.
 → 클램프·런너 2조는 ';' 로 병렬, 슬라이드는 이름 반복으로 분기·합류.
 

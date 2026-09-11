@@ -161,14 +161,14 @@ module MapperTests =
             store.Works.Values |> Seq.filter (fun w -> activeFlowIds.Contains w.ParentId) |> Seq.toList
         Assert.Equal(7, activeWorks.Length)
 
-        // Work StartReset 체인은 Flow 안에서만 잇는다 (Flow = 동시작업 제품 단위).
-        // 투입(2) 가공(2) 검사(2) 반출(1) → 체인은 1+1+1+0 = 3개.
-        // Flow 경계를 넘어 이으면 동시작업 캐파가 1로 줄어들기 때문에 잇지 않는다.
+        // Work StartReset 체인 6개 — Flow 경계를 넘어 끝까지 잇는다.
+        // Flow 는 제품이 머무는 자리이고, 이 체인이 자리 사이의 이송이다.
+        // 다음 Work 가 시작하면 이전 Work 가 리셋되어 곧바로 다음 제품을 받는다(파이프라인).
         let chainArrows =
             store.ArrowWorks.Values
             |> Seq.filter (fun a -> a.ParentId = activeSystemId && a.ArrowType = ArrowType.StartReset)
             |> Seq.toList
-        Assert.Equal(3, chainArrows.Length)
+        Assert.Equal(6, chainArrows.Length)
 
         // Call Start 엣지 = 각 Work 노드수-1 합 = 2+3+1+3+1+2+3 = 15
         let callStartArrows =
