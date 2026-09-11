@@ -170,6 +170,13 @@ public interface IOeeRepository
     Task<IReadOnlyList<(string? FlowName, double S, double E, bool ToNonProd)>> GetManualReclassIntervalsAsync(
         DateTime fromUtc, DateTime toUtc, CancellationToken ct = default);
 
+    /// <summary>
+    /// 사용자 라벨 되돌리기(doc/28 §2.8) — classifySource='manual' 인 행만. 계산 유래 행(detectSource='over-cycle')은 행 삭제
+    /// (Deleted=true — 합성 행이 다시 뜬다), 그 외는 분류(reasonCode/category/isFailure/classifySource·prev* 스태시)만 비운다.
+    /// 반환 Count=0 이면 없거나 수동 라벨이 아님.
+    /// </summary>
+    Task<(int Count, bool Deleted)> RevertManualLabelAsync(long id, CancellationToken ct = default);
+
     Task<long> InsertShiftExceptionAsync(OeeShiftException row, CancellationToken ct = default);
     Task<IReadOnlyList<OeeShiftException>> QueryShiftExceptionsAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default);

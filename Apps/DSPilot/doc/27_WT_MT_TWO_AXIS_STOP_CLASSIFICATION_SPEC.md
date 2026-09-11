@@ -1,5 +1,6 @@
 # 27. 정지·비생산·고장 판정의 WT/MT 2축 전환 (2026-09-09)
 
+> **2026-09-11 doc/28 로 대체** — 정지(비가동) 밴드·정지 배수·신호 판별·초과분 적립이 폐기되고 두 규칙(고장=MT·비생산=WT)·사이클 행 단위 모델로 바뀌었다. 아래는 이력.
 > 상태: **구현 완료(2026-09-09)** — 빌드·단위테스트(OeeMathTests 353건) 통과, Playwright 정적 모의 렌더 확인.
 > 정본: 판정 순수함수 = [OeeMath](../DSPilot/Services/OeeMath.cs)(`ResolveWtStopBoundaryMs` / `ResolveWtNonProdBoundaryMs` /
 > `ResolveWaitMs` / `ClassifyCycle` / `ResolveDowntimeAccrualMs` / `ClassifyStopWindow`), 집계 SQL = [OeeControllerBase.DtCondSql](../DSPilot/Controllers/OeeControllerBase.cs),

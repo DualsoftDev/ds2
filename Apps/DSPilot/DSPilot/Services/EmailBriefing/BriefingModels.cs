@@ -17,7 +17,21 @@ public sealed record BriefingData(
     int AbnormalTotal,            // 이상 총 건수(경로이탈+UserTag)
     int AbnormalCount,            // 경로이탈 자동감지 건수(ABNORMAL)
     int UserTagCount,             // 사용자정의 알람 건수(USERTAG)
-    IReadOnlyList<BriefTopRow> TopAbnormal);  // 최다 발생 상위 항목
+    IReadOnlyList<BriefTopRow> TopAbnormal,   // 최다 발생 상위 항목
+    // ── doc/28 §2.8 (2026-09-11) — 하루치(00:00~24:00 클립)에서 사람이 봐야 할 정지 ──
+    //   ReviewStops = '확인 필요' 고장(길이가 비생산 기준 이상, 수동 라벨 없음 = 끄고 간 정지 후보) + 하루 경계를 넘는 고장 행(전일부터
+    //   이어짐 / 다음 날로 이어짐 / 진행 중). 메일은 전환 전 숫자로 나가므로 상단에 건수·시간을 올려 월요일 아침 전환의 트리거가 된다.
+    IReadOnlyList<BriefStopRow> ReviewStops,
+    int ReviewPendingCount = 0,               // 요약 KPI 의 확인 필요 건수(라인)
+    double ReviewPendingMs = 0);              // 그 행들의 계측 길이 합(하루 클립)
+
+/// <summary>
+/// 브리핑 특이사항 정지 한 줄 — 하루 경계 클립 전 원값(StartAt/EndAt)과 이날 몫(InDayMs)을 함께 담는다.
+/// CrossesStart = 전일부터 이어짐, CrossesEnd = 다음 날로 이어짐, Open = 아직 진행 중(열린 사이클).
+/// </summary>
+public sealed record BriefStopRow(
+    string Flow, DateTime StartAt, DateTime? EndAt, double DurationMs, double InDayMs,
+    bool NeedsReview, bool CrossesStart, bool CrossesEnd, bool Open, string? Note);
 
 /// <summary>Flow 1개의 생산 요약 한 줄.</summary>
 public sealed record FlowBrief(string Name, double? Oee, int? Count, double DowntimeMs);

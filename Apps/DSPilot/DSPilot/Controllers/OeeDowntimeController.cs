@@ -29,20 +29,24 @@ public class OeeDowntimeController : OeeControllerBase
         ILogger<OeeDowntimeController> logger)
         : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, mirror, logger) { }
 
-    // ── GET /api/oee/downtime?from&to&status&reason&flow[&system] ─────────
+    // ── GET /api/oee/downtime?from&to&status&reason&flow[&system][&minDurationMs][&todFrom&todTo][&needsReview] ──
     // system = 시스템 스코프(그 시스템 flow 의 정지만, flow 미상 라인 귀속 행은 보존). flow 지정이 우선.
+    // 전환 UX 필터(doc/28 §2.8): minDurationMs = 최소 길이(사건 전체 DurationMs), todFrom/todTo = 시작 시각의 로컬 분(0~1439,
+    // todFrom > todTo 면 자정 넘김 예 18:00~08:00), needsReview=true = '확인 필요' 행만. 전환 객체는 행 — 사용자는 필터 결과에서 행을
+    // 골라(전체 선택 포함) 일괄 전환한다. 시간 범위는 필터일 뿐이다.
     [HttpGet("downtime")]
     public async Task<ActionResult<List<OeeDowntimeDto>>> Downtime(
         [FromQuery] DateTime? from, [FromQuery] DateTime? to,
         [FromQuery] string? status, [FromQuery] string? reason, [FromQuery] string? flow,
-        [FromQuery] string? system, CancellationToken ct)
+        [FromQuery] string? system, [FromQuery] long? minDurationMs, [FromQuery] int? todFrom, [FromQuery] int? todTo,
+        [FromQuery] bool? needsReview, CancellationToken ct)
     {
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
         var flowSet = flowName is null ? ResolveSystemFlowSet(system) : null;
         var rows = await _repo.QueryDowntimeAsync(fromUtc, toUtc, status, reason, flowName, ct);
         // 구 무가동 상태머신(detectSource='nocycle') 자동 행은 정본이 아니다(2026-09-08, doc/26) — 정지 시간은 완료 사이클
-        //   행(이상치 초과 사이클)에 이미 들어 있고, 부팅 시 정리(OeeRepositoryAdapter)되지만 미러/경합 잔존에 대비해
+        //   행(판정 기준 초과 사이클)에 이미 들어 있고, 부팅 시 정리(OeeRepositoryAdapter)되지만 미러/경합 잔존에 대비해
         //   읽기에서도 걸러낸다. 사용자가 손으로 확정한 것(classifySource='manual')은 사용자 의도라 보존.
         static bool IsLegacyAutoNocycle(OeeDowntimeDto d)
             => string.Equals(d.DetectSource, "nocycle", StringComparison.OrdinalIgnoreCase)
@@ -53,30 +57,25 @@ public class OeeDowntimeController : OeeControllerBase
             .Where(d => !IsLegacyAutoNocycle(d))
             .ToList();
 
-        // 이상치 초과 사이클(로그 테이블에 없는 failureCount 사이클 성분)을 합성해 병합 — 내역이 도넛/바 건수와 정합.
+        // 판정 기준 초과 사이클(로그 테이블에 없는 failureCount 사이클 성분)을 합성해 병합 — 내역이 도넛/바 건수와 정합.
         //   진행 중(열린 사이클, doc/26) 행도 같은 집계에서 합성돼 온다(status=open) — status 필터는 합성 후 적용.
         //   reason 필터가 걸리면 합성 행(고정 reason)은 제외.
-        // 합성엔 KPI 와 동일한 집계의 flow 귀속 비생산/대기 구간이 딸려 온다 — DB 이벤트 행의 '구분' 판정에
-        //   재사용해 팝업 표시와 KPI 카빙이 같은 판단을 공유한다(2026-07-08 당일 판정 모델 + doc/25 flow 스코프).
+        // 합성엔 KPI 와 동일한 집계의 flow 귀속 비생산 구간이 딸려 온다 — DB 이벤트 행의 '구분' 판정에
+        //   재사용해 팝업 표시와 KPI 카빙이 같은 판단을 공유한다.
         var nonProdScoped = new List<(string? Flow, double S, double E)>();
-        var waitScoped = new List<(string? Flow, double S, double E)>();
-        var slackScoped = new List<(string? Flow, double S, double E)>();
         if (string.IsNullOrWhiteSpace(reason))
         {
-            var (overCycles, npScoped, wScoped, slScoped) =
-                await GetOverThresholdCycleDowntimeAsync(flowName, fromUtc, toUtc, ct, flowSet);
+            var (overCycles, npScoped) = await GetOverThresholdCycleDowntimeAsync(flowName, fromUtc, toUtc, ct, flowSet);
             if (string.Equals(status, "open", StringComparison.OrdinalIgnoreCase))
                 overCycles = overCycles.Where(d => string.Equals(d.Status, "open", StringComparison.OrdinalIgnoreCase)).ToList();
             else if (string.Equals(status, "recovered", StringComparison.OrdinalIgnoreCase))
                 overCycles = overCycles.Where(d => !string.Equals(d.Status, "open", StringComparison.OrdinalIgnoreCase)).ToList();
             nonProdScoped = npScoped;
-            waitScoped = wScoped;
-            slackScoped = slScoped;
             // 재분류로 materialize 된 over-cycle 이벤트 행과 겹치는 합성 행 dedup — 같은 사이클이 두 줄로 보이지 않게.
             static bool NearSameStart(DateTime a, DateTime b) => Math.Abs((a - b).TotalSeconds) < 2.0;
             // 같은 정지 이중 표시 흡수(2026-07-16, 사용자 확인) — 하나의 정지가 무가동 이벤트(DB)와 ct 폭주 사이클
             // (합성) 두 소스에 다 잡히면 목록엔 DB 행 하나만 남긴다(체크·재분류 가능한 쪽). KPI 는 집계에서 이미
-            // 구간 차감(dedup)되므로 표시 전용 정리. 흡수된 DB 행은 감지 칩에 '+이상치초과' 병기(정보 유실 방지).
+            // 행 단위 라벨 조인으로 처리되므로 표시 전용 정리. 흡수된 DB 행은 감지 칩에 '+이상치초과' 병기(정보 유실 방지).
             static double OverlapRatioOfSynthetic(OeeDowntimeDto db, OeeDowntimeDto sc, DateTime nowL)
             {
                 var s = Math.Max(db.StartAt.Ticks, sc.StartAt.Ticks);
@@ -89,11 +88,15 @@ public class OeeDowntimeController : OeeControllerBase
             var keptSynthetic = new List<OeeDowntimeDto>();
             foreach (var sc in overCycles)
             {
-                // ① 이미 materialize 된 over-cycle DB 행과 같은 사이클 → 제외(종전 dedup).
-                if (merged.Any(d => string.Equals(d.DetectSource, "over-cycle", StringComparison.OrdinalIgnoreCase)
+                // ① 이미 materialize 된 over-cycle DB 행과 같은 사이클 → 제외(종전 dedup). 합성 행의 축·확인 필요 정보는 DB 행에 승계.
+                var twin = merged.FindIndex(d => string.Equals(d.DetectSource, "over-cycle", StringComparison.OrdinalIgnoreCase)
                         && string.Equals(d.FlowName, sc.FlowName, StringComparison.Ordinal)
-                        && NearSameStart(d.StartAt, sc.StartAt)))
+                        && NearSameStart(d.StartAt, sc.StartAt));
+                if (twin >= 0)
+                {
+                    if (merged[twin].Axis is null) merged[twin] = merged[twin] with { Axis = sc.Axis };
                     continue;
+                }
                 // ② 같은 flow 의 무가동 DB 행과 크게 겹침(≥60%) → 흡수(같은 정지의 이중 표시).
                 var host = -1;
                 for (var i = 0; i < merged.Count; i++)
@@ -110,23 +113,22 @@ public class OeeDowntimeController : OeeControllerBase
                 {
                     DetectSource = merged[i].DetectSource + "+over-cycle",
                     Note = string.IsNullOrEmpty(merged[i].Note)
-                        ? "무가동 이벤트 + 이상치 초과 사이클 동시 감지(같은 정지 — 한 줄로 병합)"
-                        : merged[i].Note + " · 이상치 초과 사이클 동시 감지(병합)",
+                        ? "무가동 이벤트 + 판정 기준 초과 사이클 동시 감지(같은 정지 — 한 줄로 병합)"
+                        : merged[i].Note + " · 판정 기준 초과 사이클 동시 감지(병합)",
                 };
             merged.AddRange(keptSynthetic);
             merged = merged.OrderByDescending(d => d.StartAt).ThenByDescending(d => d.Id).ToList();
         }
 
-        // DB 이벤트 행 구분 판정: 수동 분류가 있으면 그것이 정답(non_production=비생산, 그 외=비가동),
-        // 아니면 KPI 비생산/대기 구간과의 겹침 비율(≥50%)로 자동 판정 — 반드시 **그 행의 flow 구간만** 본다
-        // (doc/25: 형제 flow 의 대기 비생산이 유발 flow 의 고장 행을 비생산으로 오표시하지 않게).
+        // DB 이벤트 행 구분 판정: 수동 라벨이 있으면 그것이 정답(non_production=비생산, 그 외=고장/유지보수),
+        // 아니면 KPI 비생산 구간과의 <b>과반</b> 겹침(OeeMath.IsMajorityCovered)으로 자동 판정 — 반드시 **그 행의 flow 구간만** 본다.
+        // (구 '대기' 구분은 doc/28 두 규칙 모델로 폐기.)
         var nowLocal = DateTime.Now;
         for (var i = 0; i < merged.Count; i++)
         {
             var d = merged[i];
-            if (d.Id <= 0) continue;   // 합성 행은 이미 IsNonProd/IsWait 세팅됨
+            if (d.Id <= 0) continue;   // 합성 행은 이미 IsNonProd 세팅됨
             bool isNp;
-            var isWait = false;
             if (string.Equals(d.ClassifySource, "manual", StringComparison.OrdinalIgnoreCase))
                 isNp = string.Equals(d.ReasonCode, OeeMath.NonProductionReasonCode, StringComparison.OrdinalIgnoreCase);
             else
@@ -134,37 +136,37 @@ public class OeeDowntimeController : OeeControllerBase
                 var sMs = new DateTimeOffset(DateTime.SpecifyKind(d.StartAt, DateTimeKind.Local)).ToUnixTimeMilliseconds();
                 var eMs = new DateTimeOffset(DateTime.SpecifyKind(d.EndAt ?? nowLocal, DateTimeKind.Local)).ToUnixTimeMilliseconds();
                 var dur = Math.Max(1.0, eMs - sMs);
-                static double OverlapFor(List<(string? Flow, double S, double E)> src, string? flow, double sMs, double eMs)
+                double overlap = 0;
+                foreach (var (fl, s, e) in nonProdScoped)
                 {
-                    double sum = 0;
-                    foreach (var (fl, s, e) in src)
-                    {
-                        if (fl is not null && flow is not null
-                            && !string.Equals(fl, flow, StringComparison.OrdinalIgnoreCase)) continue;
-                        var o = Math.Min(e, eMs) - Math.Max(s, sMs);
-                        if (o > 0) sum += o;
-                    }
-                    return sum;
+                    if (fl is not null && d.FlowName is not null
+                        && !string.Equals(fl, d.FlowName, StringComparison.OrdinalIgnoreCase)) continue;
+                    var o = Math.Min(e, eMs) - Math.Max(s, sMs);
+                    if (o > 0) overlap += o;
                 }
-                // 대기 두 갈래(2026-07-30): ① 비생산 대기(기준 이상 형제 정지) → "비생산 · 대기"
-                //   ② 이벤트성 공백(기준 미만 대기 + 비가동 경계 미만 조각) → "대기(공백)".
-                // 판정 규칙은 OeeMath.ResolveLogStopClass 단일 소스(순수·테스트 가능).
-                (isNp, isWait) = OeeMath.ResolveLogStopClass(
-                    OverlapFor(nonProdScoped, d.FlowName, sMs, eMs) / dur,
-                    OverlapFor(waitScoped, d.FlowName, sMs, eMs) / dur,
-                    OverlapFor(slackScoped, d.FlowName, sMs, eMs) / dur);
+                isNp = OeeMath.IsMajorityCovered(dur, overlap);
             }
-            if (isNp != d.IsNonProd || isWait != d.IsWait) merged[i] = d with { IsNonProd = isNp, IsWait = isWait };
+            if (isNp != d.IsNonProd) merged[i] = d with { IsNonProd = isNp };
         }
         var classified = await AttachCluesAsync(merged, fromUtc, toUtc, ct);
-        LogClassifyTransitions(classified);   // 판정 전이 로그(doc/25 §4.3) — 프로세스 수명 내 구분 변화 계측
+        LogClassifyTransitions(classified);   // 판정 전이 로그 — 프로세스 수명 내 구분 변화 계측
+
+        // 전환 UX 필터(doc/28 §2.8) — 서버에서 걸러 목록·전체 선택이 같은 집합을 본다.
+        IEnumerable<OeeDowntimeDto> filtered = classified;
+        var nowMsL = ToMs(DateTime.UtcNow);
+        if (minDurationMs is long md && md > 0)
+            filtered = filtered.Where(d => (d.DurationMs ?? (long)Math.Max(0, nowMsL - ToMs(DateTime.SpecifyKind(d.StartAt, DateTimeKind.Local)))) >= md);
+        if (todFrom is int tf && todTo is int tt && tf != tt)
+            filtered = filtered.Where(d => InTimeOfDay(d.StartAt, tf, tt));
+        if (needsReview == true)
+            filtered = filtered.Where(d => d.NeedsReview);
+
         // 기간 내 클립 지속시간(2026-08-27) — 목록 필터가 '구간 겹침'이 되며 기간 경계를 걸친 정지가 들어온다.
         //   표시는 InRangeMs(기간과 겹친 몫)로 하고 사건 전체 길이(DurationMs)는 병기 — 합계가 KPI(정지시간)와 맞도록.
         //   open(endAt=null) 은 now 로 캡(미래 시간을 정지로 계상하지 않는다).
         var fromMs = ToMs(fromUtc);
-        var toMs = Math.Min(ToMs(toUtc), ToMs(DateTime.UtcNow));
-        var nowMsL = ToMs(DateTime.UtcNow);
-        return classified.Select(d =>
+        var toMs = Math.Min(ToMs(toUtc), nowMsL);
+        return filtered.Select(d =>
         {
             var s0 = ToMs(DateTime.SpecifyKind(d.StartAt, DateTimeKind.Local));
             var e0 = d.EndAt.HasValue ? ToMs(DateTime.SpecifyKind(d.EndAt.Value, DateTimeKind.Local)) : nowMsL;
@@ -173,21 +175,26 @@ public class OeeDowntimeController : OeeControllerBase
         }).ToList();
     }
 
-    // ── 판정 전이 로그 (doc/25 §4.3) — 같은 정지 행의 구분(비가동/비생산/대기)이 이전 조회와 달라지면 1줄 기록.
+    /// <summary>시작 시각(로컬)이 [fromMin, toMin) 시간대에 드는가 — fromMin &gt; toMin 이면 자정 넘김(예 18:00~08:00).</summary>
+    private static bool InTimeOfDay(DateTime localStart, int fromMin, int toMin)
+    {
+        var m = localStart.Hour * 60 + localStart.Minute;
+        return fromMin <= toMin ? (m >= fromMin && m < toMin) : (m >= fromMin || m < toMin);
+    }
+
+    // ── 판정 전이 로그 — 같은 정지 행의 구분(고장/비생산)이 이전 조회와 달라지면 1줄 기록.
     //    스키마 없이 프로세스 수명 캐시로 계측 — "언제 왜 뒤집혔나" 를 다음 테스트에서 즉시 확정하기 위한 진단용.
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (bool Np, bool Wait)>
-        s_lastClassify = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> s_lastClassify = new();
 
     private void LogClassifyTransitions(List<OeeDowntimeDto> rows)
     {
         foreach (var d in rows)
         {
             var key = d.Id > 0 ? $"id:{d.Id}" : $"{d.FlowName}|{d.StartAt.Ticks}";
-            var cur = (d.IsNonProd, d.IsWait);
+            var cur = d.IsNonProd;
             if (s_lastClassify.TryGetValue(key, out var prev) && prev != cur)
             {
-                static string Label((bool Np, bool Wait) v) =>
-                    v.Np && v.Wait ? "비생산·대기" : v.Np ? "비생산" : v.Wait ? "대기(공백)" : "비가동";
+                static string Label(bool np) => np ? "비생산" : "고장";
                 _logger.LogInformation(
                     "[OEE-CLASSIFY] 정지 구분 전이 flow={Flow} ev={Key} {Prev}→{Cur} (시작 {Start:MM-dd HH:mm:ss}, 지속 {Dur}s, 단서={Clue})",
                     d.FlowName, key, Label(prev), Label(cur), d.StartAt,
@@ -237,6 +244,7 @@ public class OeeDowntimeController : OeeControllerBase
             try { await _repo.DeleteNonProdDetectionsOverlappingAsync(ToUtc(req.StartAt.Value), ToUtc(req.EndAt.Value), ct); }
             catch (Exception ex) { _logger.LogWarning(ex, "[OEE] 재분류 감지로그 청소 실패(표시만 영향)"); }
         }
+        OeeChangeSignal.NotifyInvalidate();
         return new { ok = true, id, toNonProd = req.ToNonProd };
     }
 
@@ -283,6 +291,7 @@ public class OeeDowntimeController : OeeControllerBase
             : ("planned_maint", "planned", false);
         var n = await _repo.ClassifyDowntimeAsync(id, reasonCode, category, isFailure, classifySource: "manual", ct);
         if (n == 0) return NotFound(new { error = "downtime event not found", id });
+        OeeChangeSignal.NotifyInvalidate();
         return new { ok = true, id, isFault = req.IsFault };
     }
 
@@ -296,6 +305,7 @@ public class OeeDowntimeController : OeeControllerBase
             ? ("equipment_fault", "unplanned", true)
             : ("planned_maint", "planned", false);
         var n = await _repo.BulkClassifyDowntimeAsync(req.Ids, reasonCode, category, isFailure, classifySource: "manual", ct);
+        OeeChangeSignal.NotifyInvalidate();
         return new { ok = true, count = n, isFault = req.IsFault };
     }
 
@@ -323,6 +333,7 @@ public class OeeDowntimeController : OeeControllerBase
         var isFailure = OeeMath.IsFailureReason(reasonCode);
 
         var n = await _repo.BulkClassifyDowntimeAsync(req.Ids, reasonCode, category, isFailure, classifySource: "manual", ct);
+        OeeChangeSignal.NotifyInvalidate();
         return new { ok = true, count = n, reasonCode, category, isFailure };
     }
 
@@ -338,5 +349,19 @@ public class OeeDowntimeController : OeeControllerBase
         var endAtUtc = req.EndAt is DateTime e ? ToUtc(e) : DateTime.UtcNow;
         var n = await _repo.BulkCloseDowntimeAsync(req.Ids, endAtUtc, ct);
         return new { ok = true, count = n, endAt = endAtUtc };
+    }
+
+    // ── 되돌리기(doc/28 §2.8) — 사용자 라벨을 지워 자동 판정으로 복귀. ─────────────────────────────
+    // 계산 유래 행(detectSource='over-cycle' — 재분류/고장 확정 때 materialize 된 행)은 행 자체를 삭제하고(합성 행이 다시 뜬다),
+    // 그 외(라이브 감지·수동 입력 행)는 분류만 비운다. 합성 행(id ≤ 0)엔 라벨이 없다.
+    [HttpDelete("downtime/manual/{id:long}")]
+    [HttpPost("downtime/{id:long}/revert-manual")]
+    public async Task<ActionResult<object>> RevertManual(long id, CancellationToken ct)
+    {
+        if (id <= 0) return BadRequest(new { error = "synthetic rows have no manual label" });
+        var (n, deleted) = await _repo.RevertManualLabelAsync(id, ct);
+        if (n == 0) return NotFound(new { error = "downtime event not found or not manually labeled", id });
+        OeeChangeSignal.NotifyInvalidate();
+        return new { ok = true, id, deleted };
     }
 }

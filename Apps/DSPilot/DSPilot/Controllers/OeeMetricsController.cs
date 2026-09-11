@@ -81,8 +81,8 @@ public class OeeMetricsController : OeeControllerBase
         var teep = OeeMath.ComputeTeep(runningMs, calendarMs);
         var util = OeeMath.ComputeUtilization(calendarMs, nonProdMs);
         var teepNote = flowCount == 0
-            ? "표준 CT(14일 평균) 보유 flow 없음 — TEEP 산출 불가."
-            : "가동(Σ실측CT) ÷ 캘린더(전체, 비생산 포함) — 달력 대비 진짜 가동.";
+            ? "표준 CT(14일) 보유 flow 없음 — TEEP 산출 불가."
+            : "가동(Σ실측CT) ÷ 캘린더(전체, 비생산 포함) — 달력 대비 진짜 가동. 비생산으로 전환해도 TEEP 는 변하지 않는다(달력 손실 그대로).";
 
         return new OeeTeepDto(
             FlowName: flowName,
@@ -166,7 +166,8 @@ public class OeeMetricsController : OeeControllerBase
         {
             var agg = await ComputeCycleAggregateAsync(f, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
                 collectNormalCycles: true);
-            var thr = thresholds[f].AvgMs;
+            // 성능 P 표준치 = 14일 중앙 CT(doc/28 §2.2) — 요약 KPI 와 같은 표준. 중앙값 미산출이면 평균 폴백.
+            var thr = thresholds[f].MedianMs > 0 ? thresholds[f].MedianMs : thresholds[f].AvgMs;
             var cells = OeeMath.BuildTeepMatrixCells(
                 bucketRanges,
                 agg.NormalCycles ?? [],
@@ -405,9 +406,8 @@ public class OeeMetricsController : OeeControllerBase
             long available = Math.Max(0, slotCal - nonProd - unmeasured - inProg);
             long down = Math.Max(0, available - run);            // 비가동 = 생산가능 − 가동(잔여)
             long maint = Math.Min(SumOverlap(maintWall, sS, sE), down);
-            // 고장 = 감지된 정지(이상치 초과 사이클 + 무사이클 갭)에 덮인 비가동만. 임계 미만 사이클 간 미세 슬랙
-            //   (가동간 공백)은 고장으로 보내지 않는다 → 슬롯 잔여로 남아 추이에선 가동에 흡수(2026-07-14 사용자 결정 —
-            //   정산 바가 '가동간 공백' 세그먼트로 따로 보여주고, 시간별 추이는 가동으로 인정).
+            // 고장 = 고장 행 전체 구간에 덮인 비가동(doc/28 사이클 단위). 비가동 − 유지보수 − 고장 = 미귀속(0 기대) —
+            //   0 이 아니면 슬롯 잔여로 남는다(계측 품질의 '미귀속 시간' 진단 항목이 위치를 알려준다).
             long fault = Math.Min(SumOverlap(faultWall, sS, sE), Math.Max(0, down - maint));
             // 벽시계 매핑: FailureMs=고장 / PlannedMs=유지보수(Other·Unclassified 미사용) / SlotMs=달력(설비 합산).
             //   RunMs=실측 가동(정상 사이클 구간 ∩ 슬롯) — 종전엔 계산만 하고 버려 프런트가 잔여로 재구성했다.

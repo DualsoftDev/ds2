@@ -179,8 +179,8 @@ public sealed record OeeTeepDto(
     int FlowCount,                    // 캘린더 배수 (단일 flow=1, 라인=임계 보유 flow 수). 0 이면 산출 불가.
     double CalendarMs,                // 기간 × FlowCount
     double RunningMs,                 // 가동 = Σ실측CT
-    double DownMs,                    // 정지 = Σ비가동CT
-    double NonProdMs,                 // 비생산 = 자동10× + 수동(flow별 합산, A 분모 밖)
+    double DownMs,                    // 정지 = 고장 행 전체 구간(union) — doc/28 사이클 단위(종전 초과분만 → 행 전체)
+    double NonProdMs,                 // 비생산 = 자동 판정 + 수동(flow별 합산, A 분모 밖)
     double ResidualMs,                // 잔여 = 캘린더 − 가동 − 정지 − 비생산 (≥0)
     double? Teep,                     // 가동 ÷ 캘린더 (0~1). null = 산출 불가(캘린더 0 / 임계 없음)
     string? TeepNote,
@@ -290,20 +290,17 @@ public sealed record OeeSummaryDto(
     double AvailableWallMs = 0,       // Σ_flow 생산가능 = Σ(기간 − 미계측 − 비생산_flow). A 분모(종전 "단일 창 × flow수" 반전).
     double DownMaintWallMs = 0,       // Σ유지보수(비가동 ∩ 유지보수 이벤트). 도넛/정산 분할.
     double NonProdWallMs = 0,         // Σ_flow 비생산(벽시계, 미계측 차감 후, 대기 포함) — 도넛 '비생산' 세그먼트. Available 과 같은 축.
-    // 고장 = 비가동 중 감지된 정지(이상치 초과 사이클 + 무사이클 갭)에 실제로 덮인 부분만(유지보수 차감 후).
-    //   (Available − Run) − DownMaint − DownFault = 가동간 공백(임계 미만 사이클 간 미세 슬랙 + 대기 공백, 2026-07-14/doc/25) —
-    //   감지 정지 0인 시간이라 고장으로 표기하지 않고 정산 바에서 밝은 하늘색 별도 세그먼트로 보여준다.
-    double DownFaultWallMs = 0,       // Σ고장(비가동 ∩ 감지 정지 이벤트) 벽시계
-    // ── 대기(고장 여파, doc/25 §1) — 형제 flow 가 라인 고장으로 서 있던 시간의 분화 표기 ──
-    double WaitWallMs = 0,            // Σ대기 비생산(기준 이상 형제 정지) — NonProdWallMs 에 포함, 도넛 '대기' 분화용
-    double WaitSlackWallMs = 0,       // Σ대기 공백(기준 미만 형제 정지) — 가동간 공백에 포함, 정산 툴팁 표기용
-    // Σ이벤트성 공백 = 가동간 공백 중 하나의 정지 이벤트에서 온 부분(대기 + 비가동 경계 미만 조각).
-    //   WaitSlackWallMs ⊆ 이 값. 가용성에는 영향 없고(슬랙 잔여 그대로), 사이클당 공백 환산에서 빼는 데 쓴다 —
-    //   4분짜리 단기 정지가 '사이클 간 미세 간격' 지표를 희석하지 않게(2026-07-30).
-    double EventSlackWallMs = 0,
+    // 고장 = 비가동 중 고장 행(판정 기준 초과 사이클, 행 전체) 구간에 덮인 부분(유지보수 차감 후) — doc/28 사이클 단위.
+    //   (Available − Run) − DownMaint − DownFault = 미귀속(UnattributedWallMs). 종전 '가동간 공백' 세그먼트는 삭제 —
+    //   행이 시작~다음 시작으로 연속이라 정의상 0 이어야 하며, 0 이 아니면 데이터 결함(행 겹침·누락) 신호다.
+    double DownFaultWallMs = 0,       // Σ고장(비가동 ∩ 고장 행 전체 구간) 벽시계 — 2분할: 비가동 = 유지보수 + 고장
     // ── 진행 중(열린 사이클, 2026-09-08 doc/26) — flow 의 마지막 완료 사이클 이후 다음 head 가 없는 구간(Σ_flow). ──
     //   가동·비가동·비생산 어느 쪽도 아니다(분모 밖, 미계측과 같은 자리). 과거 창엔 0. 다음 사이클 완료 시 확정된다.
-    double InProgressWallMs = 0);
+    double InProgressWallMs = 0,
+    // ── doc/28 (2026-09-11 두 규칙 · 사이클 단위) ──
+    int ReviewPendingCount = 0,       // '확인 필요' 고장 행 수 — 길이(ct)가 비생산 경계(CT) 이상인데 수동 라벨이 없는 고장(끄고 간 정지 후보)
+    double ReviewPendingMs = 0,       // 그 행들의 계측 길이 합(기간 클립)
+    double UnattributedWallMs = 0);   // 미귀속 = 비가동 − 유지보수 − 고장. 행이 연속이라 0 이어야 정상 — 0 이 아니면 데이터 결함(계측 품질에도 노출)
 
 /// <summary>비생산 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);
@@ -311,43 +308,42 @@ public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, stri
 /// <summary>
 /// 비생산 시간대 설정 상태 — GET /api/oee/planned-stops 응답 (병행 모델 2026-07-08).
 /// 당일 자동 판정(배수×중앙 WT)은 항상 켜져 있고, Windows(수동 지정)는 추가로 "무조건 비생산" 확정 창.
-/// Source = "auto"(지정 없음) | "both"(자동+지정). NonProdWtMultiplier = 비생산 자동판정 배수(WT 축, 사용자 설정, 기본 30),
-/// IdleWtMultiplier = 비가동 판정 배수(WT 축, 기본 5 — 2026-09-09 CT→WT 축 전환).
+/// Source = "auto"(지정 없음) | "both"(자동+지정). NonProdWtMultiplier = 비생산 자동판정 배수(사용자 설정, 기본 30).
+/// (구 IdleWtMultiplier[정지 배수]는 2026-09-11 doc/28 두 규칙 모델로 삭제.)
 /// </summary>
 public sealed record PlannedStopsDto(
     string Source,
     IReadOnlyList<PlannedStopWindowDto> Windows,
-    double NonProdWtMultiplier,
-    double IdleWtMultiplier = Services.OeeMath.IdleWtMultiplierDefault);
+    double NonProdWtMultiplier);
 
 /// <summary>
-/// 정지·비생산·고장 판정 기준(배수) — GET /api/oee/ct-multipliers 응답 (2026-07-13 사용자 설정화 → 2026-09-09 WT/MT 2축).
-/// 경로 이름의 "ct-multipliers" 는 호환을 위해 유지한다(구 클라이언트·문서). 축은 WT(정지·비생산)와 MT(고장).
-/// Flows = flow별 기준선(중앙 WT·중앙 CT·중앙 MT·평균 CT) — 화면이 "이 배수가 우리 라인에선 몇 분인가"를 환산한다.
-/// 하한 상수(StopFloorCtMultiples 등)도 함께 내려 화면 환산이 서버 경계 함수와 같은 값을 내게 한다.
+/// 고장·비생산 판정 기준(배수) — GET /api/oee/ct-multipliers 응답 (2026-07-13 사용자 설정화 → 2026-09-11 두 규칙 모델, doc/28).
+/// 경로 이름의 "ct-multipliers" 는 호환을 위해 유지한다(구 클라이언트·문서). 축은 MT(고장)와 WT(비생산), 불인정 행은 CT.
+/// Flows = flow별 기준선(중앙 MT·중앙 WT·중앙 CT·평균 CT·표본 수) — 화면이 "이 배수가 우리 라인에선 몇 분인가"를 환산한다.
+/// 하한 상수도 함께 내려 화면 환산이 서버 경계 함수와 같은 값을 내게 한다.
 /// </summary>
 public sealed record CtMultipliersDto(
-    double IdleWtMultiplier,
     double NonProdWtMultiplier,
     IReadOnlyList<CtMultiplierFlowDto> Flows,
-    // 고장 유발자 판별 배수(2026-08-24) — 곱하는 대상이 flow별 중앙 MT 다(FlowDto.MedianMtMs).
     double FaultMtMultiplier = Services.OeeMath.FaultMtMultiplierDefault,
-    double StopFloorCtMultiples = Services.OeeMath.WtStopFloorCtMultiples,
     double NonProdFloorCtMultiples = Services.OeeMath.WtNonProdFloorCtMultiples,
-    double FaultFloorMs = Services.OeeMath.FaultMtBoundaryFloorMs);
+    double FaultFloorMs = Services.OeeMath.FaultMtBoundaryFloorMs,
+    int MinBaselineSamples = Services.OeeMath.MinBaselineSamples);
 
 /// <summary>
-/// flow별 판정 기준선(ms). 화면 환산식은 서버 경계 함수와 동일해야 한다(OeeMath.ResolveWt*BoundaryMs / ResolveMtFaultBoundaryMs).
-///   AvgCtMs     = 14일 평균 CT — 성능 P 표준치. WT 기준선 미보유 flow 의 <b>CT 폴백</b> 경계(AvgCtMs × 배수)에도 쓰인다
-///   MedianMtMs  = 14일 중앙 MT — 고장 유발자 판별(×FaultMtMultiplier, 절대 하한) 경계의 기준값. 0 = 표본 없음(판별 불가)
-///   MedianWtMs  = 14일 중앙 WT — 정지(×IdleWtMultiplier)·비생산(×NonProdWtMultiplier) 경계의 기준값. 0 = 미보유(CT 폴백)
-///   MedianCtMs  = 14일 중앙 CT — WT 경계 하한(1사이클·10사이클)의 기준값
+/// flow별 판정 기준선(ms). 화면 환산식은 서버 경계 함수와 동일해야 한다(OeeMath.Resolve*BoundaryMs).
+///   AvgCtMs       = 14일 평균 CT — 참고 표기(대시보드 등 종전 소비자). 판정·P 표준치엔 쓰지 않는다
+///   MedianCtMs    = 14일 중앙 CT — 성능 P 표준치, 불인정 행(mt NULL) 고장·비생산 경계(×배수), 비생산 하한(10 사이클)의 기준값
+///   MedianMtMs    = 14일 중앙 MT — 완료 행 고장 경계(×FaultMtMultiplier, 절대 하한 1s). 0 = 표본 없음(고장 판별 불가, HasMtBaseline=false)
+///   MedianWtMs    = 14일 중앙 WT — 완료 행 비생산 경계(×NonProdWtMultiplier, 하한 중앙 CT×10)
+///   SampleCount   = 14일 완료 사이클 수 — MinBaselineSamples 미만이면 판정 보류(전부 정상, '판정 보류' 배지)
 /// </summary>
-public sealed record CtMultiplierFlowDto(string FlowName, double AvgCtMs, double MedianMtMs = 0, double MedianWtMs = 0, double MedianCtMs = 0);
+public sealed record CtMultiplierFlowDto(
+    string FlowName, double AvgCtMs, double MedianMtMs = 0, double MedianWtMs = 0, double MedianCtMs = 0,
+    int SampleCount = 0, bool HasMtBaseline = false);
 
 /// <summary>PUT /api/oee/ct-multipliers 요청. null 필드는 기존값 유지.</summary>
-public sealed record CtMultipliersRequest(
-    double? IdleWtMultiplier, double? NonProdWtMultiplier, double? FaultMtMultiplier = null);
+public sealed record CtMultipliersRequest(double? NonProdWtMultiplier, double? FaultMtMultiplier = null);
 
 /// <summary>
 /// 판정 기준 변경 미리보기 — GET /api/oee/ct-multipliers/preview. 같은 기간을 현재 배수/제안 배수로
@@ -357,16 +353,25 @@ public sealed record CtMultipliersPreviewDto(
     CtMultipliersPreviewSideDto Current,
     CtMultipliersPreviewSideDto Proposed);
 
-/// <summary>미리보기 한쪽(현재 또는 제안) 재분류 요약 — 정지 건수/비가동 CT/비생산(벽시계)/A/P.</summary>
+/// <summary>
+/// 미리보기 한쪽(현재 또는 제안) 재분류 요약 — 고장·비생산 건수/고장 CT/비생산(벽시계)/A/P + 축별 건수(doc/28 §3:
+/// 슬라이더 하나가 완료 행과 불인정 행 두 축에 동시에 걸리므로 어느 축에서 나온 건수인지 구분 표기).
+/// </summary>
 public sealed record CtMultipliersPreviewSideDto(
-    double IdleWtMultiplier,
     double NonProdWtMultiplier,
-    int DowntimeCount,
+    double FaultMtMultiplier,
+    int DowntimeCount,            // 고장 행 수(유지보수 제외)
+    int NonProdCount,             // 비생산 행 수(자동)
     int NormalCycleCount,
     double IdleCtMs,
     double NonProdWallMs,
     double? Availability,
-    double? Performance);
+    double? Performance,
+    int FaultMtCount = 0,         // 고장 중 완료 행(mt 초과)
+    int FaultCtCount = 0,         // 고장 중 불인정 행(ct 초과)
+    int NonProdWtCount = 0,       // 비생산 중 완료 행(wt 초과)
+    int NonProdCtCount = 0,       // 비생산 중 불인정 행(ct 초과)
+    int ReviewPendingCount = 0);  // '확인 필요' 고장 행 수
 
 /// <summary>
 /// 자동 비생산 시간대 windows. 14일 평균 패턴(auto-pattern, DaysAnalyzed=14) 또는 이번 기간 실제 제외분(actual, DaysAnalyzed=0).
@@ -413,12 +418,13 @@ public sealed record OeeDowntimeDto(
     string Status,                    // "open" | "recovered"
     string? ClassifySource = null,    // 분류 출처: manual / auto-bit / auto-heuristic / auto-longstop / pending(진행 중 — 완료 후 분류) / null(미분류)
     OeeDowntimeClue? Clue = null,     // abnormal/usertag 시간겹침 단서(표시 전용 — 건수·MTBF 미반영, doc/21 §4)
-    bool IsNonProd = false,           // 구분=비생산(A 분모 밖). 수동(reasonCode='non_production') 또는 당일 자동(10×CT) 판정
-    bool IsWait = false,              // 대기(고장 여파, doc/25 §1) — 같은 창에 유발 flow 고장 존재. IsNonProd=true 면
-                                      // 대기 비생산(분모 밖), false 면 대기 공백(A 손실·건수 미반영). 라벨 표시용
-    long? InRangeMs = null);          // 조회 기간([from,to], open 은 now 로 캡)과 겹친 몫만 클립한 지속시간(2026-08-27).
+    bool IsNonProd = false,           // 구분=비생산(A 분모 밖). 수동 라벨(reasonCode='non_production') 또는 자동 판정(대기/불인정 행 길이)
+    long? InRangeMs = null,           // 조회 기간([from,to], open 은 now 로 캡)과 겹친 몫만 클립한 지속시간(2026-08-27).
                                       // 기간 경계를 걸친 정지는 DurationMs(사건 전체) > InRangeMs(기간 내). 목록 표시는
                                       // InRangeMs 를 쓰고 전체 길이는 병기 — KPI(정지시간 합산)와 눈으로 맞도록.
+    // ── doc/28 (2026-09-11) ──
+    bool NeedsReview = false,         // '확인 필요' — 고장 행인데 길이(ct)가 비생산 경계(CT) 이상, 수동 라벨 없음(끄고 간 정지 후보)
+    string? Axis = null);             // 판정 축: "mt"(완료 행 동작 초과) / "wt"(완료 행 대기 초과) / "ct"(불인정 행 길이) / null(DB 이벤트 행)
 
 /// <summary>
 /// 정지 구간에 시간이 겹친 abnormal/usertag 점 이벤트 단서 (읽기전용 표시 — 정지 소스 아님).
@@ -483,10 +489,7 @@ public sealed record OeeMeasureQualityRowDto(
     int IdleCycles,         // IsIdle=1 = 이상치 캡(MaxCycleTimeMs/MinCycleTimeMs) 초과
     double? ExclusionRate,  // ExcludedCycles / TotalCycles (0~1). Total=0 이면 null(가짜 0% 금지)
     double? IncompleteRate, // IncompleteCycles / TotalCycles (0~1)
-    // 비가동 경계 = 14일 평균 CT × 비가동 배수. 임계 미보유면 0.
-    //   2026-08-21 통일 — 이 값이 집계 판정과 <b>무사이클 감지 시점</b>을 함께 결정한다.
-    //   별도 감지 임계(3×gap' 체인)는 폐기: 감지 109초 vs 계상 213초로 어긋나 "로그엔 뜨는데
-    //   건수엔 없는" 구간을 만들었고, 사용자에게 같은 뜻의 숫자를 둘 보여줬다.
+    // 고장 경계(MT) = 14일 중앙 MT × 고장 배수(doc/28). MT 기준선 미보유(tail 미정의) flow 는 0 = 고장 판별 불가.
     double ThresholdMs,
     // false = 이 설비는 아직 측정 자체가 안 되고 있다(클린샘플 0 → CT 임계 미산출 → 사이클기반 A/P·정지·대기
     //         분류 전부 불가, 가용성은 달력근사 폴백). 실측 사례: 경계 head 가 한 번도 Going 하지 않는 Call 로
@@ -507,7 +510,13 @@ public sealed record OeeMeasureQualityRowDto(
     //   빠지지만 여기서 계수한다 — 급등 = 분기 정의 오류 또는 센서 오감지(제외 call 오발화) 조기 경보.
     bool Branched = false,          // 이 flow 에 분기 정의가 활성인가
     int UnclassifiedCycles = 0,     // 미분류 사이클 수(분기 활성 flow 만 의미)
-    double? UnclassifiedRate = null // UnclassifiedCycles / TotalCycles. Total=0 이면 null
+    double? UnclassifiedRate = null, // UnclassifiedCycles / TotalCycles. Total=0 이면 null
+    // ── doc/28 §2.7 미귀속 시간 — 비가동 − 유지보수 − 고장. 행이 연속이라 0 이어야 정상. 0 이 아니면 행 겹침·누락,
+    //    심박이 못 덮은 엔진 재시작 조각 등 데이터 결함 위치다(가용성 정산에서 삭제된 종전 '가동간 공백'의 진단 후신).
+    double UnattributedWallMs = 0,
+    // 완료 사이클 표본(14일) — MinBaselineSamples 미만이면 판정 보류(전부 정상).
+    int BaselineSampleCount = 0,
+    bool BaselineGated = false
 );
 
 /// <summary>

@@ -69,13 +69,13 @@ public static class OeeExcelExporter
         {
             ("OEE 종합", FormatPct(k.Oee)),
             ("가용성 A", FormatPct(k.Availability) + "  (" + availSrc + ")"),
-            ("성능 P", FormatPct(k.Performance) + "  (14일 평균)"),
+            ("성능 P", FormatPct(k.Performance) + "  (표준 = 14일 중앙 CT)"),
             ("품질 Q", FormatPct(k.Quality) + "  (" + qualSrc + ")"),
-            ("평균 고장 간격(MTBF)", k.FailureCount == 0 ? "무비가동" : FormatMs(k.Mtbf)),
-            ("평균 복구 시간(MTTR)", k.FailureCount == 0 ? "무비가동" : FormatMs(k.Mttr)),
+            ("평균 고장 간격(MTBF)", k.FailureCount == 0 ? "고장 없음" : FormatMs(k.Mtbf)),
+            ("고장 사이클 평균 시간", k.FailureCount == 0 ? "고장 없음" : FormatMs(k.Mttr) + "  (사이클 전체 길이 평균)"),
             ("정지 건수", k.DowntimeCount.ToString("N0", CultureInfo.InvariantCulture) + " 건"),
             ("정지 시간", FormatMs(k.DowntimeMs)),
-            ("가동시간 이상치(표준)", FormatMs(k.CtThresholdMs)),
+            ("표준 가동시간(14일 중앙 CT)", FormatMs(k.CtThresholdMs)),
             ("정상 사이클 수", (k.NormalCycleCount ?? 0).ToString("N0", CultureInfo.InvariantCulture) + " 건"),
         };
         foreach (var (label, value) in indicators) r = LabelValueRow(ws, r, label, value);

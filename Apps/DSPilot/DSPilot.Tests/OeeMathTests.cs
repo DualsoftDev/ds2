@@ -178,75 +178,68 @@ public class OeeMathTests
         Assert.Null(src);
     }
 
-    // ── 비생산 자동판정 (장시간 무변화 정지) doc/22 §3.3 → 2026-09-09 WT 축(doc/27) ─────────────
+    // ── 두 규칙 모델 기본값·경계 (doc/28, 2026-09-11) ─────────────────────────────────
 
     [Fact]
-    public void LongStop_multiplier_default_is_thirty_wt()
-        => Assert.Equal(30.0, OeeMath.NonProductionWtMultiplier);   // 2026-09-09: 15×CT → 30×WT(중앙 대기)
+    public void NonProd_multiplier_default_is_thirty()
+        => Assert.Equal(30.0, OeeMath.NonProductionWtMultiplier);
 
     [Fact]
-    public void Idle_multiplier_default_is_five_wt()
-        => Assert.Equal(5.0, OeeMath.IdleWtMultiplierDefault);      // 2026-09-09: 2.5×CT → 5×WT
+    public void Fault_multiplier_default_is_five()
+        => Assert.Equal(5.0, OeeMath.FaultMtMultiplierDefault);   // doc/28 §3: 2.5 → 5.0(신규 설치만, 저장값 불변)
 
     [Fact]
-    public void Fault_mt_multiplier_default_is_two_point_five()
-        => Assert.Equal(2.5, OeeMath.FaultMtMultiplierDefault);
+    public void Baseline_sample_gate_is_ten_and_majority_is_half()
+    {
+        Assert.Equal(10, OeeMath.MinBaselineSamples);
+        Assert.Equal(0.5, OeeMath.MajorityCoverRatio);
+    }
 
-    // ── MT 과주행 경계 하한 (2026-08-30) ─────────────────────────────────────
-    //   초저 MT flow(중앙값 수십 ms)에선 중앙값×배수가 지터 수준 — mt=238ms 잡음이 "고장 유발자"가 되어
-    //   다른 flow 강등 근거로 오염됐다(2026-08-28 Prog2 실증). 1초 하한으로 물리적으로 무의미한 경계를 막는다.
+    // ── 고장 경계 하한 (2026-08-30) — 초저 MT flow 지터가 고장이 되지 않게 1초 하한. 기준선 0 = 비활성(0).
 
     [Theory]
     [InlineData(22, 2.5, 1000)]       // 지터 수준 중앙값(22ms×2.5=55ms) → 하한 1s 로 승격
     [InlineData(300, 2.5, 1000)]      // 300ms×2.5=750ms → 여전히 하한 미만 → 1s
     [InlineData(400, 2.5, 1000)]      // 정확히 하한(400×2.5=1000)
-    [InlineData(5000, 2.5, 12500)]    // 정상 flow(중앙값 5s) → 종전과 동일 12.5s
-    [InlineData(0, 2.5, 1000)]        // 중앙값 0(비정상 입력)도 경계가 0 이 되지 않는다
-    public void ResolveMtFaultBoundary_applies_floor(double medianMs, double mult, double expected)
+    [InlineData(5000, 2.5, 12500)]    // 정상 flow(중앙값 5s) → 12.5s
+    [InlineData(146_000, 10.0, 1_460_000)] // 현장 3000 #131: 중앙 MT 146s × 10 = 24.3분
+    [InlineData(0, 2.5, 0)]           // 중앙값 0 = 기준선 미보유 → 0(비활성). 종전 1000 은 모든 완료 행을 고장으로 만들었다
+    public void ResolveMtFaultBoundary_applies_floor_or_disables(double medianMs, double mult, double expected)
         => Assert.Equal(expected, OeeMath.ResolveMtFaultBoundaryMs(medianMs, mult));
 
     [Theory]
-    [InlineData(1000, 15000, true)]   // 정확히 15× → 비생산
-    [InlineData(1000, 14999, false)]  // 15× 직전 → 다운타임 유지
-    [InlineData(1000, 50000, true)]   // 50× → 비생산
-    [InlineData(2000, 29999, false)]  // 14.99× → 다운타임
-    [InlineData(2000, 30000, true)]   // 15× → 비생산
-    public void IsLongStopNonProduction_threshold(double thrMs, double durMs, bool expected)
-        => Assert.Equal(expected, OeeMath.IsLongStopNonProduction(durMs, thrMs, 15.0));
+    [InlineData(180_000, 5.0, 900_000)]   // 셔틀형(WT 87%) 중앙 CT 180s × 5 = 15분 — 불인정 행은 CT 축에 댄다
+    [InlineData(200, 2.5, 1000)]          // 하한 1s
+    [InlineData(0, 5.0, 0)]               // 기준선 없음 → 비활성
+    public void ResolveCtFaultBoundary_uses_median_ct(double medianCt, double mult, double expected)
+        => Assert.Equal(expected, OeeMath.ResolveCtFaultBoundaryMs(medianCt, mult));
+
+    // ── 비생산 경계 — 완료 행은 중앙 WT × 배수(하한 중앙 CT × 10), 불인정 행은 중앙 CT × 배수(같은 하한) ──
 
     [Theory]
-    [InlineData(0)]      // 표본 부족(임계 0) → 판정 불가
-    [InlineData(-5)]     // 음수 방어
-    public void IsLongStopNonProduction_no_threshold_is_false(double thrMs)
-        => Assert.False(OeeMath.IsLongStopNonProduction(1_000_000, thrMs, 15.0));
-
-    // ── WT 축 경계 (2026-09-09, doc/27) — 정지/비생산 경계는 중앙 WT × 배수, 하한은 중앙 CT 사이클 수 ──
-
-    [Theory]
-    [InlineData(103_000, 238_000, 5.0, 515_000)]   // 현장 #121: 중앙 WT 103s × 5 = 515s (하한 238s 미발동)
-    [InlineData(600, 6_500, 5.0, 6_500)]           // kit Turn Zone: 0.6s × 5 = 3s → 하한 1사이클(6.5s)로 승격
-    [InlineData(0, 6_500, 5.0, 6_500)]             // 중앙 WT 0(항상 즉시 재시작) — 정상 기준선, 경계는 하한이 맡는다
-    [InlineData(5_000, 6_500, 0.5, 6_500)]         // 배수 <1 은 1 로 클램프(5s) → 하한 6.5s
-    [InlineData(103_000, 0, 5.0, 0)]               // 중앙 CT 없음 = 기준선 미보유 → 0(호출측 CT 폴백)
-    public void ResolveWtStopBoundary_applies_multiplier_and_cycle_floor(double medWt, double medCt, double mult, double expected)
-        => Assert.Equal(expected, OeeMath.ResolveWtStopBoundaryMs(medWt, medCt, mult));
+    [InlineData(103_000, 238_000, 30.0, 3_090_000)]   // #121: 103s × 30 = 51.5분 (하한 10사이클 39.7분 미발동)
+    [InlineData(600, 6_500, 30.0, 65_000)]            // Turn Zone: 18s → 하한 10사이클(65s)
+    [InlineData(0, 6_500, 30.0, 65_000)]              // 중앙 WT 0(항상 즉시 재시작) — 정상 기준선, 경계는 하한이 맡는다
+    [InlineData(14_000, 180_000, 30.0, 1_800_000)]    // 현장 3000 #13x: 14s × 30 = 7분 < 하한 10사이클 30분 → 30분
+    [InlineData(1_000, 0, 30.0, 0)]                   // 기준선 미보유 → 0
+    public void ResolveWtNonProdBoundary_applies_multiplier_and_ten_cycle_floor(double medWt, double medCt, double mult, double expected)
+        => Assert.Equal(expected, OeeMath.ResolveWtNonProdBoundaryMs(medWt, medCt, mult));
 
     [Theory]
-    [InlineData(103_000, 238_000, 30.0, 515_000, 3_090_000)]  // #121: 103s × 30 = 51.5분 (하한 10사이클 39.7분 미발동)
-    [InlineData(600, 6_500, 30.0, 6_500, 65_000)]             // Turn Zone: 18s → 하한 10사이클(65s)
-    [InlineData(1_000, 6_500, 5.0, 500_000, 500_000)]         // 정지 경계보다 작아질 수 없다(역전 방지)
-    [InlineData(1_000, 0, 30.0, 0, 0)]                        // 기준선 미보유 → 0
-    public void ResolveWtNonProdBoundary_applies_floor_and_never_below_stop(double medWt, double medCt, double mult, double stopB, double expected)
-        => Assert.Equal(expected, OeeMath.ResolveWtNonProdBoundaryMs(medWt, medCt, mult, stopB));
+    [InlineData(180_000, 30.0, 5_400_000)]   // 중앙 CT 180s × 30 = 90분 — '확인 필요' 임계이기도 하다
+    [InlineData(180_000, 5.0, 1_800_000)]    // 배수 5 < 하한 10사이클 → 30분
+    [InlineData(0, 30.0, 0)]
+    public void ResolveCtNonProdBoundary_uses_median_ct_with_floor(double medCt, double mult, double expected)
+        => Assert.Equal(expected, OeeMath.ResolveCtNonProdBoundaryMs(medCt, mult));
 
-    [Fact]
-    public void ResolveWaitMs_falls_back_to_ct_when_wt_missing()
-    {
-        // SQL COALESCE(wt, ct) 와 같은 규약 — wt 없는 행(mt NULL / tail 미정의)은 사이클 전체가 대기.
-        Assert.Equal(5_000, OeeMath.ResolveWaitMs(null, 5_000));
-        Assert.Equal(300, OeeMath.ResolveWaitMs(300, 5_000));
-        Assert.Equal(5_000, OeeMath.ResolveWaitMs(-1, 5_000));   // 음수(시계 역행) 방어
-    }
+    [Theory]
+    [InlineData(5_400_000, 5_400_000, true)]    // 정확히 경계 = 확인 필요
+    [InlineData(5_399_999, 5_400_000, false)]
+    [InlineData(13_680_000, 5_400_000, true)]   // 9/9 야간 방치 3.8h(현장 3000) → 표시
+    [InlineData(2_040_000, 5_400_000, false)]   // 9/10 34분 라인 정지 → 미표시(고장 유지)
+    [InlineData(999_999_999, 0, false)]         // 경계 없음 → 표시 안 함
+    public void IsReviewPending_flags_long_faults(double ctMs, double ctNp, bool expected)
+        => Assert.Equal(expected, OeeMath.IsReviewPending(ctMs, ctNp));
 
     [Theory]
     [InlineData(514_999, 515_000, false)]
@@ -303,78 +296,28 @@ public class OeeMathTests
 
     const double Floor = 15_000;   // = StateReconcile tick 5s × 3 (기본 설정)
 
-    // ── 정지 로그 '구분' 판정 (2026-07-30 회귀) ─────────────────────────────
-    //   현장 증상: 라인 정지 1건이 flow 13개 '고장'으로 표시. 집계는 이미 유발자만 고장으로 세고 형제는
-    //   공백으로 뺐는데, 로그 판정이 대기를 비생산의 하위로만 인정해(isWait = isNp && …) 전달되지 않았다.
+    // ── 행↔구간 조인 허용치 (doc/28 §2.6) — 저장된 수동 라벨을 재도출된 행에 다시 붙일 때의 과반 규칙 ──
+    //   사용자 규칙이 아니다(전환 객체는 행). 경계 스침으로 이웃 행을 뒤집지 않고, 몇 초 어긋나도 라벨이 떨어지지 않는다.
+
+    [Theory]
+    [InlineData(63 * 3600_000.0, 54 * 3600_000.0, true)]    // 주말 행(금 17:00~월 08:00) ∩ 토 00:00~월 06:00 라벨 = 86% → 붙음
+    [InlineData(30 * 60_000.0, 10 * 60_000.0, false)]       // 월 05:50~06:20 고장 행이 라벨 끝에 10분 걸침(33%) → 안 붙음
+    [InlineData(10_000, 5_000, false)]                      // 정확히 절반 = 과반 아님
+    [InlineData(10_000, 5_001, true)]
+    [InlineData(0, 0, false)]                               // 0 길이 방어
+    public void IsMajorityCovered_requires_more_than_half(double rowMs, double overlapMs, bool expected)
+        => Assert.Equal(expected, OeeMath.IsMajorityCovered(rowMs, overlapMs));
 
     [Fact]
-    public void LogStopClass_slack_overlap_alone_yields_wait_gap_not_fault()
+    public void Row_cannot_be_majority_covered_by_two_disjoint_labels()
     {
-        // ★핵심 회귀: 비생산은 아니지만 이벤트성 공백에 덮인 정지 → '대기(공백)'. 종전엔 (F,F)=고장이었다.
-        var (isNp, isWait) = OeeMath.ResolveLogStopClass(nonProdRatio: 0, waitRatio: 0, slackRatio: 1.0);
-        Assert.False(isNp);
-        Assert.True(isWait);
-    }
-
-    [Fact]
-    public void LogStopClass_nonprod_with_wait_stays_nonprod_wait()
-    {
-        // 기준 이상 형제 정지 = 비생산·대기(종전 동작 보존).
-        var (isNp, isWait) = OeeMath.ResolveLogStopClass(1.0, 1.0, 0);
-        Assert.True(isNp);
-        Assert.True(isWait);
-    }
-
-    [Fact]
-    public void LogStopClass_nonprod_without_wait_is_plain_nonprod()
-    {
-        // 비생산일 때 대기 여부는 waitRatio 로만 본다 — slack 이 덮여 있어도 '비생산·대기'로 승격되지 않는다.
-        var (isNp, isWait) = OeeMath.ResolveLogStopClass(1.0, 0, 1.0);
-        Assert.True(isNp);
-        Assert.False(isWait);
-    }
-
-    [Fact]
-    public void LogStopClass_no_overlap_remains_fault()
-    {
-        // 어디에도 안 덮인 정지 = 고장/유지보수 유지(체크박스 경로) — 진짜 정지가 조용히 대기로 빠지지 않게.
-        var (isNp, isWait) = OeeMath.ResolveLogStopClass(0, 0, 0);
-        Assert.False(isNp);
-        Assert.False(isWait);
-    }
-
-    [Fact]
-    public void LogStopClass_uses_half_overlap_boundary()
-    {
-        // 경계 50%: 미만은 고장 유지, 이상은 대기 — 부분만 겹친 정지가 라벨을 뒤집지 않게 한다.
-        Assert.False(OeeMath.ResolveLogStopClass(0, 0, 0.49).IsWait);
-        Assert.True(OeeMath.ResolveLogStopClass(0, 0, 0.50).IsWait);
-    }
-
-    // ── 정지 판정 경계 단일화 ─────────────────────────────────────────────────
-    // 2026-08-21 통일: 감지 임계 = 집계 판정 경계(종전 평균 CT × 배수, 2026-09-09 부터 WT 정지 경계). 종전엔
-    // 감지(109초)와 계상(213초)이 어긋나 "정지 로그엔 뜨는데 고장 건수엔 없는" 구간을 만들었다.
-    // 경계 하나(ResolveWtStopBoundaryMs)로 dtCond·행 판정·'진행 중' 표시가 갈린다는 계약.
-
-    [Fact]
-    public void Stop_boundary_is_shared_by_cycle_classification()
-    {
-        // 중앙 WT 20s × 5 = 100s(하한 1사이클 42s 미발동) — 대기가 경계를 넘으면 비가동, 아니면 정상.
-        var boundary = OeeMath.ResolveWtStopBoundaryMs(20_000, 42_000, 5.0);
-        Assert.Equal(100_000, boundary);
-        Assert.Equal(OeeMath.CycleClass.Downtime, OeeMath.ClassifyCycle(mt: 1_000, ct: 101_001, wt: (int)boundary + 1, wtBoundaryMs: boundary));
-        Assert.Equal(OeeMath.CycleClass.Normal,   OeeMath.ClassifyCycle(mt: 1_000, ct: 100_999, wt: (int)boundary - 1, wtBoundaryMs: boundary));
-    }
-
-    [Fact]
-    public void NoCycle_slow_flow_no_false_onset()
-    {
-        // 회귀 핵심: 주기 200s(>120s) 느린 flow — 구 고정 120s 면 정상 gap(180s)에서 거짓 onset.
-        // 통일 임계(평균CT 200s × 2.5 = 500s)로도 정상 gap 은 안 걸리고 진짜 정지(600s)만 걸린다.
-        var thr = 200_000 * 2.5;
-        Assert.Equal(500_000, thr);
-        Assert.True(180_000 < thr);   // 정상 gap → onset 아님
-        Assert.True(600_000 >= thr);  // 진짜 정지 → onset
+        // 서로 겹치지 않는 두 라벨이 한 행을 나눠 덮으면 둘 다 과반이 될 수 없다 — 이중 분류 불가.
+        const double row = 10_000;
+        double a = 5_000, b = 5_000;
+        Assert.False(OeeMath.IsMajorityCovered(row, a) && OeeMath.IsMajorityCovered(row, b));
+        a = 6_000; b = 4_000;
+        Assert.True(OeeMath.IsMajorityCovered(row, a));
+        Assert.False(OeeMath.IsMajorityCovered(row, b));
     }
 
     // ── MTBF 고장 판정 = 설비고장(equipment_fault)만 ───────────────────────
@@ -466,132 +409,146 @@ public class OeeMathTests
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    //  사이클기반 OEE (doc/22 — P5 v4 CT/MT/WT 모델)
+    //  사이클기반 OEE (doc/22 → doc/26 행 집합 → doc/28 두 규칙 · 사이클 단위)
     // ════════════════════════════════════════════════════════════════════════
 
-    // ── 비가동 판정 (doc/22 §3 ①② → 2026-09-09 WT/MT 2축, doc/27) — wtBoundary 30s, MT 경계 미지정(=WT 경계 폴백) ──
+    // 현장 3000 #13x 계열 기준선: 중앙 MT 150s, 중앙 WT 20s, 중앙 CT 170s. 고장 5× / 비생산 30×.
+    //   완료 행: mtFault 750s, wtNonProd = max(20s×30=600s, 170s×10=1700s) = 1700s
+    //   불인정 행: ctFault = 170s×5 = 850s, ctNonProd = max(170s×30=5100s, 1700s) = 5100s
+    private const double MtF = 750_000, CtF = 850_000, WtNp = 1_700_000, CtNp = 5_100_000;
+    private const int Sample = 100;
+
+    private static OeeMath.CycleClass Cls(int? mt, int? ct, int? wt, int sample = Sample,
+        double mtF = MtF, double ctF = CtF, double wtNp = WtNp, double ctNp = CtNp)
+        => OeeMath.ClassifyCycle(mt, ct, wt, mtF, ctF, wtNp, ctNp, sample);
+
+    // ── 완료 행: ①-a 동작 초과 = 고장 / ②-a 대기 초과 = 비생산 / 나머지 정상 ──
 
     [Theory]
-    [InlineData(20000, 30000, 10000, OeeMath.CycleClass.Normal)]    // 대기 10s ≤ 30s, MT 20s ≤ 30s(폴백) → 정상
-    [InlineData(5000, 40000, 35000, OeeMath.CycleClass.Downtime)]   // ① 대기 35s > 30s → 비가동(정지 후 재개 행: mt 정상·wt 폭주)
-    [InlineData(45000, 50000, 5000, OeeMath.CycleClass.Downtime)]   // ② 대기 5s 정상이지만 MT 45s > 30s(WT 경계 폴백) → 비가동
-    [InlineData(null, 50000, null, OeeMath.CycleClass.Downtime)]    // mt NULL(tail 미완료) → wt 없음 → 대기 = ct 50s > 30s → 비가동
-    [InlineData(null, 20000, null, OeeMath.CycleClass.Normal)]      // mt NULL 이지만 ct 20s ≤ 30s → 정상
-    [InlineData(5000, 500000, 495000, OeeMath.CycleClass.Downtime)] // 장기 정지(주말) 행 → 비가동(분류는 상위에서 비생산 승격)
-    public void ClassifyCycle_marks_downtime_by_mt_or_wt_overrun(int? mt, int? ct, int? wt, OeeMath.CycleClass expected)
-    {
-        Assert.Equal(expected, OeeMath.ClassifyCycle(mt, ct, wt, wtBoundaryMs: 30_000));
-    }
-
-    // ── 비가동 적립 범위 (2026-08-24 MT 축 분리, 2026-09-09 WT 축) ──────────────
+    [InlineData(150_000, 170_000, 20_000, OeeMath.CycleClass.Normal)]          // 평소 그대로
+    [InlineData(700_000, 720_000, 20_000, OeeMath.CycleClass.Normal)]          // 동작 4.7× — 경계(5×) 아래 = 정상(속도 손실 → P)
+    [InlineData(750_001, 770_001, 20_000, OeeMath.CycleClass.Fault)]           // 동작 경계 초과(> 조건) = 고장
+    [InlineData(150_000, 1_849_999, 1_699_999, OeeMath.CycleClass.Normal)]     // 대기 1699.999s — 비생산 경계 직전 = 정상(가동, P 손실)
+    [InlineData(150_000, 1_850_000, 1_700_000, OeeMath.CycleClass.NonProduction)] // 대기 정확히 경계(≥) = 비생산
+    [InlineData(150_000, 60 * 3600_000, 60 * 3600_000 - 150_000, OeeMath.CycleClass.NonProduction)] // 완료 후 주말 방치(wt 60h) = 비생산
+    public void ClassifyCycle_completed_row_two_rules(int mt, int ct, int wt, OeeMath.CycleClass expected)
+        => Assert.Equal(expected, Cls(mt, ct, wt));
 
     [Fact]
-    public void 적립_WT초과_행은_사이클_전체()
-        => Assert.Equal(120_000, OeeMath.ResolveDowntimeAccrualMs(
-            ctMs: 120_000, mtMs: 5_000, wtMs: 115_000, wtBoundaryMs: 20_000, mtBoundaryMs: 10_550, mtMedianMs: 4_220));
+    public void ClassifyCycle_fault_wins_over_nonprod_when_both_exceed()
+        // 동작도 늘어지고 대기도 길면 ①이 먼저 — 고장(고장은 길이 무관 비생산으로 승격하지 않는다).
+        => Assert.Equal(OeeMath.CycleClass.Fault, Cls(900_000, 3_000_000, 2_100_000));
 
     [Fact]
-    public void 적립_MT만_초과면_평소_대비_초과분만()
+    public void ClassifyCycle_weekend_going_row_stays_fault()
     {
-        // 실측 2026-08-24 이송 12:43:35 — ct 40,823(정상권) / mt 31,191(중앙 4,220 의 7.4배) / wt 9,632(정상).
-        // 부품은 제때 나왔으므로 40.8초가 아니라 초과분 26,971ms 만 손실.
-        Assert.Equal(26_971, OeeMath.ResolveDowntimeAccrualMs(
-            ctMs: 40_823, mtMs: 31_191, wtMs: 9_632, wtBoundaryMs: 20_000, mtBoundaryMs: 10_550, mtMedianMs: 4_220));
+        // 금요일 Going 상태로 세워 두고 월요일 이어서 완료 — mt 60h. doc/28 §1: 고장(승격 없음). 교정은 사용자 전환.
+        var mt = 60 * 3600_000;
+        Assert.Equal(OeeMath.CycleClass.Fault, Cls(mt, mt + 20_000, 20_000));
+        // 사용자가 봐야 할 행 — 길이가 비생산 경계(CT) 이상이면 '확인 필요'.
+        Assert.True(OeeMath.IsReviewPending(mt + 20_000, CtNp));
     }
 
     [Fact]
-    public void 적립_MT기준_미보유면_사이클_전체로_폴백()
-        => Assert.Equal(40_823, OeeMath.ResolveDowntimeAccrualMs(
-            ctMs: 40_823, mtMs: 31_191, wtMs: 9_632, wtBoundaryMs: 20_000, mtBoundaryMs: 20_000, mtMedianMs: 0));
+    public void ClassifyCycle_missing_wt_uses_ct_minus_mt()
+        // wt 컬럼이 비어도 ct − mt(행 단위 항등)로 대기를 만든다.
+        => Assert.Equal(OeeMath.CycleClass.NonProduction, Cls(150_000, 1_850_000, null));
+
+    // ── 불인정 행(mt NULL, ct = 시작~다음 시작): CT 축 하나 — ①-b ct > 중앙 CT × 고장배수 / ②-b ct ≥ 중앙 CT × 비생산배수 ──
+
+    [Theory]
+    [InlineData(170_000, OeeMath.CycleClass.Normal)]         // 정상 길이인데 tail 누락 = 정상
+    [InlineData(850_000, OeeMath.CycleClass.Normal)]         // 정확히 경계(> 조건) = 정상
+    [InlineData(850_001, OeeMath.CycleClass.Fault)]          // 5× 초과 = 고장
+    [InlineData(60 * 3600_000, OeeMath.CycleClass.Fault)]    // 소재 빼고 월요일 새로 시작(주말 60h) = 고장(비생산 경계도 넘지만 ①이 먼저)
+    public void ClassifyCycle_incomplete_row_uses_ct_axis(int ct, OeeMath.CycleClass expected)
+        => Assert.Equal(expected, Cls(null, ct, null));
 
     [Fact]
-    public void 적립_초과분은_사이클_길이를_넘지_않는다()
+    public void ClassifyCycle_incomplete_row_nonprod_only_when_fault_clause_is_above_it()
     {
-        // ct < mt 비정상 행(시계 역행 등) 방어 — 사이클보다 긴 손실을 만들지 않는다.
-        Assert.Equal(5_000, OeeMath.ResolveDowntimeAccrualMs(
-            ctMs: 5_000, mtMs: 90_000, wtMs: 0, wtBoundaryMs: 20_000, mtBoundaryMs: 10_550, mtMedianMs: 4_220));
+        // 고장배수 20 > 비생산배수 5 인 설정: ctFault 3400s, ctNp = max(170×5, 170×10) = 1700s → 1700~3400s 구간은 비생산.
+        Assert.Equal(OeeMath.CycleClass.NonProduction, Cls(null, 2_000_000, null, ctF: 3_400_000, ctNp: 1_700_000));
+        Assert.Equal(OeeMath.CycleClass.Fault, Cls(null, 3_400_001, null, ctF: 3_400_000, ctNp: 1_700_000));
     }
 
     [Fact]
-    public void 적립_mt_없는_행은_사이클_전체()
-        // wt 도 없으므로 대기 = ct(COALESCE) → WT 초과로 전체 적립.
-        => Assert.Equal(40_823, OeeMath.ResolveDowntimeAccrualMs(
-            ctMs: 40_823, mtMs: null, wtMs: null, wtBoundaryMs: 20_000, mtBoundaryMs: 10_550, mtMedianMs: 4_220));
+    public void Shuttle_type_flow_incomplete_normal_length_row_is_not_fault()
+    {
+        // 현장 3000 셔틀: WT 가 CT 의 87% (중앙 MT 24s, 중앙 CT 180s). 초판(doc/28 9/10)은 불인정 행을 중앙 MT 경계(24s×5=120s)에
+        // 대어 정상 길이 180s 행이 tail 누락 한 번에 고장이 됐다. CT 축(180s×5=900s)이면 정상.
+        var mtFault = OeeMath.ResolveMtFaultBoundaryMs(24_000, 5.0);      // 120s — 완료 행 전용
+        var ctFault = OeeMath.ResolveCtFaultBoundaryMs(180_000, 5.0);     // 900s — 불인정 행 전용
+        var wtNp = OeeMath.ResolveWtNonProdBoundaryMs(156_000, 180_000, 30.0);
+        var ctNp = OeeMath.ResolveCtNonProdBoundaryMs(180_000, 30.0);
+        Assert.Equal(OeeMath.CycleClass.Normal, OeeMath.ClassifyCycle(null, 180_000, null, mtFault, ctFault, wtNp, ctNp, Sample));
+        Assert.Equal(OeeMath.CycleClass.Fault, OeeMath.ClassifyCycle(null, 900_001, null, mtFault, ctFault, wtNp, ctNp, Sample));
+        // 완료 행은 여전히 MT 축 — 동작 121s 는 고장(셔틀 동작이 5배 늘어진 것).
+        Assert.Equal(OeeMath.CycleClass.Fault, OeeMath.ClassifyCycle(120_001, 300_000, 179_999, mtFault, ctFault, wtNp, ctNp, Sample));
+    }
+
+    // ── 게이트·비활성 절 ──
 
     [Fact]
-    public void ClassifyCycle_MT경계가_주어지면_그_경계로_판정한다()
+    public void ClassifyCycle_sample_gate_marks_everything_normal()
     {
-        // wt 정상권 + mt 가 MT 경계 초과 → 비가동(고장 유발자 행 — 길이 무관, 비생산 승격 대상 아님).
-        Assert.Equal(OeeMath.CycleClass.Downtime, OeeMath.ClassifyCycle(
-            mt: 31_191, ct: 40_823, wt: 9_632, wtBoundaryMs: 101_885, mtBoundaryMs: 10_550));
-        // MT 경계 미지정(0) → WT 경계 폴백 = SQL @MtThr=@WtThr 와 동일 → mt 31s ≤ 101s → 정상
-        Assert.Equal(OeeMath.CycleClass.Normal, OeeMath.ClassifyCycle(
-            mt: 31_191, ct: 40_823, wt: 9_632, wtBoundaryMs: 101_885));
+        // 14일 완료 사이클 10건 미만 → 기준선은 있어도 판정 보류(전부 정상). 10건부터 판정.
+        Assert.Equal(OeeMath.CycleClass.Normal, Cls(900_000, 950_000, 50_000, sample: 9));
+        Assert.Equal(OeeMath.CycleClass.Normal, Cls(null, 60 * 3600_000, null, sample: 9));
+        Assert.Equal(OeeMath.CycleClass.Fault, Cls(900_000, 950_000, 50_000, sample: 10));
+    }
+
+    [Fact]
+    public void ClassifyCycle_flow_without_mt_baseline_cannot_judge_fault()
+    {
+        // tail 미정의 flow: mt·wt 항상 NULL, MT 기준선 없음 → 고장 절 비활성(0). 비생산(CT 축)만 가능.
+        Assert.Equal(OeeMath.CycleClass.Normal, Cls(null, 4_000_000, null, mtF: 0, ctF: 0));
+        Assert.Equal(OeeMath.CycleClass.NonProduction, Cls(null, 5_100_000, null, mtF: 0, ctF: 0));
+        // 완료 행이 있어도 MT 경계 0 = 판정 비활성(0 을 경계로 쓰면 전 행이 고장이 되는 함정 방지).
+        Assert.Equal(OeeMath.CycleClass.Normal, Cls(900_000, 950_000, 50_000, mtF: 0, ctF: 0));
     }
 
     [Fact]
     public void ClassifyCycle_open_cycle_without_ct_is_ignored()
     {
-        Assert.Equal(OeeMath.CycleClass.Ignore, OeeMath.ClassifyCycle(mt: 5000, ct: null, wt: null, wtBoundaryMs: 30000));
-        Assert.Equal(OeeMath.CycleClass.Ignore, OeeMath.ClassifyCycle(mt: 5000, ct: 0, wt: 0, wtBoundaryMs: 30000));
+        Assert.Equal(OeeMath.CycleClass.Ignore, Cls(5000, null, null));
+        Assert.Equal(OeeMath.CycleClass.Ignore, Cls(5000, 0, 0));
     }
 
     [Fact]
-    public void ClassifyCycle_no_threshold_treats_as_normal()
-    {
-        // 표본 부족(경계 0) → 판정 불가 → Normal(상위에서 산출 게이트). 가짜 비가동 분류 금지.
-        Assert.Equal(OeeMath.CycleClass.Normal, OeeMath.ClassifyCycle(mt: 999999, ct: 999999, wt: 1, wtBoundaryMs: 0));
-    }
+    public void ClassifyCycle_all_boundaries_zero_is_normal()
+        // 기준선 전무 → 판정 불가 → Normal(상위에서 산출 게이트). 가짜 고장/비생산 분류 금지.
+        => Assert.Equal(OeeMath.CycleClass.Normal, Cls(999_999, 999_999, 1, mtF: 0, ctF: 0, wtNp: 0, ctNp: 0));
 
-    // ── 정지 배수(WT 축) — 경계 = 중앙 WT × idleMultiplier(하한 1사이클) 가 ClassifyCycle 에 그대로 들어간다 ──
-
-    [Theory]
-    [InlineData(5000, 50000, 45000, OeeMath.CycleClass.Normal)]    // 대기 45s ≤ 경계 50s(중앙 WT 10s × 5) → 정상(속도 손실 → P)
-    [InlineData(5000, 55000, 50000, OeeMath.CycleClass.Normal)]    // 대기 정확히 경계 → 아직 정상(초과 조건)
-    [InlineData(5000, 55001, 50001, OeeMath.CycleClass.Downtime)]  // 대기 50.001s > 경계 → 비가동
-    [InlineData(null, 50001, null, OeeMath.CycleClass.Downtime)]   // 미완료(wt 없음) → ct 50.001s > 경계 → 비가동
-    public void ClassifyCycle_idle_multiplier_moves_boundary(int? mt, int? ct, int? wt, OeeMath.CycleClass expected)
-        => Assert.Equal(expected, OeeMath.ClassifyCycle(mt, ct, wt, wtBoundaryMs: OeeMath.ResolveWtStopBoundaryMs(10_000, 30_000, 5.0)));
+    // ── 설정 정규화 — 슬라이더 2개(고장·비생산). 정지 배수·신호 판별 설정은 폐기 ──
 
     [Fact]
-    public void ClassifyCycle_idle_multiplier_below_one_clamps_to_one()
-        // 배수 < 1 은 1로 클램프(정상 대기를 정지로 삼키는 역방향 금지) — 중앙 WT 30s × 0.5 → 30s, 하한 1사이클 20s 미발동.
-        => Assert.Equal(OeeMath.CycleClass.Normal, OeeMath.ClassifyCycle(mt: 1000, ct: 30000, wt: 29000,
-            wtBoundaryMs: OeeMath.ResolveWtStopBoundaryMs(30_000, 20_000, 0.5)));
-
-    // ── 비생산 승격 배수 (2026-07-13 사용자 설정화) — IsLongStopNonProduction 파라미터 ──
-
-    [Theory]
-    [InlineData(149_999, 15.0, false)]  // 15×thr 미만 → 다운타임 유지
-    [InlineData(150_000, 15.0, true)]   // 정확히 15×thr → 비생산
-    [InlineData(100_000, 15.0, false)]  // 기본 10× 였다면 비생산이었을 길이 — 배수 상향으로 다운타임 유지
-    public void IsLongStopNonProduction_honors_custom_multiplier(double durMs, double mult, bool expected)
-        => Assert.Equal(expected, OeeMath.IsLongStopNonProduction(durMs, baselineMs: 10_000, multiplier: mult));
-
-    [Fact]
-    public void ResolveWtMultipliers_defaults_clamps_and_inversion_defense()
+    public void Multiplier_settings_defaults_and_clamps()
     {
         var s = new DSPilot.Models.OeeManualSettings();
-        Assert.Equal((OeeMath.IdleWtMultiplierDefault, OeeMath.NonProductionWtMultiplier), s.ResolveWtMultipliers());
+        Assert.Equal(OeeMath.NonProductionWtMultiplier, s.ResolveNonProdWtMultiplier());
+        Assert.Equal(OeeMath.FaultMtMultiplierDefault, s.ResolveFaultMtMultiplier());
 
-        // 역전(손편집/구버전 JSON) — 정지 ≥ 비생산이면 정지를 비생산/2 로 방어(승격 경로 사망 방지)
-        s.IdleWtMultiplier = 12; s.NonProdWtMultiplier = 10;
-        Assert.Equal((5.0, 10.0), s.ResolveWtMultipliers());
+        s.NonProdWtMultiplier = double.NaN; s.FaultMtMultiplier = 99;
+        Assert.Equal(OeeMath.NonProductionWtMultiplier, s.ResolveNonProdWtMultiplier());
+        Assert.Equal(DSPilot.Models.OeeManualSettings.FaultMultMax, s.ResolveFaultMtMultiplier());   // 상한 20(현장 3000 의 10 보존)
+        Assert.Equal(20.0, DSPilot.Models.OeeManualSettings.FaultMultMax);
 
-        // NaN → 기본값 폴백, 범위 밖 → 클램프
-        s.IdleWtMultiplier = double.NaN; s.NonProdWtMultiplier = 1000;
-        Assert.Equal((OeeMath.IdleWtMultiplierDefault, DSPilot.Models.OeeManualSettings.NonProdMultMax), s.ResolveWtMultipliers());
+        s.NonProdWtMultiplier = 1000;
+        Assert.Equal(DSPilot.Models.OeeManualSettings.NonProdMultMax, s.ResolveNonProdWtMultiplier());
     }
 
     [Fact]
-    public void Old_ct_multiplier_keys_are_not_migrated()
+    public void Old_multiplier_keys_are_not_migrated_and_fault_is_preserved()
     {
-        // 구 Production.json 의 IdleCtMultiplier/NonProdCtMultiplier(CT 축, 예: 현장 5×/24.5×)는 새 WT 축 키로 옮기지 않는다 —
-        // 5×CT 와 5×WT 는 뜻이 달라 그대로 읽으면 경계가 옮겨간다. 새 키 미보유 = 기본값(ExtensionData 로 구 키 무해 보존).
-        var json = "{\"IdleCtMultiplier\":5,\"NonProdCtMultiplier\":24.5,\"FaultMtMultiplier\":10}";
+        // 구 Production.json 의 IdleWtMultiplier(정지 배수)·IdleCtMultiplier/NonProdCtMultiplier(CT 축)·SignalClassifyEnabled 는
+        // 새 모델에 뜻이 없어 이관하지 않는다(ExtensionData 로 무해 보존). 고장 배수 10(현장 3000)은 그대로 읽힌다.
+        var json = "{\"IdleWtMultiplier\":5,\"IdleCtMultiplier\":5,\"NonProdCtMultiplier\":24.5,\"SignalClassifyEnabled\":true,\"FaultMtMultiplier\":10}";
         var s = System.Text.Json.JsonSerializer.Deserialize<DSPilot.Models.OeeManualSettings>(json)!;
-        Assert.Equal((OeeMath.IdleWtMultiplierDefault, OeeMath.NonProductionWtMultiplier), s.ResolveWtMultipliers());
-        Assert.Equal(10.0, s.ResolveFaultMtMultiplier());   // MT 축은 그대로 — 뜻이 바뀌지 않았다
+        Assert.Equal(OeeMath.NonProductionWtMultiplier, s.ResolveNonProdWtMultiplier());
+        Assert.Equal(10.0, s.ResolveFaultMtMultiplier());
+        Assert.NotNull(s.ExtensionData);
+        Assert.True(s.ExtensionData!.ContainsKey("IdleWtMultiplier"));
     }
 
     // ── P5 §⑥ 검산 (STN3): CT이상치=30s, N=90, Σ실측CT=2970s, Σ비가동CT=1200s ──
@@ -890,121 +847,46 @@ public class OeeMathTests
         Assert.Equal((1320, 1440), (w[1].StartMinutes, w[1].EndMinutes));
     }
 
-    // ── ClassifyStopWindow (doc/25 §1 분류표 SSOT) ──────────────────────────
-    //    기준 예시: 비생산 경계 720s(종전 평균 CT 48s × 15; 2026-09-09 부터 호출측이 WT 축 경계를 만들어 넘긴다 —
-    //    이 함수는 경계 하나만 받는다). 유발=flow 귀속 abnormal, 형제=같은 창에 유발자 존재.
-
-    private const double Thr = 720_000;
+    // ── doc/28 §2.1 — onset = 고장 행 시작, 고장 사이클 평균 시간 = 고장 행 ct 평균(행 전체) ──────────
 
     [Fact]
-    public void Own_signal_wins_regardless_of_duration()
+    public void Fault_cycle_mean_uses_whole_row_length_not_excess()
     {
-        // 유발 flow — 41분(기준 초과)이어도 고장 확정(doc/25 §0 ① kit_test 41분 이송 케이스).
-        Assert.Equal(OeeMath.StopClass.Fault, OeeMath.ClassifyStopWindow(
-            signalRulesActive: true, hasOwnSignal: true, lineHasCulprit: false, lineHasUnresolvedUsertag: true,
-            durationMs: 41 * 60_000, nonProdBoundaryMs: Thr));
-        // 짧아도 고장.
-        Assert.Equal(OeeMath.StopClass.Fault, OeeMath.ClassifyStopWindow(
-            true, true, false, true, 90_000, Thr));
+        // 현장 3000 #131 9/9 10:45 행: ct 27.8분(mt 27.3 + wt 0.5). 초과분(24.9분)이 아니라 행 전체를 평균한다 — 행 안에서
+        // 고장이 언제 시작됐는지 모르므로 행이 단위(doc/28 §7-C). ⓘ 라벨은 '고장 사이클 평균 시간'.
+        var (mean, note) = OeeMath.ComputeMttr(new List<double> { 27.8 * 60_000, 22.7 * 60_000 });
+        Assert.Equal(25.25 * 60_000, mean!.Value, 6);
+        Assert.Contains("사이클", note);
     }
 
     [Fact]
-    public void Sibling_with_culprit_splits_by_threshold()
+    public void Mtbf_onsets_are_row_starts()
     {
-        // 형제 flow — 기준(10×48s=480s) 미만 = 대기 공백(§0 ② 5분 테스트), 이상 = 대기 비생산(41분 케이스).
-        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
-            true, hasOwnSignal: false, lineHasCulprit: true, lineHasUnresolvedUsertag: true, 300_000, Thr));
-        Assert.Equal(OeeMath.StopClass.WaitNonProd, OeeMath.ClassifyStopWindow(
-            true, false, true, true, 41 * 60_000, Thr));
+        // 두 고장 행이 09:00 시작(30분)·10:00 시작(20분)이면 onset 간격은 시작 차이 60분 — 초과분 위치와 무관.
+        var onsets = new List<double> { 9 * 3600_000.0, 10 * 3600_000.0 };
+        var (mtbf, _, _) = OeeMath.ComputeMtbf2(onsets);
+        Assert.Equal(3600_000.0, mtbf!.Value, 6);
     }
 
     [Fact]
-    public void Usertag_only_without_culprit_stays_fault()
+    public void Performance_note_names_median_ct_standard()
     {
-        // usertag(라인 스코프)만 — 유발자 특정 불가 → 보수적으로 고장 유지(§2.3), 기준 초과라도 비생산 승격 금지.
-        Assert.Equal(OeeMath.StopClass.Fault, OeeMath.ClassifyStopWindow(
-            true, hasOwnSignal: false, lineHasCulprit: false, lineHasUnresolvedUsertag: true, 41 * 60_000, Thr));
+        var (p, note) = OeeMath.ComputeCyclePerformance(10, 170_000, 1_800_000);
+        Assert.NotNull(p);
+        Assert.Contains("중앙", note);
+        var (_, note0) = OeeMath.ComputeCyclePerformance(10, null, 1_800_000);
+        Assert.Contains("중앙", note0);
     }
 
     [Fact]
-    public void No_signal_falls_back_to_pure_ct_rule()
+    public void Wall_clock_availability_is_run_over_available()
     {
-        // 라인 전체 무신호 — 기준 이상은 비생산, 미만은 <b>대기</b>(2026-08-21 폴백 전환).
-        //   종전 Down(고장)은 라인 정지 1회를 설비 수만큼 고장으로 부풀렸다(실측 3분 정지 → 6건).
-        //   고장은 MT 과주행 / 자기 flow abnormal / 미해소 usertag 로만 잡는다.
-        Assert.Equal(OeeMath.StopClass.NonProduction, OeeMath.ClassifyStopWindow(
-            true, false, false, false, 41 * 60_000, Thr));
-        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
-            true, false, false, false, 300_000, Thr));
-    }
-
-    [Fact]
-    public void Inactive_rules_ignore_signals_entirely()
-    {
-        // 커버리지 게이트/설정 OFF — 신호 인자 무시, CT 규칙만(§2.4 폴백). 경계 미만은 대기.
-        Assert.Equal(OeeMath.StopClass.NonProduction, OeeMath.ClassifyStopWindow(
-            signalRulesActive: false, hasOwnSignal: true, lineHasCulprit: true, lineHasUnresolvedUsertag: true,
-            41 * 60_000, Thr));
-        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
-            false, true, true, true, 300_000, Thr));
-    }
-
-    // ── 유발자 특정 우선순위 (2026-08-24 실측 기반) ─────────────────────────
-    // kit 라인에서 이송 하나를 Going 중 정지시킨 실측:
-    //   이송 mt=431,226ms(7.2분) / 형제 4개 mt≈5,000ms — MT 만으로 유발자와 형제가 갈렸다.
-    // 그 구간에 미해소 usertag(1st_usb.RET_센서단선이상)도 걸쳐 있었는데, 종전 규칙은 usertag 만 보고
-    // 형제까지 전원 고장으로 올렸다(고장 5건). MT 과주행으로 이미 유발자가 특정됐으면 형제는 대기다.
-
-    [Fact]
-    public void MtOverrun_culprit_demotes_siblings_to_wait()
-    {
-        // 형제 flow — 자기 신호 없음, abnormal 유발자 없음, 미해소 usertag 있음.
-        //   그러나 라인에 MT 과주행 flow 가 있으므로 대기(유발자 특정됨).
-        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
-            signalRulesActive: true, hasOwnSignal: false, lineHasCulprit: false,
-            lineHasUnresolvedUsertag: true, durationMs: 300_000, nonProdBoundaryMs: Thr,
-            lineHasMtOverrun: true));
-    }
-
-    [Fact]
-    public void Unresolved_usertag_is_line_fault_only_when_no_culprit()
-    {
-        // 유발자 전무 + 미해소 usertag → 라인 문제로 보고 전원 고장(최후 안전망).
-        Assert.Equal(OeeMath.StopClass.Fault, OeeMath.ClassifyStopWindow(
-            true, false, false, lineHasUnresolvedUsertag: true, durationMs: 300_000, nonProdBoundaryMs: Thr));
-        // 같은 조건에서 usertag 가 이미 해소됐으면 고장 근거가 없다 → 대기.
-        //   실측: 09:00:34 발화 → 09:01:54 해소인데 09:02:31 까지의 정지가 전원 고장으로 잡혔다.
-        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
-            true, false, false, lineHasUnresolvedUsertag: false, durationMs: 300_000, nonProdBoundaryMs: Thr));
-    }
-
-    [Fact]
-    public void Own_signal_still_wins_over_everything()
-    {
-        // 자기 flow abnormal 은 최우선 — 라인에 MT 과주행이 있어도 자기 고장이다.
-        Assert.Equal(OeeMath.StopClass.Fault, OeeMath.ClassifyStopWindow(
-            true, hasOwnSignal: true, lineHasCulprit: true, lineHasUnresolvedUsertag: true,
-            300_000, Thr, lineHasMtOverrun: true));
-    }
-
-    [Fact]
-    public void No_threshold_never_promotes_to_nonproduction()
-    {
-        // 표본 부족(thr=0) — 승격 판정 불가 → 비생산으로 안 올린다(가짜 비생산 금지, doc/21 §10).
-        //   무신호 폴백이므로 대기. 고장으로 세지 않는다(고장 근거가 없다).
-        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
-            true, false, false, false, 41 * 60_000, 0));
-        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
-            true, false, true, true, 41 * 60_000, 0));
-    }
-
-    [Fact]
-    public void Custom_boundary_moves_the_promotion()
-    {
-        // 경계 240s(예: 중앙 WT 48s × 5): 250s 형제 정지가 대기 비생산으로 승격, 230s 는 대기 공백.
-        Assert.Equal(OeeMath.StopClass.WaitNonProd, OeeMath.ClassifyStopWindow(
-            true, false, true, true, 250_000, 240_000));
-        Assert.Equal(OeeMath.StopClass.WaitSlack, OeeMath.ClassifyStopWindow(
-            true, false, true, true, 230_000, 240_000));
+        // A = 가동 ÷ 생산가능. 비가동 = 생산가능 − 가동 = 고장 + 유지보수 (+ 미귀속 0). 고장 행 전체가 손실이라 라벨과 어긋나지 않는다.
+        var (a, note) = OeeMath.ComputeWallClockAvailability(runWallMs: 90 * 60_000, availableWallMs: 120 * 60_000);
+        Assert.Equal(0.75, a!.Value, 10);
+        Assert.Contains("고장", note);
+        var (a0, note0) = OeeMath.ComputeWallClockAvailability(0, 0);
+        Assert.Null(a0);
+        Assert.Contains("산출 불가", note0);
     }
 }

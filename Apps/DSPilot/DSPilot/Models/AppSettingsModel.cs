@@ -134,73 +134,41 @@ public class OeeManualSettings
     public PlannedAutoPatternCache? AutoPatternCache { get; set; }
 
     /// <summary>
-    /// 비가동(정지) 판정 배수 — <b>WT 축</b>(2026-09-09 전환, doc/27; 종전 2026-07-13 CT 축 <c>IdleCtMultiplier</c>).
-    /// 사이클의 대기시간(wt = ct − mt)이 <b>14일 중앙 WT × 이 배수</b>를 초과하면 정지로 판정한다(하한 = 중앙 CT 1개분,
-    /// <see cref="Services.OeeMath.ResolveWtStopBoundaryMs"/>). 경계 아래의 긴 대기는 정상(Σ실측CT 편입, 속도 손실은
-    /// 성능 P 가 흡수). 성능 P 의 표준치·MTBF onset 시각은 여전히 1×평균 CT(판정 경계만 배수 적용).
-    /// 유효범위 <see cref="IdleMultMin"/>~<see cref="IdleMultMax"/>, 반드시 <see cref="NonProdWtMultiplier"/> 미만
-    /// (역전 시 비가동 밴드 소멸 → <see cref="ResolveWtMultipliers"/> 가 방어 보정). 설비효율 현황에서 조절.
-    /// <para>구 키 <c>IdleCtMultiplier</c>/<c>NonProdCtMultiplier</c> 는 <b>이관하지 않는다</b> — 5×CT 와 5×WT 는 뜻이
-    /// 달라 그대로 읽으면 경계가 옮겨간다. 새 키 미보유 = 기본값. 구 키는 ExtensionData 로 무해 보존.</para>
-    /// </summary>
-    public double IdleWtMultiplier { get; set; } = Services.OeeMath.IdleWtMultiplierDefault;
-
-    /// <summary>
-    /// 비생산 승격 배수 — <b>WT 축</b>(2026-09-09). 정지로 판정된 사이클의 대기시간이 <b>14일 중앙 WT × 이 배수</b>
-    /// 이상이면 비생산(생산가능시간 밖, A 분모 제외)으로 승격한다(하한 = 중앙 CT 10개분,
-    /// <see cref="Services.OeeMath.ResolveWtNonProdBoundaryMs"/>). <b>MT 과주행(고장) 행은 승격 대상이 아니다.</b>
-    /// 낮출수록 정지가 분모 밖으로 빠져 가용성이 후해지므로 주의 — 수동 확정(비생산↔비가동 보내기)은 배수와
-    /// 무관하게 항상 우선. 유효범위 <see cref="NonProdMultMin"/>~<see cref="NonProdMultMax"/>.
+    /// 비생산 판정 배수 (doc/28 §1, 2026-09-11 두 규칙 모델). 완료 행의 대기(wt = ct − mt)가 <b>14일 중앙 WT × 이 배수</b>
+    /// 이상이면 비생산(생산가능시간 밖, A 분모 제외). 불인정 행(mt NULL)은 같은 배수를 <b>중앙 CT</b> 에 곱해 ct 와 비교.
+    /// 하한 = 중앙 CT × 10 사이클(<see cref="Services.OeeMath.WtNonProdFloorCtMultiples"/>).
+    /// <b>고장으로 판정된 행은 길이가 이 경계를 넘어도 비생산으로 바뀌지 않는다</b>(주말 방치도 고장 — 사용자 전환으로 교정).
+    /// 이 배수는 '확인 필요'(길이만 보면 비생산 급인 고장) 표시 임계로도 쓰인다. 낮출수록 대기가 분모 밖으로 빠져
+    /// 가용성이 후해지므로 주의 — 수동 확정(고장으로/비생산으로)은 배수와 무관하게 항상 우선.
+    /// 유효범위 <see cref="NonProdMultMin"/>~<see cref="NonProdMultMax"/>.
+    /// <para>구 키 <c>IdleWtMultiplier</c>(정지 배수)·<c>IdleCtMultiplier</c>/<c>NonProdCtMultiplier</c>(CT 축)는 이관하지
+    /// 않는다 — 정지 밴드가 폐기됐고 축이 달라 그대로 읽으면 경계가 옮겨간다. 구 키는 ExtensionData 로 무해 보존.</para>
     /// </summary>
     public double NonProdWtMultiplier { get; set; } = Services.OeeMath.NonProductionWtMultiplier;
 
     /// <summary>
-    /// 고장 유발자 판별 배수 (2026-08-24). 사이클 <b>MT</b> 가 <b>14일 중앙 MT × 이 배수</b>를 넘긴 flow 를
-    /// 그 정지의 유발자로 보고 고장 확정하고, 넘지 않은 형제 flow 는 여파(대기)로 강등해 고장 건수·MTBF 에서 뺀다.
-    /// 고장으로 판정된 행은 길이가 비생산 경계를 넘어도 <b>비생산으로 바뀌지 않는다</b>(움직인 증거가 있는 정지).
-    ///
-    /// <para>다른 두 배수와 <b>축이 다르다</b>: <see cref="IdleWtMultiplier"/>·<see cref="NonProdWtMultiplier"/> 는
-    /// 중앙 WT 에 곱해 "얼마나 서 있었나"(정지 계상)를 재고, 이 배수만 중앙 MT 에 곱해 "누가 원인인가"(귀속)를 가른다.
-    /// 라인이 서면 모든 flow 의 대기가 함께 늘어나 WT 로는 유발자를 못 가리기 때문이다.</para>
-    ///
-    /// <para>유효범위 <see cref="FaultMultMin"/>~<see cref="FaultMultMax"/>. 정지 계상 여부와는 무관하므로
-    /// <see cref="NonProdWtMultiplier"/> 와의 대소 제약이 없다(축이 달라 비교 자체가 무의미).</para>
+    /// 고장 판정 배수 (doc/28 §1). 완료 행의 <b>MT</b> 가 <b>14일 중앙 MT × 이 배수</b>를 넘으면 고장, 불인정 행(mt NULL)은
+    /// ct 가 <b>중앙 CT × 이 배수</b>를 넘으면 고장. 고장 행은 행 전체가 A 손실이고 고장 건수·MTBF 에 들어간다.
+    /// <para>축이 <see cref="NonProdWtMultiplier"/> 와 다르다: 비생산 배수는 "얼마나 서 있었나"(대기), 이 배수는
+    /// "동작이 평소보다 늘어졌나"(동작)를 잰다. 라인이 서면 모든 flow 의 대기가 함께 늘어나 WT 로는 유발자를 못 가리기 때문이다.</para>
+    /// <para>유효범위 <see cref="FaultMultMin"/>~<see cref="FaultMultMax"/>(2026-09-11 상한 10 → 20 — 현장 3000 이 10 사용 중).
+    /// 기본값 5.0(2.5 → 5.0)은 신규 설치에만 영향, 저장값 불변. 비생산 배수와 대소 제약 없음(축이 달라 비교 무의미).</para>
     /// </summary>
     public double FaultMtMultiplier { get; set; } = Services.OeeMath.FaultMtMultiplierDefault;
 
-    public const double IdleMultMin = 1.5, IdleMultMax = 20.0;
     public const double NonProdMultMin = 5.0, NonProdMultMax = 300.0;
-    public const double FaultMultMin = 1.0, FaultMultMax = 10.0;
+    public const double FaultMultMin = 1.0, FaultMultMax = 20.0;
 
-    /// <summary>
-    /// 신호 기반 정지 분류 (doc/25 §1·§2, 2026-07-16). true(기본)면 정지 창에 겹친 abnormal(자동감지, flow 귀속)·
-    /// usertag(PLC 에러비트, 라인 스코프)로 고장/대기를 판별: 유발 flow = 고장 확정(비생산 승격 억제), 형제
-    /// flow(자기 신호 없음 + 같은 창에 유발자 존재) = 대기(기준 미만 공백 / 이상 비생산·대기, 고장 건수 제외).
-    /// 신호 이력이 기간+14일에 전혀 없으면 커버리지 게이트(doc/25 §2.4)가 자동으로 순수 CT 규칙으로 폴백 —
-    /// 감지 인프라 없는 사이트에서 "신호 없음=비생산" 이 가용성을 부풀리지 않게 한다.
-    /// </summary>
-    public bool SignalClassifyEnabled { get; set; } = true;
+    // (구 SignalClassifyEnabled[doc/25 신호 기반 정지 분류]·IdleWtMultiplier[정지 배수]는 2026-09-11 doc/28 두 규칙 모델로
+    //  삭제 — 신호는 정지 로그 단서(clue) 표시로만 남는다. 기존 Production.json 키는 ExtensionData 로 무해 보존.)
 
-    /// <summary>
-    /// 저장값을 안전 범위로 정규화해 (비가동 배수, 비생산 배수)로 반환 — 집계·학습기·표시의 단일 소스(WT 축).
-    /// 손편집/구버전 JSON 으로 역전(비가동 ≥ 비생산)됐으면 비가동을 비생산의 절반(≥하한)으로 방어 보정한다
-    /// (역전 시 dtCond 가 비생산 후보를 정상으로 삼켜 승격이 통째로 죽는 것을 방지). API 는 저장 전 검증으로 역전을 거부.
-    /// </summary>
-    public (double IdleMult, double NonProdMult) ResolveWtMultipliers()
-    {
-        var nonProd = double.IsFinite(NonProdWtMultiplier)
+    /// <summary>저장값을 안전 범위로 정규화한 비생산 판정 배수 — 집계·학습기·표시의 단일 소스.</summary>
+    public double ResolveNonProdWtMultiplier()
+        => double.IsFinite(NonProdWtMultiplier)
             ? Math.Clamp(NonProdWtMultiplier, NonProdMultMin, NonProdMultMax)
             : Services.OeeMath.NonProductionWtMultiplier;
-        var idle = double.IsFinite(IdleWtMultiplier)
-            ? Math.Clamp(IdleWtMultiplier, IdleMultMin, IdleMultMax)
-            : Services.OeeMath.IdleWtMultiplierDefault;
-        if (idle >= nonProd) idle = Math.Max(IdleMultMin, nonProd / 2);
-        return (idle, nonProd);
-    }
 
-    /// <summary>
-    /// 저장값을 안전 범위로 정규화한 고장 유발자 판별 배수(중앙 MT 대비). WT 축 배수와 서로 제약이 없다.
-    /// </summary>
+    /// <summary>저장값을 안전 범위로 정규화한 고장 판정 배수(중앙 MT / 불인정 행은 중앙 CT 대비). 비생산 배수와 서로 제약이 없다.</summary>
     public double ResolveFaultMtMultiplier()
         => double.IsFinite(FaultMtMultiplier)
             ? Math.Clamp(FaultMtMultiplier, FaultMultMin, FaultMultMax)

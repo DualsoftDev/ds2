@@ -125,7 +125,6 @@
         /* 가동간 공백(임계 미만 사이클 간 미세 슬랙, 2026-07-14) = 가동보다 밝은 스카이 하늘색 솔리드 —
            "감지된 정지가 아니라 크게 보면 가동 흐름"이라는 의미로 가동(파랑) 계열·솔리드, 빗금(정지 신호) 미사용.
            color-mix 로 가동색을 표면색과 섞어 라이트/다크 테마 모두 '가동의 옅은 판'으로 자동 파생. */
-        :root { --oee-slack: color-mix(in srgb, var(--oee-run) 45%, var(--color-surface)); }
 
         /* 정지 유형 = 대각선 빗금(가동=솔리드와 직관적 대비). 색=유형, 빗금=정지 신호. 스와치·바 공용 */
         .hatch-fault { background-color: var(--oee-fault); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
@@ -135,7 +134,6 @@
         .hatch-nonprod { background-color: var(--nonprod); background-image: repeating-linear-gradient(45deg, rgba(96,140,210,0.55) 0 1.4px, transparent 1.4px 6px); }
         /* 대기(고장 여파, doc/25) — 라인 내 다른 설비 고장으로 서 있던 시간. 계산은 비생산(분모 밖)이지만
            "계획 외 유휴"가 아닌 "사건의 여파"라서 공백(하늘색) 계열 + 정지 빗금으로 구분. 도넛/스와치 공용 */
-        .hatch-wait { background-color: var(--oee-slack); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 1.4px, transparent 1.4px 6px); }
         /* 미계측(수신 공백, doc/22 §3.4) — 회색 빗금: '모르는 시간' */
         .hatch-unmeas { background-color: color-mix(in srgb, var(--color-text-secondary) 55%, var(--color-surface)); background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.5) 0 1.4px, transparent 1.4px 6px); }
         /* 진행 중(열린 사이클, doc/26) — 옅은 회색 솔리드: 사이클이 도는 중이라는 사실은 알지만 결과(가동/정지/비생산)는
@@ -534,9 +532,7 @@
         :root { --oee-cause: #7E1D12; --oee-wait-c: #6B7280; }
         .dark-theme { --oee-cause: #E8695B; --oee-wait-c: #9CA3AF; }
         .c-fault { color: var(--oee-cause) !important; }
-        .c-idle { color: var(--oee-fault) !important; }
         .c-np { color: var(--nonprod) !important; }
-        .c-wait { color: var(--oee-wait-c) !important; }
         .up-cm-anatomy { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin: 2px 0 12px; font-size: 0.72rem; color: var(--color-text-secondary); }
         .up-cm-anatomy .lbl { font-weight: 800; color: var(--color-text-primary); white-space: nowrap; }
         .up-cm-anatomy .bar { display: flex; align-items: stretch; border: 1px solid var(--color-lines); border-radius: 8px; overflow: hidden; min-width: 300px; flex: 1 1 320px; }
@@ -549,7 +545,7 @@
         .up-cm-anatomy .bar small { font-size: 0.62rem; color: var(--color-text-secondary); white-space: nowrap; }
         .up-cm-anatomy .rule { white-space: nowrap; }
         .up-cm-anatomy .rule b { font-weight: 800; }
-        .up-cm-steps { list-style: none; margin: 0 0 16px; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+        .up-cm-steps { list-style: none; margin: 0 0 16px; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
         @media (max-width: 1100px) { .up-cm-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         @media (max-width: 560px) { .up-cm-steps { grid-template-columns: 1fr; } }
         .up-cm-steps li { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--color-lines); border-radius: 8px; background: var(--color-surface-variant); font-size: 0.7rem; line-height: 1.45; color: var(--color-text-secondary); }
@@ -576,7 +572,6 @@
         .up-cm-band .seg .nm { font-size: 0.66rem; font-weight: 800; white-space: nowrap; color: var(--color-text-primary); }
         .up-cm-band .seg .rg { font-size: 0.58rem; font-family: var(--font-mono); color: var(--color-text-secondary); white-space: nowrap; }
         .up-cm-band .seg.normal { background: color-mix(in srgb, var(--oee-run) 16%, var(--color-surface)); }
-        .up-cm-band .seg.idle { background-color: color-mix(in srgb, var(--oee-fault) 14%, var(--color-surface)); background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var(--oee-fault) 22%, transparent) 0 1.4px, transparent 1.4px 7px); }
         .up-cm-band .seg.nonprod { background-color: color-mix(in srgb, var(--nonprod) 18%, var(--color-surface)); background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var(--nonprod) 32%, transparent) 0 1.4px, transparent 1.4px 7px); }
         .up-cm-rows { display: flex; flex-direction: column; gap: 12px; }
         .up-cm-row { display: grid; grid-template-columns: minmax(250px, 1fr) minmax(170px, 300px) 52px; gap: 16px; align-items: center; }
@@ -598,6 +593,15 @@
         .up-cm-flowchip b { font-weight: 800; color: var(--color-text-primary); }
         .up-cm-flowchip .th { color: var(--color-text-secondary); }
         .up-cm-flowchip .th i { font-style: normal; font-family: var(--font-mono); font-weight: 700; color: var(--oee-fault); }
+        .up-cm-flowchip .th.fault i { color: var(--oee-cause); }
+        .up-cm-flowchip .th.np i { color: var(--nonprod); }
+        .up-cm-flowchip .th.gate { color: var(--amber, #b7791f); font-weight: 800; }
+        .up-cm-flowchip.gated { border-color: var(--amber, #b7791f); }
+        /* 확인 필요(doc/28 §2.8) — 길이만 보면 비생산 급인 고장. 판정을 바꾸지 않는 표시 플래그(호박색) */
+        .up-review-chip { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; font-size: 0.6rem; font-weight: 800; background: color-mix(in srgb, var(--amber, #b7791f) 16%, var(--color-surface)); color: var(--amber, #b7791f); border: 1px solid var(--amber, #b7791f); margin-left: 6px; white-space: nowrap; vertical-align: middle; }
+        .up-dt-axis { display: inline-block; margin-left: 6px; font-size: 0.58rem; font-family: var(--font-mono); color: var(--color-text-secondary); border: 1px solid var(--color-lines); border-radius: 4px; padding: 0 4px; vertical-align: middle; }
+        .up-dt-sel { font-size: 0.66rem; padding: 2px 6px; border: 1px solid var(--color-lines); border-radius: 6px; background: var(--color-surface); color: var(--color-text-primary); margin-left: 6px; }
+        .up-chip.up-chip-review.is-on { background: var(--amber, #b7791f); color: #fff; border-color: var(--amber, #b7791f); }
         .up-cm-flowchip .th.np i { color: var(--nonprod); }
         .up-cm-flowchip .th.fault i { color: var(--oee-cause); }
         .up-cm-preview { display: flex; align-items: center; gap: 8px; margin-top: 13px; padding: 9px 12px; border: 1px dashed color-mix(in srgb, var(--color-primary) 45%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--color-primary) 6%, transparent); font-size: 0.72rem; color: var(--color-text-secondary); line-height: 1.55; }

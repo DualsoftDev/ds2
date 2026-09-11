@@ -157,20 +157,18 @@ public class AppSettingsService
         => Update(settings => settings.OeeManual.AutoPatternCache = cache);
 
     /// <summary>
-    /// 정지·비생산 판정 배수 저장 (2026-07-13 사용자 설정화 → 2026-09-09 WT 축, doc/27). 호출측(컨트롤러)이 범위·역전
+    /// 비생산·고장 판정 배수 저장 (2026-07-13 사용자 설정화 → 2026-09-11 두 규칙 모델, doc/28). 호출측(컨트롤러)이 범위
     /// 검증을 마친 값을 받는다(여기서도 클램프 방어). 배수가 바뀌면 학습기(§3.5)의 장시간 정지 문턱도 바뀌므로
     /// AutoPatternCache(24h)를 함께 폐기 — 다음 조회가 새 문턱으로 즉시 재학습한다.
     /// </summary>
-    public void SaveStopMultipliers(double idleMult, double nonProdMult, double? faultMtMult = null)
+    public void SaveStopMultipliers(double nonProdMult, double? faultMtMult = null)
     {
-        var idle = Math.Clamp(idleMult, OeeManualSettings.IdleMultMin, OeeManualSettings.IdleMultMax);
         var nonProd = Math.Clamp(nonProdMult, OeeManualSettings.NonProdMultMin, OeeManualSettings.NonProdMultMax);
         var fault = faultMtMult is double fm && double.IsFinite(fm)
             ? Math.Clamp(fm, OeeManualSettings.FaultMultMin, OeeManualSettings.FaultMultMax)
             : (double?)null;
         Update(settings =>
         {
-            settings.OeeManual.IdleWtMultiplier = idle;
             settings.OeeManual.NonProdWtMultiplier = nonProd;
             if (fault is double f) settings.OeeManual.FaultMtMultiplier = f;
             settings.OeeManual.AutoPatternCache = null;

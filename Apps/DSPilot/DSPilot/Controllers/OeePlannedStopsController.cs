@@ -37,98 +37,93 @@ public class OeePlannedStopsController : OeeControllerBase
     {
         var manual = _settings.LoadSettings().OeeManual.PlannedStops ?? new List<PlannedStopWindow>();
         var windows = manual.Select(w => new PlannedStopWindowDto(w.StartMinutes, w.EndMinutes, w.Label)).ToList();
-        var (idleMult, nonProdMult) = ResolveWtMultipliers();
-        return new PlannedStopsDto(windows.Count > 0 ? "both" : "auto", windows, nonProdMult, idleMult);
+        return new PlannedStopsDto(windows.Count > 0 ? "both" : "auto", windows, ResolveNonProdWtMultiplier());
     }
 
     // ── GET /api/oee/ct-multipliers ───────────────────────────────────────
-    // 정지·비생산·고장 판정 기준 배수 + flow별 기준선(중앙 WT/CT/MT·평균 CT — 임계 환산 표시용).
-    // 설비효율 현황 '판정 기준' 카드 소스. 경로 이름은 호환 유지(축은 2026-09-09 부터 WT/MT).
+    // 고장·비생산 판정 기준 배수 + flow별 기준선(중앙 MT/WT/CT·평균 CT·완료 표본 — 임계 환산 표시용, doc/28).
+    // 설비효율 현황 '판정 기준' 카드 소스. 경로 이름은 호환 유지.
     [HttpGet("ct-multipliers")]
     public async Task<ActionResult<CtMultipliersDto>> GetCtMultipliers()
     {
-        var (idleMult, nonProdMult) = ResolveWtMultipliers();
+        var nonProdMult = ResolveNonProdWtMultiplier();
         var faultMult = _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
         var thresholds = await ResolveCtThresholdsAsync();
-        var mtThresholds = await _ctStats.ComputeMtThresholdAsync();
-        var wtBaselines = await _ctStats.ComputeWtBaselineAsync();
-        var flows = thresholds.Where(kv => kv.Value.AvgMs > 0)
+        var bounds = BuildFlowBounds(thresholds, await _ctStats.ComputeMtThresholdAsync(), await _ctStats.ComputeWtBaselineAsync(),
+            nonProdMult, faultMult);
+        var flows = bounds
             .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
             .Select(kv => new CtMultiplierFlowDto(
-                kv.Key, kv.Value.AvgMs,
-                mtThresholds.TryGetValue(kv.Key, out var mt) ? mt : 0,
-                wtBaselines.TryGetValue(kv.Key, out var wb) ? wb.MedianWtMs : 0,
-                wtBaselines.TryGetValue(kv.Key, out var wb2) ? wb2.MedianCtMs : 0))
+                kv.Key, kv.Value.AvgCt, kv.Value.MedianMt, kv.Value.MedianWt, kv.Value.MedianCt,
+                kv.Value.Sample, kv.Value.HasMt))
             .ToList();
-        return new CtMultipliersDto(idleMult, nonProdMult, flows, faultMult);
+        return new CtMultipliersDto(nonProdMult, flows, faultMult);
     }
 
     // ── PUT /api/oee/ct-multipliers ───────────────────────────────────────
-    // 판정 배수 저장 (2026-07-13 → 2026-09-09 WT 축). 검증: 범위 + 비가동 < 비생산(역전 시 비가동 밴드 소멸 → 거부).
+    // 판정 배수 저장 (2026-07-13 → 2026-09-11 두 규칙 모델). 검증: 범위만 — 두 배수는 축이 달라 대소 제약이 없다.
     // 저장 즉시 사전계산 저장본 동기 폐기(NotifyInvalidate) — 직후 재조회가 구 기준 수치를 받지 않는다.
     // 과거 KPI 는 조회 시 재계산이라 자동 소급되지만, oeeNonProdDetectionLog 의 기존 행(감지 당시 배수 스냅샷)은
     // 감사·재현성 규약대로 유지된다(OeeNonProdDetectionLog 주석).
     [HttpPut("ct-multipliers")]
     public async Task<ActionResult<CtMultipliersDto>> SetCtMultipliers([FromBody] CtMultipliersRequest? req)
     {
-        var (curIdle, curNonProd) = ResolveWtMultipliers();
-        var idle = req?.IdleWtMultiplier ?? curIdle;
+        var curNonProd = ResolveNonProdWtMultiplier();
         var nonProd = req?.NonProdWtMultiplier ?? curNonProd;
-        if (!double.IsFinite(idle) || idle < OeeManualSettings.IdleMultMin || idle > OeeManualSettings.IdleMultMax)
-            return BadRequest(new { error = $"비가동 판정 배수는 {OeeManualSettings.IdleMultMin:0.#}~{OeeManualSettings.IdleMultMax:0.#} 범위여야 합니다." });
         if (!double.IsFinite(nonProd) || nonProd < OeeManualSettings.NonProdMultMin || nonProd > OeeManualSettings.NonProdMultMax)
             return BadRequest(new { error = $"비생산 판정 배수는 {OeeManualSettings.NonProdMultMin:0.#}~{OeeManualSettings.NonProdMultMax:0.#} 범위여야 합니다." });
-        if (idle >= nonProd)
-            return BadRequest(new { error = "비가동 배수는 비생산 배수보다 작아야 합니다 — 역전되면 비가동(정지) 구간이 사라져 가용성이 왜곡됩니다." });
 
-        // 고장 배수는 MT 축이라 CT 축 두 배수와 대소 제약이 없다(비교 자체가 무의미) — 범위만 검증.
         var curFault = _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
         var fault = req?.FaultMtMultiplier ?? curFault;
         if (!double.IsFinite(fault) || fault < OeeManualSettings.FaultMultMin || fault > OeeManualSettings.FaultMultMax)
             return BadRequest(new { error = $"고장 판정 배수는 {OeeManualSettings.FaultMultMin:0.#}~{OeeManualSettings.FaultMultMax:0.#} 범위여야 합니다." });
 
-        _settings.SaveStopMultipliers(idle, nonProd, fault);
+        _settings.SaveStopMultipliers(nonProd, fault);
         OeeChangeSignal.NotifyInvalidate();
         _logger.LogInformation(
-            "[OEE] 판정 배수 변경: 비가동 {Idle}×WT / 비생산 {NonProd}×WT / 고장 {Fault}×MT (구 {OldIdle}/{OldNonProd}/{OldFault})",
-            idle, nonProd, fault, curIdle, curNonProd, curFault);
+            "[OEE] 판정 배수 변경: 비생산 {NonProd}× / 고장 {Fault}× (구 {OldNonProd}/{OldFault})",
+            nonProd, fault, curNonProd, curFault);
         return await GetCtMultipliers();
     }
 
-    // ── GET /api/oee/ct-multipliers/preview?idle&nonProd[&fault][&from&to] ────────
-    // 저장 없는 what-if 재분류 — 같은 기간을 현재/제안 배수(WT 축 idle/nonProd, MT 축 fault)로 각각 집계해 비교(라인 전체 스코프).
+    // ── GET /api/oee/ct-multipliers/preview?nonProd[&fault][&from&to] ────────
+    // 저장 없는 what-if 재분류 — 같은 기간을 현재/제안 배수로 각각 집계해 비교(라인 전체 스코프). 축별 건수를 함께 내려
+    // 슬라이더 하나가 완료 행·불인정 행 두 축에 걸린 결과를 화면이 구분 표기한다(doc/28 §3).
     // 오버라이드 계산은 감지로그 materialize 를 막고(suppressDetectionLog), 결과는 집계 TTL 캐시를 공유한다.
-    // fault(MT축 고장 배수) 생략 시 현재 저장값으로 계산 — 구(캐시) 클라이언트 호환.
+    // 구 파라미터 idle 은 무시(정지 배수 폐기 — 구 클라이언트 호환).
     [HttpGet("ct-multipliers/preview")]
     public async Task<ActionResult<CtMultipliersPreviewDto>> PreviewCtMultipliers(
-        [FromQuery] double idle, [FromQuery] double nonProd, [FromQuery] double? fault,
+        [FromQuery] double? nonProd, [FromQuery] double? fault, [FromQuery] double? idle,
         [FromQuery] DateTime? from, [FromQuery] DateTime? to, CancellationToken ct)
     {
-        if (!double.IsFinite(idle) || !double.IsFinite(nonProd) || idle <= 0 || nonProd <= 0 || idle >= nonProd)
-            return BadRequest(new { error = "미리보기 배수가 올바르지 않습니다 (0 < 비가동 < 비생산)." });
-        if (fault is double fq && (!double.IsFinite(fq) || fq < OeeManualSettings.FaultMultMin || fq > OeeManualSettings.FaultMultMax))
+        var curNonProd = ResolveNonProdWtMultiplier();
+        var curFault = _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
+        var np = nonProd ?? curNonProd;
+        var fm = fault ?? curFault;
+        if (!double.IsFinite(np) || np < OeeManualSettings.NonProdMultMin || np > OeeManualSettings.NonProdMultMax)
+            return BadRequest(new { error = $"비생산 판정 배수는 {OeeManualSettings.NonProdMultMin:0.#}~{OeeManualSettings.NonProdMultMax:0.#} 범위여야 합니다." });
+        if (!double.IsFinite(fm) || fm < OeeManualSettings.FaultMultMin || fm > OeeManualSettings.FaultMultMax)
             return BadRequest(new { error = $"고장 판정 배수는 {OeeManualSettings.FaultMultMin:0.#}~{OeeManualSettings.FaultMultMax:0.#} 범위여야 합니다." });
 
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var thresholds = await ResolveCtThresholdsAsync();
         var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
-        var (curIdle, curNonProd) = ResolveWtMultipliers();
-        var curFault = _settings.LoadSettings().OeeManual.ResolveFaultMtMultiplier();
 
-        async Task<CtMultipliersPreviewSideDto> SideAsync(double im, double nm, double fm)
+        async Task<CtMultipliersPreviewSideDto> SideAsync(double nm, double f)
         {
             var agg = await ComputeCycleAggregateAsync(null, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct,
-                idleMultOverride: im, nonProdMultOverride: nm, faultMultOverride: fm);
+                nonProdMultOverride: nm, faultMultOverride: f);
             var (a, _) = OeeMath.ComputeWallClockAvailability(agg.RunWallMs, agg.AvailableWallMs);
             var (p, _) = OeeMath.ComputeCyclePerformance(agg.NormalCount, agg.CtThresholdMs, agg.NormalCtMs);
-            return new CtMultipliersPreviewSideDto(im, nm,
-                agg.DowntimeEventCount, agg.HasThreshold ? agg.NormalCount : 0,
-                agg.IdleCtMs, agg.NonProdWallMs, a, p);
+            return new CtMultipliersPreviewSideDto(nm, f,
+                agg.DowntimeEventCount, agg.NonProdCount, agg.HasThreshold ? agg.NormalCount : 0,
+                agg.IdleCtMs, agg.NonProdWallMs, a, p,
+                agg.FaultMtCount, agg.FaultCtCount, agg.NonProdWtCount, agg.NonProdCtCount, agg.ReviewPendingCount);
         }
 
         return new CtMultipliersPreviewDto(
-            await SideAsync(curIdle, curNonProd, curFault),
-            await SideAsync(idle, nonProd, fault ?? curFault));
+            await SideAsync(curNonProd, curFault),
+            await SideAsync(np, fm));
     }
 
     // ── GET /api/oee/planned-stops/auto-pattern ───────────────────────────
@@ -166,11 +161,6 @@ public class OeePlannedStopsController : OeeControllerBase
         List<(double S, double E)> intervals = merged.Count > 0
             ? Intervals.Union(merged)
             : (agg.NonProdIntervals ?? new List<(double S, double E)>());
-        // 대기(고장 여파, doc/25 §4.2)는 '비생산 시간대' 카드·패턴 표시에서 제외 — 시각대 습관이 아니라 사건이므로,
-        // 고장 여파 시간이 "그 시각대는 원래 비생산"으로 보이거나 학습되지 않게 한다(감지 로그 쪽은 SQL 필터).
-        if (agg.WaitScoped is { Count: > 0 })
-            intervals = Intervals.Subtract(intervals,
-                Intervals.Union(agg.WaitScoped.Select(w => (w.S, w.E)).ToList()));
         // 미계측(수신 공백, §3.4) — 데이터로는 비생산과 분리하되(별도 필드·학습 §3.5 차집합·A 별도 제외),
         // 화면 표시는 비생산에 합친다(사용자 결정 2026-07-04): 사용자 눈에는 "제외된 시간" 하나로 보이고,
         // 14일 이동평균 학습과 KPI 카빙에는 절대 안 들어간다. displayIv = 비생산 ∪ 미계측.

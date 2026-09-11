@@ -3,7 +3,6 @@
         const MAINT_DEF = { label: '유지보수', color: 'var(--oee-maint)', cls: 'hatch-maint', pat: 'up-pat-maint' };
         const NONPROD_DEF = { label: '비생산', color: 'var(--nonprod)', cls: 'hatch-nonprod', pat: 'up-pat-nonprod' };
         // 대기(고장 여파, doc/25) — 라인 내 다른 설비 고장으로 서 있던 시간(기준 이상 → 분모 밖). 비생산과 분리 표기.
-        const WAIT_DEF = { label: '대기(고장 여파)', color: 'var(--oee-slack, #7dd3fc)', cls: 'hatch-wait', pat: 'up-pat-wait' };
 
         // 일자별 차트 인스턴스 — Alpine 반응형 밖에 보관(Proxy 크래시 방지)
         let _dailyChart = null;
@@ -123,7 +122,9 @@
                 dtTab: 'down', // 정지 로그 구분 탭: 'down'(비가동=고장/유지보수) | 'nonprod'(비생산) — 보내기 후 대상 탭 자동 이동
                 dtFilterStatus: 'all', dtFilterFault: 'all', // 'all'|'fault'|'maintenance' (비가동 탭 전용 하위 필터)
                 dtMsg: '', _dtMsgTimer: null, _prodMsgTimer: null, _ctMsgTimer: null,
-                dtReclassBusy: false, // 비생산↔비가동 보내기 진행 중(이중 클릭 가드)
+                dtReclassBusy: false, // 고장↔비생산 전환 진행 중(이중 클릭 가드)
+                // 전환 UX 필터(doc/28 §2.8) — 확인 필요만 / 최소 길이(ms, 사건 전체) / 시작 시간대. 전환 객체는 행: 필터는 고르는 도구일 뿐.
+                dtFilterReview: false, dtMinDurMs: 0, dtTod: 'all',
                 // 일괄 선택 상태 — bulkProgress: 순차 처리(합성 행 확정/일괄 이동) 진행 표시("이동 중 3/12")
                 selectedIds: {}, bulkBusy: false, bulkProgress: '',
                 // 일자 기본값은 로컬 날짜 — toISOString() 은 UTC 라 KST 오전 9시 전엔 어제로 채워짐
@@ -138,12 +139,11 @@
                 // (구 auto/pendingManual 배타 토글, excludedWeekdays/xw*[생산 요일] 는 병행 모델 전환으로 제거.)
                 ps: { source: 'auto', ctMultiplier: 30, windows: [], selected: -1, addMode: false, editing: false, msg: '', err: '', busy: false, actualNonProd: null, dirty: false },
                 _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
-                // 정지·비생산 판정 기준 (doc/22 §3/§3.3, 2026-07-13 사용자 설정화) — 비가동=평균CT×idle 초과 사이클,
-                // 비생산=평균CT×nonProd 이상 무변화 정지(분모 밖). preview=저장 전 what-if 재분류(서버 오버라이드 계산, 저장·기록 없음).
-                // 판정 배수(2026-09-09 WT/MT 2축): idle/nonProd = 중앙 WT 배수, fault = 중앙 MT 배수. stopFloor/nonProdFloor/faultFloorMs 는
-                // 서버 하한 상수(GET ct-multipliers) — 화면 환산(cmBound)이 서버 경계 함수와 같은 값을 내도록 서버가 내려준다.
-                cm: { idle: 5, nonProd: 30, fault: 2.5, origIdle: 5, origNonProd: 30, origFault: 2.5, flows: [], busy: false, msg: '', err: '', preview: null, previewBusy: false,
-                      stopFloor: 1, nonProdFloor: 10, faultFloorMs: 1000 },
+                // 고장·비생산 판정 기준 (doc/28 두 규칙, 2026-09-11) — fault = 중앙 MT 배수(불인정 행은 중앙 CT), nonProd = 중앙 WT 배수(불인정 행·완료 신호
+                // 미정의 flow 는 중앙 CT). preview=저장 전 what-if 재분류(서버 오버라이드 계산, 저장·기록 없음). nonProdFloor/faultFloorMs/minSamples 는
+                // 서버 상수(GET ct-multipliers) — 화면 환산(cmBound)이 서버 경계 함수와 같은 값을 내도록 서버가 내려준다.
+                cm: { nonProd: 30, fault: 5, origNonProd: 30, origFault: 5, flows: [], busy: false, msg: '', err: '', preview: null, previewBusy: false,
+                      nonProdFloor: 10, faultFloorMs: 1000, minSamples: 10 },
                 _cmSeq: 0, _cmPrevTimer: null, _cmMultMsgTimer: null,
                 // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
                 showDowntimeLog: false,
@@ -556,38 +556,48 @@
                     finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 5000); }
                 },
 
-                // ── 정지·비생산·고장 판정 기준 (GET/PUT /api/oee/ct-multipliers, WT/MT 2축) — 레인 밴드 + 슬라이더 + flow 환산 + 저장 전 재분류 미리보기 ──
+                // ── 고장·비생산 판정 기준 (GET/PUT /api/oee/ct-multipliers, doc/28 두 규칙) — 레인 밴드 + 슬라이더 2개 + flow 환산 + 저장 전 재분류 미리보기 ──
                 cmDirty() {
-                    return this.cm.idle !== this.cm.origIdle || this.cm.nonProd !== this.cm.origNonProd
-                        || this.cm.fault !== this.cm.origFault;
+                    return this.cm.nonProd !== this.cm.origNonProd || this.cm.fault !== this.cm.origFault;
                 },
                 cmReadDto(r) {
-                    this.cm.idle = this.cm.origIdle = Math.round((r.idleWtMultiplier || 5) * 10) / 10;
                     this.cm.nonProd = this.cm.origNonProd = Math.round((r.nonProdWtMultiplier || 30) * 10) / 10;
-                    this.cm.fault = this.cm.origFault = Math.round((r.faultMtMultiplier || 2.5) * 10) / 10;
+                    this.cm.fault = this.cm.origFault = Math.round((r.faultMtMultiplier || 5) * 10) / 10;
                     this.cm.flows = r.flows || [];
-                    if (r.stopFloorCtMultiples > 0) this.cm.stopFloor = r.stopFloorCtMultiples;
                     if (r.nonProdFloorCtMultiples > 0) this.cm.nonProdFloor = r.nonProdFloorCtMultiples;
                     if (r.faultFloorMs > 0) this.cm.faultFloorMs = r.faultFloorMs;
+                    if (r.minBaselineSamples > 0) this.cm.minSamples = r.minBaselineSamples;
                     this.cm.preview = null;
                 },
                 async loadCtMultipliers() {
                     try { this.cmReadDto(await this.apiGet('/api/oee/ct-multipliers')); }
                     catch (e) { this.cm.err = '판정 기준을 불러오지 못했습니다: ' + e.message; }
                 },
-                // flow별 경계(ms) — 서버 OeeMath.ResolveWtStopBoundaryMs / ResolveWtNonProdBoundaryMs / ResolveMtFaultBoundaryMs 와 같은 식.
-                //   대기(WT) 기준선 없는 flow(medianCtMs=0)는 평균 CT × 배수 폴백(서버와 동일).
+                // flow별 경계(ms) — 서버 OeeMath.Resolve*BoundaryMs 와 같은 식.
+                //   fault     = 완료 행 고장 경계 = max(중앙 MT × 고장배수, 하한 1s)          (MT 기준선 없으면 0 = 판별 불가)
+                //   faultCt   = 미완료 행 고장 경계 = max(중앙 CT × 고장배수, 하한 1s)          (MT 기준선 보유 flow 만)
+                //   nonprod   = 완료 행 비생산 경계 = max(중앙 WT × 비생산배수, 중앙 CT × 하한사이클)
+                //   nonprodCt = 미완료 행·완료 신호 미정의 flow 비생산 경계 = max(중앙 CT × 비생산배수, 중앙 CT × 하한사이클) — '확인 필요' 임계
                 cmBound(f, kind) {
-                    const hasWt = (f.medianCtMs || 0) > 0;
-                    const stop = hasWt
-                        ? Math.max((f.medianWtMs || 0) * Math.max(this.cm.idle, 1), f.medianCtMs * this.cm.stopFloor)
-                        : (f.avgCtMs || 0) * this.cm.idle;
-                    if (kind === 'stop') return stop;
-                    if (kind === 'nonprod') return hasWt
-                        ? Math.max((f.medianWtMs || 0) * this.cm.nonProd, f.medianCtMs * this.cm.nonProdFloor, stop)
-                        : (f.avgCtMs || 0) * this.cm.nonProd;
-                    if (kind === 'fault') return (f.medianMtMs || 0) > 0 ? Math.max(f.medianMtMs * this.cm.fault, this.cm.faultFloorMs) : 0;
+                    const medCt = f.medianCtMs || 0;
+                    if (kind === 'fault') return f.hasMtBaseline && (f.medianMtMs || 0) > 0 ? Math.max(f.medianMtMs * this.cm.fault, this.cm.faultFloorMs) : 0;
+                    if (kind === 'faultCt') return f.hasMtBaseline && medCt > 0 ? Math.max(medCt * this.cm.fault, this.cm.faultFloorMs) : 0;
+                    if (kind === 'nonprod') return medCt > 0 ? Math.max((f.medianWtMs || 0) * this.cm.nonProd, medCt * this.cm.nonProdFloor) : 0;
+                    if (kind === 'nonprodCt') return medCt > 0 ? Math.max(medCt * this.cm.nonProd, medCt * this.cm.nonProdFloor) : 0;
                     return 0;
+                },
+                // 표본 게이트 — 14일 완료 사이클이 minSamples 미만이면 판정 보류(전부 정상). 서버 OeeMath.MinBaselineSamples 와 동일.
+                cmGated(f) { return (f.sampleCount || 0) < (this.cm.minSamples || 10); },
+                cmChipTitle(f) {
+                    const parts = [f.flowName + ' · 14일 실측', '평균 CT ' + this.cmFmtMs(f.avgCtMs), '중앙 CT ' + this.cmFmtMs(f.medianCtMs), '완료 표본 ' + (f.sampleCount || 0) + '건'];
+                    if (f.hasMtBaseline) {
+                        parts.push('평소 동작(MT) ' + this.cmFmtMs(f.medianMtMs) + ' · 평소 대기(WT) ' + this.cmFmtMs(f.medianWtMs));
+                        parts.push('완료 신호 없는 사이클: 고장 > ' + this.cmFmtMs(this.cmBound(f, 'faultCt')) + ' · 비생산 ≥ ' + this.cmFmtMs(this.cmBound(f, 'nonprodCt')) + ' (사이클 길이 기준)');
+                    } else {
+                        parts.push('동작(MT) 기준 없음 — 완료 신호 미정의 → 고장 판별 불가, 비생산은 사이클 길이 ≥ ' + this.cmFmtMs(this.cmBound(f, 'nonprodCt')));
+                    }
+                    if (this.cmGated(f)) parts.push('표본 ' + (f.sampleCount || 0) + '건 < ' + this.cm.minSamples + ' — 판정 보류(전부 정상)');
+                    return parts.join('\n');
                 },
                 // ms → 사람 단위 (10s 미만은 소수 1자리, 90s↑ 분, 90분↑ 시간)
                 cmFmtMs(ms) {
@@ -599,24 +609,17 @@
                 cmSecs(avgMs, mult) { return this.cmFmtMs((avgMs || 0) * mult); },
                 cmFmtH(ms) { const h = (ms || 0) / 3600000; return (h >= 10 ? Math.round(h) : h.toFixed(1)) + '시간'; },
                 cmFmtPct(v) { return (v === null || v === undefined) ? '—' : (v * 100).toFixed(1) + '%'; },
-                // 슬라이더 입력 — 역전 차단(정지 + 0.5 ≤ 비생산 유지) 후 미리보기 디바운스. 범위는 서버(OeeManualSettings.*Mult*)와 동일.
-                cmSetIdle(v) {
-                    const x = Math.round(parseFloat(v) * 10) / 10;
-                    if (!isFinite(x)) return;
-                    this.cm.idle = Math.max(1.5, Math.min(x, this.cm.nonProd - 0.5));
-                    this.cmQueuePreview();
-                },
+                // 슬라이더 입력 — 두 배수는 축이 달라 서로 제약이 없다. 범위는 서버(OeeManualSettings.*Mult*)와 동일.
                 cmSetNonProd(v) {
                     const x = Math.round(parseFloat(v) * 10) / 10;
                     if (!isFinite(x)) return;
-                    this.cm.nonProd = Math.min(300, Math.max(5, Math.max(x, this.cm.idle + 0.5)));
+                    this.cm.nonProd = Math.min(300, Math.max(5, x));
                     this.cmQueuePreview();
                 },
-                // 고장(MT축) 배수 — WT축 두 배수와 축이 달라 역전 제약이 없다(비교 자체가 무의미).
                 cmSetFault(v) {
                     const x = Math.round(parseFloat(v) * 10) / 10;
                     if (!isFinite(x)) return;
-                    this.cm.fault = Math.min(10, Math.max(1, x));
+                    this.cm.fault = Math.min(20, Math.max(1, x));
                     this.cmQueuePreview();
                 },
                 cmQueuePreview() {
@@ -631,21 +634,20 @@
                     this.cm.previewBusy = true;
                     try {
                         const r = this.rangeForPeriod();
-                        const qs = `idle=${this.cm.idle}&nonProd=${this.cm.nonProd}&fault=${this.cm.fault}&from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
+                        const qs = `nonProd=${this.cm.nonProd}&fault=${this.cm.fault}&from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
                         const dto = await this.apiGet('/api/oee/ct-multipliers/preview?' + qs);
                         if (seq === this._cmSeq) this.cm.preview = dto;
                     } catch (e) { if (seq === this._cmSeq) { this.cm.preview = null; this.cm.err = '미리보기 실패: ' + e.message; } }
                     finally { if (seq === this._cmSeq) this.cm.previewBusy = false; }
                 },
-                cmReset() { this.cm.idle = 5; this.cm.nonProd = 30; this.cm.fault = 2.5; this.cmQueuePreview(); },
+                cmReset() { this.cm.nonProd = 30; this.cm.fault = 5; this.cmQueuePreview(); },
                 async cmApply() {
-                    if (this.cm.idle >= this.cm.nonProd) { this.cm.err = '정지 배수는 비생산 배수보다 작아야 합니다.'; return; }
                     this.cm.busy = true; this.cm.msg = ''; this.cm.err = '';
                     try {
                         const r = await this.apiPut('/api/oee/ct-multipliers',
-                            { idleWtMultiplier: this.cm.idle, nonProdWtMultiplier: this.cm.nonProd, faultMtMultiplier: this.cm.fault });
+                            { nonProdWtMultiplier: this.cm.nonProd, faultMtMultiplier: this.cm.fault });
                         this.cmReadDto(r);
-                        this.cm.msg = `판정 기준 적용 — 고장 ${this.cm.fault}×MT / 정지 ${this.cm.idle}×WT / 비생산 ${this.cm.nonProd}×WT (조회 시 재계산이라 과거 기간에도 즉시 반영)`;
+                        this.cm.msg = `판정 기준 적용 — 고장 ${this.cm.fault}× 동작 / 비생산 ${this.cm.nonProd}× 대기 (조회 시 재계산이라 과거 기간에도 즉시 반영)`;
                         // KPI + 비생산 카드의 자동 칩(배수 표기) + 실측 타임라인 갱신
                         await Promise.all([this.loadOee(), this.loadPlannedStops()]);
                     } catch (e) { this.cm.err = '적용 실패: ' + e.message; }
@@ -655,17 +657,14 @@
                         this._cmMultMsgTimer = setTimeout(() => { this.cm.msg = ''; }, 6000);
                     }
                 },
-                // 레인 밴드 세그먼트 폭(%). WT 레인: 0 ~ 비생산×1.15 스케일(정상 | 정지 | 비생산) — 비생산 배수가 커서 정지 구간이
-                // 사라지지 않게 정상 구간엔 최소 폭(18%)을 보장한다. MT 레인: 0 ~ 고장×1.8 스케일(정상 | 고장).
+                // 레인 밴드 세그먼트 폭(%) — 각 레인은 경계 1개(정상 | 고장, 정상 | 비생산). 배수가 커질수록 정상 구간이 넓어지되
+                // 두 세그먼트가 사라지지 않게 최소 폭을 보장한다.
                 cmBandW(kind) {
-                    if (kind === 'mt-normal') return '46%';
-                    if (kind === 'mt-fault') return '54%';
-                    const max = this.cm.nonProd * 1.15;
-                    const normal = Math.max(18, this.cm.idle / max * 100);
-                    const nonprod = Math.max(22, 100 - this.cm.nonProd / max * 100);
-                    if (kind === 'normal') return normal + '%';
-                    if (kind === 'idle') return Math.max(14, 100 - normal - nonprod) + '%';
-                    return nonprod + '%';
+                    if (kind === 'mt-normal') return Math.min(70, Math.max(35, 30 + this.cm.fault * 2)) + '%';
+                    if (kind === 'mt-fault') return (100 - parseFloat(this.cmBandW('mt-normal'))) + '%';
+                    if (kind === 'wt-normal') return Math.min(78, Math.max(40, 35 + this.cm.nonProd / 8)) + '%';
+                    if (kind === 'wt-nonprod') return (100 - parseFloat(this.cmBandW('wt-normal'))) + '%';
+                    return '50%';
                 },
 
                 // 현재 기간 → OEE 엔드포인트용 from/to (로컬 ISO, UserTagsController.ResolvePeriod 와 동일 의미)
@@ -1314,6 +1313,12 @@
                     return rows[0];
                 },
                 // 경계 문제가 있는 설비 목록 — 카드 상단 배너용.
+                // 미귀속 시간(doc/28 §2.7) ≥ 1분인 설비 — 비가동 − 유지보수 − 고장 잔여. 0 이어야 정상(데이터 결함 위치 안내).
+                get mqUnattributedRows() {
+                    const rows = (this.mq && this.mq.flows) ? this.mq.flows : [];
+                    return rows.filter(f => (f.unattributedWallMs || 0) > 60000)
+                        .sort((a, b) => (b.unattributedWallMs || 0) - (a.unattributedWallMs || 0));
+                },
                 get mqIssueRows() { return ((this.mq && this.mq.flows) || []).filter(f => !!f.boundaryIssue); },
 
                 // ── 사이클 분기 미분류 (2026-08-27) ──────────────────────────────
@@ -1404,7 +1409,7 @@
                                 normalCycleCount: o.normalCycleCount, failureCount: o.failureCount,
                                 goodCount: o.goodCount, totalCount: o.totalCount,
                             },
-                            availComp: (ac && ac.hasData) ? { runLabel: ac.runLabel, runMs: ac.runMs, runPct: ac.runPct, stopLabel: ac.stopLabel, stopMs: ac.stopMs, stopPct: ac.stopPct, maintMs: ac.maintMs, maintPct: ac.maintPct, waitMs: ac.waitMs, waitPct: ac.waitPct } : null,
+                            availComp: (ac && ac.hasData) ? { runLabel: ac.runLabel, runMs: ac.runMs, runPct: ac.runPct, stopLabel: ac.stopLabel, stopMs: ac.stopMs, stopPct: ac.stopPct, maintMs: ac.maintMs, maintPct: ac.maintPct } : null,
                             // 무결성 — 내보낸 표만 봐도 "얼마나 수집된 근거 위의 수치인지" 알 수 있게 동봉.
                             integrity: this.mq ? {
                                 totalCycles: this.mq.totalCycles, normalCycles: this.mq.normalCycles,
@@ -1952,18 +1957,53 @@
                     return 'is-bad';
                 },
 
-                // ── 정지 필터 ── 상위 = 탭(비가동/비생산, isNonProd), 하위 = 고장/유지보수(비가동 탭 전용).
-                //    대기(공백) 행(isWait && !isNonProd, doc/25)은 고장도 유지보수도 아니므로 하위 필터에 걸리지 않게 통과.
+                // ── 정지 필터 ── 상위 = 탭(고장·유지보수/비생산, isNonProd), 하위 = 고장/유지보수(고장 탭 전용) + 전환 필터(doc/28 §2.8).
+                //    전환 필터는 클라에서 건다(이미 기간 전체를 받아 두었으므로 재조회 없이 즉시 반응) — 서버 /api/oee/downtime 도 같은 파라미터를 지원한다.
+                dtPassesConvertFilters(d) {
+                    if (this.dtFilterReview && !d.needsReview) return false;
+                    if (this.dtMinDurMs > 0) {
+                        const dur = d.durationMs != null ? d.durationMs : Math.max(0, Date.now() - new Date(d.startAt).getTime());
+                        if (dur < this.dtMinDurMs) return false;
+                    }
+                    if (this.dtTod !== 'all') {
+                        const t = new Date(d.startAt); if (isNaN(t)) return false;
+                        const m = t.getHours() * 60 + t.getMinutes();
+                        const inRange = (a, b) => a <= b ? (m >= a && m < b) : (m >= a || m < b);
+                        if (this.dtTod === 'night' && !inRange(18 * 60, 8 * 60)) return false;
+                        if (this.dtTod === 'day' && !inRange(8 * 60, 18 * 60)) return false;
+                        if (this.dtTod === 'lunch' && !inRange(11 * 60 + 30, 13 * 60 + 30)) return false;
+                    }
+                    return true;
+                },
                 get filteredDowntime() {
                     return this.downtime.filter(d => {
                         if (this.dtFilterStatus !== 'all' && d.status !== this.dtFilterStatus) return false;
+                        if (!this.dtPassesConvertFilters(d)) return false;
                         if (this.dtTab === 'nonprod') return !!d.isNonProd;
                         if (d.isNonProd) return false;
-                        if (d.isWait) return this.dtFilterFault !== 'maintenance';   // 대기(공백) — 고장 필터엔 노출(여파 추적), 유지보수 필터엔 제외
                         if (this.dtFilterFault === 'fault' && !d.isFailure) return false;
                         if (this.dtFilterFault === 'maintenance' && d.isFailure) return false;
                         return true;
                     });
+                },
+                // '확인 필요' 행 수(상태 필터만 반영) — 전환 필터 칩·상단 KPI 칩 표기.
+                get dtReviewCount() {
+                    return this.downtime.filter(d => d.needsReview && !d.isNonProd
+                        && (this.dtFilterStatus === 'all' || d.status === this.dtFilterStatus)).length;
+                },
+                // 상단 '확인 필요 n건' 칩 클릭 → 정지 로그를 확인 필요 필터로 연다(주말 전환의 진입점).
+                openReviewLog() {
+                    this.dtTab = 'down'; this.dtFilterStatus = 'all'; this.dtFilterFault = 'all';
+                    this.dtFilterReview = true; this.dtMinDurMs = 0; this.dtTod = 'all';
+                    this.showDowntimeLog = true;
+                },
+                // 판정 축 라벨(doc/28) — "mt" 완료 행 동작 초과 / "wt" 완료 행 대기 초과 / "ct" 완료 신호 없는 사이클 길이.
+                axisLabel(a) { return a === 'mt' ? '동작' : a === 'wt' ? '대기' : a === 'ct' ? '미완료' : ''; },
+                axisTitle(a) {
+                    return a === 'mt' ? '판정 축: 동작(MT)이 평소 × 고장배수를 넘음 — 고장'
+                        : a === 'wt' ? '판정 축: 대기(WT)가 평소 × 비생산배수 이상 — 비생산'
+                        : a === 'ct' ? '판정 축: 완료 신호 없는 사이클(시작 → 다음 시작) — 사이클 전체 길이를 평소 사이클(중앙 CT) × 배수에 댐'
+                        : '';
                 },
                 // 탭 배지 건수 — 상태 필터만 반영(하위 고장/유지보수 필터와 무관, 탭 간 총량 비교용).
                 get dtDownCount() {
@@ -1984,7 +2024,7 @@
                 // 고장/유지보수 일괄 지정 대상 = 선택 행 중 비가동 실정지만.
                 // 대기(공백)·비생산 행은 '고장/유지보수' 개념 자체가 없어(건수·MTBF 미반영) 대상에서 뺀다 —
                 // 버튼에 이 수를 병기해 "6건 선택했는데 4건만 바뀜"이 사후 놀람이 되지 않게 한다.
-                get bulkFaultTargets() { return this.selectedVisibleRows.filter(d => !d.isNonProd && !d.isWait && !this.isInProgressDt(d)); },
+                get bulkFaultTargets() { return this.selectedVisibleRows.filter(d => !d.isNonProd && !this.isInProgressDt(d)); },
                 get allFilteredSelected() {
                     const fd = this.filteredDowntime;
                     return fd.length > 0 && fd.every(d => this.selectedIds[d.id]);
@@ -2008,9 +2048,9 @@
                 esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); },
                 // 감지 출처 칩 (정지 구간 소스)
                 detectChipHtml(s) {
-                    const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동', 'over-cycle': '이상치초과', 'in-progress': '진행 중' };
+                    const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동', 'over-cycle': '사이클 판정', 'in-progress': '진행 중' };
                     if (typeof s === 'string' && s.includes('+'))   // 같은 정지 이중 감지 병합(무가동+이상치초과, doc/25)
-                        return `<span class="src-chip detect" title="무가동 이벤트와 이상치 초과 사이클이 같은 정지를 동시 감지 — 한 줄로 병합">${s.split('+').map(x => m[x] || this.esc(x)).join('+')}</span>`;
+                        return `<span class="src-chip detect" title="무가동 이벤트와 판정 기준 초과 사이클이 같은 정지를 동시 감지 — 한 줄로 병합">${s.split('+').map(x => m[x] || this.esc(x)).join('+')}</span>`;
                     return `<span class="src-chip detect">${m[s] || this.esc(s) || '—'}</span>`;
                 },
                 // 합성(사이클 유래) 행 = DB 이벤트가 아니라 분류/마감 불가. id 음수로 표식.
@@ -2059,19 +2099,18 @@
 
                 // 가용성 분해 — 상단 A KPI·정지 도넛과 항상 일치(같은 입력).
                 get availComp() {
-                    // CT축 누적 정산(2026-08-21) — 분모 = Σ정상CT + Σ비가동CT + Σ대기CT. 상단 A KPI 와 동일 SSOT.
-                    //   벽시계 모델을 걷어낸 이유: 분자(사이클)와 분모(달력)가 다른 축이라 미분류 잔여가 생기고,
-                    //   사이클 0건이면 달력근사가 A=100% 를 만들어냈다. 같은 축이면 잔여가 정의상 0이고
-                    //   0건이면 그냥 산출 불가다. "얼마나 수집했나"는 아래 데이터 무결성 카드가 따로 보고한다.
+                    // 벽시계 단일모델(doc/28 §2.7) — 분모 = 생산가능(availableWallMs), 분자 = 가동(runWallMs). 상단 A KPI 와 동일 SSOT.
+                    //   비가동 = 생산가능 − 가동 = 유지보수 + 고장 (+ 미귀속 — 행이 연속이라 0 이어야 정상, 정산 바에는 그리지 않고 진단 표기).
+                    //   "얼마나 수집했나"는 아래 데이터 무결성 카드가 따로 보고한다.
                     const o = this.oee || {};
                     const r1 = (x) => Math.round(x * 10) / 10;
-                    // 구간 union 총량 — CT 단순 합은 오염 시 서로 겹쳐 달력을 넘는다(A 산출과 동일 입력).
                     const run = Math.max(0, o.runWallMs || 0);
-                    const idle = Math.max(0, o.idleCalendarMs || 0);
-                    const wait = Math.max(0, o.waitSlackWallMs || 0);   // 대기(고장 여파)
-                    const maint = Math.min(idle, Math.max(0, o.idleMaintCtMs || 0));
-                    const fault = Math.max(0, idle - maint);
-                    const denom = run + idle + wait;
+                    const avail = Math.max(0, o.availableWallMs || 0);
+                    const down = Math.max(0, avail - run);
+                    const maint = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
+                    const fault = Math.min(Math.max(0, down - maint), Math.max(0, o.downFaultWallMs || 0));
+                    const unattributed = Math.max(0, down - maint - fault);
+                    const denom = avail;
                     const pct = (x) => denom > 0 ? r1(x / denom * 100) : 0;
                     const failCount = Math.max(0, o.failureCount || 0);
                     const cycles = Math.max(0, o.normalCycleCount || 0);
@@ -2080,13 +2119,13 @@
                         runMs: run, runPct: pct(run),
                         faultMs: fault, faultPct: pct(fault),
                         maintMs: maint, maintPct: pct(maint),
-                        waitMs: wait, waitPct: pct(wait),
+                        unattributedMs: unattributed,
                         stopMs: fault + maint, stopPct: r1(pct(fault) + pct(maint)),
                         denomMs: denom,
-                        runLabel: '가동 (정상 가동시간 합)',
-                        stopLabel: '비가동 · 고장',
+                        runLabel: '가동 (정상 사이클)',
+                        stopLabel: '고장 (사이클 전체)',
                         runNote: cycles + '회', stopNote: failCount + '건',
-                        subtitle: 'Σ정상 가동시간 ÷ (Σ정상 + Σ비가동 + Σ대기) — 수집된 가동만 근거',
+                        subtitle: '가동 ÷ 생산가능(캘린더 − 비생산 − 미계측 − 진행 중) — 비가동 = 고장 + 유지보수',
                     };
                 },
                 // 계획시간 폴백 체인 3단계 (활성/건너뜀/대기)
@@ -2169,7 +2208,7 @@
                         await this.loadOee();   // 부분 적용분이 화면에 반영되도록 재조회
                     } finally { this.bulkBusy = false; this.bulkProgress = ''; }
                 },
-                // 비생산↔비가동 일괄 이동 — 단건 reclassify 를 순차 호출(합성 행 materialize·감지로그 청소·
+                // 고장↔비생산 일괄 전환 — 단건 reclassify 를 순차 호출(합성 행 materialize·감지로그 청소·
                 // 이전 분류 복원 semantics 를 서버 단건 경로와 100% 동일하게 유지하려고 벌크 엔드포인트를 두지 않음).
                 async bulkReclassify(toNonProd) {
                     const rows = this.selectedVisibleRows;
@@ -2191,7 +2230,7 @@
                         this.clearSel();
                         await this.loadOee();
                         this.dtTab = toNonProd ? 'nonprod' : 'down';
-                        this.flashDtMsg(`${done}건 → ${toNonProd ? '비생산 탭으로 이동 (A 분모 밖)' : '비가동 탭으로 이동 (이전 분류 복원)'}`);
+                        this.flashDtMsg(`${done}건 → ${toNonProd ? '비생산으로 전환 (A 분모 밖)' : '고장으로 전환 (이전 분류 복원)'}`);
                     } catch (e) {
                         this.oeeError = `일괄 이동 실패(${done}/${rows.length}건 처리됨): ` + e.message;
                         await this.loadOee();
@@ -2212,31 +2251,25 @@
                     } finally { this.bulkBusy = false; }
                 },
 
-                // 정지 구성 도넛 (고장/유지보수/비생산) — 벽시계 단일모델(2026-07-06): 서버가 비가동을 유지보수/감지 정지
-                // 이벤트 구간과 겹쳐 귀속한 값 + 비생산 벽시계(nonProdWallMs, A 분모 밖 — 2026-07-08 당일 판정 모델로
-                // 정지 구성에 포함). 가용성 정산 분해·시간별 추이 정지부와 동일 소스라 세 뷰가 항상 일치한다.
-                // 가동간 공백(감지 정지에 안 덮인 잔여 비가동, 2026-07-14)은 정지가 아니므로 도넛에 넣지 않는다.
+                // 정지 구성 도넛 (고장/유지보수/비생산) — 벽시계 단일모델(doc/28 §2.7): 서버가 비가동을 유지보수/고장 행 전체 구간과
+                // 겹쳐 귀속한 값 + 비생산 벽시계(nonProdWallMs, A 분모 밖). 가용성 정산 분해·시간별 추이 정지부와 동일 소스라 세 뷰가 항상 일치한다.
+                // (구 '대기(고장 여파)' 세그먼트·'가동간 공백'은 두 규칙 모델로 폐기.)
                 get faultDist() {
                     const o = this.oee || {};
                     const run = Math.max(0, o.runWallMs || 0), avail = Math.max(0, o.availableWallMs || 0);
                     const down = Math.max(0, avail - run);
                     const maintMs = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
-                    // 고장 = 감지 정지 이벤트에 실제로 덮인 비가동만(2026-07-14) — 가동간 공백(잔여 슬랙)은 정지 아님.
+                    // 고장 = 고장 행 전체 구간에 덮인 비가동(유지보수 차감 후).
                     const faultMs = Math.min(Math.max(0, down - maintMs), Math.max(0, o.downFaultWallMs || 0));
-                    // 비생산을 [일반 비생산 / 대기(고장 여파, doc/25)] 로 분화 — 대기는 계산상 비생산(분모 밖)이지만
-                    // "계획 외 유휴"가 아니라 "라인 고장 때문에 선 시간"이므로 세그먼트를 분리해 사건이 보이게 한다.
-                    const waitMs = Math.min(Math.max(0, o.waitWallMs || 0), Math.max(0, o.nonProdWallMs || 0));
-                    const nonProdMs = Math.max(0, (o.nonProdWallMs || 0) - waitMs);
-                    // 정지건수 = 벽시계 감지 정지 이벤트 수(요약 KPI failureCount = 가용성 정산 바의 'N건'과 동일 소스).
-                    //   failureCount 는 이상치초과 사이클 + 무사이클 갭을 센다(this.downtime 로그 테이블엔 무사이클/고장비트만
-                    //   적재돼 로그 0 이어도 실제 정지는 있을 수 있으므로 로그 행 수는 쓰지 않는다).
+                    const nonProdMs = Math.max(0, o.nonProdWallMs || 0);
+                    // 정지건수 = 고장 행 수(요약 KPI failureCount = 가용성 정산 바의 'N건'과 동일 소스).
                     const count = Math.max(0, o.failureCount || 0);
-                    const totalMs = faultMs + maintMs + nonProdMs + waitMs;
-                    // 표시 게이트: 정지 이벤트(failureCount)나 비생산/대기가 하나라도 있으면 표시(고장=귀속값이라 공백은 이미 제외).
-                    if (totalMs <= 0 || (count <= 0 && nonProdMs <= 0 && waitMs <= 0)) return { count, has: false, segs: [] };
+                    const totalMs = faultMs + maintMs + nonProdMs;
+                    // 표시 게이트: 고장 행(failureCount)이나 비생산이 하나라도 있으면 표시.
+                    if (totalMs <= 0 || (count <= 0 && nonProdMs <= 0)) return { count, has: false, segs: [] };
                     const C = 2 * Math.PI * 38;
                     const segs = [];
-                    const defs = [{ def: FAULT_DEF, ms: faultMs }, { def: MAINT_DEF, ms: maintMs }, { def: NONPROD_DEF, ms: nonProdMs }, { def: WAIT_DEF, ms: waitMs }].filter(x => x.ms > 0);
+                    const defs = [{ def: FAULT_DEF, ms: faultMs }, { def: MAINT_DEF, ms: maintMs }, { def: NONPROD_DEF, ms: nonProdMs }].filter(x => x.ms > 0);
                     let prior = 0;
                     for (const { def, ms } of defs) {
                         const len = ms / totalMs * C, gap = C - len, offset = -(prior / totalMs * C);
@@ -2253,13 +2286,12 @@
                     const pat = (id, color) => `<pattern id="${id}" patternUnits="userSpaceOnUse" width="7" height="7">`
                         + `<rect width="7" height="7" fill="${color}"></rect>`
                         + `<path d="M0,7 L7,0 M-1.5,1.5 L1.5,-1.5 M5.5,8.5 L8.5,5.5" stroke="rgba(255,255,255,0.55)" stroke-width="1.3"></path></pattern>`;
-                    let s = `<defs>${pat('up-pat-fault', 'var(--oee-fault)')}${pat('up-pat-maint', 'var(--oee-maint)')}${pat('up-pat-nonprod', 'var(--nonprod)')}${pat('up-pat-wait', 'var(--oee-slack, #7dd3fc)')}</defs>`;
+                    let s = `<defs>${pat('up-pat-fault', 'var(--oee-fault)')}${pat('up-pat-maint', 'var(--oee-maint)')}${pat('up-pat-nonprod', 'var(--nonprod)')}</defs>`;
                     s += '<circle class="up-donut-track" cx="50" cy="50" r="38" fill="none" stroke-width="14"></circle>';
                     // 고장/유지보수 세그는 클릭 드릴다운(날짜별 비가동 패턴) 대상 — data-seg 로 onFaultDonutClick 이 식별.
                     for (const seg of d.segs) {
-                        const segKey = seg.pat === 'up-pat-fault' ? 'fault' : (seg.pat === 'up-pat-maint' ? 'maint'
-                            : (seg.pat === 'up-pat-wait' ? 'wait' : 'nonprod'));
-                        const drill = segKey === 'fault' || segKey === 'maint';   // 대기/비생산은 드릴다운 비대상
+                        const segKey = seg.pat === 'up-pat-fault' ? 'fault' : (seg.pat === 'up-pat-maint' ? 'maint' : 'nonprod');
+                        const drill = segKey === 'fault' || segKey === 'maint';   // 비생산은 드릴다운 비대상
                         const click = drill ? ` data-seg="${segKey}" style="cursor:pointer;"` : '';
                         s += `<circle cx="50" cy="50" r="38" fill="none" stroke="url(#${seg.pat})" stroke-width="14" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 50 50)"${click}><title>${this.esc(seg.label)}${drill ? ' — 클릭 → 날짜별 비가동 패턴' : ''}</title></circle>`;
                     }
@@ -2291,9 +2323,9 @@
                     if (seg.pat === 'up-pat-fault') this.openDtPattern('fault');
                     else if (seg.pat === 'up-pat-maint') this.openDtPattern('maintenance');
                 },
-                // 패턴 대상 이벤트 — 비가동만(비생산·대기 제외, doc/25) + 하위 필터(고장/유지보수)
+                // 패턴 대상 이벤트 — 고장·유지보수만(비생산 제외) + 하위 필터(고장/유지보수)
                 dtPatEvents() {
-                    return this.downtime.filter(d => !d.isNonProd && !d.isWait
+                    return this.downtime.filter(d => !d.isNonProd
                         && (this.dtPat.filter === 'all' || (this.dtPat.filter === 'fault' ? !!d.isFailure : !d.isFailure)));
                 },
                 // 날짜 행 배열(최근이 위) — 각 이벤트 [startAt, endAt|now] 를 기간으로 클립 후 로컬 자정 경계로 접고,
@@ -2448,9 +2480,21 @@
                         });
                         await this.loadOee();
                         this.dtTab = toNonProd ? 'nonprod' : 'down';
-                        this.flashDtMsg(`${d.flowName || d.systemName || ''} → ${toNonProd ? '비생산 탭으로 이동 (A 분모 밖)' : '비가동 탭으로 이동 (이전 분류 복원)'}`);
+                        this.flashDtMsg(`${d.flowName || d.systemName || ''} → ${toNonProd ? '비생산으로 전환 (A 분모 밖)' : '고장으로 전환 (이전 분류 복원)'}`);
                     } catch (e) {
                         this.oeeError = '구분 변경 실패: ' + e.message;
+                    } finally { this.dtReclassBusy = false; }
+                },
+                // 되돌리기(doc/28 §2.8) — 사용자 라벨을 지워 자동 판정으로 복귀. 계산 유래 행은 삭제되고 합성 행이 다시 뜬다.
+                async revertManualDt(d) {
+                    if (!d || d.id <= 0) return;
+                    this.dtReclassBusy = true;
+                    try {
+                        await this.apiPost('/api/oee/downtime/' + d.id + '/revert-manual', {});
+                        await this.loadOee();
+                        this.flashDtMsg(`${d.flowName || d.systemName || ''} → 자동 판정으로 되돌림`);
+                    } catch (e) {
+                        this.oeeError = '되돌리기 실패: ' + e.message;
                     } finally { this.dtReclassBusy = false; }
                 },
                 async closeEvent(d) {

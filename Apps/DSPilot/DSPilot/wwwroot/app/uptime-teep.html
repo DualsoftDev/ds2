@@ -87,7 +87,7 @@
                         <div class="up-oee is-hero">
                             <div class="up-oee-label">생산효율 TEEP</div>
                             <div class="up-oee-value up-oee-mono" x-text="teep ? pct(teep.teep) : '—'"></div>
-                            <div class="up-oee-note" x-text="teep ? (teep.teep != null ? '가동시간 ÷ 캘린더(전체 · 비생산 포함)' : (teep.teepNote || '산출 불가')) : '불러오는 중…'"></div>
+                            <div class="up-oee-note" x-text="teep ? (teep.teep != null ? '가동시간 ÷ 캘린더(전체 · 비생산 포함) — 정지를 비생산으로 전환해도 TEEP 는 변하지 않음(달력 손실 그대로)' : (teep.teepNote || '산출 불가')) : '불러오는 중…'"></div>
                         </div>
                         <!-- 가동률 (보조) -->
                         <div class="up-oee">
@@ -140,7 +140,7 @@
                         <div class="ds-empty">
                             <span class="material-icons">hourglass_empty</span>
                             <div class="ds-empty-title" x-text="teepMatrixError ? '불러오기 실패' : (teepMatrix ? '표시할 매트릭스 데이터가 없습니다' : '불러오는 중…')"></div>
-                            <div class="ds-empty-desc" x-text="teepMatrixError || '표준 CT(14일 평균)를 가진 설비의 가동 데이터가 쌓이면 자동 표시됩니다.'"></div>
+                            <div class="ds-empty-desc" x-text="teepMatrixError || '표준 CT(14일 중앙)를 가진 설비의 가동 데이터가 쌓이면 자동 표시됩니다.'"></div>
                         </div>
                     </template>
                 </section>
@@ -194,7 +194,7 @@
                         <div class="ds-empty">
                             <span class="material-icons">hourglass_empty</span>
                             <div class="ds-empty-title" x-text="teepError ? '불러오기 실패' : '표시할 생산효율 데이터가 없습니다'"></div>
-                            <div class="ds-empty-desc" x-text="teepError || (teep && teep.teepNote) || '표준 CT(14일 평균)를 가진 설비의 가동 데이터가 쌓이면 자동 표시됩니다.'"></div>
+                            <div class="ds-empty-desc" x-text="teepError || (teep && teep.teepNote) || '표준 CT(14일 중앙)를 가진 설비의 가동 데이터가 쌓이면 자동 표시됩니다.'"></div>
                         </div>
                     </template>
                 </section>

@@ -34,6 +34,40 @@ public sealed class BriefingOeeReader : OeeControllerBase
         => BuildSummaryAsync(string.IsNullOrWhiteSpace(flow) ? null : flow.Trim(), fromUtc, toUtc, ct);
 
     /// <summary>
+    /// 하루치 창에서 사람이 봐야 할 정지 행(doc/28 §2.8) — 정지 로그와 같은 합성 경로(GetOverThresholdCycleDowntimeAsync)로
+    /// 고장 행을 받아 ① '확인 필요'(needsReview) ② 하루 경계를 넘는 고장(전일부터/다음 날로/진행 중)만 남긴다.
+    /// 시각은 로컬(정지 로그 DTO 규약). 실패하면 빈 목록 — 브리핑 본문은 그대로 나간다.
+    /// </summary>
+    public async Task<IReadOnlyList<BriefStopRow>> GetReviewStopsAsync(DateTime fromUtc, DateTime toUtc, CancellationToken ct)
+    {
+        var res = new List<BriefStopRow>();
+        try
+        {
+            var (rows, _) = await GetOverThresholdCycleDowntimeAsync(null, fromUtc, toUtc, ct);
+            var fromLocal = fromUtc.ToLocalTime();
+            var toLocal = toUtc.ToLocalTime();
+            var nowLocal = DateTime.Now;
+            foreach (var d in rows)
+            {
+                if (d.IsNonProd) continue;                                   // 비생산은 대상 아님
+                var open = d.EndAt is null;
+                var end = d.EndAt ?? nowLocal;
+                var crossesStart = d.StartAt < fromLocal;
+                var crossesEnd = end > toLocal;
+                if (!d.NeedsReview && !crossesStart && !crossesEnd && !open) continue;
+                var inDay = Math.Max(0, (Min(end, toLocal) - Max(d.StartAt, fromLocal)).TotalMilliseconds);
+                if (inDay <= 0) continue;
+                res.Add(new BriefStopRow(
+                    d.FlowName ?? d.SystemName, d.StartAt, d.EndAt, d.DurationMs ?? (end - d.StartAt).TotalMilliseconds,
+                    inDay, d.NeedsReview, crossesStart, crossesEnd, open, d.Note));
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { _logger.LogWarning(ex, "브리핑 확인 필요 정지 조회 실패 — 특이사항 블록 생략"); }
+        return res.OrderByDescending(r => r.NeedsReview).ThenByDescending(r => r.InDayMs).ToList();
+    }
+
+    /// <summary>
     /// 지정 창의 TEEP(생산효율 = 가동(Σ실측CT) ÷ 캘린더 전체). flow=null 이면 라인 전체.
     /// OeeMetricsController.Teep 와 동일 계산 경로 — 표준CT 보유 flow 수로 캘린더를 스케일한다.
     /// 산출 불가(표준CT 보유 flow 0)면 null.

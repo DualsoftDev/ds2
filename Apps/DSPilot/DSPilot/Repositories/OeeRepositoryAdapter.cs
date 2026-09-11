@@ -1003,6 +1003,41 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         public int ToNonProd { get; set; }
     }
 
+    public async Task<(int Count, bool Deleted)> RevertManualLabelAsync(long id, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync();
+        var head = await conn.QueryFirstOrDefaultAsync<RevertHeadRow>(
+            "SELECT detectSource AS DetectSource, classifySource AS ClassifySource FROM oeeDowntimeEvent WHERE id = @Id",
+            new { Id = id });
+        if (head is null || !string.Equals(head.ClassifySource, "manual", StringComparison.OrdinalIgnoreCase))
+            return (0, false);
+        int n; bool deleted;
+        if (string.Equals(head.DetectSource, "over-cycle", StringComparison.OrdinalIgnoreCase))
+        {
+            // 재분류/고장 확정 때 materialize 된 계산 유래 행 — 라벨을 지우면 존재 이유가 없다(합성 행이 자동 판정으로 다시 뜬다).
+            n = await conn.ExecuteAsync("DELETE FROM oeeDowntimeEvent WHERE id = @Id", new { Id = id });
+            deleted = true;
+        }
+        else
+        {
+            // 라이브 감지·수동 입력 행 — 분류만 비워 자동 판정(구분은 KPI 비생산 구간 과반 겹침)으로 복귀.
+            n = await conn.ExecuteAsync(@"
+                UPDATE oeeDowntimeEvent
+                SET reasonCode = NULL, category = NULL, isFailure = 1, classifySource = NULL,
+                    prevReasonCode = NULL, prevCategory = NULL, prevIsFailure = NULL
+                WHERE id = @Id", new { Id = id });
+            deleted = false;
+        }
+        await MirrorDowntimeAsync(id);
+        return (n, deleted);
+    }
+
+    private sealed class RevertHeadRow
+    {
+        public string? DetectSource { get; set; }
+        public string? ClassifySource { get; set; }
+    }
+
     // ── 시프트 예외 ───────────────────────────────────────────────────────
 
     public async Task<long> InsertShiftExceptionAsync(OeeShiftException r, CancellationToken ct = default)

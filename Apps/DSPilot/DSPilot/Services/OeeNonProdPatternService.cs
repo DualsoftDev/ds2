@@ -71,7 +71,7 @@ public sealed class OeeNonProdPatternService
     /// </summary>
     public async Task<PlannedAutoPatternDto> GetOrComputeAsync(
         string? flowName,
-        IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
+        IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample, double MedianMs)> thresholds,
         bool forceRefresh, CancellationToken ct)
     {
         if (flowName is null && !forceRefresh)
@@ -89,7 +89,7 @@ public sealed class OeeNonProdPatternService
 
     private async Task<PlannedAutoPatternDto> ComputeAsync(
         string? flowName,
-        IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
+        IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample, double MedianMs)> thresholds,
         CancellationToken ct)
     {
         // 어제 자정(로컬)까지 LookbackDays — 오늘 진행중 데이터 제외(당일 제외, 오너 사양).
@@ -159,12 +159,12 @@ public sealed class OeeNonProdPatternService
     }
 
     /// <summary>
-    /// ① dspFlowHistory 미완료 유휴 사이클(mt IS NULL, ct ≥ 10×flow평균CT) → [rec−ct, rec] 구간 +
+    /// ① dspFlowHistory 비생산 판정 행(doc/28: 완료 행 wt ≥ 비생산 경계 / 불인정 행 ct ≥ CT 경계, 고장 행 제외) → [rec−ct, rec] 구간 +
     /// ② 활동일(ct>0 사이클이 있는 로컬 날짜) 수집 — 라이브 10× 규칙(idle-cycle 분기)과 동일 판정 기준.
     /// </summary>
     private async Task CollectIdleCycleStopsAsync(
         List<string> targetFlows,
-        IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample)> thresholds,
+        IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample, double MedianMs)> thresholds,
         DateTime fromUtc, DateTime toUtc,
         List<(double S, double E)> stops, SortedSet<DateTime> activeDays, CancellationToken ct)
     {
@@ -197,31 +197,43 @@ public sealed class OeeNonProdPatternService
                     System.Globalization.DateTimeStyles.None, out var day))
                 activeDays.Add(day.Date);
 
-        // 사용자 설정 비생산 배수(WT 축, 2026-09-09) — 라이브 판정과 동일 문턱(설정 변경 시 학습 재료도 함께 이동).
-        //   경계 = OeeMath.ResolveWtNonProdBoundaryMs(중앙 WT·중앙 CT, 하한 포함), WT 기준선 미보유 flow 는 평균 CT 폴백.
-        //   비교값도 판정과 같은 COALESCE(wt, ct) — 종전 "mt IS NULL 행만" 제약은 CT 축 시절 잔재(정지 후 재개 행이
-        //   wt 에 정지를 담는 지금은 mt 정상·wt 폭주 행이 장기 정지의 정본)라 함께 걷어냈다. 참고 표시 전용(KPI 미적용).
-        var (idleMult, nonProdMult) = _settings.LoadSettings().OeeManual.ResolveWtMultipliers();
+        // 사용자 설정 비생산 배수(doc/28 두 규칙, 2026-09-11) — 라이브 판정과 동일 문턱(설정 변경 시 학습 재료도 함께 이동).
+        //   완료 행: wt ≥ 비생산 경계(WT) / 불인정 행(mt NULL): ct ≥ 비생산 경계(CT). 고장 행(mt > 고장 경계, mt NULL 이면 ct > CT 고장 경계)은
+        //   비생산이 아니라 학습 재료에서 뺀다. 표본 게이트(완료 사이클 < MinBaselineSamples) flow 는 판정 자체가 없어 건너뛴다.
+        //   참고 표시 전용(KPI 미적용).
+        var settingsNow = _settings.LoadSettings().OeeManual;
+        var nonProdMult = settingsNow.ResolveNonProdWtMultiplier();
+        var faultMult = settingsNow.ResolveFaultMtMultiplier();
         var wtBase = await _ctStats.ComputeWtBaselineAsync();
+        var mtBase = await _ctStats.ComputeMtThresholdAsync();
+        const double Off = 9e15;
         foreach (var f in targetFlows)
         {
-            var thr = thresholds[f].AvgMs;
-            if (thr <= 0) continue;
-            double longStopMs;
-            if (wtBase.TryGetValue(f, out var wb) && wb.MedianCtMs > 0)
-            {
-                var stopB = OeeMath.ResolveWtStopBoundaryMs(wb.MedianWtMs, wb.MedianCtMs, idleMult);
-                longStopMs = OeeMath.ResolveWtNonProdBoundaryMs(wb.MedianWtMs, wb.MedianCtMs, nonProdMult, stopB);
-            }
-            else longStopMs = thr * nonProdMult;
-            if (longStopMs <= 0) continue;
+            var th = thresholds[f];
+            if (th.AvgMs <= 0) continue;
+            var hasWt = wtBase.TryGetValue(f, out var wb) && wb.MedianCtMs > 0;
+            var medCt = hasWt ? wb.MedianCtMs : (th.MedianMs > 0 ? th.MedianMs : th.AvgMs);
+            var sample = hasWt ? wb.Sample : th.Sample;
+            if (sample < OeeMath.MinBaselineSamples) continue;
+            var hasMt = mtBase.TryGetValue(f, out var medMt) && medMt > 0;
+            var wtNp = hasWt ? OeeMath.ResolveWtNonProdBoundaryMs(wb.MedianWtMs, wb.MedianCtMs, nonProdMult) : 0;
+            var ctNp = OeeMath.ResolveCtNonProdBoundaryMs(medCt, nonProdMult);
+            var mtFault = hasMt ? OeeMath.ResolveMtFaultBoundaryMs(medMt, faultMult) : 0;
+            var ctFault = hasMt ? OeeMath.ResolveCtFaultBoundaryMs(medCt, faultMult) : 0;
+            if (wtNp <= 0 && ctNp <= 0) continue;
 
             var rows = await conn.QueryAsync<(string RecordedAt, long Ct)>(@"
                 SELECT recordedAt AS RecordedAt, ct AS Ct
                 FROM dspFlowHistory
-                WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow
-                  AND ct > 0 AND COALESCE(wt, ct) >= @LongStop",
-                new { From = fromStr, To = toStr, Flow = f, LongStop = longStopMs });
+                WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow AND ct > 0
+                  AND ((mt IS NOT NULL AND mt <= @MtFault AND COALESCE(wt, ct - mt) >= @WtNp)
+                    OR (mt IS NULL AND ct <= @CtFault AND ct >= @CtNp))",
+                new
+                {
+                    From = fromStr, To = toStr, Flow = f,
+                    WtNp = wtNp > 0 ? wtNp : Off, CtNp = ctNp > 0 ? ctNp : Off,
+                    MtFault = mtFault > 0 ? mtFault : Off, CtFault = ctFault > 0 ? ctFault : Off,
+                });
             foreach (var r in rows)
             {
                 if (!DateTime.TryParse(r.RecordedAt, System.Globalization.CultureInfo.InvariantCulture,

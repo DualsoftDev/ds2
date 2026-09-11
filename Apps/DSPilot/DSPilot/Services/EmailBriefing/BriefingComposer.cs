@@ -82,7 +82,11 @@ public sealed class BriefingComposer
             .Select(r => new BriefTopRow(r.Name, r.LogLevel, r.Count))
             .ToList();
 
-        return new BriefingData(day, line, lineTeep, topFlows, abnormalTotal, abnormalCount, userTagCount, top);
+        // ── 확인 필요·경계 넘는 정지(doc/28 §2.8) — 하루치는 00:00~24:00 클립 그대로 두고, 경계를 넘는 고장은 특이사항 줄로 알린다. ──
+        var reviewStops = await _oee.GetReviewStopsAsync(fromUtc, toUtc, ct);
+
+        return new BriefingData(day, line, lineTeep, topFlows, abnormalTotal, abnormalCount, userTagCount, top,
+            reviewStops, line.ReviewPendingCount, line.ReviewPendingMs);
     }
 
     // 프로젝트에 로드된 모든 시스템의 Flow 명(NavController 와 동일 소스). 프로젝트 미로드면 빈 목록.

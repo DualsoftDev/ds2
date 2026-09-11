@@ -47,6 +47,44 @@ public sealed class BriefingHtmlRenderer
   <div style=""font-size:22px;font-weight:800;color:#ffffff;margin-top:4px;"">{d.Day:yyyy년 M월 d일 (ddd)} 생산·이상 요약</div>
 </td></tr>");
 
+        // ── ⓪ 확인 필요 장기 정지 (doc/28 §2.8) — 메일은 전환 전 숫자로 나가므로 맨 위에서 알린다. ──
+        //    확인 필요 = 길이가 비생산 기준 이상인 고장(끄고 간 정지 후보). 하루 경계를 넘는 고장 행·진행 중도 특이사항으로.
+        if (d.ReviewStops.Count > 0 || d.ReviewPendingCount > 0)
+        {
+            var reviewCount = d.ReviewPendingCount > 0 ? d.ReviewPendingCount : d.ReviewStops.Count(r => r.NeedsReview);
+            var reviewDur = d.ReviewPendingMs > 0 ? " · " + FmtDuration(d.ReviewPendingMs) : "";
+            sb.Append($@"<tr><td style=""padding:18px 28px 0;"">
+<div style=""padding:14px 16px;background:#fffbeb;border:1px solid #f59e0b;border-radius:10px;"">
+  <div style=""font-size:14px;font-weight:800;color:#b45309;"">⚠ 확인 필요 장기 정지 {reviewCount}건{reviewDur}</div>
+  <div style=""font-size:12px;color:#92400e;margin-top:4px;line-height:1.5;"">길이만 보면 비생산 기준을 넘는 고장입니다 — 설비를 끄고 간 정지가 아닌지 확인하세요. 아래 수치는 이 정지를 <b>고장</b>으로 계산한 값이며, DSPilot 정지 로그에서 <b>비생산으로 전환</b>하면 가용성·고장 건수가 다시 계산됩니다.</div>");
+            if (d.ReviewStops.Count > 0)
+            {
+                sb.Append($@"<table role=""presentation"" width=""100%"" cellpadding=""0"" cellspacing=""0"" style=""border-collapse:collapse;font-size:12px;margin-top:8px;"">");
+                foreach (var r in d.ReviewStops.Take(8))
+                {
+                    var flags = new List<string>();
+                    if (r.NeedsReview) flags.Add("확인 필요");
+                    if (r.CrossesStart) flags.Add("전일부터 이어짐");
+                    if (r.Open) flags.Add("계속 진행 중");
+                    else if (r.CrossesEnd) flags.Add("다음 날로 이어짐");
+                    var when = r.StartAt.ToString("M/d HH:mm", CultureInfo.InvariantCulture)
+                               + (r.EndAt is DateTime e ? " → " + e.ToString("M/d HH:mm", CultureInfo.InvariantCulture) : " → 진행 중");
+                    var whole = Math.Abs(r.DurationMs - r.InDayMs) > 60_000
+                        ? $@" <span style=""color:{Muted};"">(전체 {FmtDuration(r.DurationMs)})</span>" : "";
+                    sb.Append($@"<tr>
+  <td style=""padding:5px 8px;border-top:1px solid #fde68a;font-weight:700;color:{Ink};"">{Enc(r.Flow)}</td>
+  <td style=""padding:5px 8px;border-top:1px solid #fde68a;color:{Muted};"">{Enc(when)}</td>
+  <td align=""right"" style=""padding:5px 8px;border-top:1px solid #fde68a;color:{Ink};"">이날 {FmtDuration(r.InDayMs)}{whole}</td>
+  <td align=""right"" style=""padding:5px 8px;border-top:1px solid #fde68a;color:#b45309;font-weight:700;"">{Enc(string.Join(" · ", flags))}</td>
+</tr>");
+                }
+                if (d.ReviewStops.Count > 8)
+                    sb.Append($@"<tr><td colspan=""4"" style=""padding:5px 8px;border-top:1px solid #fde68a;color:{Muted};"">외 {d.ReviewStops.Count - 8}건 — DSPilot 정지 로그에서 확인</td></tr>");
+                sb.Append("</table>");
+            }
+            sb.Append("</div></td></tr>");
+        }
+
         // ── ① 생산 요약 ──
         sb.Append(SectionTitle("① 생산 요약 (OEE)"));
         sb.Append($@"<tr><td style=""padding:0 28px;"">");
@@ -143,7 +181,8 @@ public sealed class BriefingHtmlRenderer
         sb.Append($@"
 <tr><td style=""padding:20px 28px 26px;"">
   <div style=""border-top:1px solid {Border};padding-top:14px;font-size:11px;color:{Muted};line-height:1.6;"">
-    이 메일은 DSPilot 이 매일 자동 발송하는 브리핑입니다. 수치는 어제(00:00~24:00) 기준이며 대시보드의 OEE·이상 데이터와 동일한 계산을 사용합니다.<br/>
+    이 메일은 DSPilot 이 매일 자동 발송하는 브리핑입니다. 수치는 어제(00:00~24:00) 기준이며 대시보드의 OEE·이상 데이터와 동일한 계산을 사용합니다.
+    하루 경계를 넘는 정지는 이날 몫만 계산에 들어가고 사건 전체 길이는 상단 특이사항에 병기됩니다.<br/>
     수신·발송 시각·주소 변경은 DSPilot 설정 › 브리핑 메일에서 할 수 있습니다.
   </div>
 </td></tr>");

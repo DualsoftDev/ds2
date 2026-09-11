@@ -24,7 +24,7 @@ public sealed class OeeCtStatsService
     /// 하되(잠정값), 이 값 미만이면 호출측이 "샘플 부족" 표시를 띄운다 — 샘플이 쌓이면 자동으로 정상화.
     /// UI 의 "≥5" 안내 문구와 단일 소스.
     /// </summary>
-    public const int ConfidentMinCleanCycles = 5;
+    public const int ConfidentMinCleanCycles = OeeMath.MinBaselineSamples;   // doc/28: 5 → 10(표본 게이트와 동일)
 
     private readonly IDatabasePathResolver _pathResolver;
     private readonly HistoryMirrorService _mirror;
@@ -384,9 +384,9 @@ public sealed class OeeCtStatsService
     }
 
     /// <summary>
-    /// flow별 14일 <b>중앙 WT·중앙 CT</b> — 정지/비생산 판정(WT 축, 2026-09-09 doc/27)의 기준선.
-    /// <see cref="Models.OeeManualSettings.IdleWtMultiplier"/>·<see cref="Models.OeeManualSettings.NonProdWtMultiplier"/> 가
-    /// 중앙 WT 에 곱해지고, 중앙 CT 는 경계 하한(1사이클·10사이클, <see cref="OeeMath.ResolveWtStopBoundaryMs"/>)의 기준이다.
+    /// flow별 14일 <b>중앙 WT·중앙 CT·완료 표본</b> — 완료 행 비생산 판정(doc/28 두 규칙)의 기준선과 표본 게이트 소스.
+    /// <see cref="Models.OeeManualSettings.NonProdWtMultiplier"/> 가 중앙 WT 에 곱해지고, 중앙 CT 는 비생산 경계 하한(10사이클,
+    /// <see cref="OeeMath.ResolveWtNonProdBoundaryMs"/>)·불인정 행(mt NULL) 경계(<see cref="OeeMath.ResolveCtNonProdBoundaryMs"/>)의 기준이다.
     ///
     /// <para>중앙값을 쓰는 이유는 MT 와 같다 — 정지는 WT 에 그대로 실려서 평균이 심하게 오염된다(실측 kit 라인:
     /// 중앙 WT 5.0초 vs 평균 WT 1,000초). 모집단은 MT 기준과 동일(IsIdle=0, mt·wt 모두 기록된 완료 사이클)이고
@@ -533,18 +533,18 @@ public sealed class OeeCtStatsService
     /// 분해(통계도 그 분기 라벨 행만으로 산출, 미분류(NULL)는 제외). false = 부모 뷰(TEEP/기존): 종전과
     /// 완전 동일 — 분기 라벨과 무관하게 flowName 단위로 집계(ct 축이 부모 의미라 수치도 불변).
     /// </param>
-    public Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ComputeCtThresholdAsync(
+    public Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample, double MedianMs)>> ComputeCtThresholdAsync(
         int windowDays = 14, int minCleanCycles = 1, DateTime? excludeUntilUtc = null, double? decayHalfLifeDays = null,
         bool branchView = false)
         => GetOrComputeCachedAsync(
             $"thr|{windowDays}|{minCleanCycles}|{excludeUntilUtc?.ToUniversalTime().Ticks}|{decayHalfLifeDays}|{(branchView ? "b" : "p")}",
             () => ComputeCtThresholdCoreAsync(windowDays, minCleanCycles, excludeUntilUtc, decayHalfLifeDays, branchView));
 
-    private async Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample)>> ComputeCtThresholdCoreAsync(
+    private async Task<Dictionary<string, (double AvgMs, double P10Ms, int Sample, double MedianMs)>> ComputeCtThresholdCoreAsync(
         int windowDays, int minCleanCycles, DateTime? excludeUntilUtc, double? decayHalfLifeDays, bool branchView)
     {
         const double p10Percentile = 10.0; // best-demonstrated 분위수 (ComputeAsync 기본값과 동일)
-        var result = new Dictionary<string, (double AvgMs, double P10Ms, int Sample)>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, (double AvgMs, double P10Ms, int Sample, double MedianMs)>(StringComparer.OrdinalIgnoreCase);
         var dbPath = _pathResolver.GetSharedDbPath();
         if (!File.Exists(dbPath)) return result;
         try
@@ -639,7 +639,13 @@ public sealed class OeeCtStatsService
                     if (cum >= target) break;
                 }
 
-                result[flow] = (avg, p10, list.Count);
+                // 비가중 중앙 CT(doc/28 §2.2) — 성능 P 표준치·불인정 행(mt NULL) 판정 경계의 기준선. 평균은 정지를
+                // 머금은 행에 끌려 P 가 100% 에 고정되므로(현장 3000 실측) P 경로만 중앙값으로 바꾼다. 다른 소비자는 AvgMs 유지.
+                var byCt = sorted.Select(x => x.Ct).ToList();
+                double median = byCt.Count % 2 == 1
+                    ? byCt[byCt.Count / 2]
+                    : (byCt[byCt.Count / 2 - 1] + byCt[byCt.Count / 2]) / 2.0;
+                result[flow] = (avg, p10, list.Count, median);
             }
             return result;
         }
