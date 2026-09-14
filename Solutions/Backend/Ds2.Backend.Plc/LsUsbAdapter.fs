@@ -8,14 +8,15 @@ open Ev2.PLC.Protocol.LS
 open Ev2.PLC.Protocol.LS.Usb
 open Ev2.PLC.Protocol.LS.UsbLoader
 
-/// Promaker 속성 패널의 장치 선택 콤보 항목. Selector 가 그대로 AID(`xgt+usb://localhost/<selector>`)에 저장된다.
-type LsUsbDeviceEntry = { Selector: string; Label: string }
-
-/// 이 PC 에 붙은 LS PLC USB 장치 — 열거와 선택 키 해석.
+/// 수집 호스트에 붙은 LS PLC USB 장치의 선택 키 해석.
 ///
 /// dsev2 의 transport(XgtUsbClientBase)는 장치를 `bus:addr` 로만 고른다. 그런데 bus:addr 는 재삽입·재부팅에
-/// 바뀌므로 사용자는 serial 같은 안정적인 키로 지정하고 싶다. dsev2 의 UsbEnumerator.trySelectByKey 가
-/// 목록번호·serial·bus:addr·product 부분일치를 이미 해석하므로, 접속 직전에 열거해 bus:addr 로 바꿔 넘긴다.
+/// 바뀌므로 AID 에는 serial 같은 안정적인 키도 적을 수 있게 두고, dsev2 의 UsbEnumerator.trySelectByKey 가
+/// 목록번호·serial·bus:addr·product 부분일치를 해석하므로 접속 직전에 열거해 bus:addr 로 바꿔 넘긴다.
+///
+/// Promaker 는 이 키를 <b>만들지 않는다</b>(항상 "" = 첫 장치). 장치를 고르려면 열거를 수집 호스트에서
+/// 해야 하는데 Promaker 는 자기 PC 만 볼 수 있고, LS USB 는 VID/PID 가 기종 공통이라 개체를 가리키는
+/// 안정적인 키도 없기 때문이다. 비어 있지 않은 키는 손으로 적은 AASX 에서만 들어온다.
 [<RequireQualifiedAccess>]
 module LsUsbDevices =
     /// VID/PID allow-list 는 dsev2 LS USB 기본값(0x1109 / 0x1004·0x1104)을 그대로 쓴다 — AID 에 노출하지 않는다.
@@ -25,14 +26,6 @@ module LsUsbDevices =
         let product = if String.IsNullOrWhiteSpace d.Product then "LS PLC" else d.Product
         let serial = if String.IsNullOrWhiteSpace d.Serial then "" else $" · S/N {d.Serial}"
         $"{product} · bus {d.Bus} addr {d.Address}{serial}"
-
-    /// 연결된 장치 목록. serial 이 있으면 그것을 선택 키로 쓰고(재삽입에 안정), 없으면 bus:addr.
-    /// libusb 가 없거나 장치 접근이 막히면 예외를 그대로 올린다 — 호출자(UI)가 안내 문구로 바꾼다.
-    let list () : LsUsbDeviceEntry array =
-        LsUsbConnector.ListDevices(defaults.Vid, defaults.Pids)
-        |> Array.map (fun d ->
-            { Selector = (if String.IsNullOrWhiteSpace d.Serial then d.Selector else d.Serial)
-              Label = describe d })
 
     /// 선택 키 → dsev2 transport 가 요구하는 `bus:addr`. 빈 키는 "첫 매칭 장치"라 그대로 통과.
     let tryResolveSelector (selector: string) : Result<string, string> =

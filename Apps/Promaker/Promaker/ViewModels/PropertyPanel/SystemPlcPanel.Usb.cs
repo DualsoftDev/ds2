@@ -1,9 +1,6 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
-using Ds2.Backend.Plc;
 using Ds2.Core.StandardSubmodels;
 using PromakerShared = Promaker.Shared;
 
@@ -13,31 +10,32 @@ namespace Promaker.ViewModels;
 public sealed record PlcTransportOption(string Value, string Label);
 
 /// <summary>
-/// System 속성 패널 "PLC 연결" 섹션의 접속 매체 부분 — 연결 방식(Ethernet TCP/UDP · USB) 선택과
-/// USB 장치 조회. 매체별 검증·저장 규칙은 F#(AidXgtEndpointSettings)이 갖고, 여기서는 화면 상태만 다룬다.
+/// System 속성 패널 "PLC 연결" 섹션의 접속 매체 부분 — 연결 방식(Ethernet TCP/UDP · USB) 선택.
+/// 매체별 검증·저장 규칙은 F#(AidXgtEndpointSettings)이 갖고, 여기서는 화면 상태만 다룬다.
+///
+/// USB 는 고를 수만 있고 <b>장치를 지정하지 않는다</b> — 수집 시점의 첫 장치에 붙는다. 장치 검색·선택
+/// UI 를 뒀다가 걷어낸 이유:
+///   * 검색은 Promaker 가 도는 PC 의 libusb 를 열거한다. 수집을 Edge 단말(Pi)에 위임하면 열거 대상이
+///     아예 다른 기계라, 고른 장치 키가 현장에서 맞을 근거가 없다.
+///   * LS USB 는 VID/PID 가 XGI·XGK·XGB 공통이고 serial 은 best-effort(빈 값 가능)라 개체를 가리키는
+///     안정적인 키가 없다. 남은 키인 목록번호·bus:addr 은 재삽입·재부팅에 뒤바뀐다.
+/// 그래서 "장치를 고른다"가 성립하려면 수집 호스트가 자기 USB 인벤토리를 Hub 로 보고하는 경로가 먼저
+/// 필요하다. 그 전까지는 USB 접속을 프로젝트에 하나만 두고 선택을 없앤다.
 /// </summary>
 public partial class PropertyPanelState
 {
     /// <summary>접속 매체 라벨 — "tcp" | "udp" | "usb".</summary>
     [ObservableProperty] private string _plcTransport = PromakerShared.PlcTransports.Tcp;
 
-    /// <summary>USB 장치 선택 키(목록번호 · serial · bus:addr · product 부분일치). "" = 첫 매칭 장치.</summary>
+    /// <summary>USB 장치 선택 키. 화면에서 입력하는 값이 아니라 <b>AID 에 이미 있던 값을 그대로 되돌려
+    /// 보내기 위한 통로</b>다 — 손으로 적은 AASX 의 키가 다른 항목을 저장할 때 조용히 지워지면 안 된다.
+    /// Promaker 가 새로 만드는 USB endpoint 는 항상 ""(첫 장치).</summary>
     [ObservableProperty] private string _plcUsbDeviceSelector = string.Empty;
-
-    /// <summary>'검색' 결과 — 이 PC 에 붙은 LS PLC USB 장치. Edge 위임 수집이면 Edge 단말의 장치와 다를 수 있다.</summary>
-    [ObservableProperty] private IReadOnlyList<LsUsbDeviceEntry> _plcUsbDevices = Array.Empty<LsUsbDeviceEntry>();
-
-    /// <summary>목록에서 고른 장치 — 고르면 선택 키를 그 장치의 serial(없으면 bus:addr)로 채운다.</summary>
-    [ObservableProperty] private LsUsbDeviceEntry? _plcSelectedUsbDevice;
-
-    /// <summary>검색 결과/실패 안내 한 줄.</summary>
-    [ObservableProperty] private string _plcUsbDeviceHint = string.Empty;
 
     public bool IsPlcUsb => PlcEndpointLabel.isUsb(PlcTransport);
     public bool IsPlcEthernet => !IsPlcUsb;
     /// <summary>"내장 이더넷" 체크박스는 LS 이더넷에서만 의미가 있다(USB 로더 포트에는 없는 개념).</summary>
     public bool IsPlcLsEthernet => IsPlcVendorLs && IsPlcEthernet;
-    public bool HasPlcUsbDevices => PlcUsbDevices.Count > 0;
 
     /// <summary>현재 벤더가 고를 수 있는 연결 방식. 목록은 Promaker.Shared 가 정한다(UDP 는 Mitsubishi, USB 는 LS).</summary>
     public IReadOnlyList<PlcTransportOption> PlcTransportChoices =>
@@ -60,15 +58,6 @@ public partial class PropertyPanelState
 
     partial void OnPlcUsbDeviceSelectorChanged(string value) => UpdatePlcDirty();
 
-    partial void OnPlcUsbDevicesChanged(IReadOnlyList<LsUsbDeviceEntry> value) =>
-        OnPropertyChanged(nameof(HasPlcUsbDevices));
-
-    partial void OnPlcSelectedUsbDeviceChanged(LsUsbDeviceEntry? value)
-    {
-        if (value is not null)
-            PlcUsbDeviceSelector = value.Selector;
-    }
-
     /// <summary>벤더가 바뀌면 고를 수 있는 연결 방식이 달라진다 — 현재 값이 목록에 없으면 TCP 로 되돌린다.</summary>
     private void RefreshPlcTransportChoices()
     {
@@ -76,25 +65,5 @@ public partial class PropertyPanelState
         OnPropertyChanged(nameof(IsPlcLsEthernet));
         if (!PromakerShared.PlcVendorProfile.TransportsFor((PromakerShared.PlcVendorChoice)PlcVendor).Contains(PlcTransport))
             PlcTransport = PromakerShared.PlcTransports.Tcp;
-    }
-
-    /// <summary>이 PC 에 붙은 LS PLC USB 장치 조회. libusb-1.0 이 없거나 장치 접근이 막히면 사유를 안내로 보여준다.</summary>
-    [RelayCommand]
-    private void RefreshPlcUsbDevices()
-    {
-        try
-        {
-            var devices = LsUsbDevices.list();
-            PlcUsbDevices = devices;
-            PlcSelectedUsbDevice = null;
-            PlcUsbDeviceHint = devices.Length == 0
-                ? "연결된 LS PLC USB 장치가 없습니다 — 케이블·전원을 확인하세요. 비워 두면 수집 시점의 첫 장치에 붙습니다."
-                : $"장치 {devices.Length}개 — 목록에서 고르거나 키를 직접 입력하세요.";
-        }
-        catch (Exception ex)
-        {
-            PlcUsbDevices = Array.Empty<LsUsbDeviceEntry>();
-            PlcUsbDeviceHint = $"장치 조회 실패: {ex.Message} — libusb-1.0.dll 이 실행 폴더에 있어야 하며, XG5000 온라인 접속 중이면 포트가 점유됩니다.";
-        }
     }
 }

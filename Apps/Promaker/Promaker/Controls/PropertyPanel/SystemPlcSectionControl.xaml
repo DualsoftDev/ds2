@@ -93,35 +93,6 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- USB 장치 — 선택 키는 AID 에 `xgt+usb://localhost/<키>` 로 저장된다. -->
-                <StackPanel Margin="0,6,0,0"
-                            Visibility="{Binding IsPlcUsb, Converter={StaticResource BoolToVis}}">
-                    <TextBlock Text="USB 장치 (비우면 첫 장치)" FontSize="10"
-                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBox Grid.Column="0" Padding="4,2" FontSize="11"
-                                 Text="{Binding PlcUsbDeviceSelector, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="장치 선택 키 — 목록번호 · serial · bus:addr(예 3:4) · product 부분일치. 비우면 첫 매칭 장치에 붙습니다. Edge 위임 수집이면 Edge 단말에 붙은 장치 기준입니다."/>
-                        <Button Grid.Column="1" Content="검색" Margin="4,0,0,0"
-                                Style="{StaticResource InlineListButton}"
-                                Command="{Binding RefreshPlcUsbDevicesCommand}"
-                                ToolTip="이 PC 에 연결된 LS PLC USB 장치를 조회합니다. libusb-1.0 이 실행 폴더에 있어야 하고, XG5000 이 온라인 접속 중이면 포트를 점유합니다."/>
-                    </Grid>
-                    <ComboBox Margin="0,4,0,0" FontSize="11" Padding="4,2"
-                              Visibility="{Binding HasPlcUsbDevices, Converter={StaticResource BoolToVis}}"
-                              ItemsSource="{Binding PlcUsbDevices}"
-                              DisplayMemberPath="Label"
-                              SelectedItem="{Binding PlcSelectedUsbDevice}"
-                              ToolTip="고르면 위 선택 키가 그 장치의 serial(없으면 bus:addr)로 채워집니다."/>
-                    <TextBlock Text="{Binding PlcUsbDeviceHint}" FontSize="10"
-                               Margin="0,4,0,0" TextWrapping="Wrap"
-                               Foreground="{DynamicResource SecondaryTextBrush}"/>
-                </StackPanel>
-
                 <!-- Scan / Timeout -->
                 <Grid Margin="0,6,0,0">
                     <Grid.ColumnDefinitions>
