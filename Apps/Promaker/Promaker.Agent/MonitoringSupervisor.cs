@@ -64,6 +64,8 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
     // OnDebounceFiredAsync 가 실행 중인 동안 ScheduleDebounce 가 새 Timer 를 만들지 않도록 가드.
     // 처리 중 들어온 이벤트는 _pendingReason 에 누적하고, 마무리 시점에 self-reschedule.
     private bool _inflight;
+    /// <summary>DisposeAsync 멱등 가드 — 호스트 종료 경로가 이 객체를 두 번 dispose 한다.</summary>
+    private bool _disposed;
 
     /// <summary>부팅 시 한 번 호출 — 디렉터리 준비, 워처 시작, 현재 flag 상태 기준으로 초기 전이.</summary>
     public async Task StartAsync()
@@ -1060,6 +1062,13 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // 종료 경로가 이 객체를 두 번 dispose 한다 — MonitoringHostedService.StopAsync 가 먼저 부르고,
+        // 소유자인 DI 스코프(Host.DisposeAsync)가 한 번 더 부른다. 두 번째 호출이 이미 Dispose 된
+        // _gate 에 WaitAsync 를 걸어 ObjectDisposedException 으로 터졌고, Program.Main 까지 올라가
+        // "Fatal error during Agent host run" → 서비스 재시작 루프가 됐다(현장 로그 실측 2026-09-14).
+        if (_disposed) return;
+        _disposed = true;
+
         _debounce?.Dispose();
         try { _flagWatcher?.Dispose(); } catch { }
         try { _sessionWatcher?.Dispose(); } catch { }

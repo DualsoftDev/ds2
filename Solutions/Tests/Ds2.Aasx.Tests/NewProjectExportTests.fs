@@ -538,3 +538,40 @@ let ``AID XGT endpoint accepts only LS vendors`` () =
     Assert.NotNull connection
     Assert.Equal("LsXgb", connection.Vendor)
     Assert.Equal("192.168.9.103", connection.IpAddress)
+
+/// 현장 KIT1(2026-09-14): 다른 AASX 를 가져와 System 3개 중 2개를 지우고 남은 하나만 쓰자
+/// Agent 가 기동조차 못 했다. 지워진 System 의 AID endpoint 가 파일에 남아 systemRef 가
+/// 유령이 되는데, 예전 검증은 그것을 **에러**로 올려 계획 전체를 무효화했다 — 멀쩡한 PLC 까지
+/// 같이 죽고 Hub 이 안 떠서 화면에는 "연결 끊김" 으로만 보였다.
+/// 유령 endpoint 는 그것만 빼고 경고로 남기고, 살아 있는 System 의 수집은 그대로 떠야 한다.
+[<Fact>]
+let ``orphaned endpoints of deleted systems are skipped, not fatal`` () =
+    let store = newPromakerProject ()
+    let project = store.Projects.Values |> Seq.head
+    let survivor = project.ActiveSystemIds.[0]
+    let deleted1 = store.AddSystem("DeletedSystem1", project.Id, true)
+    let deleted2 = store.AddSystem("DeletedSystem2", project.Id, true)
+
+    let aid = AssetInterfacesDescription()
+    project.AssetInterfaces <- Some aid
+    AidXgtEndpointSettings.ensureBindingForSystem(
+        aid, survivor, xgtTcpRequest "LsXgk" "192.168.9.103" 2004, [ "%IX0.1.2" ]) |> ignore
+    AidXgtEndpointSettings.ensureBindingForSystem(
+        aid, deleted1, xgtTcpRequest "LsXgi" "192.168.0.20" 2004, [ "%QX0.2.7" ]) |> ignore
+    AidXgtEndpointSettings.ensureBindingForSystem(
+        aid, deleted2, xgtTcpRequest "LsXgb" "192.168.0.30" 2004, [ "%QX0.3.7" ]) |> ignore
+
+    // Promaker 에서 System 두 개를 지운 상태 — AID endpoint 는 파일에 그대로 남는다.
+    project.ActiveSystemIds.Remove deleted1 |> ignore
+    project.ActiveSystemIds.Remove deleted2 |> ignore
+
+    let plan = AidXgtGatewayConfig.buildForProject(store, project, aid)
+
+    // 살아 있는 System 하나로 기동해야 한다.
+    Assert.True(plan.Success, String.Join(" / ", plan.Errors))
+    Assert.Equal(1, plan.Config.Connections.Length)
+    Assert.Equal("192.168.9.103", plan.Config.Connections.Head.IpAddress)
+    Assert.Equal(Some survivor, plan.Config.Connections.Head.SystemId)
+
+    // 제외된 둘은 조용히 사라지지 않고 경고로 남는다(사람이 모델을 고쳐야 하는 사항).
+    Assert.Equal(2, plan.Warnings |> Array.filter (fun w -> w.Contains "제외") |> Array.length)

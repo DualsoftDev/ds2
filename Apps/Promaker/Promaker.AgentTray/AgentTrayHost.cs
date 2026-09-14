@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.ServiceProcess;
@@ -317,12 +318,17 @@ public sealed class AgentTrayHost : IDisposable
 
     private void OnOpenAgentLog()
     {
-        // 설치된 환경에서는 {app}\Agent\logs\promaker-agent.log. 개발에서는 publish 디렉터리.
-        // AgentTray 의 BaseDirectory 상위 (..\Agent\logs) 또는 형제 ..\Agent 가 일반적.
+        // 정본은 공유 폴더다 — Agent(Program.InitializeLogging)가 log4net 의 LogDirectory 를
+        // SharedPaths.AgentDirectory\logs 로 잡고, 그 폴더를 만들지 못할 때만 자기 실행 폴더\logs 로 떨어진다.
+        // 설치 폴더만 뒤지던 예전 목록은 정상 설치에서 항상 "찾을 수 없습니다" 였다 — 서비스는
+        // {app}\Agent\logs 에 로그를 쓴 적이 없다.
         var baseDir = AppContext.BaseDirectory;
         var candidates = new[]
         {
+            Path.Combine(SharedPaths.AgentDirectory, "logs", "promaker-agent.log"),
+            // 폴백 1: 공유 폴더를 못 만든 Agent 가 쓰는 자기 실행 폴더(설치본 {app}\Agent).
             Path.Combine(baseDir, "..", "Agent", "logs", "promaker-agent.log"),
+            // 폴백 2: 개발 중 트레이와 Agent 가 같은 publish 폴더에 있는 경우.
             Path.Combine(baseDir, "logs", "promaker-agent.log"),
         };
         foreach (var path in candidates)
@@ -335,7 +341,21 @@ public sealed class AgentTrayHost : IDisposable
                 return;
             }
         }
-        MessageBox.Show("Agent 로그 파일을 찾을 수 없습니다.\n경로 확인: " + string.Join("\n", candidates),
+        // 로그가 아직 없으면(Agent 가 한 번도 안 돌았거나 방금 설치) 폴더라도 열어 준다 —
+        // "파일 없음" 만 띄우고 끝나면 사용자가 갈 곳이 없다.
+        var logDir = Path.Combine(SharedPaths.AgentDirectory, "logs");
+        if (Directory.Exists(logDir))
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo(logDir) { UseShellExecute = true });
+                return;
+            }
+            catch (Exception ex) { Log.Warn($"Open agent log folder failed: {ex.Message}"); }
+        }
+        MessageBox.Show(
+            "Agent 로그 파일이 아직 없습니다 (Agent 가 한 번도 기동하지 않았을 수 있습니다).\n\n확인한 경로:\n"
+            + string.Join("\n", candidates.Select(Path.GetFullPath)),
             "Promaker Agent", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 

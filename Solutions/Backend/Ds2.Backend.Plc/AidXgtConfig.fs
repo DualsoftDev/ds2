@@ -53,16 +53,52 @@ module AidXgtGatewayConfig =
     // endpoint base 의 해석은 Core 의 XgtEndpointBase / AidEndpointBase 가 SSOT 다 — Promaker 가 읽고
     // 쓰는 파서와 여기 게이트웨이 조립이 같은 함수를 쓰므로, 저장은 되는데 활성화만 실패하는 값이 없다.
 
+    /// 소유 System 이 이 Project 에 없는 endpoint 를 어떻게 다룰지.
+    ///   None       = Project 문맥 없음(테스트·도구 경로) — 소유 검사 자체를 하지 않는다.
+    ///   Some ids   = 이 Project 의 active System 집합 — 여기 없는 endpoint 는 제외 대상.
+    type private OwnerScope = HashSet<Guid> option
+
     let private buildCore
+        (activeSystemIds: OwnerScope)
         (samplingBySignalId: IReadOnlyDictionary<string, int>)
         (aid: AssetInterfacesDescription) : AidXgtConfigResult =
         let errors = ResizeArray<string>()
         let connections = ResizeArray<PlcConnectionConfig>()
         let signals = ResizeArray<AidXgtSignalDescriptor>()
         let seenSignalIds = HashSet<string>(StringComparer.Ordinal)
+        let ownershipWarnings = ResizeArray<string>()
         let mutable bindingCount = 0
         let mutable xgtIndex = 0
         let mutable sxIndex = 0
+
+        /// 이 endpoint 를 수집할 수 없는가 — 소유 System 이 이 Project 의 active System 이 아니거나,
+        /// 소유 표기가 없는데 active System 이 여러 개라 누구 것인지 가릴 수 없는 경우.
+        ///
+        /// 예전에는 이 상태를 **에러**로 올려 계획 전체를 무효화했다. 그러면 유령 endpoint 하나가
+        /// (System 을 지우거나 AASX GUID 를 재발급하면 생긴다) 멀쩡한 나머지 PLC 까지 전부 죽이고,
+        /// Agent 는 idle 에 머물러 Hub 조차 뜨지 않는다 — 현장에서는 "PLC 설정을 했는데 아무것도
+        /// 안 뜬다" 로만 보였다. 이제는 그 endpoint 만 빼고 나머지로 기동한다.
+        let isOrphan (systemId: Guid option) =
+            match activeSystemIds with
+            | None -> false
+            | Some ids ->
+                match systemId with
+                | Some sid -> not (ids.Contains sid)
+                | None -> ids.Count > 1
+
+        let describeOrphan (label: string) (index: int) (systemId: Guid option) =
+            match systemId with
+            | Some sid ->
+                sprintf
+                    "%s #%d 를 수집에서 제외합니다 — systemRef '%O' 가 이 Project 의 active System 이 아닙니다. \
+                     삭제·비활성된 System 의 잔존 접속이거나 모델 GUID 가 재발급된 경우입니다. \
+                     Promaker 에서 그 System 의 PLC 접속을 다시 지정하거나 잔존 접속을 정리하세요."
+                    label index sid
+            | None ->
+                sprintf
+                    "%s #%d 를 수집에서 제외합니다 — systemRef 가 없는데 이 Project 에 active System 이 \
+                     여러 개라 소유를 가릴 수 없습니다. Promaker 에서 그 System 의 PLC 접속을 다시 저장하세요."
+                    label index
 
         /// 두 벤더 확장(InterfaceXGT·InterfaceMicrexSx)이 공유하는 interaction 검증·태그 조립.
         /// `label` 은 오류 메시지에 쓰이는 인터페이스 이름이다. 이 검증을 분기별로 복제하면
@@ -120,6 +156,15 @@ module AidXgtGatewayConfig =
 
         for binding in aid.Interfaces do
             match binding with
+            // 소유 System 이 없는 endpoint 는 번호만 소비하고(나머지 연결 이름이 밀리지 않도록) 건너뛴다.
+            | Xgt (endpoint, _) when isOrphan endpoint.SystemId ->
+                bindingCount <- bindingCount + 1
+                xgtIndex <- xgtIndex + 1
+                ownershipWarnings.Add(describeOrphan "InterfaceXGT" xgtIndex endpoint.SystemId)
+            | MicrexSx (endpoint, _) when isOrphan endpoint.SystemId ->
+                bindingCount <- bindingCount + 1
+                sxIndex <- sxIndex + 1
+                ownershipWarnings.Add(describeOrphan "InterfaceMicrexSx" sxIndex endpoint.SystemId)
             | Xgt (endpoint, interactions) ->
                 bindingCount <- bindingCount + 1
                 xgtIndex <- xgtIndex + 1
@@ -208,7 +253,13 @@ module AidXgtGatewayConfig =
             | _ -> ()
 
         if connections.Count = 0 && errors.Count = 0 then
-            errors.Add "AASX에 InterfaceXGT 또는 InterfaceMicrexSx 바인딩이 없습니다."
+            if ownershipWarnings.Count > 0 then
+                // 바인딩은 있는데 전부 소유 System 이 없어 빠진 경우 — "없다" 로 뭉뚱그리면 원인을 못 찾는다.
+                errors.Add
+                    $"AASX 의 PLC 접속 {ownershipWarnings.Count}개가 모두 소유 System 없이 남아 있어 수집할 대상이 \
+                      없습니다. Promaker 에서 각 System 의 PLC 접속을 다시 지정하세요."
+            else
+                errors.Add "AASX에 InterfaceXGT 또는 InterfaceMicrexSx 바인딩이 없습니다."
 
         // 연결(=PLC) 간 주소 중복 진단. 주소는 System 마다 독립적으로 쓸 수 있게 설계돼 있고
         // 하위 계층이 (SystemId, 주소) 복합키를 쓰므로 System 간 중복은 **에러도 경고도 아니다**(정보).
@@ -231,13 +282,15 @@ module AidXgtGatewayConfig =
                      단, systemId 를 싣지 않는 구버전 수집기/DSPilot 이 섞여 있으면 구분되지 않습니다."
                     dup.Address (describeOwners dup))
         let warnings =
-            duplicates
-            |> List.filter (fun dup -> dup.Conflict = WithinSameSystem)
-            |> List.map (fun dup ->
-                sprintf
-                    "주소 '%s'를 같은 System(또는 귀속 미상)의 연결 여러 개가 사용합니다: %s. \
-                     복합키로도 구분되지 않으므로 모델의 주소 배정을 수정해야 합니다."
-                    dup.Address (describeOwners dup))
+            // 소유 없는 endpoint 제외는 활성화를 막지 않지만 사람이 모델을 고쳐야 하는 사항 — 주소 충돌과 같은 등급.
+            List.ofSeq ownershipWarnings
+            @ (duplicates
+               |> List.filter (fun dup -> dup.Conflict = WithinSameSystem)
+               |> List.map (fun dup ->
+                   sprintf
+                       "주소 '%s'를 같은 System(또는 귀속 미상)의 연결 여러 개가 사용합니다: %s. \
+                        복합키로도 구분되지 않으므로 모델의 주소 배정을 수정해야 합니다."
+                       dup.Address (describeOwners dup)))
 
         let config =
             if errors.Count > 0 then Unchecked.defaultof<PlcGatewayConfig>
@@ -248,17 +301,23 @@ module AidXgtGatewayConfig =
 
     let build (aid: AssetInterfacesDescription) : AidXgtConfigResult =
         let empty = Dictionary<string, int>() :> IReadOnlyDictionary<string, int>
-        buildCore empty aid
+        buildCore None empty aid
 
-    /// 테스트·도구용: 명시적인 SignalPolicy 집합을 XGT 계획에 적용한다.
-    let buildWithPolicies
-        (aid: AssetInterfacesDescription, policies: IEnumerable<SignalPolicy>) : AidXgtConfigResult =
+    /// sampling 사전 조립 — 소유 검사 범위(scope)만 다른 두 진입점이 공유한다.
+    let private buildWithPoliciesCore
+        (scope: OwnerScope) (aid: AssetInterfacesDescription) (policies: IEnumerable<SignalPolicy>) =
         let sampling = Dictionary<string, int>(StringComparer.Ordinal)
         for policy in policies do
             match SignalPolicy.validate policy, policy.SamplingIntervalMs with
             | Ok (), Some interval -> sampling.[policy.SignalId.Value] <- interval
             | _ -> ()
-        buildCore (sampling :> IReadOnlyDictionary<string, int>) aid
+        buildCore scope (sampling :> IReadOnlyDictionary<string, int>) aid
+
+    /// 테스트·도구용: 명시적인 SignalPolicy 집합을 XGT 계획에 적용한다.
+    /// Project 문맥이 없으므로 endpoint 소유(systemRef) 검사는 하지 않는다.
+    let buildWithPolicies
+        (aid: AssetInterfacesDescription, policies: IEnumerable<SignalPolicy>) : AidXgtConfigResult =
+        buildWithPoliciesCore None aid policies
 
     let private bindLegacyEndpointsToOnlySystem (systems: DsSystem list) (aid: AssetInterfacesDescription) =
         match systems with
@@ -269,26 +328,6 @@ module AidXgtGatewayConfig =
                     aid.Interfaces.[index] <- Xgt ({ endpoint with SystemId = Some system.Id }, interactions)
                 | _ -> ()
         | _ -> ()
-
-    let private validateEndpointSystemRefs (systems: DsSystem list) (aid: AssetInterfacesDescription) =
-        let activeIds = systems |> Seq.map _.Id |> HashSet
-        [ for binding in aid.Interfaces do
-              match binding with
-              | Xgt (endpoint, _) ->
-                  match endpoint.SystemId with
-                  | None when systems.Length > 1 ->
-                      yield "Project에 active System이 여러 개인 경우 모든 InterfaceXGT EndpointMetadata.systemRef가 필요합니다."
-                  | Some systemId when not (activeIds.Contains systemId) ->
-                      yield $"InterfaceXGT EndpointMetadata.systemRef '{systemId}'가 이 Project의 active System이 아닙니다."
-                  | _ -> ()
-              | MicrexSx (endpoint, _) ->
-                  match endpoint.SystemId with
-                  | None when systems.Length > 1 ->
-                      yield "Project에 active System이 여러 개인 경우 모든 InterfaceMicrexSx EndpointMetadata.systemRef가 필요합니다."
-                  | Some systemId when not (activeIds.Contains systemId) ->
-                      yield $"InterfaceMicrexSx EndpointMetadata.systemRef '{systemId}'가 이 Project의 active System이 아닙니다."
-                  | _ -> ()
-              | _ -> () ]
 
     /// Agent 정식 경로: Project active system의 SequenceLogging 정책을 모아 적용한다.
     let buildForProject
@@ -307,14 +346,6 @@ module AidXgtGatewayConfig =
                 match system.GetLoggingProperties() with
                 | Some logging -> logging.SignalPolicies :> seq<SignalPolicy>
                 | None -> Seq.empty)
-        let result = buildWithPolicies(aid, policies)
-        let ownershipErrors = validateEndpointSystemRefs systems aid
-        if ownershipErrors.IsEmpty then result
-        else
-            AidXgtConfigResult(
-                Unchecked.defaultof<PlcGatewayConfig>,
-                Array.append result.Errors (ownershipErrors |> List.toArray),
-                result.Warnings,
-                result.Notices,
-                result.HasBinding,
-                result.Signals)
+        // 소유(systemRef) 검사 범위를 넘겨 준다 — 유령 endpoint 는 buildCore 가 그것만 빼고 경고로 남긴다.
+        // (예전에는 여기서 사후에 에러를 덧붙여 계획 전체를 무효화했다 — 유령 하나가 라인 전체를 멈췄다.)
+        buildWithPoliciesCore (Some(systems |> Seq.map _.Id |> HashSet)) aid policies
