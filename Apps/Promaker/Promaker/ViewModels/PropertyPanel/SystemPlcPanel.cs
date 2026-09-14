@@ -305,6 +305,8 @@ public partial class PropertyPanelState
                             PlcStationNumber, PlcTransport, (PlcUsbDeviceSelector ?? "").Trim());
             // 구버전 endpoint 는 값 동일해도 귀속(claim) 커밋이 남아 있어 저장 버튼을 열어 둔다.
             IsPlcDirty = PlcIsLegacyEndpoint;
+            // 매체 값이 직전 System 과 같으면 OnPlcTransportChanged 가 안 돌아 안내 줄이 남의 System 것으로 남는다.
+            RefreshPlcUsbNote();
         }
         finally
         {
@@ -365,6 +367,16 @@ public partial class PropertyPanelState
             if (usbSelector.IndexOfAny(new[] { '/', '?', '#' }) >= 0)
             {
                 _host.ShowWarning("USB 장치 선택 키에는 '/', '?', '#' 을 쓸 수 없습니다.");
+                return;
+            }
+            // 프로젝트(수집기 1대)당 USB 는 System 1개 — 둘 이상이면 모두 "첫 장치"에 붙어 두 번째가 claim BUSY 로
+            // 조용히 죽고, 원격 수집기에서는 어느 PLC 가 어느 System 인지 가릴 방법도 없다.
+            var otherUsb = OtherUsbSystemName();
+            if (otherUsb is not null)
+            {
+                _host.ShowWarning(
+                    $"USB 접속은 프로젝트당 System 1개만 둘 수 있습니다 — '{otherUsb}' 이(가) 이미 USB 입니다.\n" +
+                    "한쪽을 Ethernet 으로 바꾸세요.");
                 return;
             }
         }

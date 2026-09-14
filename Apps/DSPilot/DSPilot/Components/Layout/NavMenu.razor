@@ -256,13 +256,13 @@
             _plcLevel = "down";
             _plcLabel = $"{plcDown}대 끊김";
             _plcTooltip = string.Join("\n", statuses.Where(s => !s.IsConnected)
-                .Select(s => $"{s.Name} ({s.Vendor} {s.Endpoint}) — {s.LastError}"));
+                .Select(s => $"{s.Name} ({s.Vendor} {PlcEndpointDisplay.Of(s)}) — {s.LastError}"));
         }
         else
         {
             _plcLevel = "ok";
             _plcLabel = $"{plcTotal}대 연결";
-            _plcTooltip = string.Join("\n", statuses.Select(s => $"{s.Name} ({s.Endpoint})"));
+            _plcTooltip = string.Join("\n", statuses.Select(s => $"{s.Name} ({PlcEndpointDisplay.Of(s)})"));
         }
     }
 

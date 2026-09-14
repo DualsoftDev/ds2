@@ -93,6 +93,24 @@
                     </StackPanel>
                 </Grid>
 
+                <!-- USB — 장치는 고르지 않는다(수집 호스트의 첫 장치, 프로젝트당 1대). IP/Port 자리에 정책·전제를
+                     한 줄로 보이고, 다른 System 이 이미 USB 면 경고색으로 바뀐다(저장 차단은 ApplySystemPlc). -->
+                <TextBlock Margin="0,6,0,0" FontSize="10" TextWrapping="Wrap"
+                           Visibility="{Binding IsPlcUsb, Converter={StaticResource BoolToVis}}"
+                           Text="{Binding PlcUsbNote}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding PlcUsbConflict}" Value="True">
+                                    <Setter Property="Foreground" Value="{DynamicResource OrangeAccentBrush}"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+
                 <!-- Scan / Timeout -->
                 <Grid Margin="0,6,0,0">
                     <Grid.ColumnDefinitions>

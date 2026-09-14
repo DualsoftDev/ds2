@@ -1,0 +1,18 @@
+libusb-1.0.dll — third-party notice
+====================================
+
+Component : libusb 1.0.27 (Windows x64, MinGW64 build)
+License   : GNU Lesser General Public License v2.1 (LGPL-2.1) — full text in LICENSE-libusb-1.0.txt (verbatim COPYING)
+Copyright : (c) 2001-2024 libusb contributors — https://libusb.info
+Source    : https://github.com/libusb/libusb/releases/tag/v1.0.27
+            archive libusb-1.0.27.7z, path MinGW64/dll/libusb-1.0.dll (unmodified official binary)
+SHA-256   : 3f050dee9fbf995bfbed2f4969131877fcd1b59bfd3afd2a767ff6844e872430 (libusb-1.0.dll)
+
+Why MinGW64 and not MS64: the VS2022/MS64 build imports VCRUNTIME140.dll, which is not part of
+Windows and is not installed by the .NET 9 runtime; the MinGW64 build depends only on msvcrt.dll/
+KERNEL32/USER32, so it loads on a clean PC without the VC++ redistributable.
+
+How it is used: loaded dynamically (P/Invoke, DllImport "libusb-1.0") by Ev2.PLC.Usb.dll when an
+LS XGT PLC is collected over the CPU front USB loader port. It is not statically linked into any
+DualSoft binary; replacing this file with another LGPL-compatible libusb 1.0 build is supported
+(LGPL-2.1 §6). Source code for libusb is available at the URL above.

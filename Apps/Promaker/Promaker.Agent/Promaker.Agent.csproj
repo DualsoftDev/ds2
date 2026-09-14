@@ -48,4 +48,20 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- LS XGT USB 로더 수집(Ds2.Backend.Plc LsUsbAdapter → Ev2.PLC.Usb)이 P/Invoke 로 여는 네이티브 libusb-1.0.
+         Ev2.PLC.Usb 의 리졸버는 NativeLibrary.TryLoad("libusb-1.0.dll") 평문 이름이라 Promaker.Agent.exe 와
+         같은 폴더에 있어야 한다(runtimes\<rid>\native 아님). 이 프로젝트가 USB 를 실제로 여는 유일한 Windows
+         프로세스이고(Promaker.exe·DSPilot.exe 는 열지 않음), 두 인스톨러(Promaker Setup.iss · DSPilot.iss)가
+         publish 폴더를 통째로 {app}\Agent 에 복사하므로 여기 한 곳에서 출력에 실으면 설치본에도 따라간다.
+         LGPL-2.1 — 라이선스 전문(LICENSE-*)과 출처/해시(NOTICE-*)를 DLL 옆에 함께 배치한다(고지 의무).
+         Exists 조건: ExternalDlls 스냅샷이 없는 환경(CI 부분 체크아웃)에서도 빌드는 되게 — USB 접속만 실패. -->
+    <None Include="..\..\..\ExternalDlls\libusb-1.0.dll" Link="libusb-1.0.dll"
+          CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\..\ExternalDlls\libusb-1.0.dll')" />
+    <None Include="..\..\..\ExternalDlls\LICENSE-libusb-1.0.txt" Link="LICENSE-libusb-1.0.txt"
+          CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\..\ExternalDlls\LICENSE-libusb-1.0.txt')" />
+    <None Include="..\..\..\ExternalDlls\NOTICE-libusb-1.0.txt" Link="NOTICE-libusb-1.0.txt"
+          CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\..\ExternalDlls\NOTICE-libusb-1.0.txt')" />
+  </ItemGroup>
+
 </Project>

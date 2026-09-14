@@ -152,16 +152,15 @@ public class NavController : ControllerBase
         List<PlcEndpointInfo> modelEndpoints;
         try { modelEndpoints = _project.GetPlcEndpoints(); }
         catch { modelEndpoints = new List<PlcEndpointInfo>(); }
+        //   endpoint 가 빈 보고(Endpoint 필드가 없는 구버전 Agent 에 ip 도 없는 경우)는 대조 자체를 못 하므로
+        //   null — "" 로 떨어뜨리면 정상 어댑터가 전부 '미매칭' 경고로 보인다.
         string? MatchSystem(string? endpoint)
         {
-            if (modelEndpoints.Count == 0) return null;
+            if (modelEndpoints.Count == 0 || string.IsNullOrWhiteSpace(endpoint)) return null;
             var hit = modelEndpoints.FirstOrDefault(e =>
-                string.Equals(e.Endpoint, endpoint?.Trim(), StringComparison.OrdinalIgnoreCase));
+                string.Equals(e.Endpoint, endpoint.Trim(), StringComparison.OrdinalIgnoreCase));
             return hit?.SystemName ?? "";
         }
-        // 핑은 항상 TCP 접속이라 표기도 이더넷 형식(host:port)이다.
-        var tcpTransport = Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.XgtEndpointBase.transportLabel(
-            Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.XgtTransport.XgtTcp);
 
         if (plc.Count > 0)
         {
@@ -172,9 +171,14 @@ public class NavController : ControllerBase
             adapters = plc
                 .OrderBy(s => s.IsConnected) // 끊긴 어댑터를 위로
                 .ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(s => new NavPlcAdapterDto(
-                    s.Name, s.Vendor, s.IpAddress, s.Port, s.Endpoint, s.IsConnected, s.LastError,
-                    MatchSystem(s.Endpoint)))
+                .Select(s =>
+                {
+                    // 표기·대조 모두 서버 Endpoint 가 정본, 구 Agent 보고는 ip:port 폴백(PlcEndpointDisplay 한 곳).
+                    var endpoint = PlcEndpointDisplay.Of(s);
+                    return new NavPlcAdapterDto(
+                        s.Name, s.Vendor, s.IpAddress, s.Port, endpoint, s.IsConnected, s.LastError,
+                        MatchSystem(endpoint), PlcEndpointDisplay.IsUsb(s));
+                })
                 .ToList();
         }
         else
@@ -191,7 +195,8 @@ public class NavController : ControllerBase
                     .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
                     .Select(p =>
                     {
-                        var endpoint = Ds2.Core.StandardSubmodels.PlcEndpointLabel.format(tcpTransport, p.Ip, p.Port, string.Empty);
+                        // 핑은 항상 TCP 접속이라 표기도 이더넷 형식(host:port)이다.
+                        var endpoint = PlcEndpointDisplay.Of(null, p.Ip, p.Port);
                         return new NavPlcAdapterDto(p.Name, p.Vendor, p.Ip, p.Port, endpoint, p.Connected, p.Error,
                             MatchSystem(endpoint));
                     })
@@ -199,11 +204,18 @@ public class NavController : ControllerBase
             }
             else
             {
-                plcSource = "none"; // 대상 PLC 미설정 — 핑할 곳이 없음.
+                // 핑할 곳이 없음 — 모델에 PLC 가 아예 없거나, 있어도 전부 USB(TCP 로 닿을 수 없음)인 경우.
+                // 두 경우를 UI 가 가를 수 있게 모델 endpoint 수를 함께 내려준다(아래 ModelPlcCount/ModelUsbCount).
+                plcSource = "none";
                 plcTotal = plcConnected = plcDisconnected = 0;
                 adapters = new List<NavPlcAdapterDto>();
             }
         }
+
+        // 모델(AID)에 적힌 PLC 접속 수 — Agent 보고도 핑도 없을 때 "미설정"과 "확인 불가"를 가르는 근거.
+        // USB 는 TCP 핑 대상이 아니라(PlcPingService 제외) 보고가 없으면 상태를 알 길이 없다.
+        var modelPlcCount = modelEndpoints.Count;
+        var modelUsbCount = modelEndpoints.Count(PlcEndpointDisplay.IsUsb);
 
         // 모델 주소 수신 커버리지 — 주소 오타/영역 불일치처럼 "연결은 정상인데 그 태그만 0 건"인 상태를
         // 상세 패널에서 바로 보게 한다(판정에는 미사용 — GetAddressCoverage 주석 참조). 인메모리 카운트라 저비용.
@@ -214,7 +226,8 @@ public class NavController : ControllerBase
         var addrSystems = BuildAddressCoverageBySystem();
 
         var agent = new NavAgentDto(hubState, plcTotal, plcConnected, plcDisconnected, plcSource, adapters,
-            addrExpected, addrSeen, addrMissing, addrSystems, ReadPlcScanMode());
+            addrExpected, addrSeen, addrMissing, addrSystems, ReadPlcScanMode(),
+            ModelPlcCount: modelPlcCount, ModelUsbCount: modelUsbCount);
 
         // ── anomalyActiveCount (이상발생 활성) ── 최근 10분 Error. ack 가 창 안이면 시작점을 ack 로 당김.
         var nowUtc = DateTime.UtcNow;
@@ -424,14 +437,21 @@ public record NavAgentDto(
     List<NavAddrSystemDto>? AddrSystems = null,
     // Promaker 업로드 시 선택한 PLC 수집 방식(session.json isRealPlcConnected) —
     // "direct"(Agent 직접 스캔) | "delegated"(Edge 단말 위임) | null(업로드 이력 없음/미상).
-    string? PlcScanMode = null);
+    string? PlcScanMode = null,
+    // 모델(AASX AID)에 적힌 PLC 접속 수와 그중 USB 수. PlcSource="none"(보고도 핑도 없음)일 때 UI 가
+    // "대상 미설정"(0)과 "모델엔 있으나 상태 확인 불가"(>0, 특히 USB)를 가른다.
+    int ModelPlcCount = 0,
+    int ModelUsbCount = 0);
 
 // 시스템(PLC) 1개의 주소 수신 커버리지. Missing 은 표본(시스템당 최대 8개).
 public record NavAddrSystemDto(string System, int Expected, int Seen, List<string> Missing);
 
 public record NavPlcAdapterDto(
     // Ip/Port 는 이더넷 어댑터만 채워진다(USB 는 ""/0). 표시는 Endpoint(host:port | USB | USB(selector))를 쓴다.
+    //   Endpoint="" = 표기 불가(Endpoint 필드 없는 구 Agent 보고에 ip 도 없음) — UI 는 이름만 그린다.
     string Name, string Vendor, string Ip, int Port, string Endpoint, bool Connected, string? Error,
     // 이 어댑터(Endpoint)가 현재 모델 AID 에서 어느 시스템의 엔드포인트인지.
-    //   시스템 이름 | ""(모델에 있는데 미매칭 — 구 모델 잔존/설정 불일치 후보) | null(모델 미로드/AID 없음 = 표기 생략).
-    string? System = null);
+    //   시스템 이름 | ""(모델에 있는데 미매칭 — 구 모델 잔존/설정 불일치 후보) | null(모델 미로드/AID 없음/표기 불가 = 표기 생략).
+    string? System = null,
+    // USB 로더 포트 직결 어댑터 — UI 가 매체 배지를 그린다(TCP 핑으로 확인 불가·수집 호스트 직결 전제).
+    bool Usb = false);

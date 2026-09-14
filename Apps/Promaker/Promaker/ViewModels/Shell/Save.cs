@@ -86,21 +86,47 @@ public partial class MainViewModel
             return;
         }
 
-        // 수집 방식이 마지막 업로드(session.json)와 달라지면 1회 확인 — 위임 현장에서 습관적으로
-        // 직접 버튼을 눌러 Agent 가 PLC 직접 접속을 시도(접속실패/CommBlackout)하는 실수 방지.
+        // 업로드 전 1회 확인 — 아래 두 사유를 한 다이얼로그에 묶는다(연속 팝업 금지).
+        //  ① 수집 방식이 마지막 업로드(session.json)와 달라짐 — 위임 현장에서 습관적으로 직접 버튼을 눌러
+        //     Agent 가 PLC 직접 접속을 시도(접속실패/CommBlackout)하는 실수 방지.
+        //  ② USB 접속 System 이 있는데 '직접 수집'으로 원격(네트워크/클라우드) Agent 에 올림 — USB PLC 는
+        //     수집하는 PC 에 물리적으로 꽂혀 있어야 하므로 그 Agent PC 에 PLC 가 없으면 접속 실패만 반복된다.
+        //     클라우드 인스턴스는 USB 를 꽂을 수 없어 위임 수집(Edge 단말)이 유일한 경로다.
+        //     로컬(올인원 PC)은 정상 시나리오라 묻지 않는다.
+        var confirmLines = new System.Collections.Generic.List<string>();
         var prevSession = Promaker.Shared.AgentSession.TryLoad();
         if (prevSession is not null && prevSession.IsRealPlcConnected == delegatedScan)
         {
             var from = prevSession.IsRealPlcConnected ? "Agent 직접" : "Edge 단말 위임";
             var to = delegatedScan ? "Edge 단말 위임" : "Agent 직접";
+            confirmLines.Add($"PLC 수집 방식이 바뀝니다: {from} → {to}");
+        }
+        if (!delegatedScan && CurrentAgentTransferTarget.Kind != AgentTransferTargetKind.Local)
+        {
+            var usbSystems = Simulation.ListPlcSystemEndpoints()
+                .Where(e => e.HasEndpoint && e.Profile.IsUsb)
+                .Select(e => e.SystemName)
+                .ToList();
+            if (usbSystems.Count > 0)
+            {
+                var systems = string.Join(", ", usbSystems);
+                confirmLines.Add(CurrentAgentTransferTarget.Kind == AgentTransferTargetKind.Cloud
+                    ? $"USB 접속 System({systems})을 '직접 수집'으로 클라우드 인스턴스 Agent 에 올립니다.\n" +
+                      "클라우드 인스턴스에는 USB PLC 를 꽂을 수 없습니다 — PLC 가 Edge 단말에 꽂혀 있다면 '위임 수집'을 사용하세요. " +
+                      "이대로 올리면 접속 실패만 반복됩니다."
+                    : $"USB 접속 System({systems})을 '직접 수집'으로 원격 Agent({CurrentAgentTransferTarget.Ip})에 올립니다.\n" +
+                      "USB PLC 는 수집하는 PC 에 직접 꽂혀 있어야 합니다 — 그 Agent PC 에 PLC 가 USB 로 연결돼 있지 않으면 접속 실패가 계속됩니다.");
+            }
+        }
+        if (confirmLines.Count > 0)
+        {
             var answer = Promaker.Dialogs.DialogHelpers.ShowThemedMessageBox(
-                $"PLC 수집 방식이 바뀝니다: {from} → {to}\n\n" +
-                "업로드하면 Agent 가 새 방식으로 재시작됩니다. 계속할까요?",
-                "수집 방식 변경 확인", System.Windows.MessageBoxButton.YesNo,
+                string.Join("\n\n", confirmLines) + "\n\n업로드하면 Agent 가 새 설정으로 재시작됩니다. 계속할까요?",
+                "업로드 확인", System.Windows.MessageBoxButton.YesNo,
                 Promaker.Dialogs.DialogHelpers.IconWarn);
             if (answer != System.Windows.MessageBoxResult.Yes)
             {
-                StatusText = "업로드 취소 — 수집 방식 변경 미확인";
+                StatusText = "업로드 취소 — 확인 미승인";
                 return;
             }
         }
