@@ -300,7 +300,12 @@ public sealed record OeeSummaryDto(
     // ── doc/28 (2026-09-11 두 규칙 · 사이클 단위) ──
     int ReviewPendingCount = 0,       // '확인 필요' 고장 행 수 — 길이(ct)가 비생산 경계(CT) 이상인데 수동 라벨이 없는 고장(끄고 간 정지 후보)
     double ReviewPendingMs = 0,       // 그 행들의 계측 길이 합(기간 클립)
-    double UnattributedWallMs = 0);   // 미귀속 = 비가동 − 유지보수 − 고장. 행이 연속이라 0 이어야 정상 — 0 이 아니면 데이터 결함(계측 품질에도 노출)
+    double UnattributedWallMs = 0,    // 미귀속 = 비가동 − 유지보수 − 고장. 행이 연속이라 0 이어야 정상 — 0 이 아니면 데이터 결함(계측 품질에도 노출)
+    // ── 판정 불가(표본 게이트, 2026-09-14) — 14일 완료 사이클 < 10 인 flow 의 생산가능 시간. A·P 분모·분자 밖(미계측·진행 중과 같은 자리).
+    //   종전 "전부 정상"은 긴 정지까지 가동으로 세어 라인 분모를 부풀렸다. 뺀 만큼은 반드시 화면에 보고한다(커버리지) — 그게 채택 조건.
+    double UnjudgedWallMs = 0,
+    int UnjudgedFlowCount = 0,
+    IReadOnlyList<string>? UnjudgedFlows = null);
 
 /// <summary>비생산 시간대 한 칸 DTO (반복 일일, 로컬 자정 기준 분).</summary>
 public sealed record PlannedStopWindowDto(int StartMinutes, int EndMinutes, string? Label);

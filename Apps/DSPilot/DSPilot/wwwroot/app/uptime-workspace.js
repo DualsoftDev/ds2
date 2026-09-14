@@ -635,7 +635,7 @@
                     if (kind === 'nonprodCt') return medCt > 0 ? Math.max(medCt * this.cm.nonProd, medCt * this.cm.nonProdFloor) : 0;
                     return 0;
                 },
-                // 표본 게이트 — 14일 완료 사이클이 minSamples 미만이면 판정 보류(전부 정상). 서버 OeeMath.MinBaselineSamples 와 동일.
+                // 표본 게이트 — 14일 완료 사이클이 minSamples 미만이면 판정 불가(라인 A·P 분모·분자 밖, 2026-09-14). 서버 OeeMath.MinBaselineSamples 와 동일.
                 cmGated(f) { return (f.sampleCount || 0) < (this.cm.minSamples || 10); },
                 cmChipTitle(f) {
                     const parts = [f.flowName + ' · 14일 실측', '평균 CT ' + this.cmFmtMs(f.avgCtMs), '중앙 CT ' + this.cmFmtMs(f.medianCtMs), '완료 표본 ' + (f.sampleCount || 0) + '건'];
@@ -645,7 +645,7 @@
                     } else {
                         parts.push('동작(MT) 기준 없음 — 완료 신호 미정의 → 고장 판별 불가, 비생산은 사이클 길이 ≥ ' + this.cmFmtMs(this.cmBound(f, 'nonprodCt')));
                     }
-                    if (this.cmGated(f)) parts.push('표본 ' + (f.sampleCount || 0) + '건 < ' + this.cm.minSamples + ' — 판정 보류(전부 정상)');
+                    if (this.cmGated(f)) parts.push('표본 ' + (f.sampleCount || 0) + '건 < ' + this.cm.minSamples + ' — 판정 불가(라인 집계 제외)');
                     return parts.join('\n');
                 },
                 // ms → 사람 단위 (10s 미만은 소수 1자리, 90s↑ 분, 90분↑ 시간)

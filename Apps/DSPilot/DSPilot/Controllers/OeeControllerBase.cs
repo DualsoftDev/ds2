@@ -867,7 +867,10 @@ public abstract class OeeControllerBase : ControllerBase
             InProgressWallMs: agg.InProgressWallMs,
             ReviewPendingCount: agg.ReviewPendingCount,
             ReviewPendingMs: agg.ReviewPendingMs,
-            UnattributedWallMs: agg.UnattributedWallMs);
+            UnattributedWallMs: agg.UnattributedWallMs,
+            UnjudgedWallMs: agg.UnjudgedWallMs,
+            UnjudgedFlowCount: agg.UnjudgedFlows?.Count ?? 0,
+            UnjudgedFlows: agg.UnjudgedFlows);
     }
 
     // ── 비생산 판정 모드 ─────────────────────────────────────────────────────
@@ -1109,7 +1112,12 @@ public abstract class OeeControllerBase : ControllerBase
         int NonProdCount = 0,                                            // 비생산 행 수(자동+라벨+시각대)
         int FaultMtCount = 0, int FaultCtCount = 0,                      // 고장 축별 건수(미리보기 표기)
         int NonProdWtCount = 0, int NonProdCtCount = 0,                  // 비생산 축별 건수
-        int NonProdMtCount = 0);                                         // 비생산 중 '동작 늘어짐' 강등분(= 확인 필요 후보, 2026-09-14)
+        int NonProdMtCount = 0,                                          // 비생산 중 '동작 늘어짐' 강등분(= 확인 필요 후보, 2026-09-14)
+        // ── 판정 불가(표본 게이트, 2026-09-14) — 14일 완료 사이클 < MinBaselineSamples 인 flow. 기준선이 없어 어떤 행도 판정할 수
+        //   없으므로 미계측·진행 중과 같은 자리(분모·분자 밖). 종전 "전부 정상"은 긴 정지까지 가동으로 세어 "측정 안 되는 설비를
+        //   만점으로" 오류를 되살렸다. 빼는 것과 뺐다고 보고하는 것(커버리지)이 한 세트 — 이 두 필드가 그 보고다.
+        double UnjudgedWallMs = 0,                                       // Σ_판정불가 flow 의 생산가능(카빙 후) — 종전엔 AvailableWallMs 에 들어갔던 양
+        List<string>? UnjudgedFlows = null);                             // 그 flow 이름(가상 flow 키) — 무결성 카드 표기
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } public long NonProdNormalCt { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } public long? Wt { get; set; } }
@@ -1136,9 +1144,9 @@ public abstract class OeeControllerBase : ControllerBase
         IReadOnlySet<string>? flowFilter)
     {
         var sb = new System.Text.StringBuilder(256);
-        sb.Append("v34|");   // 분모/분류 모델 버전(v34 = 2026-09-14 3종: ①창 경계 대칭(To 이후 끝나는 걸침 행 포함)
-                             //   ②길이 강등(고장이라도 행 길이 ≥ 비생산 경계면 비생산+확인 필요) ③기록 공백 귀속(미귀속 잔여를
-                             //   길이로 비생산/고장 처분)) — 모델 변경 배포 직후 L1 캐시 혼재 방지
+        sb.Append("v35|");   // 분모/분류 모델 버전(v35 = 2026-09-14 ④판정 불가(표본 게이트 flow)를 "전부 정상"에서 분모·분자 밖으로)
+                             // v34(2026-09-14): ①창 경계 대칭(To 이후 끝나는 걸침 행 포함) ②길이 강등(고장이라도 행 길이 ≥ 비생산
+                             //   경계면 비생산+확인 필요) ③기록 공백 귀속(미귀속 잔여를 길이로 비생산/고장 처분) — 배포 직후 L1 캐시 혼재 방지
                              // v33(2026-09-11): 두 규칙·사이클 단위 고장·불인정 행 CT 축·공백 삭제(doc/28)
                              // v32(2026-09-09): 정지·비생산 판정 CT축→WT축 전환(doc/27)
                              // v31(2026-09-08): 분기 최소 위반 판별
@@ -1194,6 +1202,7 @@ public abstract class OeeControllerBase : ControllerBase
         InProgressIntervals = v.InProgressIntervals is null ? null : new List<(double S, double E)>(v.InProgressIntervals),
         InProgressScoped = v.InProgressScoped is null ? null : new List<(string? Flow, double S, double E)>(v.InProgressScoped),
         UnattributedByFlow = v.UnattributedByFlow is null ? null : new Dictionary<string, double>(v.UnattributedByFlow, StringComparer.OrdinalIgnoreCase),
+        UnjudgedFlows = v.UnjudgedFlows is null ? null : new List<string>(v.UnjudgedFlows),
     };
 
     /// <summary>비생산 판정 배수 — 사용자 설정(설비효율 현황) 정규화 값. 집계·문구·DTO 공용.</summary>
@@ -1470,9 +1479,15 @@ public abstract class OeeControllerBase : ControllerBase
                 var th = thresholds[f];
                 if (th.AvgMs <= 0 || !bounds.TryGetValue(f, out var b)) continue;
                 hasThreshold = true;
+                // ── 판정 불가(표본 게이트, 2026-09-14) — 14일 완료 사이클 < MinBaselineSamples 면 기준선을 신뢰할 수 없다. ──
+                //   종전엔 "전부 정상"(dtCond 네 절 ThrOff)으로 처리해 이 flow 의 모든 행이 가동으로 계상됐다 — 원칙표가 폐기한
+                //   "측정 안 되는 설비를 만점으로" 오류의 부활(실측 교정지그: 가동 105.6h 중 98h 가 긴 정지, 라인 분모의 23%).
+                //   이제는 미계측·진행 중과 같은 자리 = 분모·분자 밖. CT 축(P)·벽시계(A) 어디에도 넣지 않고 pass 2 에서
+                //   UnjudgedWallMs 로 따로 보고한다. 행 조회·flowRun 수집은 그대로 해 pass 2 의 flow별 창(형제가동 카빙 포함)은 만든다.
+                var judged = !b.Gated;
                 // 성능 P 표준치 = 14일 중앙 CT(doc/28 §2.2). 중앙값 미산출(옛 캐시 등)이면 평균 폴백.
                 var thr = th.MedianMs > 0 ? th.MedianMs : th.AvgMs;
-                thrSum += thr; thrCount++;
+                if (judged) { thrSum += thr; thrCount++; }
                 ctSampleMin = Math.Min(ctSampleMin, b.Sample);
 
                 // 분기 스코프 — DB 는 부모 flowName + branchName 라벨로 저장돼 있다. 분기 미사용이면
@@ -1517,7 +1532,7 @@ public abstract class OeeControllerBase : ControllerBase
                 // ★ 여기만 winCond 를 쓰지 않는다 — 이건 시간이 아니라 <b>건수</b>(성능 P 분자)다. 걸침 행을 양쪽 창에서
                 //   각각 1건으로 세면 부분 사이클에 표준 CT 를 통째로 credit 해 P 가 부풀고 일별 합도 어긋난다.
                 //   건수는 recordedAt 이 속한 창에서 한 번만 — 아래 정상 행 루프의 CT 축 적립도 같은 기준으로 맞춘다.
-                if (aggRow is not null)
+                if (aggRow is not null && judged)
                 {
                     // 건수만 SQL 집계에서 취한다. CT 합은 아래 루프에서 기간 클립 후 누적 —
                     // SQL 의 SUM(ct) 는 기간 시작 이전으로 뻗은 사이클을 통째로 더해 짧은 창에서 초과를 만든다.
@@ -1539,7 +1554,8 @@ public abstract class OeeControllerBase : ControllerBase
                             flowRun.Add((rrec - rc, rrec));   // 벽시계 가동 — 패스 2에서 생산가능(⊆기간)과 교집합돼 자동 클립
                             // 오른쪽 걸침 행은 여기까지(벽시계 A)만. CT 축·TEEP 귀속은 위 건수 SQL(recordedAt<To)과
                             // 짝이라 건너뛴다 — 한쪽만 걸침 행을 받으면 P 의 분자/분모가 어긋난다.
-                            if (rrec >= periodEndMs) continue;
+                            // 판정 불가 flow 도 여기까지 — 그 '정상 행'은 기준선 없이 정상이라 불린 것이라 P·TEEP 의 근거가 못 된다.
+                            if (rrec >= periodEndMs || !judged) continue;
                             runIntervals?.Add((rrec - rc, rrec));
                             // NormalCt(SQL)와 동일 기준 — 비생산 시간대 시작 사이클은 KPI 가동에서 빠지므로 여기서도 제외.
                             if (normalCycles is not null && !IsPlannedTimeOfDay(rrec - rc, plannedWindows))
@@ -1747,6 +1763,8 @@ public abstract class OeeControllerBase : ControllerBase
         var nonProdFlat = new List<(double S, double E)>();
         var nonProdScoped = new List<(string? Flow, double S, double E)>();
         var unattributedByFlow = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        double unjudgedWallMs = 0;                       // 판정 불가 flow 의 생산가능(카빙 후) 합 — 분모 밖, 커버리지 보고
+        var unjudgedFlows = new List<string>();
         foreach (var (f, flowRun) in flowRunByFlow)
         {
             // flow별 비생산 창 = 지정 시각대(라인 공통, 구간) ∪ 이 flow 의 비생산 행 구간.
@@ -1768,6 +1786,23 @@ public abstract class OeeControllerBase : ControllerBase
             }
             // 비생산 벽시계(도넛/표시) = 기간 클립 후 미계측 차감(미계측 우선 — daily 표시와 동일 규칙).
             var npClipped = Intervals.Subtract(Intervals.Intersect(npF, periodIv), unmeasured);
+
+            // ── 판정 불가 flow(표본 게이트, 2026-09-14) — 여기서 갈라진다. ──
+            //   기준선이 없으면 이 flow 의 어떤 행도 가동·고장·비생산이라 부를 근거가 없다. 그래서 생산가능(카빙 후 잔여)을
+            //   통째로 분모 밖 UnjudgedWallMs 에 넣고, 가동·비가동·공백 귀속은 하지 않는다(= 분자에도 안 들어감).
+            //   판정과 무관한 것만 남긴다: 지정 시각대 비생산(경영 결정)·미계측·진행 중은 각자 버킷에 그대로 — 달력 항등 유지.
+            //   미귀속은 0 으로 둔다(잔여가 아니라 '판정 불가'로 이미 분류됐으므로 결함 진단에 섞지 않는다).
+            if (bounds.TryGetValue(f, out var bJ) && bJ.Gated)
+            {
+                unjudgedWallMs += Intervals.Total(availF);
+                unjudgedFlows.Add(f);
+                nonProdWallMs += Intervals.Total(npClipped);
+                nonProdFlat.AddRange(npClipped);
+                foreach (var seg in npClipped) nonProdScoped.Add((f, seg.S, seg.E));
+                unattributedByFlow[f] = 0;
+                continue;
+            }
+
             // 가동 = 이 flow 정상 행 ∩ 생산가능. 비가동 = 생산가능 − 가동. 유지보수 = 비가동 ∩ 유지보수 이벤트(부모 키).
             // 고장 = (비가동 − 유지보수) ∩ 고장 행 전체 구간. 잔여 = 사이클 행이 아예 없는 '기록 공백'(아래).
             var dbFlowKey = MapF(f).DbFlow;
@@ -1878,7 +1913,8 @@ public abstract class OeeControllerBase : ControllerBase
             ReviewPendingCount: reviewPendingCount, ReviewPendingMs: reviewPendingMs,
             NonProdCount: nonProdCount,
             FaultMtCount: faultMtCount, FaultCtCount: faultCtCount,
-            NonProdWtCount: nonProdWtCount, NonProdCtCount: nonProdCtCount, NonProdMtCount: nonProdMtCount);
+            NonProdWtCount: nonProdWtCount, NonProdCtCount: nonProdCtCount, NonProdMtCount: nonProdMtCount,
+            UnjudgedWallMs: unjudgedWallMs, UnjudgedFlows: unjudgedFlows);
     }
 
     private static OeeNonProdDetectionLog NewNonProdDetection(

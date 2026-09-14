@@ -348,7 +348,7 @@ public static class OeeMath
     public static (double? Availability, string? Note) ComputeWallClockAvailability(double runWallMs, double availableWallMs)
     {
         if (availableWallMs <= 0)
-            return (null, "생산가능시간 0(전 기간 비생산/미계측/진행 중) — 가용성 산출 불가.");
+            return (null, "생산가능시간 0(전 기간 비생산/미계측/진행 중/판정 불가) — 가용성 산출 불가.");
         return (Math.Clamp(runWallMs / availableWallMs, 0, 1),
             "가동(벽시계) ÷ 생산가능시간(캘린더 − 비생산 − 미계측). 비가동 = 생산가능 − 가동 = 고장 + 유지보수.");
     }
