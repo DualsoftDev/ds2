@@ -371,7 +371,8 @@ public sealed record CtMultipliersPreviewSideDto(
     int FaultCtCount = 0,         // 고장 중 불인정 행(ct 초과)
     int NonProdWtCount = 0,       // 비생산 중 완료 행(wt 초과)
     int NonProdCtCount = 0,       // 비생산 중 불인정 행(ct 초과)
-    int ReviewPendingCount = 0);  // '확인 필요' 고장 행 수
+    int ReviewPendingCount = 0,   // '확인 필요' 비생산 행 수(길이로 강등 — 사용자의 '고장으로' 전환 후보, 2026-09-14)
+    int NonProdMtCount = 0);      // 비생산 중 동작 늘어짐 강등분(Going 인 채 장시간 정지)
 
 /// <summary>
 /// 자동 비생산 시간대 windows. 14일 평균 패턴(auto-pattern, DaysAnalyzed=14) 또는 이번 기간 실제 제외분(actual, DaysAnalyzed=0).

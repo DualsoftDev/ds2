@@ -440,14 +440,24 @@ public class OeeMathTests
         => Assert.Equal(OeeMath.CycleClass.Fault, Cls(900_000, 3_000_000, 2_100_000));
 
     [Fact]
-    public void ClassifyCycle_weekend_going_row_stays_fault()
+    public void ClassifyCycle_weekend_going_row_is_demoted_to_nonproduction_review()
     {
-        // 금요일 Going 상태로 세워 두고 월요일 이어서 완료 — mt 60h. doc/28 §1: 고장(승격 없음). 교정은 사용자 전환.
+        // 금요일 Going 상태로 세워 두고 월요일 이어서 완료 — mt 60h. 2026-09-14: 고장 규칙(①-a)을 넘겼지만
+        // 행 길이가 비생산 경계(CT) 이상이라 '비생산(확인 필요)'. 현장 실측에서 이 밴드는 대부분 퇴근이었다.
         var mt = 60 * 3600_000;
-        Assert.Equal(OeeMath.CycleClass.Fault, Cls(mt, mt + 20_000, 20_000));
-        // 사용자가 봐야 할 행 — 길이가 비생산 경계(CT) 이상이면 '확인 필요'.
-        Assert.True(OeeMath.IsReviewPending(mt + 20_000, CtNp));
+        Assert.Equal(OeeMath.CycleClass.NonProductionReview, Cls(mt, mt + 20_000, 20_000));
+        Assert.True(OeeMath.IsNonProductionClass(Cls(mt, mt + 20_000, 20_000)));   // 처분 = 분모 밖
+        Assert.True(OeeMath.IsReviewPending(mt + 20_000, CtNp));                   // 강등 임계 = '확인 필요' 임계
+
+        // 경계 아래(동작 초과지만 행이 짧음)는 그대로 고장 — 일상적인 고장 감지는 유지된다.
+        Assert.Equal(OeeMath.CycleClass.Fault, Cls(800_000, (int)CtNp - 1, 20_000));
+        Assert.Equal(OeeMath.CycleClass.NonProductionReview, Cls(800_000, (int)CtNp, 20_000));   // 정확히 경계(≥) = 강등
     }
+
+    [Fact]
+    public void ClassifyCycle_completed_row_wait_nonprod_is_never_review()
+        // ②-a(tail 을 찍고 기다린 대기 초과)는 근거가 확실해 '확인 필요'가 아니다 — 강등분과 섞이면 안 된다.
+        => Assert.Equal(OeeMath.CycleClass.NonProduction, Cls(150_000, 60 * 3600_000, 60 * 3600_000 - 150_000));
 
     [Fact]
     public void ClassifyCycle_missing_wt_uses_ct_minus_mt()
@@ -460,16 +470,21 @@ public class OeeMathTests
     [InlineData(170_000, OeeMath.CycleClass.Normal)]         // 정상 길이인데 tail 누락 = 정상
     [InlineData(850_000, OeeMath.CycleClass.Normal)]         // 정확히 경계(> 조건) = 정상
     [InlineData(850_001, OeeMath.CycleClass.Fault)]          // 5× 초과 = 고장
-    [InlineData(60 * 3600_000, OeeMath.CycleClass.Fault)]    // 소재 빼고 월요일 새로 시작(주말 60h) = 고장(비생산 경계도 넘지만 ①이 먼저)
+    [InlineData(5_099_999, OeeMath.CycleClass.Fault)]        // 비생산 경계 직전 = 고장(불인정 행이라도 짧으면 고장)
+    [InlineData(60 * 3600_000, OeeMath.CycleClass.NonProductionReview)]  // 주말 60h = 비생산(확인 필요) — 길이 강등(2026-09-14)
     public void ClassifyCycle_incomplete_row_uses_ct_axis(int ct, OeeMath.CycleClass expected)
         => Assert.Equal(expected, Cls(null, ct, null));
 
     [Fact]
     public void ClassifyCycle_incomplete_row_nonprod_only_when_fault_clause_is_above_it()
     {
-        // 고장배수 20 > 비생산배수 5 인 설정: ctFault 3400s, ctNp = max(170×5, 170×10) = 1700s → 1700~3400s 구간은 비생산.
-        Assert.Equal(OeeMath.CycleClass.NonProduction, Cls(null, 2_000_000, null, ctF: 3_400_000, ctNp: 1_700_000));
-        Assert.Equal(OeeMath.CycleClass.Fault, Cls(null, 3_400_001, null, ctF: 3_400_000, ctNp: 1_700_000));
+        // 고장배수 20 > 비생산배수 5 인 설정: ctFault 3400s, ctNp = max(170×5, 170×10) = 1700s → 1700s 이상은 전부 비생산.
+        // 불인정 행은 동작 시간을 모르므로 비생산 판정이 전부 '확인 필요'다(2026-09-14).
+        Assert.Equal(OeeMath.CycleClass.NonProductionReview, Cls(null, 2_000_000, null, ctF: 3_400_000, ctNp: 1_700_000));
+        Assert.Equal(OeeMath.CycleClass.NonProductionReview, Cls(null, 3_400_001, null, ctF: 3_400_000, ctNp: 1_700_000));
+        // 강등 경계 양옆 — 아래는 여전히 고장, 정확히 경계(≥)부터 비생산(확인 필요).
+        Assert.Equal(OeeMath.CycleClass.Fault, Cls(null, 1_699_999, null, ctF: 1_000_000, ctNp: 1_700_000));
+        Assert.Equal(OeeMath.CycleClass.NonProductionReview, Cls(null, 1_700_000, null, ctF: 1_000_000, ctNp: 1_700_000));
     }
 
     [Fact]
@@ -503,7 +518,7 @@ public class OeeMathTests
     {
         // tail 미정의 flow: mt·wt 항상 NULL, MT 기준선 없음 → 고장 절 비활성(0). 비생산(CT 축)만 가능.
         Assert.Equal(OeeMath.CycleClass.Normal, Cls(null, 4_000_000, null, mtF: 0, ctF: 0));
-        Assert.Equal(OeeMath.CycleClass.NonProduction, Cls(null, 5_100_000, null, mtF: 0, ctF: 0));
+        Assert.Equal(OeeMath.CycleClass.NonProductionReview, Cls(null, 5_100_000, null, mtF: 0, ctF: 0));
         // 완료 행이 있어도 MT 경계 0 = 판정 비활성(0 을 경계로 쓰면 전 행이 고장이 되는 함정 방지).
         Assert.Equal(OeeMath.CycleClass.Normal, Cls(900_000, 950_000, 50_000, mtF: 0, ctF: 0));
     }

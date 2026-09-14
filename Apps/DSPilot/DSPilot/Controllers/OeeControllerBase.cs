@@ -233,7 +233,7 @@ public abstract class OeeControllerBase : ControllerBase
                 ReasonCode: c.NonProd ? OeeMath.NonProductionReasonCode : "cycle_overtime",
                 Category: c.NonProd ? "nonproduction" : "unplanned",
                 IsFailure: !c.NonProd,
-                DetectSource: "over-cycle",
+                DetectSource: c.Axis == "gap" ? "gap" : "over-cycle",   // 공백 귀속은 행이 아니라 잔여 구간 유래
                 SourceLogId: null,
                 Note: note,
                 Status: "recovered",
@@ -279,7 +279,7 @@ public abstract class OeeControllerBase : ControllerBase
                     SourceLogId: null,
                     Note: $"진행 중 — 사이클 시작(head↑) 후 {Dur(elapsed)} 경과 (고장 기준 {Dur(b.MtFault)} = 평소 동작 {Dur(b.MedianMt)} × {faultMult:0.#}배 초과). "
                           + "다음 사이클이 시작되면 완료 행으로 확정·분류됩니다. 집계 미반영(분모 밖)."
-                          + (review ? " · 확인 필요(길이가 비생산 기준 이상)" : "")
+                          + (review ? $" · 확인 필요(이미 비생산 기준 {Dur(b.CtNonProd)} 이상 — 완료되면 비생산으로 분류됩니다)" : "")
                           + (physical != ipFlow ? " 분기 소속은 완료 후 확정." : ""),
                     Status: "open",
                     ClassifySource: "pending",
@@ -327,7 +327,7 @@ public abstract class OeeControllerBase : ControllerBase
     }
 
     /// <summary>
-    /// 정지 로그 행 노트(doc/28 §2.1 — 3종: 고장 MT 초과 / 고장 미완료 / 비생산 대기 초과, + 불인정 행 비생산). 사이클 전체 길이를
+    /// 정지 로그 행 노트(doc/28 §2.1 — 고장 MT 초과 / 고장 미완료 / 비생산 대기 초과 / 불인정 행 비생산 / 길이로 강등된 비생산). 사이클 전체 길이를
     /// 앞에 두고 평소 대비 초과량을 병기한다 — 고장 시간 표시가 행 전체라 "얼마나 늘어졌나"는 노트가 알려준다.
     /// </summary>
     private static string BuildCycleNote(DowntimeCycleRow c, FlowBounds b, double nonProdMult, double faultMult)
@@ -339,14 +339,26 @@ public abstract class OeeControllerBase : ControllerBase
             _ => "",
         };
         string body;
-        if (c.NonProd)
+        if (c.Axis == "gap")
+        {
+            // 기록 공백(2026-09-14) — 사이클 행이 아예 없는 구간. mt·wt 를 모르므로 길이만 근거로 쓴다.
+            body = $"사이클 기록 없는 공백 {Dur(c.CtMs)} — 이 구간에 사이클 행이 없습니다(동작 중 멈춘 채 마감되지 않은 정지). "
+                   + (c.NonProd
+                        ? $"길이가 비생산 기준 {Dur(b.CtNonProd)} 이상이라 끄고 간 정지로 봅니다"
+                        : $"길이가 고장 기준 {Dur(b.CtFault)} 초과이나 비생산 기준 {Dur(b.CtNonProd)} 미만이라 고장입니다");
+        }
+        else if (c.NonProd)
         {
             body = c.Axis == "wt" && c.WtMs is long wt
                 ? $"대기 {Dur(wt)} (평소 {Dur(b.MedianWt)}) ≥ 비생산 기준 {Dur(b.WtNonProd)} = 평소 대기 × {nonProdMult:0.#}배"
                   + (b.WtNonProd > Math.Max(0, b.MedianWt) * nonProdMult + 0.5 ? $" (하한 {OeeMath.WtNonProdFloorCtMultiples:0}사이클 적용)" : "")
                 : c.Axis == "ct"
                     ? $"완료 신호 없는 사이클 {Dur(c.CtMs)} ≥ 비생산 기준 {Dur(b.CtNonProd)} = 평소 사이클 {Dur(b.MedianCt)} × {nonProdMult:0.#}배"
-                    : $"사이클 {Dur(c.CtMs)} — 비생산(분모 밖)";
+                    : c.Axis == "mt" && c.MtMs is long dmt
+                        // 길이로 강등된 행(2026-09-14) — 근거는 동작(MT) 초과인데 길이가 비생산 기준을 넘어 비생산으로 둔 경우.
+                        ? $"동작 중 멈춘 채 {Dur(dmt)} (평소 동작 {Dur(b.MedianMt)}) — 고장 기준 {Dur(b.MtFault)} 은 넘었지만"
+                          + $" 사이클 {Dur(c.CtMs)} ≥ 비생산 기준 {Dur(b.CtNonProd)} 이라 끄고 간 정지로 봅니다"
+                        : $"사이클 {Dur(c.CtMs)} — 비생산(분모 밖)";
         }
         else if (c.Axis == "mt" && c.MtMs is long mt)
         {
@@ -361,7 +373,8 @@ public abstract class OeeControllerBase : ControllerBase
         {
             body = $"사이클 {Dur(c.CtMs)} — 고장";
         }
-        var suffix = c.NeedsReview ? " · 확인 필요(길이가 비생산 기준 이상 — 끄고 간 정지가 아닌지 확인)" : "";
+        // '확인 필요' 방향 반전(2026-09-14) — 기본을 비생산으로 두고, 진짜 고장이었으면 사용자가 '고장으로' 전환한다.
+        var suffix = c.NeedsReview ? " · 확인 필요(끄고 간 정지로 뒀습니다 — 실제 고장이었다면 '고장으로' 전환)" : "";
         return prefix + body + suffix;
     }
 
@@ -1095,7 +1108,8 @@ public abstract class OeeControllerBase : ControllerBase
         double ReviewPendingMs = 0,                                      // 그 행들의 계측 길이 합
         int NonProdCount = 0,                                            // 비생산 행 수(자동+라벨+시각대)
         int FaultMtCount = 0, int FaultCtCount = 0,                      // 고장 축별 건수(미리보기 표기)
-        int NonProdWtCount = 0, int NonProdCtCount = 0);                 // 비생산 축별 건수
+        int NonProdWtCount = 0, int NonProdCtCount = 0,                  // 비생산 축별 건수
+        int NonProdMtCount = 0);                                         // 비생산 중 '동작 늘어짐' 강등분(= 확인 필요 후보, 2026-09-14)
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } public long NonProdNormalCt { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } public long? Wt { get; set; } }
@@ -1122,7 +1136,10 @@ public abstract class OeeControllerBase : ControllerBase
         IReadOnlySet<string>? flowFilter)
     {
         var sb = new System.Text.StringBuilder(256);
-        sb.Append("v33|");   // 분모/분류 모델 버전(v33 = 두 규칙·사이클 단위 고장·불인정 행 CT 축·공백 삭제 2026-09-11, doc/28) — 모델 변경 배포 직후 L1 캐시 혼재 방지
+        sb.Append("v34|");   // 분모/분류 모델 버전(v34 = 2026-09-14 3종: ①창 경계 대칭(To 이후 끝나는 걸침 행 포함)
+                             //   ②길이 강등(고장이라도 행 길이 ≥ 비생산 경계면 비생산+확인 필요) ③기록 공백 귀속(미귀속 잔여를
+                             //   길이로 비생산/고장 처분)) — 모델 변경 배포 직후 L1 캐시 혼재 방지
+                             // v33(2026-09-11): 두 규칙·사이클 단위 고장·불인정 행 CT 축·공백 삭제(doc/28)
                              // v32(2026-09-09): 정지·비생산 판정 CT축→WT축 전환(doc/27)
                              // v31(2026-09-08): 분기 최소 위반 판별
                              // v29(2026-08-27): 사이클 분기(branch) — 가상 flow("부모_분기") 스코프 집계 + 형제가동 카빙
@@ -1354,7 +1371,7 @@ public abstract class OeeControllerBase : ControllerBase
         //   ct = mt + wt 가 행마다 성립해야 손실 분해가 정확히 덧셈으로 갈리기 때문(L = L_MT + L_WT).
         double normalMtMs = 0, normalWtMs = 0;
         int normalCount = 0, dtEventCount = 0, nonProdCount = 0;
-        int faultMtCount = 0, faultCtCount = 0, nonProdWtCount = 0, nonProdCtCount = 0;
+        int faultMtCount = 0, faultCtCount = 0, nonProdWtCount = 0, nonProdCtCount = 0, nonProdMtCount = 0;
         int reviewPendingCount = 0; double reviewPendingMs = 0;
         int ctSampleMin = int.MaxValue;
         bool hasThreshold = false;
@@ -1470,6 +1487,26 @@ public abstract class OeeControllerBase : ControllerBase
                 p.Add("NpThr", b.NpThrBind); p.Add("CtNpThr", b.CtNpThrBind);
                 if (branch is not null) p.Add("Branch", branch);
 
+                // ── 창 오른쪽 걸침 행(2026-09-14) — 창 경계 규약을 양쪽 대칭으로 만든다. ──
+                //   행 조회 키 recordedAt 은 행의 <b>끝</b>이다. 그래서 시작이 From 이전인 행(왼쪽 걸침)은 잡혀서
+                //   클립되지만, 끝이 To 이후인 행(오른쪽 걸침)은 술어에 아예 안 걸려 그 겹침이 통째로 미귀속이 됐다
+                //   — 같은 정지 하나가 보는 창에 따라 '비생산' ↔ '미귀속' 으로 뒤집혔다(실측 셔틀 24.78h 정지:
+                //   9/13 창 = 비생산 16.32h, 9/12 창 = 미귀속 8.46h). 행은 순차라 To 를 품는 행은 최대 1개 —
+                //   To 이후 첫 행만 더 당겨 기존 클립 로직에 태운다. 적립은 창 교집합뿐이라 이웃 창과 시간 이중계상 없음.
+                //   실제로 To 를 넘어 걸친 행일 때만 파라미터를 채운다 — 창 뒤 <b>공백</b> 너머의 행(시작 ≥ To)을
+                //   끌어오면 창 밖 사이클이 집계에 섞인다.
+                var stradRaw = await conn.QueryFirstOrDefaultAsync<DtCycleRaw>($@"
+                    SELECT recordedAt AS RecordedAt, ct AS Ct
+                    FROM dspFlowHistory
+                    WHERE flowName = @Flow{branchCond} AND recordedAt >= @To
+                    ORDER BY recordedAt LIMIT 1", p);
+                string? stradRec = null;
+                if (stradRaw?.Ct is long stCt && stCt > 0 && ParseUtcMs(stradRaw.RecordedAt) is double stRec && stRec - stCt < periodEndMs)
+                    stradRec = stradRaw.RecordedAt;
+                p.Add("Strad", stradRec);
+                // 창 술어 SSOT — @Strad 가 null 이면 `recordedAt = NULL` 은 NULL(=거짓) 이라 종전 동작 그대로다.
+                const string winCond = "recordedAt >= @From AND (recordedAt < @To OR recordedAt = @Strad)";
+
                 var aggRow = await conn.QueryFirstOrDefaultAsync<CycleAggRow>($@"
                     SELECT
                       COALESCE(SUM(CASE WHEN ct>0 AND NOT ({dtCond}) AND NOT ({nonProdStartSql}) THEN ct ELSE 0 END),0)  AS NormalCt,
@@ -1477,6 +1514,9 @@ public abstract class OeeControllerBase : ControllerBase
                       COALESCE(SUM(CASE WHEN ct>0 AND NOT ({dtCond}) AND ({nonProdStartSql}) THEN ct ELSE 0 END),0)  AS NonProdNormalCt
                     FROM dspFlowHistory
                     WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow{branchCond}", p);
+                // ★ 여기만 winCond 를 쓰지 않는다 — 이건 시간이 아니라 <b>건수</b>(성능 P 분자)다. 걸침 행을 양쪽 창에서
+                //   각각 1건으로 세면 부분 사이클에 표준 CT 를 통째로 credit 해 P 가 부풀고 일별 합도 어긋난다.
+                //   건수는 recordedAt 이 속한 창에서 한 번만 — 아래 정상 행 루프의 CT 축 적립도 같은 기준으로 맞춘다.
                 if (aggRow is not null)
                 {
                     // 건수만 SQL 집계에서 취한다. CT 합은 아래 루프에서 기간 클립 후 누적 —
@@ -1491,12 +1531,15 @@ public abstract class OeeControllerBase : ControllerBase
                     var runRows = await conn.QueryAsync<DtCycleRaw>($@"
                         SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
                         FROM dspFlowHistory
-                        WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow{branchCond}
+                        WHERE {winCond} AND flowName = @Flow{branchCond}
                           AND ct > 0 AND NOT ({dtCond})", p);
                     foreach (var r in runRows)
                         if (r.Ct is long rc && rc > 0 && ParseUtcMs(r.RecordedAt) is double rrec)
                         {
-                            flowRun.Add((rrec - rc, rrec));
+                            flowRun.Add((rrec - rc, rrec));   // 벽시계 가동 — 패스 2에서 생산가능(⊆기간)과 교집합돼 자동 클립
+                            // 오른쪽 걸침 행은 여기까지(벽시계 A)만. CT 축·TEEP 귀속은 위 건수 SQL(recordedAt<To)과
+                            // 짝이라 건너뛴다 — 한쪽만 걸침 행을 받으면 P 의 분자/분모가 어긋난다.
+                            if (rrec >= periodEndMs) continue;
                             runIntervals?.Add((rrec - rc, rrec));
                             // NormalCt(SQL)와 동일 기준 — 비생산 시간대 시작 사이클은 KPI 가동에서 빠지므로 여기서도 제외.
                             if (normalCycles is not null && !IsPlannedTimeOfDay(rrec - rc, plannedWindows))
@@ -1530,8 +1573,12 @@ public abstract class OeeControllerBase : ControllerBase
                 //   네 번째 상태(분모 밖, 미계측과 같은 자리). 부모(물리 설비) 축으로 잰다 — 열린 사이클의 분기 소속은 완료 후 정해진다.
                 try
                 {
-                    var nextRec = await conn.ExecuteScalarAsync<string?>(
-                        "SELECT MIN(recordedAt) FROM dspFlowHistory WHERE flowName = @Flow AND recordedAt >= @To", p);
+                    // 분기 미사용이면 위 걸침 조회(같은 술어의 첫 행)를 그대로 재사용 — 쿼리 수 종전과 동일.
+                    //   분기 스코프는 부모 축으로 다시 봐야 한다(열린 사이클의 분기 소속은 완료 후 정해지므로).
+                    var nextRec = branch is null
+                        ? stradRaw?.RecordedAt
+                        : await conn.ExecuteScalarAsync<string?>(
+                            "SELECT MIN(recordedAt) FROM dspFlowHistory WHERE flowName = @Flow AND recordedAt >= @To", p);
                     if (string.IsNullOrEmpty(nextRec))
                     {
                         var lastRec = await conn.ExecuteScalarAsync<string?>(
@@ -1557,7 +1604,7 @@ public abstract class OeeControllerBase : ControllerBase
                     var sibRows = await conn.QueryAsync<DtCycleRaw>($@"
                         SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt
                         FROM dspFlowHistory
-                        WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow
+                        WHERE {winCond} AND flowName = @Flow
                           AND COALESCE(branchName,'') <> @Branch
                           AND ct > 0 AND NOT ({dtCond})", p);
                     var sib = new List<(double S, double E)>();
@@ -1570,7 +1617,7 @@ public abstract class OeeControllerBase : ControllerBase
                 var rows = await conn.QueryAsync<DtCycleRaw>($@"
                     SELECT recordedAt AS RecordedAt, ct AS Ct, mt AS Mt, wt AS Wt
                     FROM dspFlowHistory
-                    WHERE recordedAt >= @From AND recordedAt < @To AND flowName = @Flow{branchCond} AND {dtCond}
+                    WHERE {winCond} AND flowName = @Flow{branchCond} AND {dtCond}
                     ORDER BY recordedAt", p);
                 foreach (var r in rows)
                 {
@@ -1584,7 +1631,10 @@ public abstract class OeeControllerBase : ControllerBase
                     var cls = OeeMath.ClassifyCycle(
                         (int?)r.Mt, (int?)r.Ct, (int?)r.Wt,
                         b.MtFault, b.CtFault, b.HasWt ? b.WtNonProd : 0, b.CtNonProd, b.Sample);
-                    var axis = r.Mt is null ? "ct" : (cls == OeeMath.CycleClass.Fault ? "mt" : "wt");
+                    // 축 = 판정 <b>근거</b>. 길이로 비생산에 강등된 완료 행의 근거는 여전히 동작(MT) 초과라 "mt" 다 —
+                    // 그 행의 wt 는 작아서 "wt" 로 찍으면 노트·필터가 "대기가 길었다"는 거짓을 말한다.
+                    var axis = r.Mt is null ? "ct"
+                        : (cls is OeeMath.CycleClass.Fault or OeeMath.CycleClass.NonProductionReview ? "mt" : "wt");
                     // ── 사용자 라벨(행 단위, 과반 조인) > 비생산 지정 시각대(행 시작 시각) > 자동 판정(§2.6). ──
                     var source = "auto";
                     if (OeeMath.IsMajorityCovered(cMs, LabelOverlapMs(toDownIv, dbFlow, startMs, rec)))
@@ -1593,7 +1643,8 @@ public abstract class OeeControllerBase : ControllerBase
                     { cls = OeeMath.CycleClass.NonProduction; source = "manual"; }
                     else if (IsPlannedTimeOfDay(startMs, plannedWindows))
                     { cls = OeeMath.CycleClass.NonProduction; source = "planned"; }
-                    if (cls is not (OeeMath.CycleClass.Fault or OeeMath.CycleClass.NonProduction))
+                    if (cls is not (OeeMath.CycleClass.Fault or OeeMath.CycleClass.NonProduction
+                                    or OeeMath.CycleClass.NonProductionReview))
                     {
                         // SQL 과 C# 규칙이 어긋난 행 — 정상으로 되돌릴 수 없다(정상 행 SQL 은 이미 지나갔다). 미귀속으로 남겨 진단에 드러낸다.
                         _logger.LogDebug("[OEE] dtCond/ClassifyCycle 불일치 flow={Flow} rec={Rec} cls={Cls}", f, r.RecordedAt, cls);
@@ -1613,9 +1664,13 @@ public abstract class OeeControllerBase : ControllerBase
                     var measuredMs = Intervals.Total(rowSegs);
                     if (measuredMs <= 0) continue;                              // 전 구간 미계측 — 고장/비생산/onset 전부 미계상
 
-                    if (cls == OeeMath.CycleClass.NonProduction)
+                    if (OeeMath.IsNonProductionClass(cls))
                     {
                         // 비생산 — 행 전체가 분모 밖. 구간을 flow 비생산에 등록(패스 2 생산가능에서 빠짐). 자동 판정만 감지 로그 기록.
+                        // '확인 필요'(2026-09-14) = 고장 규칙을 넘겼는데 길이 때문에 비생산으로 둔 행 = 사용자의 '고장으로' 전환 후보.
+                        //   사용자 라벨·지정 시각대(manual/planned)는 사람이 이미 정한 것이라 묻지 않는다.
+                        var npReview = source == "auto" && cls == OeeMath.CycleClass.NonProductionReview;
+                        if (npReview) { reviewPendingCount++; reviewPendingMs += measuredMs; }
                         plannedCtMs += measuredMs;
                         foreach (var seg in rowSegs)
                         {
@@ -1625,8 +1680,10 @@ public abstract class OeeControllerBase : ControllerBase
                                     dbFlow, seg.S, seg.E, b.HasWt && axis == "wt" ? b.MedianWt : b.MedianCt, "idle-cycle", nonProdMult));
                         }
                         nonProdCount++;
-                        if (axis == "ct") nonProdCtCount++; else nonProdWtCount++;
-                        downtimeCycles?.Add(new DowntimeCycleRow(f, startMs, rec, cMs, true, r.Mt, r.Wt, source, axis, false));
+                        if (axis == "ct") nonProdCtCount++;
+                        else if (axis == "mt") nonProdMtCount++;   // 동작 늘어짐이 근거인 비생산(강등) — 대기 초과와 섞지 않는다
+                        else nonProdWtCount++;
+                        downtimeCycles?.Add(new DowntimeCycleRow(f, startMs, rec, cMs, true, r.Mt, r.Wt, source, axis, npReview));
                         continue;
                     }
 
@@ -1640,13 +1697,13 @@ public abstract class OeeControllerBase : ControllerBase
                     idleMaintCtMs += maintOverlapMs;
                     if (OeeMath.IsMaintenanceCovered(measuredMs, maintOverlapMs))
                         continue;                                   // 유지보수 확정 — 정지 로그엔 DB 이벤트 행이 있으므로 합성 생략
-                    var needsReview = source == "auto" && OeeMath.IsReviewPending(cMs, b.CtNonProd);
-                    if (needsReview) { reviewPendingCount++; reviewPendingMs += measuredMs; }
+                    // 고장으로 남은 행은 정의상 비생산 경계 미만이라(길면 위에서 강등됐다) '확인 필요'가 없다 —
+                    // 사용자가 손으로 '고장으로' 확정한 행도 사람이 이미 답한 것이라 묻지 않는다.
                     onsets.Add(startMs);
                     repairs.Add(cMs);
                     dtEventCount++;
                     if (axis == "ct") faultCtCount++; else faultMtCount++;
-                    downtimeCycles?.Add(new DowntimeCycleRow(f, startMs, rec, cMs, false, r.Mt, r.Wt, source, axis, needsReview));
+                    downtimeCycles?.Add(new DowntimeCycleRow(f, startMs, rec, cMs, false, r.Mt, r.Wt, source, axis, false));
                 }
             }
         }
@@ -1709,30 +1766,88 @@ public abstract class OeeControllerBase : ControllerBase
                     inProgressIntervals.AddRange(ipIv);
                 }
             }
-            availableWallMs += Intervals.Total(availF);
             // 비생산 벽시계(도넛/표시) = 기간 클립 후 미계측 차감(미계측 우선 — daily 표시와 동일 규칙).
             var npClipped = Intervals.Subtract(Intervals.Intersect(npF, periodIv), unmeasured);
-            nonProdWallMs += Intervals.Total(npClipped);
-            nonProdFlat.AddRange(npClipped);
-            foreach (var seg in npClipped) nonProdScoped.Add((f, seg.S, seg.E));
             // 가동 = 이 flow 정상 행 ∩ 생산가능. 비가동 = 생산가능 − 가동. 유지보수 = 비가동 ∩ 유지보수 이벤트(부모 키).
-            // 고장 = (비가동 − 유지보수) ∩ 고장 행 전체 구간. 미귀속 = 나머지(0 기대 — 데이터 결함 진단).
+            // 고장 = (비가동 − 유지보수) ∩ 고장 행 전체 구간. 잔여 = 사이클 행이 아예 없는 '기록 공백'(아래).
+            var dbFlowKey = MapF(f).DbFlow;
             var flowRunAvail = Intervals.Intersect(Intervals.Union(flowRun), availF);
-            runWallMs += Intervals.Total(flowRunAvail);
-            runWallIntervals.AddRange(flowRunAvail);
             var flowDownIv = Intervals.Subtract(availF, flowRun);
             var flowMaintIv = Intervals.Intersect(flowDownIv,
-                maintByFlow?.GetValueOrDefault(MapF(f).DbFlow) ?? new List<(double S, double E)>());
-            downMaintWallMs += Intervals.Total(flowMaintIv);
-            downMaintWallIntervals.AddRange(flowMaintIv);
+                maintByFlow?.GetValueOrDefault(dbFlowKey) ?? new List<(double S, double E)>());
             var flowIdleEv = idleByFlow.TryGetValue(f, out var idleF) ? Intervals.Union(idleF) : new List<(double S, double E)>();
             var flowNotMaint = Intervals.Subtract(flowDownIv, flowMaintIv);
             var flowFaultIv = Intervals.Intersect(flowNotMaint, flowIdleEv);
+
+            // ── 기록 공백 귀속 (2026-09-14) ────────────────────────────────────────────────
+            //  잔여 = 생산가능 − 가동 − 유지보수 − 고장행. 설계상 0 이어야 하는데(행이 연속), 라이브 기록기가
+            //  <b>미마감 사이클</b>의 시간을 버려서 야간·주말 정지가 통째로 여기 남는다 — Going 인 채 워치독이
+            //  abandon 하면 행을 안 쓰고(mt 오염 방지), 다음 head↑ 도 consume-once 로 아무것도 안 쓴다.
+            //  종전엔 이걸 '미귀속' 진단으로만 세고 <b>분모에는 그대로 뒀다</b> → 현장 가용성이 3% 까지 눌렸다
+            //  (실측 7일: 미귀속이 생산가능의 60%).
+            //  해법은 행을 새로 쓰는 게 아니라(= 없는 MT 를 지어내지 않는다) 이 구간을 <b>길이</b>로 귀속하는 것.
+            //  나중에 그 구간에 진짜 행이 생기면 위 세 항(가동·유지보수·고장)이 먼저 먹어 잔여가 그만큼 줄므로
+            //  <b>이중 계상이 구조적으로 불가능</b>하다 — 공백 귀속은 독립 소스가 아니라 잔여의 처분이다.
+            //  판정 경계·'확인 필요' 규약은 행과 완전히 동일(doc/28 §1 SSOT).
+            var hasBounds = bounds.TryGetValue(f, out var bGap) && !bGap.Gated;
+            var gapNonProd = new List<(double S, double E)>();
+            double uaRest = 0;
+            foreach (var seg in Intervals.Subtract(flowNotMaint, flowFaultIv))
+            {
+                var len = seg.E - seg.S;
+                if (len <= 0) continue;
+                // ① 사용자 라벨(행과 같은 과반 겹침) > ② 길이 ≥ 비생산 경계 > ③ 길이 > 고장 경계 > ④ 잔여(진단)
+                string gapSource; bool toNp;
+                if (OeeMath.IsMajorityCovered(len, LabelOverlapMs(toDownIv, dbFlowKey, seg.S, seg.E)))
+                { toNp = false; gapSource = "manual"; }
+                else if (OeeMath.IsMajorityCovered(len, LabelOverlapMs(toNonProdIv, dbFlowKey, seg.S, seg.E)))
+                { toNp = true; gapSource = "manual"; }
+                else if (!hasBounds) { uaRest += len; continue; }                    // 기준선 없음·표본 게이트 = 판정 불가
+                else if (OeeMath.IsReviewPending(len, bGap.CtNonProd)) { toNp = true; gapSource = "auto"; }
+                else if (bGap.CtFault > 0 && len > bGap.CtFault) { toNp = false; gapSource = "auto"; }
+                else { uaRest += len; continue; }                                    // ④ 짧은 잔여 = 진짜 데이터 결함 진단
+
+                if (toNp)
+                {
+                    // 비생산 — 분모 밖. 감지 로그(NonProdWriteQueue)에는 넣지 않는다: 행이 없는 파생 구간이라
+                    // 영구 기록 대상이 아니고, 사용자가 전환하면 그때 수동 라벨 행이 남는다.
+                    gapNonProd.Add(seg);
+                    plannedCtMs += len;
+                    nonProdCount++; nonProdCtCount++;      // 길이(CT) 근거 — 불인정 행과 같은 축으로 센다
+                }
+                else
+                {
+                    idleCtMs += len;
+                    idleCalIntervals.Add(seg);
+                    downFaultWallMs += len;
+                    downFaultWallIntervals.Add(seg);
+                    onsets.Add(seg.S); repairs.Add(len);
+                    dtEventCount++; faultCtCount++;
+                }
+                // '확인 필요' = 자동 판정으로 분모에서 뺀 공백(= 사용자의 '고장으로' 전환 후보). 행 경로와 같은 규약.
+                var gapReview = gapSource == "auto" && toNp;
+                if (gapReview) { reviewPendingCount++; reviewPendingMs += len; }
+                downtimeCycles?.Add(new DowntimeCycleRow(f, seg.S, seg.E, len, toNp, null, null, gapSource, "gap", gapReview));
+            }
+            if (gapNonProd.Count > 0)
+            {
+                availF = Intervals.Subtract(availF, gapNonProd);                     // 비생산 = 생산가능에서 카빙
+                flowRunAvail = Intervals.Intersect(flowRunAvail, availF);            // (겹칠 일 없지만 방어)
+                npClipped = Intervals.Union(npClipped.Concat(gapNonProd).ToList());
+            }
+
+            availableWallMs += Intervals.Total(availF);
+            nonProdWallMs += Intervals.Total(npClipped);
+            nonProdFlat.AddRange(npClipped);
+            foreach (var seg in npClipped) nonProdScoped.Add((f, seg.S, seg.E));
+            runWallMs += Intervals.Total(flowRunAvail);
+            runWallIntervals.AddRange(flowRunAvail);
+            downMaintWallMs += Intervals.Total(flowMaintIv);
+            downMaintWallIntervals.AddRange(flowMaintIv);
             downFaultWallMs += Intervals.Total(flowFaultIv);
             downFaultWallIntervals.AddRange(flowFaultIv);
-            var ua = Intervals.Total(Intervals.Subtract(flowNotMaint, flowFaultIv));
-            unattributedWallMs += ua;
-            unattributedByFlow[f] = ua;
+            unattributedWallMs += uaRest;
+            unattributedByFlow[f] = uaRest;
         }
 
         // 비가동 union(TEEP 정지 항) — 비생산·미계측·가동과 겹치면 안 된다(그 시간은 이미 다른 몫). 고장 행 전체 구간 기준(doc/28).
@@ -1763,7 +1878,7 @@ public abstract class OeeControllerBase : ControllerBase
             ReviewPendingCount: reviewPendingCount, ReviewPendingMs: reviewPendingMs,
             NonProdCount: nonProdCount,
             FaultMtCount: faultMtCount, FaultCtCount: faultCtCount,
-            NonProdWtCount: nonProdWtCount, NonProdCtCount: nonProdCtCount);
+            NonProdWtCount: nonProdWtCount, NonProdCtCount: nonProdCtCount, NonProdMtCount: nonProdMtCount);
     }
 
     private static OeeNonProdDetectionLog NewNonProdDetection(

@@ -2057,21 +2057,27 @@
                 },
                 // '확인 필요' 행 수(상태 필터만 반영) — 전환 필터 칩·상단 KPI 칩 표기.
                 get dtReviewCount() {
-                    return this.downtime.filter(d => d.needsReview && !d.isNonProd
+                    // 2026-09-14 방향 반전 — '확인 필요'는 이제 <b>비생산</b> 행에 붙는다(길이로 강등된 행).
+                    //   종전의 `&& !d.isNonProd` 를 남기면 항상 0 건이 된다.
+                    //   '진행 중'(열린 사이클) 행도 review 를 달지만 아직 분류 대상이 아니라 제외한다 —
+                    //   서버 KPI(reviewPendingCount)도 분류된 행만 세므로 칩 숫자와 목록이 어긋나지 않는다.
+                    return this.downtime.filter(d => d.needsReview && !this.isInProgressDt(d)
                         && (this.dtFilterStatus === 'all' || d.status === this.dtFilterStatus)).length;
                 },
                 // 상단 '확인 필요 n건' 칩 클릭 → 정지 로그를 확인 필요 필터로 연다(주말 전환의 진입점).
+                //   확인 필요 행은 비생산이라 'nonprod' 탭에서만 보인다(down 탭은 isNonProd 를 걸러낸다).
                 openReviewLog() {
-                    this.dtTab = 'down'; this.dtFilterStatus = 'all'; this.dtFilterFault = 'all';
+                    this.dtTab = 'nonprod'; this.dtFilterStatus = 'all'; this.dtFilterFault = 'all';
                     this.dtFilterReview = true; this.dtMinDurMs = 0; this.dtTod = 'all';
                     this.showDowntimeLog = true;
                 },
                 // 판정 축 라벨(doc/28) — "mt" 완료 행 동작 초과 / "wt" 완료 행 대기 초과 / "ct" 완료 신호 없는 사이클 길이.
-                axisLabel(a) { return a === 'mt' ? '동작' : a === 'wt' ? '대기' : a === 'ct' ? '미완료' : ''; },
+                axisLabel(a) { return a === 'mt' ? '동작' : a === 'wt' ? '대기' : a === 'ct' ? '미완료' : a === 'gap' ? '공백' : ''; },
                 axisTitle(a) {
                     return a === 'mt' ? '판정 축: 동작(MT)이 평소 × 고장배수를 넘음 — 고장'
                         : a === 'wt' ? '판정 축: 대기(WT)가 평소 × 비생산배수 이상 — 비생산'
                         : a === 'ct' ? '판정 축: 완료 신호 없는 사이클(시작 → 다음 시작) — 사이클 전체 길이를 평소 사이클(중앙 CT) × 배수에 댐'
+                        : a === 'gap' ? '판정 축: 기록 공백 — 이 구간에 사이클 행이 아예 없습니다(동작 중 멈춘 채 마감되지 않은 정지). 동작/대기를 알 수 없어 구간 길이만으로 판정합니다.'
                         : '';
                 },
                 // 탭 배지 건수 — 상태 필터만 반영(하위 고장/유지보수 필터와 무관, 탭 간 총량 비교용).
@@ -2117,7 +2123,7 @@
                 esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); },
                 // 감지 출처 칩 (정지 구간 소스)
                 detectChipHtml(s) {
-                    const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동', 'over-cycle': '사이클 판정', 'in-progress': '진행 중' };
+                    const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동', 'over-cycle': '사이클 판정', 'in-progress': '진행 중', 'gap': '기록 공백' };
                     if (typeof s === 'string' && s.includes('+'))   // 같은 정지 이중 감지 병합(무가동+이상치초과, doc/25)
                         return `<span class="src-chip detect" title="무가동 이벤트와 판정 기준 초과 사이클이 같은 정지를 동시 감지 — 한 줄로 병합">${s.split('+').map(x => m[x] || this.esc(x)).join('+')}</span>`;
                     return `<span class="src-chip detect">${m[s] || this.esc(s) || '—'}</span>`;
