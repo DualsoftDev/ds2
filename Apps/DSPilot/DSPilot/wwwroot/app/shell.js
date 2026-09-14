@@ -1020,12 +1020,13 @@ window.dspBranch = {
                 var d = el('span');
                 d.style.cssText = 'flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:'
                     + (a.connected ? AG_DOT.green : AG_DOT.red) + ';';
-                var label = (a.name || 'PLC') + ' · ' + (a.ip || '?') + ':' + (a.port || 0);
+                // endpoint = 서버가 만든 접속 표기(host:port | USB | USB(selector)) — USB 어댑터는 ip/port 가 비어 있다.
+                var label = (a.name || 'PLC') + ' · ' + (a.endpoint || '?');
                 var nm = el('span', null, label);
                 nm.style.cssText = 'font-variant-numeric:tabular-nums;';
                 line.appendChild(d);
                 line.appendChild(nm);
-                // 매칭 시스템 — 서버가 모델 AID(ip:port)와 대조한 결과.
+                // 매칭 시스템 — 서버가 모델 AID 접속 표기(endpoint)와 대조한 결과.
                 //   system=이름: 그 시스템 소속 / system="": 모델에 없음(구 모델 잔존/설정 불일치 후보)
                 //   / system=null(구 서버·모델 미로드): 표기 생략.
                 if (a.system != null) {
@@ -1036,7 +1037,7 @@ window.dspBranch = {
                             ? 'background:rgba(251,146,60,0.16);color:#c2610c;'
                             : 'background:rgba(33,112,228,0.12);color:#2170e4;');
                     sysChip.title = a.system === ''
-                        ? '현재 모델(AASX)의 PLC 접속정보에 이 IP:Port 가 없습니다 — 이전 모델의 잔존 상태이거나 접속정보 불일치일 수 있습니다.'
+                        ? '현재 모델(AASX)의 PLC 접속정보에 이 접속이 없습니다 — 이전 모델의 잔존 상태이거나 접속정보 불일치일 수 있습니다.'
                         : '현재 모델에서 이 PLC 와 매칭된 시스템: ' + a.system;
                     line.appendChild(sysChip);
                 }

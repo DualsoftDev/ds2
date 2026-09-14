@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Ds2.Core;
 using Ds2.Core.StandardSubmodels;
@@ -67,44 +68,25 @@ public static class AidXgtEndpointSynchronizer
         return AidXgtEndpointSettings.TryReadForSystem(aidOption.Value, systemId);
     }
 
-    /// <summary>
-    /// 현재 Promaker PLC 입력값을 AID의 모든 InterfaceXGT endpoint에 반영한다.
-    /// AID가 없거나 XGT interface가 없으면 새 저장 위치를 만들지 않고 false를 반환한다.
-    /// </summary>
-    public static bool StampToStore(DsStore? store, PlcConnectionSettings? settings)
+    /// <summary>Promaker PLC 입력값 → AID endpoint 쓰기 요청. 접속 축(이더넷 host:port / USB selector)의
+    /// 검증과 base 조립은 F# 쪽(AidXgtEndpointSettings)이 한다 — 여기서는 값만 옮긴다.
+    /// BaseUri/SystemId 는 요청에서 쓰이지 않는다.</summary>
+    public static AidXgtConnectionInfo ToRequest(PlcConnectionSettings settings)
     {
-        if (store is null || settings is null || !settings.WasPersisted)
-            return false;
-
-        var project = store.Projects.Values.FirstOrDefault();
-        var systemId = TryGetOnlyActiveSystemId(project);
-        return systemId is not null && StampToStore(store, systemId.Value, settings);
-    }
-
-    /// <summary>현재 PLC 입력값을 지정 System의 InterfaceXGT endpoint에만 반영한다.</summary>
-    public static bool StampToStore(DsStore? store, Guid systemId, PlcConnectionSettings? settings)
-    {
-        if (store is null || settings is null || !settings.WasPersisted)
-            return false;
-
-        var project = FindOwningProject(store, systemId);
-        var aidOption = project?.AssetInterfaces;
-        if (aidOption is null
-            || !Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
-            return false;
-
-        return AidXgtEndpointSettings.UpdateForSystem(
-            aidOption.Value,
-            systemId,
-            settings.Vendor,
-            (settings.IpAddress ?? "").Trim(),
-            settings.Port,
-            settings.IsUdp,
-            settings.LocalEthernet,
-            settings.NetworkNumber,
-            settings.StationNumber,
-            settings.TimeoutMs,
-            settings.ScanIntervalMs) > 0;
+        ArgumentNullException.ThrowIfNull(settings);
+        return new AidXgtConnectionInfo(
+            baseUri: string.Empty,
+            vendor: settings.Vendor,
+            transport: PlcTransports.Normalize(settings.Transport),
+            ipAddress: (settings.IpAddress ?? "").Trim(),
+            port: settings.Port,
+            usbDeviceSelector: (settings.UsbDeviceSelector ?? "").Trim(),
+            localEthernet: settings.LocalEthernet,
+            networkNumber: settings.NetworkNumber,
+            stationNumber: settings.StationNumber,
+            timeoutMs: settings.TimeoutMs,
+            scanIntervalMs: settings.ScanIntervalMs,
+            systemId: null);
     }
 
     /// <summary>
@@ -154,18 +136,7 @@ public static class AidXgtEndpointSynchronizer
         }
 
         return AidXgtEndpointSettings.EnsureBindingForSystem(
-            aid,
-            systemId,
-            settings.Vendor,
-            (settings.IpAddress ?? "").Trim(),
-            settings.Port,
-            settings.IsUdp,
-            settings.LocalEthernet,
-            settings.NetworkNumber,
-            settings.StationNumber,
-            settings.TimeoutMs,
-            settings.ScanIntervalMs,
-            addresses ?? System.Array.Empty<string>()) > 0;
+            aid, systemId, ToRequest(settings), addresses ?? System.Array.Empty<string>()) > 0;
     }
 
     /// <summary>AID endpoint를 Promaker PLC 입력값에 적용한다.</summary>
@@ -181,9 +152,10 @@ public static class AidXgtEndpointSynchronizer
             settings.ApplyProfileToFlat(vendor);
 
         settings.Vendor = connection.Vendor;
+        settings.Transport = PlcTransports.Normalize(connection.Transport);
+        settings.UsbDeviceSelector = connection.UsbDeviceSelector;
         settings.IpAddress = connection.IpAddress;
         settings.Port = connection.Port;
-        settings.IsUdp = connection.IsUdp;
         settings.NetworkNumber = connection.NetworkNumber;
         settings.StationNumber = connection.StationNumber;
         settings.LocalEthernet = connection.LocalEthernet;
@@ -195,9 +167,10 @@ public static class AidXgtEndpointSynchronizer
     /// <summary>Promaker PLC 입력값이 AID endpoint와 같은지 비교한다.</summary>
     public static bool Matches(PlcConnectionSettings settings, AidXgtConnectionInfo connection) =>
         string.Equals(settings.Vendor, connection.Vendor, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(PlcTransports.Normalize(settings.Transport), connection.Transport, StringComparison.OrdinalIgnoreCase)
+        && string.Equals((settings.UsbDeviceSelector ?? "").Trim(), connection.UsbDeviceSelector, StringComparison.Ordinal)
         && string.Equals((settings.IpAddress ?? "").Trim(), connection.IpAddress, StringComparison.OrdinalIgnoreCase)
         && settings.Port == connection.Port
-        && settings.IsUdp == connection.IsUdp
         && settings.NetworkNumber == connection.NetworkNumber
         && settings.StationNumber == connection.StationNumber
         && settings.LocalEthernet == connection.LocalEthernet

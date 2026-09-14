@@ -34,6 +34,7 @@
     <Compile Include="SimulationCommandFacadeTests.fs" />
     <Compile Include="TagWizardBaseAddressTests.fs" />
     <Compile Include="LsPackReadTests.fs" />
+    <Compile Include="AdapterFactoryTests.fs" />
     <Compile Include="HubConnectionDiagnosticTests.fs" />
     <Compile Include="HubSourceTests.fs" />
     <Compile Include="PlcBatchReadBufferTests.fs" />

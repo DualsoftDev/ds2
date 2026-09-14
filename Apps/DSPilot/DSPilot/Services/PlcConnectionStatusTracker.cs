@@ -68,12 +68,12 @@ public sealed class PlcConnectionStatusTracker
         {
             if (status.IsConnected)
                 _logger.LogInformation(
-                    "[Plc] {Name} ({Vendor} {Ip}:{Port}) connected",
-                    status.Name, status.Vendor, status.IpAddress, status.Port);
+                    "[Plc] {Name} ({Vendor} {Endpoint}) connected",
+                    status.Name, status.Vendor, status.Endpoint);
             else
                 _logger.LogWarning(
-                    "[Plc] {Name} ({Vendor} {Ip}:{Port}) disconnected — {Err}",
-                    status.Name, status.Vendor, status.IpAddress, status.Port, status.LastError);
+                    "[Plc] {Name} ({Vendor} {Endpoint}) disconnected — {Err}",
+                    status.Name, status.Vendor, status.Endpoint, status.LastError);
         }
 
         // 단절 *전이* 1회만 — 첫 status 가 이미 disconnected 인 경우(부팅 직후)도 포함.

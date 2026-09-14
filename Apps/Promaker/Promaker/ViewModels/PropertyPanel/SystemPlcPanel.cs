@@ -19,13 +19,12 @@ namespace Promaker.ViewModels;
 /// 저장 경로가 벤더에 따라 갈린다 — AID InterfaceXGT endpoint 의 CpuModel 이 Xgi|Xgk|Xgb
 /// 닫힌 DU 이기 때문이다.
 ///
-/// * LS(XGI/XGK/XGB) → SavePlcEndpointForSystem → store(AID) 기록 → 파일 저장 시 AASX 에 실림
-/// * 그 외(MICREX-SX·Mitsubishi) → SavePlcConnectionGlobally → 전역 PlcConnection.json
+/// * LS(XGI/XGK/XGB) → AID InterfaceXGT endpoint, MICREX-SX → AID InterfaceMicrexSx endpoint
+///   (SavePlcEndpointForSystem → store 기록 → 파일 저장 시 AASX 에 실림)
+/// * Mitsubishi → AID 표현이 없어 SavePlcConnectionGlobally → 전역 PlcConnection.json 에만 저장.
+///   Agent 는 게이트웨이를 AID 에서만 조립하므로 이 벤더는 아직 런타임 수집이 되지 않는다.
 ///
-/// 후자를 AASX 에 실을 수 없는 것은 규격 구조 때문이지만, Promaker 가 스캔에 실제로 쓰는 값은
-/// 전역 PlcSettings 이므로(BuildPlcGatewayConfig) 동작에는 문제가 없다. 예전에는 이 경우
-/// 저장이 조용히 거부되고 "입력값을 확인하세요" 만 나와, 어떤 값을 넣어도 안 되는 막다른
-/// 길이었다 — 그래서 SX 는 UI 로 설정할 방법이 아예 없었다.
+/// 접속 매체(Ethernet TCP/UDP · USB)와 USB 장치 조회는 SystemPlcPanel.Usb.cs 에 있다.
 /// </summary>
 public partial class PropertyPanelState
 {
@@ -42,7 +41,6 @@ public partial class PropertyPanelState
     [ObservableProperty] private bool _plcLocalEthernet = true;
     [ObservableProperty] private int _plcNetworkNumber;
     [ObservableProperty] private int _plcStationNumber = 0xFF;
-    [ObservableProperty] private bool _plcIsUdp;
     [ObservableProperty] private bool _isPlcDirty;
 
     // ── MICREX-SX 전용 입력 ────────────────────────────────────────────────
@@ -117,7 +115,7 @@ public partial class PropertyPanelState
 
     /// <summary>패널 로드 시 원본 스냅샷 — dirty 판정 기준. Refresh 중 재발화 방지용 suppress 와 짝.</summary>
     private (PlcVendorChoice Vendor, string Ip, int Port, int Timeout, int Scan,
-             bool Eth, int Net, int Stn, bool Udp) _plcOriginal;
+             bool Eth, int Net, int Stn, string Transport, string UsbSelector) _plcOriginal;
     /// <summary>SX 전용 값의 원본 스냅샷 — 전역 연결에서 읽어 온 값이 기준이다.</summary>
     private (string IoMap, bool WriteAllow) _plcSxOriginal;
     private bool _suppressPlcDirty;
@@ -136,7 +134,8 @@ public partial class PropertyPanelState
             || PlcLocalEthernet != _plcOriginal.Eth
             || PlcNetworkNumber != _plcOriginal.Net
             || PlcStationNumber != _plcOriginal.Stn
-            || PlcIsUdp != _plcOriginal.Udp
+            || !string.Equals(PlcTransport, _plcOriginal.Transport, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals((PlcUsbDeviceSelector ?? "").Trim(), _plcOriginal.UsbSelector, StringComparison.Ordinal)
             || (IsPlcVendorSx && SxSettingsChanged());
     }
 
@@ -150,6 +149,8 @@ public partial class PropertyPanelState
         OnPropertyChanged(nameof(IsPlcVendorSx));
         OnPropertyChanged(nameof(IsPlcVendorLs));
         OnPropertyChanged(nameof(SystemPlcHeader));
+        // 벤더마다 고를 수 있는 연결 방식이 다르다(UDP 는 Mitsubishi, USB 는 LS).
+        RefreshPlcTransportChoices();
 
         // 벤더를 바꿨는데 포트가 그대로면 틀린 포트로 붙는다 — SX 를 골라도 LS 의 2004 가
         // 남아 있었다. 사용자가 직접 넣은 포트는 건드리지 않고, "어떤 벤더의 기본 포트"
@@ -170,7 +171,6 @@ public partial class PropertyPanelState
     partial void OnPlcLocalEthernetChanged(bool value) => UpdatePlcDirty();
     partial void OnPlcNetworkNumberChanged(int value) => UpdatePlcDirty();
     partial void OnPlcStationNumberChanged(int value) => UpdatePlcDirty();
-    partial void OnPlcIsUdpChanged(bool value) => UpdatePlcDirty();
     partial void OnPlcSxIoMapPathChanged(string value) => UpdatePlcDirty();
     partial void OnPlcSxWriteAllowChanged(bool value)
     {
@@ -226,7 +226,8 @@ public partial class PropertyPanelState
                 PlcLocalEthernet = true;
                 PlcNetworkNumber = 0;
                 PlcStationNumber = 0;
-                PlcIsUdp = false;
+                PlcTransport = PromakerShared.PlcTransports.Tcp;
+                PlcUsbDeviceSelector = string.Empty;
             }
             else if (globalIsMxOnly)
             {
@@ -242,7 +243,8 @@ public partial class PropertyPanelState
                 PlcLocalEthernet = global.LocalEthernet;
                 PlcNetworkNumber = global.NetworkNumber;
                 PlcStationNumber = global.StationNumber;
-                PlcIsUdp = global.IsUdp;
+                PlcTransport = global.Transport;
+                PlcUsbDeviceSelector = global.UsbDeviceSelector;
             }
             else if (conn is not null
                 && Enum.TryParse<PlcVendorChoice>(conn.Vendor, ignoreCase: true, out var vendor))
@@ -257,7 +259,8 @@ public partial class PropertyPanelState
                 PlcLocalEthernet = conn.LocalEthernet;
                 PlcNetworkNumber = conn.NetworkNumber;
                 PlcStationNumber = conn.StationNumber;
-                PlcIsUdp = conn.IsUdp;
+                PlcTransport = PromakerShared.PlcTransports.Normalize(conn.Transport);
+                PlcUsbDeviceSelector = conn.UsbDeviceSelector;
             }
             else
             {
@@ -276,7 +279,8 @@ public partial class PropertyPanelState
                 PlcLocalEthernet = defaults.LocalEthernet;
                 PlcNetworkNumber = defaults.NetworkNumber;
                 PlcStationNumber = defaults.StationNumber;
-                PlcIsUdp = defaults.IsUdp;
+                PlcTransport = defaults.Transport;
+                PlcUsbDeviceSelector = defaults.UsbDeviceSelector;
             }
 
             // SX 전용 값의 정본은 endpoint 다. endpoint 가 아직 없으면(벤더를 방금 SX 로 바꾼
@@ -298,7 +302,7 @@ public partial class PropertyPanelState
 
             _plcOriginal = (PlcVendor, (PlcIpAddress ?? "").Trim(), PlcPort, PlcTimeoutMs,
                             PlcScanIntervalMs, PlcLocalEthernet, PlcNetworkNumber,
-                            PlcStationNumber, PlcIsUdp);
+                            PlcStationNumber, PlcTransport, (PlcUsbDeviceSelector ?? "").Trim());
             // 구버전 endpoint 는 값 동일해도 귀속(claim) 커밋이 남아 있어 저장 버튼을 열어 둔다.
             IsPlcDirty = PlcIsLegacyEndpoint;
         }
@@ -354,15 +358,28 @@ public partial class PropertyPanelState
         if (!GuardSimulationSemanticEdit("PLC 접속 편집")) return;
 
         var ip = (PlcIpAddress ?? "").Trim();
-        if (ip.Length == 0)
+        var usbSelector = (PlcUsbDeviceSelector ?? "").Trim();
+        if (IsPlcUsb)
         {
-            _host.ShowWarning("IP 주소를 입력하세요.");
-            return;
+            // 선택 키는 AID base URI 의 path 에 실린다 — URI 경계 문자는 F# 쪽도 거절한다.
+            if (usbSelector.IndexOfAny(new[] { '/', '?', '#' }) >= 0)
+            {
+                _host.ShowWarning("USB 장치 선택 키에는 '/', '?', '#' 을 쓸 수 없습니다.");
+                return;
+            }
         }
-        if (PlcPort is <= 0 or > 65535)
+        else
         {
-            _host.ShowWarning("Port 는 1–65535 범위 정수여야 합니다.");
-            return;
+            if (ip.Length == 0)
+            {
+                _host.ShowWarning("IP 주소를 입력하세요.");
+                return;
+            }
+            if (PlcPort is <= 0 or > 65535)
+            {
+                _host.ShowWarning("Port 는 1–65535 범위 정수여야 합니다.");
+                return;
+            }
         }
         if (PlcTimeoutMs <= 0 || PlcScanIntervalMs <= 0)
         {
@@ -385,7 +402,8 @@ public partial class PropertyPanelState
             LocalEthernet = PlcLocalEthernet,
             NetworkNumber = (byte)PlcNetworkNumber,
             StationNumber = (byte)PlcStationNumber,
-            IsUdp = PlcIsUdp,
+            Transport = PlcTransport,
+            UsbDeviceSelector = usbSelector,
         };
 
         if (!_host.Simulation.SavePlcEndpointForSystem(
@@ -406,7 +424,7 @@ public partial class PropertyPanelState
             ? "전역 PLC 연결 · AASX 에는 기록되지 않습니다"
             : "파일 저장 시 AASX 에 기록";
         _host.SetStatusText(
-            $"'{systemNode.Name}' PLC 접속 저장됨 — {PlcVendor} {ip}:{PlcPort}{writeState} ({destination})");
+            $"'{systemNode.Name}' PLC 접속 저장됨 — {PlcVendor} {profile.EndpointLabel}{writeState} ({destination})");
         RefreshSystemPlcPanel(systemNode.Id, isPassive: false);
     }
 }

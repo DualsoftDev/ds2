@@ -175,7 +175,7 @@ let run (cfgPath: string) (log: string -> unit) (ct: CancellationToken) : Task =
 
         try
             while not ct.IsCancellationRequested do
-                match Config.tryLoad cfgPath with
+                match Config.tryLoad cfgPath log with
                 | None ->
                     log "[idle] config 없음/비어있음 — 대기(config 채워지면 재개)"
                     do! waitIdle ()

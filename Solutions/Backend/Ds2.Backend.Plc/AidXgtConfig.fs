@@ -50,42 +50,8 @@ module AidXgtGatewayConfig =
         | XsDateTime -> "dateTime"
         | XsByteString -> "byteString"
 
-    let private parseEndpoint (transport: XgtTransport) (value: string) =
-        try
-            if isNull value || value.Length > 2048 then
-                invalidArg (nameof value) "EndpointMetadata.base exceeds 2048 characters."
-            let uri = Uri(value, UriKind.Absolute)
-            let expectedScheme = match transport with XgtTcp -> "xgt+tcp" | XgtUdp -> "xgt+udp"
-            if String.IsNullOrWhiteSpace uri.Host then Error "InterfaceXGT EndpointMetadata.base에 host가 없습니다."
-            elif not (uri.Scheme.Equals(expectedScheme, StringComparison.OrdinalIgnoreCase)) then
-                Error(sprintf "InterfaceXGT EndpointMetadata.base scheme은 transport에 맞는 '%s'여야 합니다." expectedScheme)
-            elif not (String.IsNullOrWhiteSpace uri.UserInfo) then
-                Error "InterfaceXGT EndpointMetadata.base에 inline credential을 넣을 수 없습니다."
-            elif not (String.IsNullOrEmpty uri.Fragment) then
-                Error "InterfaceXGT EndpointMetadata.base에 URI fragment를 넣을 수 없습니다."
-            else
-                let port = if uri.Port > 0 then uri.Port else 2004
-                Ok(uri.Host, port)
-        with ex -> Error(sprintf "InterfaceXGT EndpointMetadata.base가 잘못되었습니다: %s" ex.Message)
-
-    /// MICREX-SX endpoint 의 base 파서. XGT 와 같은 검증을 하되 스킴은 `sx+tcp` 이고
-    /// 포트 기본값은 509(로더 인터페이스 서버)다. 로더 프로토콜은 TCP 만 쓴다.
-    let private parseSxEndpoint (value: string) =
-        try
-            if isNull value || value.Length > 2048 then
-                invalidArg (nameof value) "EndpointMetadata.base exceeds 2048 characters."
-            let uri = Uri(value, UriKind.Absolute)
-            if String.IsNullOrWhiteSpace uri.Host then Error "InterfaceMicrexSx EndpointMetadata.base에 host가 없습니다."
-            elif not (uri.Scheme.Equals("sx+tcp", StringComparison.OrdinalIgnoreCase)) then
-                Error "InterfaceMicrexSx EndpointMetadata.base scheme은 'sx+tcp'여야 합니다."
-            elif not (String.IsNullOrWhiteSpace uri.UserInfo) then
-                Error "InterfaceMicrexSx EndpointMetadata.base에 inline credential을 넣을 수 없습니다."
-            elif not (String.IsNullOrEmpty uri.Fragment) then
-                Error "InterfaceMicrexSx EndpointMetadata.base에 URI fragment를 넣을 수 없습니다."
-            else
-                let port = if uri.Port > 0 then uri.Port else 509
-                Ok(uri.Host, port)
-        with ex -> Error(sprintf "InterfaceMicrexSx EndpointMetadata.base가 잘못되었습니다: %s" ex.Message)
+    // endpoint base 의 해석은 Core 의 XgtEndpointBase / AidEndpointBase 가 SSOT 다 — Promaker 가 읽고
+    // 쓰는 파서와 여기 게이트웨이 조립이 같은 함수를 쓰므로, 저장은 되는데 활성화만 실패하는 값이 없다.
 
     let private buildCore
         (samplingBySignalId: IReadOnlyDictionary<string, int>)
@@ -160,9 +126,9 @@ module AidXgtGatewayConfig =
                 let connectionName = sprintf "AID-XGT#%d" xgtIndex
                 if endpoint.AuthReferenceVault.IsSome then
                     errors.Add(sprintf "InterfaceXGT #%d는 프로토콜 인증 필드가 없으므로 authReferenceVault를 사용할 수 없습니다." xgtIndex)
-                match parseEndpoint endpoint.Transport endpoint.Base with
+                match XgtEndpointBase.tryParse endpoint.Transport endpoint.Base with
                 | Error message -> errors.Add message
-                | Ok (host, port) ->
+                | Ok target ->
                     if interactions.IsEmpty then
                         errors.Add(sprintf "InterfaceXGT #%d에 InteractionMetadata가 없습니다." xgtIndex)
                     else
@@ -173,6 +139,16 @@ module AidXgtGatewayConfig =
                             | Xgb -> PlcVendor.LsXgb
                         let tags = tagsOf "InterfaceXGT" connectionName endpoint.SystemId vendor interactions
                         if not tags.IsEmpty then
+                            // 이더넷은 host:port, USB 는 장치 선택 키 — 어댑터 팩토리가 Transport 로 갈라 쓴다.
+                            let host, port, transport, usbSelector =
+                                match target with
+                                | XgtEndpointBase.Ethernet (host, port) ->
+                                    let transport =
+                                        match endpoint.Transport with
+                                        | XgtUdp -> PlcTransport.Udp
+                                        | XgtTcp | XgtUsb -> PlcTransport.Tcp
+                                    host, port, transport, ""
+                                | XgtEndpointBase.Usb selector -> "", 0, PlcTransport.Usb, selector
                             connections.Add {
                                 Name = connectionName
                                 SystemId = endpoint.SystemId
@@ -182,7 +158,8 @@ module AidXgtGatewayConfig =
                                 LocalEthernet = endpoint.LocalEthernet
                                 NetworkNumber = endpoint.NetworkNumber
                                 StationNumber = endpoint.StationNumber
-                                Transport = match endpoint.Transport with XgtTcp -> PlcTransport.Tcp | XgtUdp -> PlcTransport.Udp
+                                Transport = transport
+                                UsbDeviceSelector = usbSelector
                                 TimeoutMs = max 100 endpoint.TimeoutMs
                                 ScanInterval =
                                     Some(TimeSpan.FromMilliseconds(
@@ -196,7 +173,8 @@ module AidXgtGatewayConfig =
                 bindingCount <- bindingCount + 1
                 sxIndex <- sxIndex + 1
                 let connectionName = sprintf "AID-SX#%d" sxIndex
-                match parseSxEndpoint endpoint.Base with
+                match AidEndpointBase.tryParseHostPort "InterfaceMicrexSx" AidMicrexSxEndpointSettings.Scheme
+                          AidMicrexSxEndpointSettings.DefaultPort endpoint.Base with
                 | Error message -> errors.Add message
                 | Ok (host, port) ->
                     if interactions.IsEmpty then
@@ -217,6 +195,7 @@ module AidXgtGatewayConfig =
                                 NetworkNumber = 0uy
                                 StationNumber = 0uy
                                 Transport = PlcTransport.Tcp
+                                UsbDeviceSelector = ""
                                 TimeoutMs = max 100 endpoint.TimeoutMs
                                 ScanInterval =
                                     Some(TimeSpan.FromMilliseconds(

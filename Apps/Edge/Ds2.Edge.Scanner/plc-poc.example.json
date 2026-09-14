@@ -1,11 +1,13 @@
 {
-  "_comment": "Pi5 Edge Collector config. 실제 현장값으로 채워 plc.json 으로 복사해 쓴다. connections 가 비면 daemon 은 idle. vendor: LsXgk|LsXgi|Mitsubishi, dtype: Bool|Int16|UInt16|Int32|UInt32|Float32|Float64",
+  "_comment": "Pi5 Edge Collector config. 실제 현장값으로 채워 plc.json 으로 복사해 쓴다. connections 가 비면 daemon 은 idle. vendor: LsXgi|LsXgk|LsXgb|Mitsubishi|MicrexSx, transport: tcp|udp|usb (누락=tcp; usb 는 LS 전용이고 ip/port 대신 usbDeviceSelector — 비우면 첫 매칭 장치, 또는 serial·bus:addr), dtype: Bool|Int16|UInt16|Int32|UInt32|Float32|Float64",
   "connections": [
     {
       "name": "XGK-1",
       "vendor": "LsXgk",
+      "transport": "tcp",
       "ip": "192.168.250.101",
       "port": 2004,
+      "usbDeviceSelector": "",
       "localEthernet": true,
       "timeoutMs": 3000,
       "scanMs": 100,
@@ -14,6 +16,20 @@
         { "hub": "P0064B", "plc": "P0064B", "dtype": "Bool" },
         { "hub": "P00975", "plc": "P00975", "dtype": "Bool" },
         { "hub": "P00770", "plc": "P00770", "dtype": "Bool" }
+      ]
+    },
+    {
+      "name": "XGB-USB",
+      "vendor": "LsXgb",
+      "transport": "usb",
+      "ip": "",
+      "port": 0,
+      "usbDeviceSelector": "",
+      "localEthernet": true,
+      "timeoutMs": 1000,
+      "scanMs": 100,
+      "tags": [
+        { "hub": "%MX0", "plc": "%MX0", "dtype": "Bool" }
       ]
     }
   ],

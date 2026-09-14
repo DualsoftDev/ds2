@@ -28,7 +28,7 @@
                 {
                     <li>
                         <span class="plc-banner-name">@s.Name</span>
-                        <span class="plc-banner-meta">@s.Vendor @s.IpAddress:@s.Port</span>
+                        <span class="plc-banner-meta">@s.Vendor @s.Endpoint</span>
                         @if (!string.IsNullOrWhiteSpace(s.LastError))
                         {
                             <span class="plc-banner-error-msg">— @s.LastError</span>
@@ -41,7 +41,7 @@
                 }
             </ul>
             <div class="plc-banner-hint">
-                Promaker 의 PLC 설정(IP, 포트, 벤더)을 확인하세요. 설정 변경 후 재시도는 자동으로 진행됩니다.
+                Promaker 의 PLC 설정(연결 방식, IP/포트 또는 USB 장치, 벤더)을 확인하세요. 설정 변경 후 재시도는 자동으로 진행됩니다.
             </div>
         </div>
     </div>

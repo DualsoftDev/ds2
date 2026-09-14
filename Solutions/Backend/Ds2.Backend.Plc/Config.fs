@@ -25,12 +25,32 @@ type PlcTagDef = {
     DataType   : CoreDataTypesModule.PlcDataType
 }
 
-/// 미쓰비시 MELSEC Ethernet 전송 방식 — Q/iQ-R 의 MC 프로토콜은 TCP 와 UDP 양쪽 지원.
-/// LS XGi/XGk 는 항상 TCP 라 이 값은 Mitsubishi 일 때만 의미가 있다.
+/// PLC 접속 매체.
+/// - Tcp/Udp: 이더넷. UDP 는 미쓰비시 MC 프로토콜(Q/iQ-R)에서만 의미가 있고 LS·SX 는 항상 TCP.
+/// - Usb: CPU 전면 USB 로더 포트 — IpAddress/Port 는 비고 UsbDeviceSelector 가 장치를 고른다.
+///   현재 LS(XGI/XGK/XGB)만 지원한다(dsev2 LsUsbConnector, libusb-1.0). 미쓰비시 USB 는 dsev2 가
+///   Linux 전용으로만 제품 지원해 여기서는 받지 않는다(AdapterFactory 가 거절).
 [<RequireQualifiedAccess>]
 type PlcTransport =
     | Tcp
     | Udp
+    | Usb
+
+[<RequireQualifiedAccess>]
+module PlcTransport =
+    /// AID(XgtEndpointBase.transportLabel)·수집기 payload·C# 경계가 공유하는 라벨 — 한 문자열 계약.
+    let label (transport: PlcTransport) =
+        match transport with
+        | PlcTransport.Tcp -> "tcp"
+        | PlcTransport.Udp -> "udp"
+        | PlcTransport.Usb -> Ds2.Core.StandardSubmodels.PlcEndpointLabel.UsbTransport
+
+    let tryOfLabel (value: string) : PlcTransport option =
+        match (if isNull value then "" else value.Trim().ToLowerInvariant()) with
+        | "tcp" -> Some PlcTransport.Tcp
+        | "udp" -> Some PlcTransport.Udp
+        | "usb" -> Some PlcTransport.Usb
+        | _ -> None
 
 type PlcConnectionConfig = {
     Name        : string
@@ -38,15 +58,20 @@ type PlcConnectionConfig = {
     /// Project-scoped AID endpoint. None keeps legacy/manual configurations valid.
     SystemId    : Guid option
     Vendor      : PlcVendor
+    /// 이더넷 접속의 host. USB 접속에서는 "" 이다.
     IpAddress   : string
+    /// 이더넷 접속의 포트. USB 접속에서는 0 이다.
     Port        : int
     /// LS 의 경우 내장 이더넷 vs FEnet 모듈 구분.
     LocalEthernet : bool
     /// MX 전용 — 기본값은 0,255,1023,0 (자국 CPU).
     NetworkNumber : byte
     StationNumber : byte
-    /// MX 전용 — TCP/UDP 선택. LS 에서는 무시 (항상 TCP).
+    /// 접속 매체. Tcp/Udp 구분은 MX 에서만 의미가 있고, Usb 는 LS 전용.
     Transport   : PlcTransport
+    /// USB 전용 — dsev2 LS USB 로더의 장치 선택 키(목록번호·serial·bus:addr·product 부분일치).
+    /// "" = 첫 매칭 장치. 이더넷에서는 무시된다.
+    UsbDeviceSelector : string
     /// 통신 timeout (ms)
     TimeoutMs   : int
     /// 스캔 주기. None 이면 스캔 안 함 (write-only 게이트웨이).
@@ -87,6 +112,7 @@ module PlcConnectionConfig =
         NetworkNumber = 0uy
         StationNumber = 0uy
         Transport = PlcTransport.Tcp
+        UsbDeviceSelector = ""
         TimeoutMs = 3000
         ScanInterval = Some (TimeSpan.FromMilliseconds 100.0)
         SxIoMapPath = ""
@@ -104,6 +130,7 @@ module PlcConnectionConfig =
         NetworkNumber = 0uy
         StationNumber = 0xFFuy
         Transport = PlcTransport.Tcp
+        UsbDeviceSelector = ""
         TimeoutMs = 3000
         ScanInterval = Some (TimeSpan.FromMilliseconds 100.0)
         SxIoMapPath = ""
@@ -127,12 +154,19 @@ module PlcConnectionConfig =
         NetworkNumber = 0uy
         StationNumber = 0uy
         Transport = PlcTransport.Tcp
+        UsbDeviceSelector = ""
         TimeoutMs = 3000
         ScanInterval = Some (TimeSpan.FromMilliseconds 100.0)
         SxIoMapPath = ""
         SxWritableAreas = []
         Tags = []
     }
+
+    /// 사람이 읽는 접속 표기 — 게이트웨이 로그·연결 상태 계약(PlcConnectionStatus.Endpoint)이 쓴다.
+    /// 포맷은 Core 의 PlcEndpointLabel 하나라 Promaker·DSPilot 표시와 글자 단위로 같다.
+    let endpointLabel (c: PlcConnectionConfig) =
+        Ds2.Core.StandardSubmodels.PlcEndpointLabel.format
+            (PlcTransport.label c.Transport) c.IpAddress c.Port c.UsbDeviceSelector
 
 /// 태그 1개를 전역에서 유일하게 식별하는 복합키 — (SystemId, 주소).
 /// 멀티 PLC 에서는 서로 다른 PLC 가 같은 주소를 쓸 수 있어 주소 단독으로는 식별이 안 된다
@@ -341,12 +375,15 @@ module PlcAddressInfer =
 
 /// PlcGatewayConfig(Agent 가 aasx IOMap + PlcConnection 으로 조립) → 수집기(Pi5) push payload 매핑.
 /// 분리 아키텍처: Agent 가 이 payload 를 Hub 로 push, Pi5 가 받아 plc.json 병합.
-/// 문자열 라벨(vendor/dtype)은 Pi5 Config 의 toVendor/toDataType 이 파싱하는 값과 정확히 일치해야 한다.
+///
+/// vendor/transport/dtype 문자열은 Agent 가 내보내고 Edge 수집기(Ds2.Edge.Scanner)가 되읽는 **계약**이다.
+/// 내보내기(`…Str`)와 되읽기(`tryXOf`/`dataTypeOf`)를 여기 한 곳에 짝으로 두어, 벤더·전송이 늘 때
+/// 한쪽만 고쳐져 수집기가 조용히 다른 벤더로 붙는 일(예전 "SX 가 LsXgk 로 떨어지는" 함정)을 막는다.
 [<RequireQualifiedAccess>]
 module CollectorConfig =
     open Ds2.Backend.Common
 
-    let private vendorStr (v: PlcVendor) =
+    let vendorStr (v: PlcVendor) =
         match v with
         | PlcVendor.LsXgi      -> "LsXgi"
         | PlcVendor.LsXgk      -> "LsXgk"
@@ -354,7 +391,17 @@ module CollectorConfig =
         | PlcVendor.Mitsubishi -> "Mitsubishi"
         | PlcVendor.MicrexSx   -> "MicrexSx"
 
-    let private dtypeStr (d: CoreDataTypesModule.PlcDataType) =
+    /// vendorStr 의 역. 모르는 라벨은 None — 수집기는 그 접속을 거부하고 로그에 남긴다(폴백 금지).
+    let tryVendorOf (label: string) : PlcVendor option =
+        match (if isNull label then "" else label.Trim()) with
+        | "LsXgi"      -> Some PlcVendor.LsXgi
+        | "LsXgk"      -> Some PlcVendor.LsXgk
+        | "LsXgb"      -> Some PlcVendor.LsXgb
+        | "Mitsubishi" -> Some PlcVendor.Mitsubishi
+        | "MicrexSx"   -> Some PlcVendor.MicrexSx
+        | _            -> None
+
+    let dtypeStr (d: CoreDataTypesModule.PlcDataType) =
         match d with
         | CoreDataTypesModule.PlcDataType.Bool    -> "Bool"
         | CoreDataTypesModule.PlcDataType.Int16   -> "Int16"
@@ -365,6 +412,17 @@ module CollectorConfig =
         | CoreDataTypesModule.PlcDataType.Float64 -> "Float64"
         | _                                       -> "Bool"
 
+    /// dtypeStr 의 역. 모르는 라벨은 Bool — 시퀀스 IO 가 압도적이라 안전한 기본값(PlcAddressInfer 와 같은 기준).
+    let dataTypeOf (label: string) : CoreDataTypesModule.PlcDataType =
+        match (if isNull label then "" else label.Trim()) with
+        | "Int16"   -> PlcDataTypes.Int16
+        | "UInt16"  -> PlcDataTypes.UInt16
+        | "Int32"   -> PlcDataTypes.Int32
+        | "UInt32"  -> PlcDataTypes.UInt32
+        | "Float32" -> PlcDataTypes.Float32
+        | "Float64" -> PlcDataTypes.Float64
+        | _         -> PlcDataTypes.Bool
+
     /// PlcGatewayConfig → CollectorConfigPayload. ScanInterval None(write-only)이면 scanMs=100 기본.
     let fromGateway (cfg: PlcGatewayConfig) : CollectorConfigPayload =
         { Connections =
@@ -372,8 +430,10 @@ module CollectorConfig =
             |> List.map (fun c ->
                 { Name = c.Name
                   Vendor = vendorStr c.Vendor
+                  Transport = PlcTransport.label c.Transport
                   Ip = c.IpAddress
                   Port = c.Port
+                  UsbDeviceSelector = c.UsbDeviceSelector
                   LocalEthernet = c.LocalEthernet
                   TimeoutMs = c.TimeoutMs
                   // 수집기가 push 하는 TagWrite.SystemId 의 출처. 예전엔 여기서 SystemId 가 누락돼

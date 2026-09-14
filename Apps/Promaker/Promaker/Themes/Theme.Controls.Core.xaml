@@ -128,6 +128,14 @@
         </Setter>
     </Style>
 
+    <!-- Button: InlineListButton — 속성 패널 인라인 목록의 작은 액션 버튼(저장·찾아보기·✓).
+         PropertyPanel / ApiCallsGridControl / SystemPlcSectionControl 이 공유한다 — 각 컨트롤에 복제하지 않는다. -->
+    <Style x:Key="InlineListButton" TargetType="Button" BasedOn="{StaticResource DarkButton}">
+        <Setter Property="Padding" Value="6,2"/>
+        <Setter Property="MinWidth" Value="24"/>
+        <Setter Property="Height" Value="22"/>
+    </Style>
+
     <!-- Button: SlimToolbarButton (아이콘+텍스트 수직 배열 툴바 전용) -->
     <Style x:Key="SlimToolbarButton" TargetType="Button">
         <Setter Property="Background" Value="{DynamicResource ToolbarButtonBrush}"/>

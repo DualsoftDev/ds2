@@ -10,6 +10,8 @@
     <Compile Include="AidSouthboundConfig.fs" />
     <Compile Include="IPlcGateway.fs" />
     <Compile Include="Adapters.fs" />
+    <Compile Include="LsUsbAdapter.fs" />
+    <Compile Include="AdapterFactory.fs" />
     <Compile Include="PlcGateway.fs" />
     <Compile Include="PlcScanService.fs" />
   </ItemGroup>
@@ -36,6 +38,13 @@
     </Reference>
     <Reference Include="Ev2.PLC.Protocol.LS">
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.LS.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <!-- LS USB 로더(LsUsbConnector)가 쓰는 libusb-1.0 P/Invoke 공용 어셈블리(dsev2 Ev2.PLC.Usb).
+         Ev2.PLC.Protocol.LS 가 참조하므로 USB 접속 경로를 타는 순간 로드된다 — 빠지면 FileNotFoundException.
+         네이티브 libusb-1.0.dll(Windows)/libusb-1.0.so.0(Linux)은 별도 배치(dsev2 install-libusb / apt). -->
+    <Reference Include="Ev2.PLC.Usb">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Usb.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="Ev2.PLC.Protocol.MX">

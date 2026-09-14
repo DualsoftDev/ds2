@@ -157,7 +157,7 @@ public partial class RuntimeSettingDialog : Window
                 var s = _vm.Simulation.PlcSettings;
                 var tagCount = _vm.Simulation.CountAutoImportablePlcAddresses();
                 PlcStatusText.Text =
-                    $"{s.Vendor}  {s.IpAddress}:{s.Port}  ·  IO 자동 import {tagCount}개  ·  접속 편집: System 속성 패널  ·  수집 방식(직접/위임)은 '업로드' 버튼에서 선택";
+                    $"{s.Vendor}  {s.EndpointLabel}  ·  IO 자동 import {tagCount}개  ·  접속 편집: System 속성 패널  ·  수집 방식(직접/위임)은 '업로드' 버튼에서 선택";
             }
         }
         else

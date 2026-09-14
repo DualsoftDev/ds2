@@ -37,6 +37,7 @@
     <Compile Include="StandardSubmodels\HandoverDocumentation.fs" />
     <Compile Include="StandardSubmodels\TechnicalData.fs" />
     <!-- Phase 0 · IDTA standard submodels -->
+    <Compile Include="StandardSubmodels\AidEndpointBase.fs" />
     <Compile Include="StandardSubmodels\AssetInterfacesDescription.fs" />
     <Compile Include="StandardSubmodels\AssetInterfacesMappingConfiguration.fs" />
     <Compile Include="StandardSubmodels\OperationalData.fs" />
