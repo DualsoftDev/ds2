@@ -61,9 +61,77 @@ module AssetInterfacesDescriptionTypes =
         /// XGB/XBC/XEC compact PLC family using the XGT FEnet protocol.
         | Xgb
 
+    /// XGT 접속 매체. TCP/UDP 는 이더넷(FEnet·내장 이더넷)이고 USB 는 CPU 전면 USB 로더 포트다.
+    /// USB 는 host/port 가 없어 `Base` 가 장치 선택 키를 담는다 — XgtEndpointBase 참조.
     type XgtTransport =
         | XgtTcp
         | XgtUdp
+        | XgtUsb
+
+    /// InterfaceXGT `base` URI 의 조립·해석 SSOT.
+    ///
+    ///   이더넷: `xgt+tcp://host:port` · `xgt+udp://host:port`
+    ///   USB   : `xgt+usb://localhost/<selector>` — selector 는 dsev2 LS USB 로더의 장치 선택 키
+    ///           (목록번호 · serial · bus:addr · product 부분일치). 비우면 첫 매칭 장치.
+    ///
+    /// selector 를 host 자리에 두지 않는 이유: `3:4` 같은 bus:addr 가 host:port 로 갈린다.
+    /// host 를 `localhost` 로 고정하는 이유: 스캔하는 프로세스(Agent·Edge 수집기)가 붙어 있는
+    /// 그 PC 의 USB 라는 뜻이고, 표준 URI 파서가 authority 없는 형태보다 안정적으로 읽는다.
+    [<RequireQualifiedAccess>]
+    module XgtEndpointBase =
+        [<Literal>]
+        let UsbHost = "localhost"
+        [<Literal>]
+        let DefaultPort = 2004
+        [<Literal>]
+        let private Label = "InterfaceXGT"
+
+        let schemeOf (transport: XgtTransport) =
+            match transport with
+            | XgtTcp -> "xgt+tcp"
+            | XgtUdp -> "xgt+udp"
+            | XgtUsb -> "xgt+usb"
+
+        /// AASX Property `transport` 와 C# 경계(Promaker·DSPilot·수집기 payload)가 공유하는 라벨.
+        let transportLabel (transport: XgtTransport) =
+            match transport with
+            | XgtTcp -> "tcp"
+            | XgtUdp -> "udp"
+            | XgtUsb -> PlcEndpointLabel.UsbTransport
+
+        let tryTransportOfLabel (label: string) =
+            match (if isNull label then "" else label.Trim().ToLowerInvariant()) with
+            | "tcp" -> Some XgtTcp
+            | "udp" -> Some XgtUdp
+            | "usb" -> Some XgtUsb
+            | _ -> None
+
+        /// base 를 해석한 접속 대상.
+        type XgtEndpointTarget =
+            | Ethernet of host: string * port: int
+            | Usb of selector: string
+
+        let ethernet (transport: XgtTransport) (host: string) (port: int) =
+            AidEndpointBase.hostPort (schemeOf transport) host port
+
+        /// USB base 조립. selector 에 URI 경계 문자(`/` `?` `#`)가 있으면 path 로 실을 수 없어 거절한다 —
+        /// dsev2 의 선택 키(번호·serial·bus:addr·product 부분일치)에는 원래 들어가지 않는 문자다.
+        let tryUsb (selector: string) : Result<string, string> =
+            let key = if isNull selector then "" else selector.Trim()
+            if key |> Seq.exists (fun c -> c = '/' || c = '?' || c = '#') then
+                Error(sprintf "%s USB 장치 선택 키에는 '/', '?', '#' 을 쓸 수 없습니다 — '%s'." Label key)
+            else
+                Ok(sprintf "%s://%s/%s" (schemeOf XgtUsb) UsbHost key)
+
+        let tryParse (transport: XgtTransport) (value: string) : Result<XgtEndpointTarget, string> =
+            match transport with
+            | XgtUsb ->
+                AidEndpointBase.tryAbsoluteUri Label (schemeOf XgtUsb) value
+                |> Result.map (fun uri -> Usb(Uri.UnescapeDataString(uri.AbsolutePath.TrimStart '/')))
+            | XgtTcp
+            | XgtUdp ->
+                AidEndpointBase.tryParseHostPort Label (schemeOf transport) DefaultPort value
+                |> Result.map (fun (host, port) -> Ethernet(host, port))
 
     type XgtEndpointMetadata = {
         Base: string
@@ -97,7 +165,7 @@ module AssetInterfacesDescriptionTypes =
     /// IDTA 02017 v1.1 의 표준 4종 바인딩(OPC UA·Modbus·MQTT·HTTP)에는 로더 프로토콜이 없다.
     ///
     /// XGT endpoint 를 재사용하지 않는 이유가 둘 있다.
-    /// * `XgtCpuModel` 은 `Xgi|Xgk|Xgb` 닫힌 DU 이고 base 스킴이 `xgt+tcp://` 다 — SX 를 거기
+    /// * `XgtCpuModel` 은 `Xgi|Xgk|Xgb` 닫힌 DU 이고 base 스킴이 `xgt+…://` 계열이다 — SX 를 거기
     ///   넣으면 AASX 의 규격 서술이 사실과 어긋난다.
     /// * SX 에는 XGT 에 없는 두 값이 필요하다. 매핑표와 쓰기 허용 영역이다.
     type MicrexSxEndpointMetadata = {
@@ -256,32 +324,33 @@ module AssetInterfacesDescriptionTypes =
 
         static member Empty () = AssetInterfacesDescription()
 
-    /// C# Promaker 경계에서 AID InterfaceXGT endpoint를 읽기 위한 평탄화 DTO.
+    /// C# 경계(Promaker·DSPilot)가 AID InterfaceXGT endpoint 를 **읽고 쓸 때** 함께 쓰는 평탄화 DTO.
+    ///
+    /// 읽기 결과와 쓰기 요청이 같은 축(벤더·전송·주소·타이밍)이라 한 타입을 양방향으로 쓴다 —
+    /// `BaseUri`/`SystemId` 는 읽기에서만 채워지고 쓰기 요청에서는 무시된다(base 는 재조립, 소유
+    /// System 은 인자). `Transport` 는 XgtEndpointBase.transportLabel 의 "tcp"|"udp"|"usb".
+    /// USB 면 IpAddress=""·Port=0 이고 `UsbDeviceSelector` 가 장치 선택 키다.
     /// PLC 접속정보의 유일한 정본은 AID다.
     [<AllowNullLiteral>]
     type AidXgtConnectionInfo
-        (baseUri: string, vendor: string, ipAddress: string, port: int,
-         isUdp: bool, localEthernet: bool, networkNumber: byte, stationNumber: byte,
+        (baseUri: string, vendor: string, transport: string, ipAddress: string, port: int,
+         usbDeviceSelector: string, localEthernet: bool, networkNumber: byte, stationNumber: byte,
          timeoutMs: int, scanIntervalMs: int, systemId: Guid option) =
         member _.BaseUri = baseUri
         member _.Vendor = vendor
+        member _.Transport = transport
+        member _.IsUsb = PlcEndpointLabel.isUsb transport
         member _.IpAddress = ipAddress
         member _.Port = port
-        member _.IsUdp = isUdp
+        member _.UsbDeviceSelector = if isNull usbDeviceSelector then "" else usbDeviceSelector
         member _.LocalEthernet = localEthernet
         member _.NetworkNumber = networkNumber
         member _.StationNumber = stationNumber
         member _.TimeoutMs = timeoutMs
         member _.ScanIntervalMs = scanIntervalMs
         member _.SystemId = systemId |> Option.toNullable
-        /// Source-compatible constructor for integrations that predate systemRef.
-        new
-            (baseUri: string, vendor: string, ipAddress: string, port: int,
-             isUdp: bool, localEthernet: bool, networkNumber: byte, stationNumber: byte,
-             timeoutMs: int, scanIntervalMs: int) =
-            AidXgtConnectionInfo(
-                baseUri, vendor, ipAddress, port, isUdp, localEthernet, networkNumber,
-                stationNumber, timeoutMs, scanIntervalMs, None)
+        /// 사람이 읽는 접속 표기 — 로그·상태바·배너가 같은 문자열을 쓴다.
+        member this.EndpointLabel = PlcEndpointLabel.format transport ipAddress port this.UsbDeviceSelector
 
     /// C# 경계에서 AID InterfaceMicrexSx endpoint 를 읽기 위한 평탄화 DTO.
     [<AllowNullLiteral>]
@@ -391,22 +460,61 @@ module AssetInterfacesDescriptionTypes =
             | "LSXGB" -> Some Xgb
             | _ -> None
 
+        /// endpoint → C# 경계 DTO. base 해석은 게이트웨이 조립(Ds2.Backend.Plc)과 같은 파서를 쓴다 —
+        /// 여기서 읽히는 값은 반드시 활성화도 되어야 한다.
         let private toConnectionInfo (endpoint: XgtEndpointMetadata) =
-            match Uri.TryCreate(endpoint.Base, UriKind.Absolute) with
-            | true, uri when not (String.IsNullOrWhiteSpace uri.Host) && uri.Port > 0 ->
+            match XgtEndpointBase.tryParse endpoint.Transport endpoint.Base with
+            | Error _ -> None
+            | Ok target ->
+                let ipAddress, port, selector =
+                    match target with
+                    | XgtEndpointBase.Ethernet (host, port) -> host, port, ""
+                    | XgtEndpointBase.Usb selector -> "", 0, selector
                 Some (AidXgtConnectionInfo(
                     endpoint.Base,
                     vendorOfCpuModel endpoint.CpuModel,
-                    uri.Host,
-                    uri.Port,
-                    endpoint.Transport = XgtUdp,
+                    XgtEndpointBase.transportLabel endpoint.Transport,
+                    ipAddress,
+                    port,
+                    selector,
                     endpoint.LocalEthernet,
                     endpoint.NetworkNumber,
                     endpoint.StationNumber,
                     endpoint.TimeoutMs,
                     endpoint.ScanIntervalMs,
                     endpoint.SystemId))
-            | _ -> None
+
+        /// C# 경계 요청 → 이 System 이 소유할 endpoint 값.
+        /// 벤더가 LS 가 아니거나, 전송 라벨을 모르거나, 이더넷인데 host/port 가 비었거나, USB selector 에
+        /// URI 경계 문자가 있으면 None — 호출자는 0(변경 없음)을 돌려준다.
+        /// `existing` 이 있으면 그 endpoint 의 AuthReferenceVault 와 (요청이 0 인) 타이밍을 물려받는다.
+        let private tryEndpointOf
+            (systemId: Guid) (existing: XgtEndpointMetadata option) (request: AidXgtConnectionInfo) =
+            if isNull (box request) then None
+            else
+                match tryCpuModel request.Vendor, XgtEndpointBase.tryTransportOfLabel request.Transport with
+                | Some cpuModel, Some transport ->
+                    let baseUri =
+                        match transport with
+                        | XgtUsb -> XgtEndpointBase.tryUsb request.UsbDeviceSelector |> Result.toOption
+                        | XgtTcp
+                        | XgtUdp ->
+                            if String.IsNullOrWhiteSpace request.IpAddress || request.Port <= 0 then None
+                            else Some (XgtEndpointBase.ethernet transport request.IpAddress request.Port)
+                    baseUri
+                    |> Option.map (fun b ->
+                        let prior = defaultArg existing XgtEndpointMetadata.empty
+                        { prior with
+                            SystemId = Some systemId
+                            Base = b
+                            CpuModel = cpuModel
+                            Transport = transport
+                            LocalEthernet = request.LocalEthernet
+                            NetworkNumber = request.NetworkNumber
+                            StationNumber = request.StationNumber
+                            TimeoutMs = if request.TimeoutMs > 0 then request.TimeoutMs else prior.TimeoutMs
+                            ScanIntervalMs = if request.ScanIntervalMs > 0 then request.ScanIntervalMs else prior.ScanIntervalMs })
+                | _ -> None
 
         [<CompiledName("TryReadFirst")>]
         let tryReadFirst (aid: AssetInterfacesDescription) : AidXgtConnectionInfo =
@@ -431,219 +539,22 @@ module AssetInterfacesDescriptionTypes =
                     | _ -> None)
                 |> Option.defaultValue null
 
-        [<CompiledName("UpdateAll")>]
-        let updateAll
-            (aid: AssetInterfacesDescription,
-             vendor: string,
-             ipAddress: string,
-             port: int,
-             isUdp: bool,
-             localEthernet: bool,
-             networkNumber: byte,
-             stationNumber: byte,
-             timeoutMs: int,
-             scanIntervalMs: int) : int =
-            match tryCpuModel vendor with
-            | None -> 0
-            | Some _ when isNull (box aid) || String.IsNullOrWhiteSpace ipAddress || port <= 0 -> 0
-            | Some cpuModel ->
-                let transport = if isUdp then XgtUdp else XgtTcp
-                let scheme = if isUdp then "xgt+udp" else "xgt+tcp"
-                let baseUri = $"{scheme}://{ipAddress.Trim()}:{port}"
-                let mutable updated = 0
-                for index = 0 to aid.Interfaces.Count - 1 do
-                    match aid.Interfaces.[index] with
-                    | Xgt (endpoint, interactions) ->
-                        let next =
-                            { endpoint with
-                                Base = baseUri
-                                CpuModel = cpuModel
-                                LocalEthernet = localEthernet
-                                NetworkNumber = networkNumber
-                                StationNumber = stationNumber
-                                Transport = transport
-                                TimeoutMs = if timeoutMs > 0 then timeoutMs else endpoint.TimeoutMs
-                                ScanIntervalMs = if scanIntervalMs > 0 then scanIntervalMs else endpoint.ScanIntervalMs }
-                        aid.Interfaces.[index] <- Xgt (next, interactions)
-                        updated <- updated + 1
-                    | _ -> ()
-                updated
-
-        /// Updates only the InterfaceXGT endpoint assigned to `systemId`.
-        /// A single unassigned legacy endpoint is claimed on first update, which
-        /// preserves one-System projects while preventing a multi-System save from
-        /// stamping one PLC profile across every endpoint.
-        [<CompiledName("UpdateForSystem")>]
-        let updateForSystem
-            (aid: AssetInterfacesDescription,
-             systemId: Guid,
-             vendor: string,
-             ipAddress: string,
-             port: int,
-             isUdp: bool,
-             localEthernet: bool,
-             networkNumber: byte,
-             stationNumber: byte,
-             timeoutMs: int,
-             scanIntervalMs: int) : int =
-            match tryCpuModel vendor with
-            | None -> 0
-            | Some _ when isNull (box aid) || systemId = Guid.Empty || String.IsNullOrWhiteSpace ipAddress || port <= 0 -> 0
-            | Some cpuModel ->
-                let transport = if isUdp then XgtUdp else XgtTcp
-                let scheme = if isUdp then "xgt+udp" else "xgt+tcp"
-                let baseUri = $"{scheme}://{ipAddress.Trim()}:{port}"
-                let xgtBindings =
-                    aid.Interfaces
-                    |> Seq.mapi (fun index binding -> index, binding)
-                    |> Seq.choose (function index, Xgt (endpoint, interactions) -> Some (index, endpoint, interactions) | _ -> None)
-                    |> List.ofSeq
-                let assigned = xgtBindings |> List.filter (fun (_, endpoint, _) -> endpoint.SystemId = Some systemId)
-                let targets =
-                    if not assigned.IsEmpty then assigned
-                    elif xgtBindings.Length = 1 && (let _, endpoint, _ = xgtBindings.Head in endpoint.SystemId.IsNone) then xgtBindings
-                    else []
-                for index, endpoint, interactions in targets do
-                    let next =
-                        { endpoint with
-                            SystemId = Some systemId
-                            Base = baseUri
-                            CpuModel = cpuModel
-                            LocalEthernet = localEthernet
-                            NetworkNumber = networkNumber
-                            StationNumber = stationNumber
-                            Transport = transport
-                            TimeoutMs = if timeoutMs > 0 then timeoutMs else endpoint.TimeoutMs
-                            ScanIntervalMs = if scanIntervalMs > 0 then scanIntervalMs else endpoint.ScanIntervalMs }
-                    aid.Interfaces.[index] <- Xgt (next, interactions)
-                targets.Length
-
-        /// XGT 수집 바인딩을 보장한다 — 기존 InterfaceXGT 가 있으면 endpoint 를 갱신하고 새 주소를 병합하며,
-        /// 없으면 addresses(모델 IO맵의 OUT/IN + UserTag 주소)로 InteractionMetadata 를 만들어 새로 생성한다.
-        /// bcf9121b(PLC 접속=AID 정본) 리팩터가 "갱신"만 두고 "생성"을 빠뜨려, XGT 바인딩이 없던 모델은
-        /// PLC IP 를 넣어도 저장 시 바인딩이 안 생기던 구멍을 메운다. 반환 = 생성/갱신된 interaction 수.
-        [<CompiledName("EnsureBinding")>]
-        let ensureBinding
-            (aid: AssetInterfacesDescription,
-             vendor: string,
-             ipAddress: string,
-             port: int,
-             isUdp: bool,
-             localEthernet: bool,
-             networkNumber: byte,
-             stationNumber: byte,
-             timeoutMs: int,
-             scanIntervalMs: int,
-             addresses: seq<string>) : int =
-            match tryCpuModel vendor with
-            | None -> 0
-            | Some _ when isNull (box aid) || String.IsNullOrWhiteSpace ipAddress || port <= 0 -> 0
-            | Some cpuModel ->
-                let normalizedAddresses =
-                    let seen = HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                    addresses
-                    |> Seq.choose (fun a ->
-                        if String.IsNullOrWhiteSpace a then None
-                        else
-                            let addr = a.Trim()
-                            if seen.Add addr then Some addr else None)
-                    |> List.ofSeq
-
-                let transport = if isUdp then XgtUdp else XgtTcp
-                let scheme = if isUdp then "xgt+udp" else "xgt+tcp"
-                let endpoint =
-                    { XgtEndpointMetadata.empty with
-                        Base = sprintf "%s://%s:%d" scheme (ipAddress.Trim()) port
-                        CpuModel = cpuModel
-                        LocalEthernet = localEthernet
-                        NetworkNumber = networkNumber
-                        StationNumber = stationNumber
-                        Transport = transport
-                        TimeoutMs = (if timeoutMs > 0 then timeoutMs else 3000)
-                        ScanIntervalMs = (if scanIntervalMs > 0 then scanIntervalMs else 100) }
-
-                let mutable touched = 0
-                let mutable foundXgt = false
-                for index = 0 to aid.Interfaces.Count - 1 do
-                    match aid.Interfaces.[index] with
-                    | Xgt (existingEndpoint, existing) ->
-                        foundXgt <- true
-                        let normalizedExisting = existing |> List.map normalizeLegacyGeneratedInteraction
-                        let seen = HashSet<string>(
-                            normalizedExisting
-                            |> Seq.map (fun i -> i.Href),
-                            StringComparer.OrdinalIgnoreCase)
-                        let added =
-                            normalizedAddresses
-                            |> List.choose (fun addr ->
-                                if seen.Add addr then Some (interactionForAddress addr) else None)
-                        let merged = normalizedExisting @ added
-                        let nextEndpoint =
-                            { existingEndpoint with
-                                Base = endpoint.Base
-                                CpuModel = endpoint.CpuModel
-                                LocalEthernet = endpoint.LocalEthernet
-                                NetworkNumber = endpoint.NetworkNumber
-                                StationNumber = endpoint.StationNumber
-                                Transport = endpoint.Transport
-                                TimeoutMs = if timeoutMs > 0 then timeoutMs else existingEndpoint.TimeoutMs
-                                ScanIntervalMs = if scanIntervalMs > 0 then scanIntervalMs else existingEndpoint.ScanIntervalMs }
-                        aid.Interfaces.[index] <- Xgt (nextEndpoint, merged)
-                        // 반환값은 최종 동기화된 interaction 수. 주소가 추가되지 않아도 endpoint 갱신 성공을 드러낸다.
-                        touched <- touched + List.length merged
-                    | _ -> ()
-
-                if foundXgt then touched
-                elif List.isEmpty normalizedAddresses then 0
-                else
-                    let interactions = normalizedAddresses |> List.map interactionForAddress
-                    aid.Interfaces.Add(Xgt (endpoint, interactions))
-                    List.length interactions
-
-        /// Ensures a distinct XGT binding for one active System.
-        /// Existing bindings for other systems are intentionally untouched.  A
-        /// one-endpoint legacy AID is upgraded in place; otherwise a new endpoint
-        /// is appended for the selected System.
+        /// 한 active System 의 XGT 수집 바인딩을 보장한다 — 이 System 에 배정된 endpoint 가 있으면 요청 값으로
+        /// 갱신하고 새 주소를 병합하며, 없으면 addresses(모델 IO맵 OUT/IN + UserTag 주소)로 InteractionMetadata 를
+        /// 만들어 새로 만든다. systemRef 없는 구버전 endpoint 가 **하나만** 있으면 그것을 이 System 으로 귀속(claim)
+        /// 한다 — 단일 System 프로젝트는 그대로 살리고, 다중 System 저장이 한 PLC 프로파일을 모든 endpoint 에
+        /// 찍는 것은 막는다. 다른 System 의 바인딩은 건드리지 않는다.
+        ///
+        /// 요청은 읽기 DTO 와 같은 AidXgtConnectionInfo 다 — 접속 축(이더넷 host:port / USB selector)의 검증과
+        /// base 조립은 tryEndpointOf 한 곳에서만 한다. 반환 = 최종 동기화된 interaction 수(0 = 변경 없음).
         [<CompiledName("EnsureBindingForSystem")>]
         let ensureBindingForSystem
             (aid: AssetInterfacesDescription,
              systemId: Guid,
-             vendor: string,
-             ipAddress: string,
-             port: int,
-             isUdp: bool,
-             localEthernet: bool,
-             networkNumber: byte,
-             stationNumber: byte,
-             timeoutMs: int,
-             scanIntervalMs: int,
+             request: AidXgtConnectionInfo,
              addresses: seq<string>) : int =
-            match tryCpuModel vendor with
-            | None -> 0
-            | Some _ when isNull (box aid) || systemId = Guid.Empty || String.IsNullOrWhiteSpace ipAddress || port <= 0 -> 0
-            | Some cpuModel ->
-                let normalizedAddresses =
-                    let seen = HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                    addresses
-                    |> Seq.choose (fun address ->
-                        if String.IsNullOrWhiteSpace address then None
-                        else
-                            let trimmed = address.Trim()
-                            if seen.Add trimmed then Some trimmed else None)
-                    |> List.ofSeq
-                let transport = if isUdp then XgtUdp else XgtTcp
-                let scheme = if isUdp then "xgt+udp" else "xgt+tcp"
-                let requestedEndpoint =
-                    { XgtEndpointMetadata.empty with
-                        SystemId = Some systemId
-                        Base = sprintf "%s://%s:%d" scheme (ipAddress.Trim()) port
-                        CpuModel = cpuModel
-                        LocalEthernet = localEthernet
-                        NetworkNumber = networkNumber
-                        StationNumber = stationNumber
-                        Transport = transport
-                        TimeoutMs = (if timeoutMs > 0 then timeoutMs else 3000)
-                        ScanIntervalMs = (if scanIntervalMs > 0 then scanIntervalMs else 100) }
+            if isNull (box aid) || systemId = Guid.Empty then 0
+            else
                 let xgtBindings =
                     aid.Interfaces
                     |> Seq.mapi (fun index binding -> index, binding)
@@ -656,40 +567,42 @@ module AssetInterfacesDescriptionTypes =
                         if xgtBindings.Length = 1 && (let _, endpoint, _ = xgtBindings.Head in endpoint.SystemId.IsNone)
                         then Some xgtBindings.Head
                         else None)
-                match target with
-                | Some (index, existingEndpoint, existing) ->
-                    let normalizedExisting = existing |> List.map normalizeLegacyGeneratedInteraction
-                    let seen = HashSet<string>(normalizedExisting |> Seq.map _.Href, StringComparer.OrdinalIgnoreCase)
-                    // 다른 System 의 endpoint 가 이미 쓰는 signalId 는 피해서 부여한다(자동 분화).
-                    // 이 endpoint 자신이 이미 가진 id 는 보존 대상이라 제외한다.
-                    let claimed = claimedSignalIdsExcept aid index
-                    let added =
-                        normalizedAddresses
-                        |> List.choose (fun address ->
-                            if seen.Add address then Some (interactionForAddressIn claimed (Some systemId) address)
-                            else None)
-                    let nextEndpoint =
-                        { existingEndpoint with
-                            SystemId = Some systemId
-                            Base = requestedEndpoint.Base
-                            CpuModel = requestedEndpoint.CpuModel
-                            LocalEthernet = requestedEndpoint.LocalEthernet
-                            NetworkNumber = requestedEndpoint.NetworkNumber
-                            StationNumber = requestedEndpoint.StationNumber
-                            Transport = requestedEndpoint.Transport
-                            TimeoutMs = if timeoutMs > 0 then timeoutMs else existingEndpoint.TimeoutMs
-                            ScanIntervalMs = if scanIntervalMs > 0 then scanIntervalMs else existingEndpoint.ScanIntervalMs }
-                    let merged = normalizedExisting @ added
-                    aid.Interfaces.[index] <- Xgt (nextEndpoint, merged)
-                    List.length merged
-                | None when normalizedAddresses.IsEmpty -> 0
-                | None ->
-                    // 새 endpoint — 기존 endpoint 전체가 점유한 signalId 를 피해서 부여한다.
-                    let claimed = claimedSignalIdsExcept aid -1
-                    let interactions =
-                        normalizedAddresses |> List.map (interactionForAddressIn claimed (Some systemId))
-                    aid.Interfaces.Add(Xgt (requestedEndpoint, interactions))
-                    List.length interactions
+                match tryEndpointOf systemId (target |> Option.map (fun (_, endpoint, _) -> endpoint)) request with
+                | None -> 0
+                | Some nextEndpoint ->
+                    let normalizedAddresses =
+                        let seen = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                        addresses
+                        |> Seq.choose (fun address ->
+                            if String.IsNullOrWhiteSpace address then None
+                            else
+                                let trimmed = address.Trim()
+                                if seen.Add trimmed then Some trimmed else None)
+                        |> List.ofSeq
+                    match target with
+                    | Some (index, _, existing) ->
+                        let normalizedExisting = existing |> List.map normalizeLegacyGeneratedInteraction
+                        let seen = HashSet<string>(normalizedExisting |> Seq.map _.Href, StringComparer.OrdinalIgnoreCase)
+                        // 다른 System 의 endpoint 가 이미 쓰는 signalId 는 피해서 부여한다(자동 분화).
+                        // 이 endpoint 자신이 이미 가진 id 는 보존 대상이라 제외한다.
+                        let claimed = claimedSignalIdsExcept aid index
+                        let added =
+                            normalizedAddresses
+                            |> List.choose (fun address ->
+                                if seen.Add address then Some (interactionForAddressIn claimed (Some systemId) address)
+                                else None)
+                        let merged = normalizedExisting @ added
+                        aid.Interfaces.[index] <- Xgt (nextEndpoint, merged)
+                        // 반환값은 최종 동기화된 interaction 수. 주소가 추가되지 않아도 endpoint 갱신 성공을 드러낸다.
+                        List.length merged
+                    | None when normalizedAddresses.IsEmpty -> 0
+                    | None ->
+                        // 새 endpoint — 기존 endpoint 전체가 점유한 signalId 를 피해서 부여한다.
+                        let claimed = claimedSignalIdsExcept aid -1
+                        let interactions =
+                            normalizedAddresses |> List.map (interactionForAddressIn claimed (Some systemId))
+                        aid.Interfaces.Add(Xgt (nextEndpoint, interactions))
+                        List.length interactions
 
         /// 이미 저장된 모델의 signalId 중복·공백 **자동 복구**.
         /// 중복 주소 모델은 AASX 저장 자체는 성공하고 불러와 활성화할 때만 실패하므로,
@@ -753,10 +666,17 @@ module AssetInterfacesDescriptionTypes =
     [<RequireQualifiedAccess>]
     module AidMicrexSxEndpointSettings =
 
-        /// `sx+tcp://host:port` 로 조립. 스킴을 XGT 와 다르게 두어 AASX 를 읽는 쪽이
-        /// 프로토콜을 착각하지 않게 한다.
+        [<Literal>]
+        let private Label = "InterfaceMicrexSx"
+        /// 로더 프로토콜 스킴. XGT 와 다르게 두어 AASX 를 읽는 쪽이 프로토콜을 착각하지 않게 한다.
+        [<Literal>]
+        let Scheme = "sx+tcp"
+        /// 509 = 로더 인터페이스 서버(권장). 507 = 로더 명령 서버.
+        [<Literal>]
+        let DefaultPort = 509
+
         let private baseUriOf (ipAddress: string) (port: int) =
-            $"sx+tcp://{ipAddress.Trim()}:{port}"
+            AidEndpointBase.hostPort Scheme ipAddress port
 
         let private interactionForAddressIn (claimed: HashSet<string>) (systemId: Guid option) (address: string) =
             let hash = AidInteractionIds.addressHash address
@@ -769,19 +689,20 @@ module AssetInterfacesDescriptionTypes =
               Href = address
               SignalId = SignalId signalId }
 
+        /// endpoint → C# 경계 DTO. 게이트웨이 조립과 같은 파서·기본 포트를 쓴다.
         let private toConnectionInfo (endpoint: MicrexSxEndpointMetadata) =
-            match Uri.TryCreate(endpoint.Base, UriKind.Absolute) with
-            | true, uri when not (String.IsNullOrWhiteSpace uri.Host) && uri.Port > 0 ->
+            match AidEndpointBase.tryParseHostPort Label Scheme DefaultPort endpoint.Base with
+            | Error _ -> None
+            | Ok (host, port) ->
                 Some (AidMicrexSxConnectionInfo(
                     endpoint.Base,
-                    uri.Host,
-                    uri.Port,
+                    host,
+                    port,
                     defaultArg endpoint.IoMapPath "",
                     endpoint.WritableAreas |> List.toArray,
                     endpoint.TimeoutMs,
                     endpoint.ScanIntervalMs,
                     endpoint.SystemId))
-            | _ -> None
 
         /// 지정 System 이 소유한 SX endpoint 를 읽는다. 없으면 null.
         [<CompiledName("TryReadForSystem")>]

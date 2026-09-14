@@ -107,7 +107,10 @@ public sealed class PlcPingService
     {
         try
         {
+            // USB 접속(Ip=""·Port=0)은 TCP 로 닿을 수 없다 — 그 상태는 Agent/Edge 의 어댑터 보고로만
+            // 알 수 있으므로 핑 대상에서 뺀다.
             return _project.GetPlcEndpoints()
+                .Where(e => !string.IsNullOrWhiteSpace(e.Ip) && e.Port > 0)
                 .Select(e => new PlcEndpoint(
                     e.SystemName, e.Vendor, e.Ip.Trim(), e.Port,
                     e.TimeoutMs > 0 ? e.TimeoutMs : 3000))

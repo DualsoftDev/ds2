@@ -201,7 +201,7 @@ module AasxExportStandardSubmodels =
 
     let private xgtEndpointMetadataSmc (ep: XgtEndpointMetadata) : ISubmodelElement =
         let cpuModel = match ep.CpuModel with Xgi -> "XGI" | Xgk -> "XGK" | Xgb -> "XGB"
-        let transport = match ep.Transport with XgtTcp -> "tcp" | XgtUdp -> "udp"
+        let transport = XgtEndpointBase.transportLabel ep.Transport
         let mutable elems : ISubmodelElement list = [
             mkProp "base" ep.Base
             mkProp "cpuModel" cpuModel

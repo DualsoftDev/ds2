@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Linq;
-using Ds2.Backend.Plc;
 using Ds2.Core.Store;
 using Ds2.Editor;
 using Ds2.Runtime.IO;
@@ -52,7 +51,7 @@ public partial class SimulationPanelState
         return set;
     }
 
-    /// <summary>active System 목록과 각 System 의 AID XGT endpoint 를 다이얼로그 편집용으로 투영.
+    /// <summary>active System 목록과 각 System 의 AID endpoint 를 편집·표시용으로 투영.
     /// 런타임 세팅(실행 대상 콤보·푸터 요약)과 저장 시 endpoint 재보장이 사용.</summary>
     public IReadOnlyList<PlcSystemEndpointEntry> ListPlcSystemEndpoints()
     {
@@ -97,7 +96,8 @@ public partial class SimulationPanelState
                     LocalEthernet = conn.LocalEthernet,
                     NetworkNumber = conn.NetworkNumber,
                     StationNumber = conn.StationNumber,
-                    IsUdp = conn.IsUdp,
+                    Transport = Promaker.Shared.PlcTransports.Normalize(conn.Transport),
+                    UsbDeviceSelector = conn.UsbDeviceSelector,
                 };
                 entries.Add(new PlcSystemEndpointEntry(
                     sys.Id, sys.Name, vendor, profile, HasEndpoint: true,
@@ -132,7 +132,7 @@ public partial class SimulationPanelState
         return set;
     }
 
-    /// <summary>System 속성 패널(PLC 연결 섹션)에서 편집한 접속을 그 System 의 AID XGT endpoint 에 저장.
+    /// <summary>System 속성 패널(PLC 연결 섹션)에서 편집한 접속을 그 System 의 AID endpoint 에 저장.
     /// AID 는 AASX 로 저장되는 모델 데이터이므로 성공 시 dirty 마킹. 단일 System 프로젝트면 전역
     /// PlcSettings(런타임 세팅 푸터·PlcConnection.json)도 endpoint 값으로 동기해 표시/레거시 경로 정합 유지.</summary>
     public bool SavePlcEndpointForSystem(
@@ -141,16 +141,8 @@ public partial class SimulationPanelState
     {
         var store = _storeProvider();
         var poco = PlcSettings.ToPoco();
-        poco.Name = profile.Name;
         poco.Vendor = vendor.ToString();
-        poco.IpAddress = profile.IpAddress;
-        poco.Port = profile.Port;
-        poco.IsUdp = profile.IsUdp;
-        poco.LocalEthernet = profile.LocalEthernet;
-        poco.NetworkNumber = profile.NetworkNumber;
-        poco.StationNumber = profile.StationNumber;
-        poco.TimeoutMs = profile.TimeoutMs;
-        poco.ScanIntervalMs = profile.ScanIntervalMs;
+        poco.ApplyProfile(profile);
         poco.SxIoMapPath = sxIoMapPath ?? string.Empty;
         poco.SxWritableAreas = sxWritableAreas?.ToList() ?? new List<string>();
         poco.WasPersisted = true;
@@ -186,7 +178,7 @@ public partial class SimulationPanelState
             if (vendor == PlcVendorChoice.MicrexSx)
             {
                 // SX 는 AidXgtConnectionInfo 로 읽히지 않는다. 전역 연결도 같은 값으로 맞춰
-                // Promaker 인앱 게이트웨이(BuildPlcGatewayConfig)와 푸터 표시가 어긋나지 않게 한다.
+                // 런타임 세팅 푸터 표시가 endpoint 와 어긋나지 않게 한다.
                 SavePlcConnectionGlobally(vendor, profile, sxIoMapPath, sxWritableAreas);
             }
             else
@@ -204,14 +196,8 @@ public partial class SimulationPanelState
         return true;
     }
 
-    /// <summary>AID InterfaceXGT 로 표현할 수 없는 벤더(MICREX-SX)의 접속을 전역 PLC 연결
+    /// <summary>AID 로 표현할 수 없는 벤더(Mitsubishi)와 단일 System SX 동기용 — 접속을 전역 PLC 연결
     /// (PlcConnection.json) 에 저장한다.
-    ///
-    /// InterfaceXGT endpoint 의 CpuModel 은 Xgi|Xgk|Xgb 뿐이라 SX 는 그쪽에 실릴 수 없다
-    /// (AidXgtEndpointSettings.tryCpuModel 이 비-LS 를 거부한다). 그런데 Promaker 가 실제로
-    /// 스캔에 쓰는 값은 전역 PlcSettings 다 — <see cref="BuildPlcGatewayConfig"/> 가
-    /// PlcSettings.BuildGatewayConfig 로 위임한다. 그래서 AASX 박제만 건너뛰고 런타임이 읽는
-    /// 곳에 저장하면 SX 도 그대로 동작한다.
     ///
     /// 모델 데이터가 아니므로 dirty 마킹하지 않는다 — 저장할 프로젝트 변경이 없다.</summary>
     public bool SavePlcConnectionGlobally(
@@ -221,15 +207,7 @@ public partial class SimulationPanelState
         IEnumerable<string>? sxWritableAreas)
     {
         PlcSettings.Vendor = vendor;
-        PlcSettings.Name = profile.Name;
-        PlcSettings.IpAddress = profile.IpAddress;
-        PlcSettings.Port = profile.Port;
-        PlcSettings.TimeoutMs = profile.TimeoutMs;
-        PlcSettings.ScanIntervalMs = profile.ScanIntervalMs;
-        PlcSettings.LocalEthernet = profile.LocalEthernet;
-        PlcSettings.NetworkNumber = profile.NetworkNumber;
-        PlcSettings.StationNumber = profile.StationNumber;
-        PlcSettings.IsUdp = profile.IsUdp;
+        PlcSettings.ApplyProfile(profile);
         PlcSettings.SxIoMapPath = sxIoMapPath ?? string.Empty;
         PlcSettings.SxWritableAreas = sxWritableAreas?.ToList() ?? new List<string>();
 
@@ -237,40 +215,5 @@ public partial class SimulationPanelState
         // 성공하면 WasPersisted 가 true 가 되고, 그때부터 AID 박제 판정이 이 PC 를 신뢰한다.
         PlcSettings.Save();
         return PlcSettings.WasPersisted;
-    }
-
-    /// <summary>현재 IO 매핑 + UI 의 PlcSettings 로 PlcGatewayConfig 를 빌드.
-    /// PLAY 시점 (Hub.TryStart) 에서 호출. 검증 실패 시 errors 채워 null 반환.
-    /// UserTag 주소도 함께 PLC 스캔 대상으로 포함 — 그래야 DSPilot 의 UserTag 알림이
-    /// 동작 (Hub 에 그 주소 변화가 흘러야 plcTagLog 에 기록됨).</summary>
-    public PlcGatewayConfig? BuildPlcGatewayConfig(out List<string> errors)
-    {
-        var store = _storeProvider();
-
-        // System 단위 실행 — IO맵과 UserTag 를 대상 System(인과 폐포)으로 한정.
-        // 다른 PLC(System)의 주소가 이 연결의 스캔 대상에 섞이지 않는다.
-        if (RuntimeTargetSystemId is { } targetId)
-        {
-            var closure = Queries.systemClosureOf(targetId, store);
-            var callIds = new HashSet<System.Guid>();
-            foreach (var sysId in closure)
-                foreach (var flow in Queries.flowsOf(sysId, store))
-                    foreach (var work in Queries.worksOf(flow.Id, store))
-                        foreach (var call in Queries.callsOf(work.Id, store))
-                            callIds.Add(call.Id);
-            var scopedIomap = SignalIOMapModule.buildFiltered(
-                store,
-                Microsoft.FSharp.Core.FSharpOption<Microsoft.FSharp.Collections.FSharpSet<System.Guid>>.Some(
-                    Microsoft.FSharp.Collections.SetModule.OfSeq(callIds)));
-            var scopedUserTags = store.GetAllUserTagsForProject()
-                .Where(r => closure.Contains(r.SystemId))
-                .Select(r => r.TagAddress);
-            return PlcSettings.BuildGatewayConfig(scopedIomap, out errors, scopedUserTags);
-        }
-
-        var iomap = SignalIOMapModule.build(store);
-        var userTagAddresses = store.GetAllUserTagsForProject()
-            .Select(r => r.TagAddress);
-        return PlcSettings.BuildGatewayConfig(iomap, out errors, userTagAddresses);
     }
 }

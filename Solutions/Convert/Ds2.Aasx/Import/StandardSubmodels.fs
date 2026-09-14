@@ -296,7 +296,7 @@ module AasxImportStandardSubmodels =
             LocalEthernet = propBool smc "localEthernet"
             NetworkNumber = propByte smc "networkNumber" |> Option.defaultValue 0uy
             StationNumber = propByte smc "stationNumber" |> Option.defaultValue 0xFFuy
-            Transport = if propStr smc "transport" = "udp" then XgtUdp else XgtTcp
+            Transport = XgtEndpointBase.tryTransportOfLabel (propStr smc "transport") |> Option.defaultValue XgtTcp
             TimeoutMs = propInt smc "timeoutMs" |> Option.defaultValue 3000
             ScanIntervalMs = propInt smc "scanIntervalMs" |> Option.defaultValue 100
             AuthReferenceVault = propOpt smc "authReferenceVault"

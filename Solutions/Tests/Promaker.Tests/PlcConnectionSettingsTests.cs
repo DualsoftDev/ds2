@@ -45,7 +45,8 @@ public sealed class PlcConnectionSettingsTests
                   "localEthernet": true,
                   "networkNumber": 0,
                   "stationNumber": 255,
-                  "isUdp": false,
+                  "transport": "tcp",
+                  "usbDeviceSelector": "",
                   "profiles": {
                     "LsXgi": {
                       "name": "PLC#1",
@@ -56,7 +57,8 @@ public sealed class PlcConnectionSettingsTests
                       "localEthernet": true,
                       "networkNumber": 0,
                       "stationNumber": 255,
-                      "isUdp": false
+                      "transport": "tcp",
+                      "usbDeviceSelector": ""
                     },
                     "Mitsubishi": {
                       "name": "PLC#1",
@@ -67,7 +69,8 @@ public sealed class PlcConnectionSettingsTests
                       "localEthernet": true,
                       "networkNumber": 0,
                       "stationNumber": 255,
-                      "isUdp": false
+                      "transport": "udp",
+                      "usbDeviceSelector": ""
                     }
                   }
                 }
@@ -77,6 +80,7 @@ public sealed class PlcConnectionSettingsTests
 
             Assert.Equal(100, settings.ScanIntervalMs);
             Assert.All(settings.Profiles.Values, profile => Assert.Equal(100, profile.ScanIntervalMs));
+            Assert.Equal(PromakerShared.PlcTransports.Udp, settings.Profiles["Mitsubishi"].Transport);
         }
         finally
         {
@@ -199,7 +203,7 @@ public sealed class PlcConnectionSettingsTests
     }
 
     /// <summary>
-    /// AID endpoint를 적용하면 활성 벤더 프로파일도 함께 갱신되어야 한다.
+    /// AID endpoint를 적용하면 활성 벤더 프로파일도 함께 갱신되어야 한다 — 접속 매체(transport)까지.
     /// </summary>
     [Fact]
     public void ApplyConnection_updates_active_vendor_profile()
@@ -209,20 +213,68 @@ public sealed class PlcConnectionSettingsTests
             PromakerShared.PlcVendorProfile.Defaults(PromakerShared.PlcVendorChoice.LsXgb);
 
         vm.ApplyConnection(new Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidXgtConnectionInfo(
-            "xgt+tcp://10.20.30.40:2004", "LsXgb", "10.20.30.40", 2004,
-            false, true, 3, 12, 7000, 250));
+            "xgt+tcp://10.20.30.40:2004", "LsXgb", PromakerShared.PlcTransports.Tcp, "10.20.30.40", 2004, "",
+            true, 3, 12, 7000, 250, null));
 
         var profile = vm.VendorProfiles[nameof(PromakerShared.PlcVendorChoice.LsXgb)];
         Assert.Equal("10.20.30.40", profile.IpAddress);
         Assert.Equal(2004, profile.Port);
-        Assert.False(profile.IsUdp);
+        Assert.Equal(PromakerShared.PlcTransports.Tcp, profile.Transport);
         Assert.Equal(12, profile.StationNumber);
+        Assert.Equal("10.20.30.40:2004", profile.EndpointLabel);
 
         // 벤더를 떠났다 돌아와도 프로젝트 값이 복원되어야 한다.
         vm.ApplyProfile(PromakerShared.PlcVendorProfile.Defaults(PromakerShared.PlcVendorChoice.LsXgi));
         vm.ApplyProfile(vm.VendorProfiles[nameof(PromakerShared.PlcVendorChoice.LsXgb)]);
         Assert.Equal("10.20.30.40", vm.IpAddress);
-        Assert.False(vm.IsUdp);
+        Assert.Equal(PromakerShared.PlcTransports.Tcp, vm.Transport);
+    }
+
+    /// <summary>USB endpoint 는 IP/포트가 비고 장치 선택 키가 실린다 — 화면 값·프로파일·표기가 전부 USB 로
+    /// 바뀌고, 저장→로드 왕복에도 남아야 한다(ToPoco/FromPoco 한쪽에만 필드를 두면 여기서 유실된다).</summary>
+    [Fact]
+    public void ApplyConnection_with_usb_endpoint_sets_transport_and_selector()
+    {
+        var vm = new PlcSettings();
+        vm.ApplyConnection(new Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidXgtConnectionInfo(
+            "xgt+usb://localhost/SN12345", "LsXgb", PromakerShared.PlcTransports.Usb, "", 0, "SN12345",
+            true, 0, 255, 3000, 100, null));
+
+        Assert.Equal(PlcVendorChoice.LsXgb, vm.Vendor);
+        Assert.Equal(PromakerShared.PlcTransports.Usb, vm.Transport);
+        Assert.Equal("SN12345", vm.UsbDeviceSelector);
+        Assert.Equal("USB(SN12345)", vm.EndpointLabel);
+        Assert.Equal("USB(SN12345)", vm.VendorProfiles[nameof(PromakerShared.PlcVendorChoice.LsXgb)].EndpointLabel);
+
+        var reloaded = PlcSettings.FromPoco(vm.ToPoco());
+        Assert.Equal(PromakerShared.PlcTransports.Usb, reloaded.Transport);
+        Assert.Equal("SN12345", reloaded.UsbDeviceSelector);
+    }
+
+    /// <summary>벤더마다 고를 수 있는 매체가 다르다 — USB 는 LS 로더 포트만(dsev2 LsUsbConnector), UDP 는
+    /// Mitsubishi MC 프로토콜만. 모르는 라벨(옛 파일의 isUdp 같은 것)은 TCP 로 읽는다.</summary>
+    [Fact]
+    public void TransportsFor_offers_usb_only_for_LS_and_udp_only_for_Mitsubishi()
+    {
+        var tcp = PromakerShared.PlcTransports.Tcp;
+        var udp = PromakerShared.PlcTransports.Udp;
+        var usb = PromakerShared.PlcTransports.Usb;
+
+        foreach (var vendor in new[]
+                 {
+                     PromakerShared.PlcVendorChoice.LsXgi,
+                     PromakerShared.PlcVendorChoice.LsXgk,
+                     PromakerShared.PlcVendorChoice.LsXgb,
+                 })
+        {
+            Assert.Equal<string>(new[] { tcp, usb }, PromakerShared.PlcVendorProfile.TransportsFor(vendor));
+        }
+        Assert.Equal<string>(new[] { tcp, udp }, PromakerShared.PlcVendorProfile.TransportsFor(PromakerShared.PlcVendorChoice.Mitsubishi));
+        Assert.Equal<string>(new[] { tcp }, PromakerShared.PlcVendorProfile.TransportsFor(PromakerShared.PlcVendorChoice.MicrexSx));
+
+        Assert.Equal(tcp, PromakerShared.PlcTransports.Normalize("isUdp"));
+        Assert.Equal(tcp, PromakerShared.PlcTransports.Normalize(null));
+        Assert.Equal(usb, PromakerShared.PlcTransports.Normalize("USB"));
     }
 
     [Fact]

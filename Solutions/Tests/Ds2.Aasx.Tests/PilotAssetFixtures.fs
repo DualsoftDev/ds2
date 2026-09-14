@@ -16,6 +16,29 @@ let private semId (s: string) = SemanticId s
 let private sig' (s: string) = SignalId s
 
 // -----------------------------------------------------------------------------
+// InterfaceXGT endpoint 요청 — Promaker/DSPilot 이 C# 경계에서 넘기는 AidXgtConnectionInfo 와 같은 모양.
+// BaseUri/SystemId 는 요청에서 쓰이지 않아 비워 둔다(소유 System 은 ensureBindingForSystem 인자).
+// -----------------------------------------------------------------------------
+
+/// 이더넷(TCP/UDP) XGT endpoint 요청.
+let xgtEthernetRequest
+    (vendor: string) (transport: XgtTransport) (ipAddress: string) (port: int)
+    (timeoutMs: int) (scanIntervalMs: int) =
+    AidXgtConnectionInfo(
+        "", vendor, XgtEndpointBase.transportLabel transport, ipAddress, port, "",
+        true, 0uy, 255uy, timeoutMs, scanIntervalMs, None)
+
+/// LS 이더넷 TCP 기본 타이밍(3000/100) 요청 — 대부분의 테스트가 쓰는 모양.
+let xgtTcpRequest (vendor: string) (ipAddress: string) (port: int) =
+    xgtEthernetRequest vendor XgtTcp ipAddress port 3000 100
+
+/// USB 로더 포트 요청 — selector 는 장치 선택 키(빈 값 = 첫 장치). IP/포트는 없다.
+let xgtUsbRequest (vendor: string) (selector: string) =
+    AidXgtConnectionInfo(
+        "", vendor, XgtEndpointBase.transportLabel XgtUsb, "", 0, selector,
+        true, 0uy, 255uy, 3000, 100, None)
+
+// -----------------------------------------------------------------------------
 // CNC01 — 스펙 §04-B-1 (InterfaceOPCUA)
 // -----------------------------------------------------------------------------
 

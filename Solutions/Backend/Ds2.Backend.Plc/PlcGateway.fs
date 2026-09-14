@@ -131,6 +131,7 @@ type PlcGateway(config: PlcGatewayConfig) =
                 Vendor         = vendorLabel cfg.Vendor
                 IpAddress      = cfg.IpAddress
                 Port           = cfg.Port
+                Endpoint       = PlcConnectionConfig.endpointLabel cfg
                 IsConnected    = false
                 LastError      = ""
                 FailedAttempts = 0
@@ -227,11 +228,12 @@ type PlcGateway(config: PlcGatewayConfig) =
                         let! ok = adapter.ConnectAsync()
                         // 사유 라벨: ConnectAsync 가 false 만 반환하면 구체 사유는 어댑터 로그에 있음.
                         // contract 의 LastError 에는 사용자에게 보일 수 있는 1줄 요약을 채운다.
+                        let endpoint = PlcConnectionConfig.endpointLabel cfg
                         let err =
                             if ok then ""
-                            else $"connect failed (vendor={vendorLabel cfg.Vendor}, ip={cfg.IpAddress}:{cfg.Port})"
+                            else $"connect failed (vendor={vendorLabel cfg.Vendor}, endpoint={endpoint})"
                         markConnectResult cfg.Name ok err
-                        if ok then log.Info($"PLC connected: {cfg.Name} ({cfg.IpAddress}:{cfg.Port})")
+                        if ok then log.Info($"PLC connected: {cfg.Name} ({endpoint})")
                         else log.Warn($"PLC connect failed: {cfg.Name} — gateway will retry with backoff")
                     with ex ->
                         markConnectResult cfg.Name false ex.Message
@@ -304,7 +306,7 @@ type PlcGateway(config: PlcGatewayConfig) =
                             let! ok = adapter.ConnectAsync()
                             let err =
                                 if ok then ""
-                                else $"reconnect failed (vendor={vendorLabel cfg.Vendor}, ip={cfg.IpAddress}:{cfg.Port})"
+                                else $"reconnect failed (vendor={vendorLabel cfg.Vendor}, endpoint={PlcConnectionConfig.endpointLabel cfg})"
                             markConnectResult cfg.Name ok err
                         with ex ->
                             markConnectResult cfg.Name false ex.Message

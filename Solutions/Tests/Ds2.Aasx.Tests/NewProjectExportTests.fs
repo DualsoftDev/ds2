@@ -12,6 +12,7 @@ open Microsoft.FSharp.Reflection
 open Ds2.Core.StandardSubmodels
 open Ds2.Core.Store
 open Ds2.Editor
+open Ds2.Aasx.Tests.PilotAssetFixtures
 
 let private newPromakerProject () =
     let store = DsStore()
@@ -48,9 +49,9 @@ let ``new project with auto-created XGT AID can be saved as AASX`` () =
     let project = store.Projects.Values |> Seq.head
     let aid = AssetInterfacesDescription()
     project.AssetInterfaces <- Some aid
-    AidXgtEndpointSettings.ensureBinding(
-        aid, "LsXgi", "192.168.0.10", 2004, false, true,
-        0uy, 255uy, 3000, 100, [ "%QX0.1.13"; "%IX0.1.2" ])
+    AidXgtEndpointSettings.ensureBindingForSystem(
+        aid, project.ActiveSystemIds.[0], xgtTcpRequest "LsXgi" "192.168.0.10" 2004,
+        [ "%QX0.1.13"; "%IX0.1.2" ])
     |> ignore
 
     let path = Path.Combine(Path.GetTempPath(), $"new-project-xgt-{Guid.NewGuid():N}.aasx")
@@ -65,6 +66,8 @@ let ``new project with auto-created XGT AID can be saved as AASX`` () =
     finally
         if File.Exists(path) then File.Delete(path)
 
+/// System 마다 다른 endpoint(이더넷 한 대, USB 한 대)가 AASX 저장·로드 뒤에도 각자 소유 System 에 귀속돼
+/// Agent 게이트웨이 설정으로 이어진다. USB 는 매체와 장치 선택 키까지 살아남아야 Edge/Agent 가 USB 로 붙는다.
 [<Fact>]
 let ``multiple active Systems retain distinct AID XGT endpoint ownership`` () =
     let store = newPromakerProject ()
@@ -76,12 +79,10 @@ let ``multiple active Systems retain distinct AID XGT endpoint ownership`` () =
     let aid = AssetInterfacesDescription()
     project.AssetInterfaces <- Some aid
     AidXgtEndpointSettings.ensureBindingForSystem(
-        aid, system1, "LsXgi", "192.168.0.10", 2004, false, true,
-        0uy, 255uy, 3000, 100, [ "%QX0.1.13" ])
+        aid, system1, xgtTcpRequest "LsXgi" "192.168.0.10" 2004, [ "%QX0.1.13" ])
     |> ignore
     AidXgtEndpointSettings.ensureBindingForSystem(
-        aid, system2, "LsXgb", "192.168.0.20", 2004, false, true,
-        0uy, 255uy, 3000, 100, [ "%IX0.2.7" ])
+        aid, system2, xgtUsbRequest "LsXgb" "SN-2", [ "%IX0.2.7" ])
     |> ignore
 
     let path = Path.Combine(Path.GetTempPath(), $"multi-system-xgt-{Guid.NewGuid():N}.aasx")
@@ -108,6 +109,14 @@ let ``multiple active Systems retain distinct AID XGT endpoint ownership`` () =
         Assert.Equal<Set<Guid>>(
             Set.ofList [ system1; system2 ],
             plan.Config.Connections |> Seq.choose _.SystemId |> Set.ofSeq)
+
+        let ethernet = plan.Config.Connections |> List.find (fun c -> c.SystemId = Some system1)
+        Assert.Equal(PlcTransport.Tcp, ethernet.Transport)
+        Assert.Equal("192.168.0.10", ethernet.IpAddress)
+        let usb = plan.Config.Connections |> List.find (fun c -> c.SystemId = Some system2)
+        Assert.Equal(PlcVendor.LsXgb, usb.Vendor)
+        Assert.Equal(PlcTransport.Usb, usb.Transport)
+        Assert.Equal("SN-2", usb.UsbDeviceSelector)
     finally
         if File.Exists(path) then File.Delete(path)
 
@@ -128,12 +137,10 @@ let ``same address in two Systems is auto-qualified instead of failing`` () =
     let aid = AssetInterfacesDescription()
     project.AssetInterfaces <- Some aid
     AidXgtEndpointSettings.ensureBindingForSystem(
-        aid, system1, "LsXgi", "192.168.0.10", 2004, false, true,
-        0uy, 255uy, 3000, 100, [ shared; "%QX0.1.13" ])
+        aid, system1, xgtTcpRequest "LsXgi" "192.168.0.10" 2004, [ shared; "%QX0.1.13" ])
     |> ignore
     AidXgtEndpointSettings.ensureBindingForSystem(
-        aid, system2, "LsXgb", "192.168.0.20", 2004, false, true,
-        0uy, 255uy, 3000, 100, [ shared; "%QX0.2.7" ])
+        aid, system2, xgtTcpRequest "LsXgb" "192.168.0.20" 2004, [ shared; "%QX0.2.7" ])
     |> ignore
 
     let plan = AidXgtGatewayConfig.buildForProject(store, project, aid)
@@ -182,12 +189,10 @@ let ``already saved model with duplicate signalIds is repaired on load`` () =
     let aid = AssetInterfacesDescription()
     project.AssetInterfaces <- Some aid
     AidXgtEndpointSettings.ensureBindingForSystem(
-        aid, system1, "LsXgi", "192.168.0.10", 2004, false, true,
-        0uy, 255uy, 3000, 100, [ shared ])
+        aid, system1, xgtTcpRequest "LsXgi" "192.168.0.10" 2004, [ shared ])
     |> ignore
     AidXgtEndpointSettings.ensureBindingForSystem(
-        aid, system2, "LsXgb", "192.168.0.20", 2004, false, true,
-        0uy, 255uy, 3000, 100, [ "%QX0.2.7" ])
+        aid, system2, xgtTcpRequest "LsXgb" "192.168.0.20" 2004, [ "%QX0.2.7" ])
     |> ignore
     // system2 의 interaction 을 강제로 중복 signalId 로 되돌린다(구버전 산출물 모사).
     for index = 0 to aid.Interfaces.Count - 1 do
@@ -222,12 +227,10 @@ let ``already saved model with all-empty signalIds is repaired on load`` () =
     let aid = AssetInterfacesDescription()
     project.AssetInterfaces <- Some aid
     AidXgtEndpointSettings.ensureBindingForSystem(
-        aid, system1, "LsXgi", "192.168.0.10", 2004, false, true,
-        0uy, 255uy, 3000, 100, [ shared; "%QX0.1.13" ])
+        aid, system1, xgtTcpRequest "LsXgi" "192.168.0.10" 2004, [ shared; "%QX0.1.13" ])
     |> ignore
     AidXgtEndpointSettings.ensureBindingForSystem(
-        aid, system2, "LsXgb", "192.168.0.20", 2004, false, true,
-        0uy, 255uy, 3000, 100, [ shared; "%QX0.2.7" ])
+        aid, system2, xgtTcpRequest "LsXgb" "192.168.0.20" 2004, [ shared; "%QX0.2.7" ])
     |> ignore
     // 구버전 역직렬화 산출물 모사 — 모든 interaction 의 signalId 를 "" 로 박제.
     for index = 0 to aid.Interfaces.Count - 1 do
@@ -450,35 +453,47 @@ let ``generic AASX standards shells and concepts survive repeated Promaker saves
         if File.Exists(sourcePath) then File.Delete(sourcePath)
         if File.Exists(savedPath) then File.Delete(savedPath)
 
-/// 수집기(Pi5) payload 의 vendor 라벨은 Ds2.Backend.Plc 가 내보내고 Ds2.Edge.Scanner 의
-/// `toVendor` 가 되읽는 **문자열 계약**이다. 그 match 에 새 벤더를 빼면 두 가지로 깨진다 —
-/// 내보내는 쪽은 불완전 match 라 MatchFailureException, 받는 쪽은 폴백이라 조용히 다른
-/// 벤더가 된다(SX 설정이 LsXgk 가 되어 509 포트에 LS 프로토콜로 붙는다).
-///
-/// 그래서 DU 케이스를 리플렉션으로 전수 돌려 라벨이 나오는지 확인하고, 그 라벨 집합을
-/// Edge.Scanner 가 파싱하는 값과 문자 그대로 대조한다.
+/// 수집기(Pi5) payload 의 vendor/transport/dtype 라벨은 Agent 가 내보내고 Edge 수집기(Ds2.Edge.Scanner)가
+/// 되읽는 **문자열 계약**이다. 내보내기와 되읽기가 Ds2.Backend.Plc 한 곳에 짝으로 있으므로 DU 케이스를
+/// 리플렉션으로 전수 돌려 왕복이 항등인지 확인한다 — 한쪽에만 케이스를 추가하면 여기서 깨진다.
+/// 별칭·모르는 라벨은 None 이어야 한다(예전 폴백은 SX 설정을 LsXgk 로 떨어뜨려 509 포트에 LS 프로토콜로 붙었다).
 [<Fact>]
-let ``every PLC vendor produces a collector label the Pi5 parses`` () =
-    // Ds2.Edge.Scanner 의 toVendor 가 받는 값 (Apps/Edge/Ds2.Edge.Scanner/Config.fs).
-    let parsedByScanner = set [ "LsXgi"; "LsXgk"; "LsXgb"; "Mitsubishi"; "Mx"; "MicrexSx"; "Sx" ]
-
-    let labels =
+let ``collector payload labels round-trip through the parsers the Edge scanner uses`` () =
+    let vendors =
         FSharpType.GetUnionCases typeof<PlcVendor>
-        |> Array.map (fun case ->
-            let vendor = FSharpValue.MakeUnion(case, [||]) :?> PlcVendor
-            let connection = { PlcConnectionConfig.defaultLs "A" "192.168.0.10" with Vendor = vendor }
-            // 불완전 match 면 여기서 MatchFailureException 이 난다.
-            let payload = CollectorConfig.fromGateway { Connections = [ connection ] }
-            case.Name, payload.Connections.[0].Vendor)
+        |> Array.map (fun case -> FSharpValue.MakeUnion(case, [||]) :?> PlcVendor)
+    Assert.NotEmpty vendors
+    for vendor in vendors do
+        Assert.Equal(Some vendor, CollectorConfig.tryVendorOf (CollectorConfig.vendorStr vendor))
+    Assert.Equal(None, CollectorConfig.tryVendorOf "Mx")
+    Assert.Equal(None, CollectorConfig.tryVendorOf "")
 
-    Assert.NotEmpty labels
-    for caseName, label in labels do
-        Assert.False(String.IsNullOrWhiteSpace label, $"{caseName} 의 수집기 라벨이 비었다")
-        Assert.True(
-            parsedByScanner.Contains label,
-            $"{caseName} → \"{label}\" 는 Edge.Scanner 의 toVendor 가 파싱하지 못한다")
+    let transports =
+        FSharpType.GetUnionCases typeof<PlcTransport>
+        |> Array.map (fun case -> FSharpValue.MakeUnion(case, [||]) :?> PlcTransport)
+    Assert.Equal(3, transports.Length)
+    for transport in transports do
+        Assert.Equal(Some transport, PlcTransport.tryOfLabel (PlcTransport.label transport))
+    Assert.Equal(Some PlcTransport.Usb, PlcTransport.tryOfLabel "USB")
+    Assert.Equal(None, PlcTransport.tryOfLabel "serial")
 
-    Assert.Contains(("MicrexSx", "MicrexSx"), labels)
+    for dataType in [ PlcDataTypes.Bool; PlcDataTypes.Int16; PlcDataTypes.UInt16; PlcDataTypes.Int32
+                      PlcDataTypes.UInt32; PlcDataTypes.Float32; PlcDataTypes.Float64 ] do
+        Assert.Equal(dataType, CollectorConfig.dataTypeOf (CollectorConfig.dtypeStr dataType))
+
+    // USB 접속은 payload 에 매체와 장치 선택 키가 실려야 수집기가 USB 로 붙는다.
+    let usb =
+        { PlcConnectionConfig.defaultLs "USB-1" "" with
+            Port = 0
+            Transport = PlcTransport.Usb
+            UsbDeviceSelector = "3:4" }
+    let payload = CollectorConfig.fromGateway { Connections = [ usb ] }
+    let connection = Assert.Single payload.Connections
+    Assert.Equal("usb", connection.Transport)
+    Assert.Equal("3:4", connection.UsbDeviceSelector)
+    Assert.Equal("", connection.Ip)
+    Assert.Equal(0, connection.Port)
+    Assert.Equal("LsXgi", connection.Vendor)
 
 /// SX 는 잠긴 채로 시작해야 한다. 쓰기 허용 영역이 비어 있으면 커넥터가 쓰기 권한 발급을
 /// 거부하므로, 이 기본값이 곧 "현장 PLC 에 아무것도 쓰지 않는다" 는 보장이다.
@@ -491,23 +506,22 @@ let ``MicrexSx default connection is read-only on the loader port`` () =
     Assert.Equal("", sx.SxIoMapPath)
 
 /// AID InterfaceXGT endpoint 의 CpuModel 은 `Xgi | Xgk | Xgb` 닫힌 DU 다. 그래서 LS 가 아닌
-/// 벤더는 `tryCpuModel` 이 None 으로 떨어뜨려 UpdateAll/EnsureBinding 이 0(변경 없음)을
-/// 돌려준다 — 저장되지 않는다.
+/// 벤더는 `tryCpuModel` 이 None 으로 떨어뜨려 EnsureBindingForSystem 이 0(변경 없음)을 돌려준다 — 저장되지 않는다.
 ///
 /// Promaker 는 이 사실을 `PlcVendorProfile.IsAidXgtVendor` 로 복제해 저장 경로를 고르므로,
 /// 여기서 권위 쪽 거동을 고정해 둔다. 이 DU 에 벤더가 늘면 이 시험이 먼저 깨져야 한다.
 [<Fact>]
 let ``AID XGT endpoint accepts only LS vendors`` () =
+    let systemId = Guid.NewGuid()
     let aid = AssetInterfacesDescription()
     let created =
-        AidXgtEndpointSettings.ensureBinding(
-            aid, "LsXgi", "192.168.9.102", 2004, false, true,
-            0uy, 255uy, 3000, 100, [ "%QX0.1.13" ])
+        AidXgtEndpointSettings.ensureBindingForSystem(
+            aid, systemId, xgtTcpRequest "LsXgi" "192.168.9.102" 2004, [ "%QX0.1.13" ])
     Assert.True(created > 0, "LS endpoint 는 만들어져야 한다")
 
     let update vendor port =
-        AidXgtEndpointSettings.updateAll(
-            aid, vendor, "192.168.9.103", port, false, true, 0uy, 255uy, 3000, 100)
+        AidXgtEndpointSettings.ensureBindingForSystem(
+            aid, systemId, xgtTcpRequest vendor "192.168.9.103" port, [])
 
     // LS 세 종류는 받는다.
     Assert.True(update "LsXgi" 2004 > 0)
@@ -520,6 +534,7 @@ let ``AID XGT endpoint accepts only LS vendors`` () =
     Assert.Equal(0, update "Mitsubishi" 5007)
 
     // 거부가 기존 endpoint 를 훼손하지도 않아야 한다.
-    let connection = AidXgtEndpointSettings.tryReadFirst aid
+    let connection = AidXgtEndpointSettings.tryReadForSystem(aid, systemId)
     Assert.NotNull connection
     Assert.Equal("LsXgb", connection.Vendor)
+    Assert.Equal("192.168.9.103", connection.IpAddress)

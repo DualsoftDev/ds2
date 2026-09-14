@@ -258,15 +258,7 @@ public partial class MainViewModel
                 if (!entry.HasEndpoint) continue;
                 var poco = sim.PlcSettings.ToPoco();
                 poco.Vendor = entry.Vendor.ToString();
-                poco.Name = entry.Profile.Name;
-                poco.IpAddress = entry.Profile.IpAddress;
-                poco.Port = entry.Profile.Port;
-                poco.IsUdp = entry.Profile.IsUdp;
-                poco.LocalEthernet = entry.Profile.LocalEthernet;
-                poco.NetworkNumber = entry.Profile.NetworkNumber;
-                poco.StationNumber = entry.Profile.StationNumber;
-                poco.TimeoutMs = entry.Profile.TimeoutMs;
-                poco.ScanIntervalMs = entry.Profile.ScanIntervalMs;
+                poco.ApplyProfile(entry.Profile);
                 poco.WasPersisted = true;
                 var systemAddresses = sim.EnumeratePlcAddressesForSystem(entry.SystemId);
 

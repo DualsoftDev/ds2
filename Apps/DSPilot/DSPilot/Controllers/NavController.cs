@@ -145,19 +145,23 @@ public class NavController : ControllerBase
         int plcTotal, plcConnected, plcDisconnected;
         List<NavPlcAdapterDto> adapters;
 
-        // 어댑터 → 매칭 시스템 표기 — 현재 모델 AID(시스템별 엔드포인트 정본)와 ip:port 로 대조한다.
-        //   반환: 시스템 이름 | ""(모델에 엔드포인트가 있는데 이 ip:port 는 없음 = 미매칭/stale 후보)
+        // 어댑터 → 매칭 시스템 표기 — 현재 모델 AID(시스템별 엔드포인트 정본)와 접속 표기(Endpoint:
+        // host:port | USB(selector))로 대조한다. 양쪽이 같은 포맷 함수(Ds2.Core PlcEndpointLabel)를 쓴다.
+        //   반환: 시스템 이름 | ""(모델에 엔드포인트가 있는데 이 접속은 없음 = 미매칭/stale 후보)
         //        | null(모델 미로드/AID 없음 — 대조 근거 자체가 없어 UI 는 표기 생략).
         List<PlcEndpointInfo> modelEndpoints;
         try { modelEndpoints = _project.GetPlcEndpoints(); }
         catch { modelEndpoints = new List<PlcEndpointInfo>(); }
-        string? MatchSystem(string? ip, int port)
+        string? MatchSystem(string? endpoint)
         {
             if (modelEndpoints.Count == 0) return null;
             var hit = modelEndpoints.FirstOrDefault(e =>
-                string.Equals(e.Ip, ip?.Trim(), StringComparison.OrdinalIgnoreCase) && e.Port == port);
+                string.Equals(e.Endpoint, endpoint?.Trim(), StringComparison.OrdinalIgnoreCase));
             return hit?.SystemName ?? "";
         }
+        // 핑은 항상 TCP 접속이라 표기도 이더넷 형식(host:port)이다.
+        var tcpTransport = Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.XgtEndpointBase.transportLabel(
+            Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.XgtTransport.XgtTcp);
 
         if (plc.Count > 0)
         {
@@ -169,8 +173,8 @@ public class NavController : ControllerBase
                 .OrderBy(s => s.IsConnected) // 끊긴 어댑터를 위로
                 .ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(s => new NavPlcAdapterDto(
-                    s.Name, s.Vendor, s.IpAddress, s.Port, s.IsConnected, s.LastError,
-                    MatchSystem(s.IpAddress, s.Port)))
+                    s.Name, s.Vendor, s.IpAddress, s.Port, s.Endpoint, s.IsConnected, s.LastError,
+                    MatchSystem(s.Endpoint)))
                 .ToList();
         }
         else
@@ -185,8 +189,12 @@ public class NavController : ControllerBase
                 adapters = pings
                     .OrderBy(p => p.Connected) // 끊긴 어댑터를 위로
                     .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
-                    .Select(p => new NavPlcAdapterDto(p.Name, p.Vendor, p.Ip, p.Port, p.Connected, p.Error,
-                        MatchSystem(p.Ip, p.Port)))
+                    .Select(p =>
+                    {
+                        var endpoint = Ds2.Core.StandardSubmodels.PlcEndpointLabel.format(tcpTransport, p.Ip, p.Port, string.Empty);
+                        return new NavPlcAdapterDto(p.Name, p.Vendor, p.Ip, p.Port, endpoint, p.Connected, p.Error,
+                            MatchSystem(endpoint));
+                    })
                     .ToList();
             }
             else
@@ -422,7 +430,8 @@ public record NavAgentDto(
 public record NavAddrSystemDto(string System, int Expected, int Seen, List<string> Missing);
 
 public record NavPlcAdapterDto(
-    string Name, string Vendor, string Ip, int Port, bool Connected, string? Error,
-    // 이 어댑터(ip:port)가 현재 모델 AID 에서 어느 시스템의 엔드포인트인지.
+    // Ip/Port 는 이더넷 어댑터만 채워진다(USB 는 ""/0). 표시는 Endpoint(host:port | USB | USB(selector))를 쓴다.
+    string Name, string Vendor, string Ip, int Port, string Endpoint, bool Connected, string? Error,
+    // 이 어댑터(Endpoint)가 현재 모델 AID 에서 어느 시스템의 엔드포인트인지.
     //   시스템 이름 | ""(모델에 있는데 미매칭 — 구 모델 잔존/설정 불일치 후보) | null(모델 미로드/AID 없음 = 표기 생략).
     string? System = null);

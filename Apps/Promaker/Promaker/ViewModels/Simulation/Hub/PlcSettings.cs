@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using CommunityToolkit.Mvvm.ComponentModel;
-using Ds2.Backend.Plc;
-using Ds2.Runtime.IO;
+using Ds2.Core.StandardSubmodels;
 using Promaker.Services;
 using PromakerShared = Promaker.Shared;
 
@@ -22,8 +21,9 @@ public enum PlcVendorChoice
 /// PLC 연결 정보 MVVM ViewModel. UI 입력 값을 Promaker.Shared.PlcConnectionSettings POCO 로
 /// 저장/로드하여 Promaker.Agent (SYSTEM 컨텍스트) 와 동일 파일을 공유한다.
 ///
-/// PLC 게이트웨이 빌드는 PlcGatewayConfigBuilder 에 위임 — Agent 가 동일 로직 재사용.
-/// 저장 위치는 SharedPaths.PlcConnectionFilePath (공유 ProgramData) 가 SSOT.
+/// 저장 위치는 SharedPaths.PlcConnectionFilePath (공유 ProgramData) 가 SSOT. 런타임이 스캔에 쓰는 접속은
+/// 이 값이 아니라 AASX 의 AID endpoint 다(Agent 가 AID 에서만 게이트웨이를 조립한다) — 이 VM 은 접속
+/// 편집의 입력 보존, 상태바 표시, Agent 설정 지문·스캔주기 영속에 쓰인다.
 ///
 /// 플랫 필드는 "현재 활성 벤더" 의 값을 항상 반영한다. <see cref="VendorProfiles"/> 는
 /// 각 벤더의 마지막 입력값을 보관해, 벤더를 토글해도 양식이 복원된다.
@@ -52,10 +52,13 @@ public partial class PlcSettings : ObservableObject
     /// "M1"(사용자 메모리), "IO"(I/O 이미지), "M10"(시스템 메모리).</summary>
     [ObservableProperty] private List<string> _sxWritableAreas = new();   // SX only
 
-    /// <summary>Mitsubishi 전송 방식 — true=UDP, false=TCP. LS 에서는 무시 (LS 는 항상 TCP).
-    /// 미쓰비시 MC 프로토콜은 PLC 측 Ethernet 모듈 파라미터(GX Works)에서 TCP/UDP 를 정해두면
-    /// 클라이언트가 그 모드로 붙어야 함 — 모니터링 통신용으로 UDP 를 쓰는 현장이 흔하다.</summary>
-    [ObservableProperty] private bool _isUdp = false;
+    /// <summary>접속 매체 라벨 — <see cref="PromakerShared.PlcTransports"/> 의 "tcp" | "udp" | "usb".
+    /// UDP 는 미쓰비시 MC 프로토콜 전용(PLC Ethernet 모듈 파라미터가 UDP 면 클라이언트도 UDP 로 붙어야 한다 —
+    /// 모니터링 통신에 UDP 를 쓰는 현장이 흔하다). USB 는 LS(XGI/XGK/XGB) CPU 전면 로더 포트.</summary>
+    [ObservableProperty] private string _transport = PromakerShared.PlcTransports.Tcp;
+
+    /// <summary>USB 전용 — 장치 선택 키(목록번호 · serial · bus:addr · product 부분일치). "" = 첫 매칭 장치.</summary>
+    [ObservableProperty] private string _usbDeviceSelector = string.Empty;
 
     /// <summary>자동 duration 정합 ON/OFF 의 영속 SSOT. OFF=모델 확정값 기준 판정(실측 학습 안 함).
     /// PlcConnection.json 에 기록되어 업로드 시 Agent 가 같은 값으로 복원한다(없으면 Agent 가 기본 ON 으로 되돌려
@@ -64,7 +67,7 @@ public partial class PlcSettings : ObservableObject
 
     /// <summary>이 PC 에 PLC 설정이 저장된 적 있는가 — 값이 아니라 출처 표식.
     /// false 면 PlcConnection.json 이 아직 없어 생성자 기본값을 쓰고 있는 상태이므로,
-    /// AID endpoint에 접속 정보를 기록하지 않는다(<see cref="PromakerShared.AidXgtEndpointSynchronizer.StampToStore"/>).
+    /// AID endpoint에 접속 정보를 기록하지 않는다(<see cref="PromakerShared.AidXgtEndpointSynchronizer.EnsureToStore(Ds2.Core.Store.DsStore, System.Guid, PromakerShared.PlcConnectionSettings, IEnumerable{string})"/>).
     /// <see cref="Save"/> 가 성공하면 그 시점부터 true.</summary>
     public bool WasPersisted { get; private set; }
 
@@ -72,6 +75,9 @@ public partial class PlcSettings : ObservableObject
     /// 보유해 다이얼로그 / Save 시점에 동기화. 직접 노출돼 다이얼로그가 토글 중 swap 가능.</summary>
     public Dictionary<string, PromakerShared.PlcVendorProfile> VendorProfiles { get; private set; }
         = new();
+
+    /// <summary>사람이 읽는 현재 접속 표기(host:port | USB | USB(selector)) — 런타임 설정 상태바가 쓴다.</summary>
+    public string EndpointLabel => PlcEndpointLabel.format(Transport, IpAddress ?? string.Empty, Port, UsbDeviceSelector ?? string.Empty);
 
     /// <summary>플랫 필드 값을 PlcVendorProfile 로 캡처.</summary>
     public PromakerShared.PlcVendorProfile CaptureActiveProfile() => new()
@@ -84,7 +90,8 @@ public partial class PlcSettings : ObservableObject
         LocalEthernet = LocalEthernet,
         NetworkNumber = NetworkNumber,
         StationNumber = StationNumber,
-        IsUdp = IsUdp,
+        Transport = Transport,
+        UsbDeviceSelector = UsbDeviceSelector,
     };
 
     /// <summary>
@@ -96,22 +103,14 @@ public partial class PlcSettings : ObservableObject
         PromakerShared.AidXgtEndpointSynchronizer.ApplyToSettings(poco, conn);
 
         Vendor = System.Enum.Parse<PlcVendorChoice>(conn.Vendor, ignoreCase: true);
-        Name = poco.Name;
-        IpAddress = poco.IpAddress;
-        Port = poco.Port;
-        TimeoutMs = poco.TimeoutMs;
-        ScanIntervalMs = poco.ScanIntervalMs;
-        LocalEthernet = poco.LocalEthernet;
-        NetworkNumber = poco.NetworkNumber;
-        StationNumber = poco.StationNumber;
-        IsUdp = poco.IsUdp;
+        ApplyProfile(poco.SnapshotFlatToProfile());
         SxIoMapPath = poco.SxIoMapPath ?? string.Empty;
         SxWritableAreas = poco.SxWritableAreas ?? new List<string>();
         VendorProfiles = poco.Profiles;
     }
 
     /// <summary>지정 프로파일을 플랫 필드로 적용 (활성 벤더는 별도 인자로 받지 않고 호출자가 Vendor 를
-    /// 미리 셋업했다고 가정).</summary>
+    /// 미리 셋업했다고 가정). POCO 의 <see cref="PromakerShared.PlcConnectionSettings.ApplyProfile"/> 과 같은 필드 집합.</summary>
     public void ApplyProfile(PromakerShared.PlcVendorProfile p)
     {
         Name = p.Name;
@@ -122,20 +121,8 @@ public partial class PlcSettings : ObservableObject
         LocalEthernet = p.LocalEthernet;
         NetworkNumber = p.NetworkNumber;
         StationNumber = p.StationNumber;
-        IsUdp = p.IsUdp;
-    }
-
-    /// <summary>
-    /// SignalIOMap 의 OUT/IN 주소를 그대로 PLC 태그 리스트로 자동 채워 F# PlcGatewayConfig 빌드.
-    /// 실제 빌드는 PlcGatewayConfigBuilder 에 위임 — Agent 와 동일 코드 경로.
-    /// </summary>
-    public PlcGatewayConfig? BuildGatewayConfig(
-        SignalIOMap ioMap,
-        out List<string> errors,
-        IEnumerable<string>? extraAddresses = null)
-    {
-        return PromakerShared.PlcGatewayConfigBuilder.TryBuild(
-            ToPoco(), ioMap, out errors, extraAddresses);
+        Transport = PromakerShared.PlcTransports.Normalize(p.Transport);
+        UsbDeviceSelector = p.UsbDeviceSelector ?? string.Empty;
     }
 
     // ── 영속화 — Promaker.Shared.PlcConnectionSettings 로 위임. ─────────
@@ -163,8 +150,8 @@ public partial class PlcSettings : ObservableObject
             WasPersisted = true;
     }
 
-    /// <summary>현재 UI 값을 영속화 POCO 로 스냅샷. 저장 외에도 AASX 박제(Save.StampPlcConnection)와
-    /// 게이트웨이 빌드가 같은 스냅샷을 쓰도록 공개.</summary>
+    /// <summary>현재 UI 값을 영속화 POCO 로 스냅샷. 저장 외에도 AASX 박제(Save.StampPlcConnection)가
+    /// 같은 스냅샷을 쓰도록 공개.</summary>
     public PromakerShared.PlcConnectionSettings ToPoco() => new()
     {
         Vendor = Vendor.ToString(),
@@ -176,7 +163,8 @@ public partial class PlcSettings : ObservableObject
         LocalEthernet = LocalEthernet,
         NetworkNumber = NetworkNumber,
         StationNumber = StationNumber,
-        IsUdp = IsUdp,
+        Transport = Transport,
+        UsbDeviceSelector = UsbDeviceSelector,
         SxIoMapPath = SxIoMapPath,
         SxWritableAreas = SxWritableAreas,
         AutoDurationCalibrate = AutoDurationCalibrate,

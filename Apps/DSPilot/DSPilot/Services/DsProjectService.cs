@@ -223,9 +223,10 @@ public class DsProjectService
 
     /// <summary>
     /// 모델 AID(AssetInterfacesDescription) 기준 시스템별 PLC 엔드포인트 — 멀티 PLC 접속정보의 정본.
-    /// systemRef 로 활성 시스템에 배정된 XGT 엔드포인트를 모두 나열하고(같은 ip:port 를 여러 시스템이
+    /// systemRef 로 활성 시스템에 배정된 XGT 엔드포인트를 모두 나열하고(같은 접속을 여러 시스템이
     /// 공유하면 1건으로 합쳐 이름을 병기), 배정된 것이 하나도 없으면 legacy 단일(systemRef 없는
-    /// 첫 엔드포인트)로 폴백한다 — 단일 PLC 시절 모델 호환.
+    /// 첫 엔드포인트)로 폴백한다 — 단일 PLC 시절 모델 호환. USB 접속(Ip=""·Port=0)도 포함한다 —
+    /// 어댑터 상태 대조는 Endpoint 표기로 하고, TCP 핑 대상 여부는 소비자(PlcPingService)가 가른다.
     /// </summary>
     public List<PlcEndpointInfo> GetPlcEndpoints()
     {
@@ -241,21 +242,23 @@ public class DsProjectService
         foreach (var system in GetActiveSystems())
         {
             var info = AidXgtEndpointSettings.TryReadForSystem(aid, system.Id);
-            if (info is null || string.IsNullOrWhiteSpace(info.IpAddress) || info.Port <= 0) continue;
+            if (info is null) continue;
 
             var dup = endpoints.FindIndex(e =>
-                string.Equals(e.Ip, info.IpAddress, StringComparison.OrdinalIgnoreCase) && e.Port == info.Port);
+                string.Equals(e.Endpoint, info.EndpointLabel, StringComparison.OrdinalIgnoreCase));
             if (dup >= 0)
                 endpoints[dup] = endpoints[dup] with { SystemName = $"{endpoints[dup].SystemName}·{system.Name}" };
             else
-                endpoints.Add(new PlcEndpointInfo(system.Name, info.Vendor, info.IpAddress, info.Port, info.TimeoutMs));
+                endpoints.Add(new PlcEndpointInfo(
+                    system.Name, info.Vendor, info.IpAddress, info.Port, info.TimeoutMs, info.EndpointLabel));
         }
 
         if (endpoints.Count == 0)
         {
             var first = AidXgtEndpointSettings.TryReadFirst(aid);
-            if (first is not null && !string.IsNullOrWhiteSpace(first.IpAddress) && first.Port > 0)
-                endpoints.Add(new PlcEndpointInfo("PLC", first.Vendor, first.IpAddress, first.Port, first.TimeoutMs));
+            if (first is not null)
+                endpoints.Add(new PlcEndpointInfo(
+                    "PLC", first.Vendor, first.IpAddress, first.Port, first.TimeoutMs, first.EndpointLabel));
         }
         return endpoints;
     }
@@ -807,7 +810,7 @@ public class DsProjectService
                 // System 에 배정된 endpoint 우선, 단일 System 모델이면 legacy(systemRef 없는) endpoint 를 승계.
                 var info = AidXgtEndpointSettings.TryReadForSystem(aid, sid)
                            ?? (singleActive ? AidXgtEndpointSettings.TryReadFirst(aid) : null);
-                if (info is null || string.IsNullOrWhiteSpace(info.IpAddress) || info.Port <= 0)
+                if (info is null)
                 {
                     warnings.Add($"{sysName}: 이 System 에 배정된 PLC 접속(XGT endpoint)이 없어 새 주소가 수집 대상에 포함되지 않습니다.");
                     continue;
@@ -816,9 +819,8 @@ public class DsProjectService
                 foreach (var a in Queries.plcAddressesOfSystem(sid, _store)) addresses.Add(a);
                 foreach (var e in entries)
                     if (!string.IsNullOrWhiteSpace(e.TagAddress)) addresses.Add(e.TagAddress.Trim());
-                var touched = AidXgtEndpointSettings.EnsureBindingForSystem(
-                    aid, sid, info.Vendor, info.IpAddress, info.Port, info.IsUdp, info.LocalEthernet,
-                    info.NetworkNumber, info.StationNumber, info.TimeoutMs, info.ScanIntervalMs, addresses);
+                // 읽은 endpoint 값을 그대로 요청으로 되돌려 접속(이더넷/USB)은 유지하고 주소만 병합한다.
+                var touched = AidXgtEndpointSettings.EnsureBindingForSystem(aid, sid, info, addresses);
                 if (touched <= 0)
                     warnings.Add($"{sysName}: PLC 접속 정보 병합에 실패했습니다(vendor '{info.Vendor}'). 새 주소가 수집되지 않을 수 있습니다.");
             }
@@ -1019,7 +1021,11 @@ public record CalibrationWorkStatus(
 /// 모델(AID)에서 읽은 PLC 엔드포인트 1건. <see cref="DsProjectService.GetPlcEndpoints"/> 산출물.
 /// SystemName = 배정된 활성 시스템 이름(여러 시스템이 한 PLC 를 공유하면 '·' 병기).
 /// </summary>
-public sealed record PlcEndpointInfo(string SystemName, string Vendor, string Ip, int Port, int TimeoutMs);
+/// <summary>모델 AID 기준 System 1개의 PLC 접속. Ip/Port 는 이더넷일 때만 채워지고(USB 는 ""/0),
+/// Endpoint 는 사람이 읽는 표기(host:port | USB | USB(selector)) — Agent 가 보고하는 어댑터 상태의
+/// Endpoint 와 같은 포맷(Ds2.Core PlcEndpointLabel)이라 문자열 비교로 대조할 수 있다.</summary>
+public sealed record PlcEndpointInfo(
+    string SystemName, string Vendor, string Ip, int Port, int TimeoutMs, string Endpoint);
 
 /// <summary>수동등록TAG 편집기 → <see cref="DsProjectService.WriteUserTagsAndExport"/> 입력 1건 (LogLevel 은 서버가 Error 로 고정).</summary>
 public sealed record UserTagWriteEntry(string Name, string TagAddress, string ValueType, string MatchOp, string MatchValue);

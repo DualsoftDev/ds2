@@ -544,6 +544,7 @@ and SignalHub(
                       Vendor = string connection.Vendor
                       IpAddress = connection.IpAddress
                       Port = connection.Port
+                      Endpoint = Ds2.Backend.Plc.PlcConnectionConfig.endpointLabel connection
                       IsConnected = status.IsConnected
                       LastError = lastError
                       FailedAttempts = Math.Clamp(status.FailedAttempts, 0, 1_000_000)

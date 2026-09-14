@@ -4,6 +4,8 @@ module Pi5ScanPoc.Config
 //   원래 PoC(Program.fs)에 있던 DTO/변환을 여기로 이동하고, 데몬화에 필요한
 //   hub(SignalR 접속)·buffer(SQLite store-and-forward) 설정을 확장한다.
 //   plc.json 이 비었거나(connections=[]) 파일이 없으면 daemon 은 idle.
+//   vendor/transport/dtype 문자열은 Agent 가 CollectorConfig 로 내보내는 계약값이고, 되읽기도
+//   Ds2.Backend.Plc.CollectorConfig 의 짝 함수를 그대로 쓴다 — 이 파일에 라벨 표를 두지 않는다.
 
 open System
 open System.Text.Json
@@ -15,9 +17,13 @@ type TagDto = { hub: string; plc: string; dtype: string }
 
 type ConnDto =
     { name: string
-      vendor: string          // "LsXgk" | "LsXgi" | "Mitsubishi"
+      vendor: string          // CollectorConfig.vendorStr 이 내보내는 값: "LsXgi" | "LsXgk" | "LsXgb" | "Mitsubishi" | "MicrexSx"
+      /// "tcp" | "udp" | "usb". 누락(구버전 Agent payload) = tcp.
+      transport: string
       ip: string
       port: int
+      /// USB 전용 — LS USB 로더의 장치 선택 키(목록번호·serial·bus:addr·product 부분일치). "" = 첫 매칭.
+      usbDeviceSelector: string
       localEthernet: bool
       timeoutMs: int
       scanMs: int
@@ -64,33 +70,15 @@ type DaemonConfig =
       Buffer : BufferConfig
       HasConnections : bool }
 
-let toDataType (s: string) =
-    match (if isNull s then "" else s.Trim()) with
-    | "Bool"    -> PlcDataTypes.Bool
-    | "Int16"   -> PlcDataTypes.Int16
-    | "UInt16"  -> PlcDataTypes.UInt16
-    | "Int32"   -> PlcDataTypes.Int32
-    | "UInt32"  -> PlcDataTypes.UInt32
-    | "Float32" -> PlcDataTypes.Float32
-    | "Float64" -> PlcDataTypes.Float64
-    | _         -> PlcDataTypes.Bool
-
-let toVendor (s: string) =
-    match (if isNull s then "" else s.Trim()) with
-    | "LsXgi"             -> PlcVendor.LsXgi
-    | "LsXgk"             -> PlcVendor.LsXgk
-    | "LsXgb"             -> PlcVendor.LsXgb
-    | "Mitsubishi" | "Mx" -> PlcVendor.Mitsubishi
-    // 문자열은 Ds2.Backend.Plc 의 vendorStr 이 내보내는 값과 짝을 맞춘다.
-    // 이 줄이 없으면 SX 설정이 조용히 LsXgk 로 떨어져 509 포트에 LS 프로토콜로 붙는다.
-    | "MicrexSx" | "Sx"   -> PlcVendor.MicrexSx
-    | _                   -> PlcVendor.LsXgk
-
-let private toPlcConfig (conns: ConnDto[]) : PlcGatewayConfig =
-    { Connections =
-        conns
-        |> Array.toList
-        |> List.map (fun c ->
+/// 접속 1건 → PlcConnectionConfig. 벤더 라벨을 모르면 None — 조용히 다른 벤더로 붙지 않고 로그에 남긴다
+/// (예전 폴백은 SX 설정이 LsXgk 로 떨어져 509 포트에 LS 프로토콜로 붙었다).
+let private toConnection (log: string -> unit) (c: ConnDto) : PlcConnectionConfig option =
+    match CollectorConfig.tryVendorOf c.vendor with
+    | None ->
+        log $"[cfg] 접속 '{c.name}' 제외 — 알 수 없는 vendor '{c.vendor}' (허용: LsXgi|LsXgk|LsXgb|Mitsubishi|MicrexSx)"
+        None
+    | Some vendor ->
+        Some
             { Name = c.name
               // SystemId: multi-System(멀티 PLC) 스코프 태그. Agent 가 CollectorConfig 로 내려준 값을
               // 그대로 신는다 — 이게 있어야 스캔한 태그마다 소유 System 이 각인돼(PlcTagChange.SystemId)
@@ -102,13 +90,15 @@ let private toPlcConfig (conns: ConnDto[]) : PlcGatewayConfig =
                     match Guid.TryParse c.systemId with
                     | true, sid -> Some sid
                     | _ -> None
-              Vendor = toVendor c.vendor
-              IpAddress = c.ip
+              Vendor = vendor
+              IpAddress = (if isNull c.ip then "" else c.ip)
               Port = c.port
               LocalEthernet = c.localEthernet
               NetworkNumber = 0uy
               StationNumber = 0uy
-              Transport = PlcTransport.Tcp
+              // 누락(구버전 Agent) 은 tcp — 그 Agent 는 이더넷 접속만 내려줬다.
+              Transport = PlcTransport.tryOfLabel c.transport |> Option.defaultValue PlcTransport.Tcp
+              UsbDeviceSelector = (if isNull c.usbDeviceSelector then "" else c.usbDeviceSelector)
               TimeoutMs = c.timeoutMs
               ScanInterval = Some (TimeSpan.FromMilliseconds(float c.scanMs))
               // SX 전용 두 값. 수집기는 읽기만 하므로 쓰기 허용 영역을 비워 둔다 —
@@ -123,7 +113,10 @@ let private toPlcConfig (conns: ConnDto[]) : PlcGatewayConfig =
                 |> List.map (fun t ->
                     { HubAddress = t.hub
                       PlcAddress = (if String.IsNullOrWhiteSpace t.plc then t.hub else t.plc)
-                      DataType = toDataType t.dtype }) }) }
+                      DataType = CollectorConfig.dataTypeOf t.dtype }) }
+
+let private toPlcConfig (log: string -> unit) (conns: ConnDto[]) : PlcGatewayConfig =
+    { Connections = conns |> Array.toList |> List.choose (toConnection log) }
 
 let private normalizeBuffer (defaultDir: string) (b: BufferDto) : BufferConfig =
     let dbPath =
@@ -145,8 +138,8 @@ let private normalizeHub (h: HubDto) : HubConfig option =
                DeviceId = (if isNull h.deviceId then "" else h.deviceId) }
 
 /// config 파일을 읽어 정규화된 DaemonConfig 로. 파일이 없으면 None (idle).
-/// 파싱 실패 시 예외를 던지지 않고 None (호출부가 idle 로 취급하고 재감시).
-let tryLoad (cfgPath: string) : DaemonConfig option =
+/// 파싱 실패 시 예외를 던지지 않고 None (호출부가 idle 로 취급하고 재감시). 제외된 접속은 log 로 남긴다.
+let tryLoad (cfgPath: string) (log: string -> unit) : DaemonConfig option =
     try
         if not (IO.File.Exists cfgPath) then None
         else
@@ -159,10 +152,11 @@ let tryLoad (cfgPath: string) : DaemonConfig option =
                 let defaultDir =
                     let d = IO.Path.GetDirectoryName(IO.Path.GetFullPath cfgPath)
                     if String.IsNullOrEmpty d then "." else d
-                Some { Plc = toPlcConfig conns
+                let plc = toPlcConfig log conns
+                Some { Plc = plc
                        Hub = normalizeHub dto.hub
                        Buffer = normalizeBuffer defaultDir dto.buffer
-                       HasConnections = conns.Length > 0 }
+                       HasConnections = not plc.Connections.IsEmpty }
     with _ ->
         None
 
@@ -188,7 +182,10 @@ let applyCollectorConfig (cfgPath: string) (payload: CollectorConfigPayload) (lo
         let conns =
             payloadConns
             |> Array.map (fun ac ->
-                { name = ac.Name; vendor = ac.Vendor; ip = ac.Ip; port = ac.Port
+                { name = ac.Name; vendor = ac.Vendor
+                  transport = (if isNull ac.Transport then "" else ac.Transport)
+                  ip = ac.Ip; port = ac.Port
+                  usbDeviceSelector = (if isNull ac.UsbDeviceSelector then "" else ac.UsbDeviceSelector)
                   localEthernet = ac.LocalEthernet; timeoutMs = ac.TimeoutMs; scanMs = ac.ScanMs
                   // 구버전 Agent 는 이 필드를 안 보내 null 이 온다 — plc.json 엔 "" 로 기록.
                   systemId = (if isNull ac.SystemId then "" else ac.SystemId)
