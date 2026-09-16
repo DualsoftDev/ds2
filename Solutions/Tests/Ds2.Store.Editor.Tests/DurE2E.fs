@@ -1,6 +1,7 @@
 module Ds2.Store.Editor.Tests.DurE2ETests
 
 open System
+open System.Collections.Generic
 
 open Xunit
 open Ds2.Core
@@ -316,3 +317,87 @@ module PromptExampleTests =
                                     && a.ArrowType = ArrowType.StartReset)
             |> Seq.length
         Assert.Equal(1, cross)   // LH작업 → RH작업
+
+// ── 병렬 Call 자동 Group 연결 ───────────────────────────────────────────────
+// 선행·후행이 완전히 같은 Call 들은 동시에 시작/리셋되는 한 묶음이므로 Group 으로 잇는다.
+// 조건이 "선행·후행 동일" 이라 Group 확장(외부 선행 합집합 + 후행 AND-join)이 무의미 연산이 되어
+// 실행 의미가 바뀌지 않는다.
+module AutoGroupTests =
+
+    let private groupArrows (store: DsStore) =
+        store.ArrowCalls.Values |> Seq.filter (fun a -> a.ArrowType = ArrowType.Group) |> List.ofSeq
+
+    let private nameOf (store: DsStore) id =
+        store.Calls.Values |> Seq.tryFind (fun c -> c.Id = id) |> Option.map (fun c -> c.Name)
+
+    /// Group 화살표가 이어 붙인 묶음(union-find) 을 이름 집합으로 환원.
+    let private groupSets (store: DsStore) =
+        let parent = Dictionary<Guid, Guid>()
+        let rec find x = if parent.[x] = x then x else (let r = find parent.[x] in parent.[x] <- r; r)
+        for a in groupArrows store do
+            for id in [ a.SourceId; a.TargetId ] do
+                if not (parent.ContainsKey id) then parent.[id] <- id
+        for a in groupArrows store do
+            let ra, rb = find a.SourceId, find a.TargetId
+            if ra <> rb then parent.[ra] <- rb
+        parent.Keys
+        |> Seq.toList
+        |> List.groupBy find
+        |> List.map (fun (_, ids) -> ids |> List.choose (nameOf store) |> List.sort |> Set.ofList)
+
+    [<Fact>]
+    let ``선행이 같은 병렬 Call 을 Group 으로 묶는다`` () =
+        // 리프터.하강 → 클램프1~4.전진 (후행 없음) — 화면에서 부채꼴로 퍼지던 그 모양.
+        let cell =
+            String.concat ";"
+                [ for i in 1 .. 4 -> $"리프터.하강=2S>클램프{i}.전진=800MS" ]
+        let _, store = load (csvOf [ $"F,용접,{cell}" ])
+        let sets = groupSets store
+        Assert.Single(sets) |> ignore
+        Assert.Equal<Set<string>>(
+            set [ "클램프1.전진"; "클램프2.전진"; "클램프3.전진"; "클램프4.전진" ], List.head sets)
+
+    [<Fact>]
+    let ``선행은 같아도 후행이 다르면 묶지 않는다`` () =
+        // 클램프1 → 로봇1, 클램프2 → 로봇2. 묶으면 로봇1 이 클램프2 까지 기다리게 되어 의미가 바뀐다.
+        let cell =
+            "리프터.하강=2S>클램프1.전진=800MS>로봇1.용접=5S;리프터.하강=2S>클램프2.전진=800MS>로봇2.용접=5S"
+        let _, store = load (csvOf [ $"F,용접,{cell}" ])
+        Assert.Empty(groupArrows store)
+
+    [<Fact>]
+    let ``합류하는 병렬 Call 은 묶는다`` () =
+        // 클램프1~3 이 모두 용접시작 으로 합류 — 선행·후행이 모두 같다.
+        let cell =
+            String.concat ";"
+                [ for i in 1 .. 3 -> $"리프터.하강=2S>클램프{i}.전진=800MS>용접.시작=5S" ]
+        let _, store = load (csvOf [ $"F,용접,{cell}" ])
+        let sets = groupSets store
+        Assert.Single(sets) |> ignore
+        Assert.Equal<Set<string>>(set [ "클램프1.전진"; "클램프2.전진"; "클램프3.전진" ], List.head sets)
+
+    [<Fact>]
+    let ``관계 없는 독립 Call 도 함께 시작하므로 묶는다`` () =
+        let _, store = load (csvOf [ "F,W,A.x=100MS;B.y=100MS" ])
+        let sets = groupSets store
+        Assert.Single(sets) |> ignore
+        Assert.Equal<Set<string>>(set [ "A.x"; "B.y" ], List.head sets)
+
+    [<Fact>]
+    let ``순차 체인만 있으면 Group 을 만들지 않는다`` () =
+        let _, store = load (csvOf [ "F,W,A.x=100MS>B.y=100MS>C.z=100MS" ])
+        Assert.Empty(groupArrows store)
+
+    // 그룹에는 Start 가 한 가닥만 들어간다(대표 멤버). 나머지 멤버 몫은 Group 확장이 재구성한다.
+    [<Fact>]
+    let ``그룹에는 대표 멤버로 Start 한 가닥만 들어간다`` () =
+        let cell = String.concat ";" [ for i in 1 .. 4 -> $"리프터.하강=2S>클램프{i}.전진=800MS" ]
+        let doc, store = load (csvOf [ $"F,용접,{cell}" ])
+        Assert.Equal(5, List.length doc.Works.Head.Nodes)          // 리프터 + 클램프4
+        Assert.Equal(4, List.length doc.Works.Head.Edges)          // 파서 수준(문서)은 그대로
+        let starts =
+            store.ArrowCalls.Values |> Seq.filter (fun a -> a.ArrowType = ArrowType.Start) |> List.ofSeq
+        Assert.Equal(1, List.length starts)                        // 하강 → 클램프1(대표) 하나만
+        let rep = store.Calls.Values |> Seq.find (fun c -> c.Name = "클램프1.전진")
+        Assert.Equal(rep.Id, (List.head starts).TargetId)
+        Assert.Equal(3, List.length (groupArrows store))            // 4개를 잇는 인접쌍 3개
