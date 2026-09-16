@@ -28,7 +28,7 @@
                 {
                     <li>
                         <span class="plc-banner-name">@s.Name</span>
-                        <span class="plc-banner-meta">@s.Vendor @s.IpAddress:@s.Port</span>
+                        <span class="plc-banner-meta">@s.Vendor @PlcEndpointDisplay.Of(s)</span>
                         @if (!string.IsNullOrWhiteSpace(s.LastError))
                         {
                             <span class="plc-banner-error-msg">— @s.LastError</span>
@@ -41,7 +41,12 @@
                 }
             </ul>
             <div class="plc-banner-hint">
-                Promaker 의 PLC 설정(IP, 포트, 벤더)을 확인하세요. 설정 변경 후 재시도는 자동으로 진행됩니다.
+                Promaker 의 PLC 설정(연결 방식 · IP/포트 · 벤더)을 확인하세요. 설정 변경 후 재시도는 자동으로 진행됩니다.
+                @if (_failed.Any(PlcEndpointDisplay.IsUsb))
+                {
+                    @* USB 실패의 흔한 원인 둘 — 수집 호스트에 안 꽂혀 있음 / XG5000 이 로더 포트를 점유. 일반 문구로는 짚을 수 없다. *@
+                    <span><br />USB 접속은 수집하는 PC(Agent) 또는 Edge 단말에 PLC 가 직접 꽂혀 있어야 하고, XG5000 이 온라인 접속 중이면 로더 포트를 점유해 붙지 못합니다.</span>
+                }
             </div>
         </div>
     </div>

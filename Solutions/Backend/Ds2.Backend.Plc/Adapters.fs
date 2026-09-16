@@ -133,13 +133,6 @@ module LsPackRead =
         |> List.mapi (fun index tag -> TagSpec(tagName index tag, tag.PlcAddress, tag.DataType))
         |> Array.ofList
 
-    let scanAddressesForTags isLocalEthernet (tags: PlcTagDef list) =
-        let tagSpecs = toTagSpecs tags
-        // 새 Ev2 pack API: CPU 모델은 접속이 아니라 태그 주소별로 판별하므로 plcType="LS" 만 넘긴다.
-        let packs = PackModule.packTagSpecsForType("LS", tagSpecs, isLocalEthernet)
-        // 4번째=LS-USB 전용 청크 상한, 5번째 cpuKey=MX-USB CPU 프로파일 축 — 둘 다 LS Ethernet 경로선 무시.
-        PackModule.getScanAddressesForPacks("LS", packs, isLocalEthernet, 240, "")
-
     let readTags (connector: LsConnector) (tags: PlcTagDef list) =
         try
             let tagArray = tags |> List.toArray
@@ -177,6 +170,26 @@ type IPlcConnectorAdapter =
     abstract member ReadTag : tag: PlcTagDef -> Result<CoreDataTypesModule.PlcValue, string>
     abstract member ReadTags : tags: PlcTagDef list -> Result<struct (PlcTagDef * CoreDataTypesModule.PlcValue) list, string> option
     abstract member WriteTag : tag: PlcTagDef * value: CoreDataTypesModule.PlcValue -> Result<unit, string>
+
+/// 배치 읽기 계획 캐시 — 태그 목록(주소 순열)이 같으면 계획을 다시 세우지 않는다.
+/// 계획 수립은 주소 파싱 + 영역별 병합이라 매 사이클 돌릴 일이 아니다. SX(프레임 계획)와
+/// LS USB(240B 블록 계획)가 같은 캐시를 쓴다 — 캐시 키·무효화 규칙이 한 곳에만 있다.
+type ReadPlanCache<'Plan>() =
+    let mutable key = ""
+    let mutable cached : 'Plan option = None
+
+    /// 태그 목록이 직전과 같으면 캐시된 계획, 아니면 compile 결과(성공 시 캐시 갱신).
+    member _.GetOrCompile (tags: PlcTagDef list) (compile: PlcTagDef list -> Result<'Plan, string>) =
+        let nextKey = tags |> List.map (fun t -> t.PlcAddress) |> String.concat "|"
+        match cached with
+        | Some plan when nextKey = key -> Ok plan
+        | _ ->
+            match compile tags with
+            | Ok plan ->
+                cached <- Some plan
+                key <- nextKey
+                Ok plan
+            | Error e -> Error e
 
 [<RequireQualifiedAccess>]
 module LsAdapter =
@@ -266,6 +279,9 @@ module MxAdapter =
             match cfg.Transport with
             | PlcTransport.Udp -> TransportProtocol.UDP
             | PlcTransport.Tcp -> TransportProtocol.TCP
+            | PlcTransport.Usb ->
+                // 어댑터 팩토리(Adapter.create)가 미쓰비시 USB 를 먼저 거절한다 — 여기 오면 팩토리를 우회한 것.
+                invalidOp $"MX [{cfg.Name}] USB 전송은 지원하지 않습니다 (Ethernet TCP/UDP 만)."
         let mxCfg = { baseCfg with Protocol = protocol }
         log.Info($"MX [{cfg.Name}] transport={mxCfg.Protocol}, frame={mxCfg.FrameType}")
         let connector = new MxConnector(mxCfg)
@@ -413,9 +429,27 @@ module SxAdapter =
             else
                 None
 
-        /// 계획 캐시. 태그 목록이 바뀌면 다시 만든다.
-        let mutable planKey : string = ""
-        let mutable plans : ReadPlan list = []
+        let planCache = ReadPlanCache<ReadPlan list>()
+
+        /// 태그 목록 → 프레임 계획. 계획이 서면 안 되는 주소가 하나라도 있으면 전체가 실패한다 —
+        /// 어느 주소인지는 ValidateTagSpecs 가 알려주므로 함께 남긴다.
+        let compilePlans (tags: PlcTagDef list) =
+            match tags |> List.tryPick rejectArray with
+            | Some e -> Error e
+            | None ->
+                let specs = tags |> List.map (fun t -> TagSpec(t.HubAddress, t.PlcAddress, t.DataType)) |> Array.ofList
+
+                match connector.CompilePlans specs with
+                | Ok ps ->
+                    log.Info($"SX [{cfg.Name}] 읽기 계획 {ps.Length}프레임 / 태그 {tags.Length}개")
+                    Ok ps
+                | Error e ->
+                    let _, rejected = connector.ValidateTagSpecs specs
+
+                    for (ts, why) in rejected |> Array.truncate 5 do
+                        log.Error($"SX [{cfg.Name}] 태그 거부 — {ts.Name} ({ts.Address}): {why}")
+
+                    Error (sprintf "%A" e)
 
         if writeLocked then
             log.Info(
@@ -471,40 +505,10 @@ module SxAdapter =
                     with ex -> Error ex.Message
 
             member _.ReadTags (tags) =
-                // 태그 구성이 그대로면 계획을 다시 만들지 않는다.
-                // 계획 수립은 주소 파싱 + 영역별 병합이라 매 사이클 돌릴 일이 아니다.
-                let key = tags |> List.map (fun t -> t.PlcAddress) |> String.concat "|"
-
-                let ensurePlans () =
-                    match tags |> List.tryPick rejectArray with
-                    | Some e -> Error e
-                    | None ->
-
-                    if key <> planKey then
-                        let specs = tags |> List.map (fun t -> TagSpec(t.HubAddress, t.PlcAddress, t.DataType)) |> Array.ofList
-
-                        match connector.CompilePlans specs with
-                        | Ok ps ->
-                            plans <- ps
-                            planKey <- key
-                            log.Info($"SX [{cfg.Name}] 읽기 계획 {ps.Length}프레임 / 태그 {tags.Length}개")
-                            Ok ()
-                        | Error e ->
-                            // 계획이 서면 안 되는 주소가 하나라도 있으면 전체가 실패한다.
-                            // 어느 주소인지는 ValidateTagSpecs 가 알려주므로 함께 남긴다.
-                            let _, rejected = connector.ValidateTagSpecs specs
-
-                            for (ts, why) in rejected |> Array.truncate 5 do
-                                log.Error($"SX [{cfg.Name}] 태그 거부 — {ts.Name} ({ts.Address}): {why}")
-
-                            Error (sprintf "%A" e)
-                    else
-                        Ok ()
-
                 try
-                    match ensurePlans () with
+                    match planCache.GetOrCompile tags compilePlans with
                     | Error e -> Some (Error e)
-                    | Ok () ->
+                    | Ok plans ->
                         let results = connector.ReadPlanned plans
                         let tagArray = tags |> Array.ofList
                         let acc = ResizeArray<struct (PlcTagDef * CoreDataTypesModule.PlcValue)>()
@@ -553,13 +557,3 @@ module SxAdapter =
                     try connector.WriteTag(tag.PlcAddress, value)
                     with ex -> Error ex.Message
         }
-
-[<RequireQualifiedAccess>]
-module Adapter =
-    let create (cfg: PlcConnectionConfig) : IPlcConnectorAdapter =
-        match cfg.Vendor with
-        | PlcVendor.LsXgi
-        | PlcVendor.LsXgk
-        | PlcVendor.LsXgb    -> LsAdapter.create cfg
-        | PlcVendor.Mitsubishi -> MxAdapter.create cfg
-        | PlcVendor.MicrexSx   -> SxAdapter.create cfg

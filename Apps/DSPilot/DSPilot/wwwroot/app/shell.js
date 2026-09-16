@@ -974,6 +974,7 @@ window.dspBranch = {
         var _agPlcSource = '';  // 'agent' | 'ping' | 'none'
         var _agAddr = null;     // {expected, seen, missing[]} — 모델 주소 수신 커버리지(진단 표시 전용)
         var _agAddrSystems = []; // [{system, expected, seen, missing[]}] — 멀티 PLC 시스템별 분해
+        var _agModelPlc = { total: 0, usb: 0 }; // 모델(AID)에 적힌 PLC 접속 수 — 보고·핑 둘 다 없을 때 "미설정"과 "확인 불가"를 가른다
         var _plcDetailOpen = false;
         function renderPlcDetail() {
             agPlcDetail.innerHTML = '';
@@ -1007,9 +1008,16 @@ window.dspBranch = {
                 agPlcDetail.appendChild(warn);
             }
             if (!_agAdapters.length) {
-                var none = el('div', null, _agPlcSource === 'none'
-                    ? '대상 PLC 가 설정되어 있지 않습니다.'
-                    : 'PLC 정보 없음');
+                var noneText;
+                if (_agModelPlc.total > 0) {
+                    // 모델엔 PLC 가 있는데 Agent/Edge 보고가 없고 TCP 핑도 못 함 — "미설정"이 아니라 "확인 불가".
+                    // USB 는 TCP 로 닿을 수 없어 보고가 유일한 상태 출처라는 점을 함께 적는다.
+                    noneText = '모델에 PLC ' + _agModelPlc.total + '대가 있지만 Agent/Edge 보고가 없어 상태를 확인할 수 없습니다.'
+                        + (_agModelPlc.usb > 0 ? ' USB 접속(' + _agModelPlc.usb + '대)은 TCP 로 직접 확인할 수 없습니다.' : '');
+                } else {
+                    noneText = _agPlcSource === 'none' ? '대상 PLC 가 설정되어 있지 않습니다.' : 'PLC 정보 없음';
+                }
+                var none = el('div', null, noneText);
                 none.style.opacity = '0.7';
                 agPlcDetail.appendChild(none);
                 return;
@@ -1020,12 +1028,23 @@ window.dspBranch = {
                 var d = el('span');
                 d.style.cssText = 'flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:'
                     + (a.connected ? AG_DOT.green : AG_DOT.red) + ';';
-                var label = (a.name || 'PLC') + ' · ' + (a.ip || '?') + ':' + (a.port || 0);
+                // endpoint = 서버가 만든 접속 표기(host:port | USB | USB(selector)) — USB 어댑터는 ip/port 가 비어 있다.
+                //   빈 값(표기 불가한 구 Agent 보고)이면 이름만 — '?' 를 붙이면 장애처럼 읽힌다.
+                var label = (a.name || 'PLC') + (a.endpoint ? ' · ' + a.endpoint : '');
                 var nm = el('span', null, label);
                 nm.style.cssText = 'font-variant-numeric:tabular-nums;';
                 line.appendChild(d);
                 line.appendChild(nm);
-                // 매칭 시스템 — 서버가 모델 AID(ip:port)와 대조한 결과.
+                // 매체 배지 — USB 는 수집 호스트 직결이라 TCP 핑으로 확인할 수 없고 보고만 신뢰한다는 뜻.
+                if (a.usb) {
+                    var usbChip = el('span', null, 'USB');
+                    usbChip.style.cssText = 'flex:0 0 auto;font-size:10px;line-height:1;padding:2px 6px;'
+                        + 'border-radius:999px;font-weight:700;background:rgba(100,116,139,0.16);color:#475569;';
+                    usbChip.title = 'USB 로더 포트 직결 — 수집하는 PC(Agent) 또는 Edge 단말에 꽂힌 PLC 입니다. '
+                        + 'TCP 로는 확인할 수 없어 Agent/Edge 보고만 신뢰합니다. XG5000 이 온라인 접속 중이면 포트를 점유해 붙지 못합니다.';
+                    line.appendChild(usbChip);
+                }
+                // 매칭 시스템 — 서버가 모델 AID 접속 표기(endpoint)와 대조한 결과.
                 //   system=이름: 그 시스템 소속 / system="": 모델에 없음(구 모델 잔존/설정 불일치 후보)
                 //   / system=null(구 서버·모델 미로드): 표기 생략.
                 if (a.system != null) {
@@ -1036,7 +1055,7 @@ window.dspBranch = {
                             ? 'background:rgba(251,146,60,0.16);color:#c2610c;'
                             : 'background:rgba(33,112,228,0.12);color:#2170e4;');
                     sysChip.title = a.system === ''
-                        ? '현재 모델(AASX)의 PLC 접속정보에 이 IP:Port 가 없습니다 — 이전 모델의 잔존 상태이거나 접속정보 불일치일 수 있습니다.'
+                        ? '현재 모델(AASX)의 PLC 접속정보에 이 접속이 없습니다 — 이전 모델의 잔존 상태이거나 접속정보 불일치일 수 있습니다.'
                         : '현재 모델에서 이 PLC 와 매칭된 시스템: ' + a.system;
                     line.appendChild(sysChip);
                 }
@@ -1324,11 +1343,19 @@ window.dspBranch = {
             agHub.dot.style.background = hub === 'connected' ? AG_DOT.green
                 : ((hub === 'connecting' || hub === 'reconnecting') ? AG_DOT.orange : AG_DOT.gray);
 
-            // PLC 어댑터: agent=에이전트 보고 / ping=DSPilot 직접 핑 폴백 / none=대상 미설정.
+            // PLC 어댑터: agent=에이전트 보고 / ping=DSPilot 직접 핑 폴백 / none=보고도 핑도 없음.
             // 멀티 PLC(2대 이상)는 몇 대가 죽었는지가 정보라 개수를 병기한다.
+            // 보고·핑이 둘 다 없어도 모델에 PLC 가 있으면 "미설정"이 아니다 — 특히 USB 는 TCP 로 확인할 수 없어
+            // Agent/Edge 보고가 유일한 출처라, "보고 없음 (모델 N대 · USB M대)" 로 적어 원인을 가리킨다.
+            var modelPlc = agent.modelPlcCount || 0, modelUsb = agent.modelUsbCount || 0;
+            function noTargetLabel() {
+                if (modelPlc > 0)
+                    return 'PLC 어댑터: 보고 없음 (모델 ' + modelPlc + '대' + (modelUsb > 0 ? ' · USB ' + modelUsb + '대' : '') + ')';
+                return 'PLC 어댑터: 대상 미설정';
+            }
             var plcLabel, plcColor;
             if (plcSource === 'ping') {
-                if (plcTotal === 0) { plcLabel = 'PLC 어댑터: 대상 미설정'; plcColor = AG_DOT.gray; }
+                if (plcTotal === 0) { plcLabel = noTargetLabel(); plcColor = AG_DOT.gray; }
                 else if (plcDown > 0) {
                     plcLabel = 'PLC 어댑터: ' + (plcTotal > 1
                         ? plcDown + '/' + plcTotal + '대 응답 없음 (직접확인)'
@@ -1348,7 +1375,7 @@ window.dspBranch = {
                 plcColor = (plcDown === 0 && plcTotal > 0) ? AG_DOT.green
                     : (plcDown > 0 ? AG_DOT.red : AG_DOT.gray);
             } else {
-                plcLabel = 'PLC 어댑터: 대상 미설정';
+                plcLabel = noTargetLabel();
                 plcColor = AG_DOT.gray;
             }
             agPlc.text.textContent = plcLabel;
@@ -1370,6 +1397,7 @@ window.dspBranch = {
             _agAdapters = agent.adapters || [];
             _agAddr = { expected: agent.addrExpected || 0, seen: agent.addrSeen || 0, missing: agent.addrMissing || [] };
             _agAddrSystems = agent.addrSystems || [];
+            _agModelPlc = { total: modelPlc, usb: modelUsb };
             _agPlcSource = plcSource;
             if (_plcDetailOpen) renderPlcDetail();
 

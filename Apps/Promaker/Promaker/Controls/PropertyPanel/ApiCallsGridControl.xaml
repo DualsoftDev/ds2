@@ -4,13 +4,6 @@
              xmlns:core="clr-namespace:Ds2.Core.Store;assembly=Ds2.Core"
              xmlns:help="clr-namespace:Promaker.Help"
              x:Name="GridRoot">
-    <UserControl.Resources>
-        <Style x:Key="InlineListButton" TargetType="Button" BasedOn="{StaticResource DarkButton}">
-            <Setter Property="Padding" Value="6,2"/>
-            <Setter Property="MinWidth" Value="24"/>
-            <Setter Property="Height" Value="22"/>
-        </Style>
-    </UserControl.Resources>
 
     <Border BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1"

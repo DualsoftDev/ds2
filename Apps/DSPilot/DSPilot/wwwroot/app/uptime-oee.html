@@ -123,9 +123,13 @@
                         <div class="up-oee" :class="oeeTone('availability')">
                             <div class="up-oee-label">가용성 A
 <!-- 출처 칩 폐기(2026-08-21) — 시프트/자동추정/달력 폴백을 없애 A 는 항상 CT축 하나다. -->
+                                <!-- 판정 불가 제외(2026-09-14) — 표본 게이트 설비가 라인 집계에서 빠져 있음을 A 바로 옆에서 말한다. 빼는 것의 채택 조건. -->
+                                <span class="up-oee-chip warn" x-show="oee && oee.unjudgedFlowCount > 0"
+                                      x-text="'판정 불가 ' + (oee ? oee.unjudgedFlowCount : 0) + '대 제외'"
+                                      :title="'기준선(14일 완료 사이클 10건) 부족으로 판정 불가한 설비 — 이 시간 ' + durSum(oee ? oee.unjudgedWallMs : 0) + ' 은 A·P 분모·분자 어디에도 넣지 않았습니다(미계측·진행 중과 같은 자리). 대상: ' + ((oee && oee.unjudgedFlows) || []).join(', ') + '. 데이터 무결성 카드의 커버리지 참조.'"></span>
                                 <span class="up-oee-chip warn" x-show="oee && oee.ctSampleLow"
                                       x-text="'표본 ' + (oee && oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/10'"
-                                      title="14일 완료 사이클 10건 미만 — 판정 보류(전부 정상) 잠정값입니다. 가동이 쌓이면 자동으로 정확해집니다."></span>
+                                      title="이 범위에 14일 완료 사이클 10건 미만인 설비가 있습니다 — 그 설비는 판정 불가로 A·P 분모·분자에서 제외됩니다(설비 하나만 조회 중이면 '—'). 가동이 쌓여 10건을 넘으면 자동으로 들어옵니다."></span>
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.availability) : '—'"></div>
                             <div class="up-oee-note" x-text="oee ? (oee.availability != null ? '가동 ÷ 생산가능(캘린더 − 비생산 − 미계측) · 비가동 = 고장 + 유지보수' : (oee.availabilityNote || '산출 불가')) : ''"></div>
@@ -138,7 +142,7 @@
                                       title="표준 = 14일 중앙 CT — 정상상태 P≈100% 수렴(추세 대비 저하 감지)"></span>
                                 <span class="up-oee-chip warn" x-show="oee && oee.ctSampleLow"
                                       x-text="'표본 ' + (oee && oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/10'"
-                                      title="14일 완료 사이클 10건 미만 — 판정 보류(전부 정상) 잠정값입니다. 가동이 쌓이면 자동으로 정확해집니다."></span>
+                                      title="이 범위에 14일 완료 사이클 10건 미만인 설비가 있습니다 — 그 설비는 판정 불가로 A·P 분모·분자에서 제외됩니다(설비 하나만 조회 중이면 '—'). 가동이 쌓여 10건을 넘으면 자동으로 들어옵니다."></span>
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.performance) : '—'"></div>
                             <div class="up-oee-note" x-text="oee ? (oee.performance != null ? '14일 중앙 CT 기준 · (N × 표준 CT) / Σ실측 CT' : (oee.performanceNote || '산출 불가')) : ''"></div>
@@ -207,14 +211,14 @@
                         <span class="ds-card-h-sub" x-show="oee">
                             기간 정지 <b x-text="oee ? (oee.downtimeCount + '건 · ' + durShort(oee.downtimeMs) + ' (가동 ' + pct(oee.availability) + ')') : ''"></b>
                             · <span x-text="oee ? (oee.ctThresholdMs ? ('표준 CT ' + durShort(oee.ctThresholdMs) + ' · 14일 중앙') : (oee.idealCycleTimeMs ? ('표준 가동시간 ' + durShort(oee.idealCycleTimeMs)) : '표준 가동시간 미설정(클린샘플 0)')) : ''"></span>
-                            <span x-show="oee && oee.ctSampleLow" style="color:var(--amber, #b7791f); font-weight:700;" x-text="oee ? (' · 완료 표본 ' + (oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/10(판정 보류)') : ''"></span>
+                            <span x-show="oee && oee.ctSampleLow" style="color:var(--amber, #b7791f); font-weight:700;" x-text="oee ? (' · 완료 표본 ' + (oee.ctSampleCount != null ? oee.ctSampleCount : 0) + '/10(판정 불가 · 집계 제외)') : ''"></span>
                             <span x-show="oee && oee.normalCycleCount != null" x-text="oee ? (' · 정상 ' + (oee.normalCycleCount || 0) + '회') : ''"></span>
                             <span x-show="oee && oee.plannedDownMs > 0" style="font-weight:700;"
                                   title="가용성(A) 분모에서 제외된 비생산 시간(설비시간 합산) — 10×장시간정지 자동 감지 + 수동 시간대. 아래 가용성 카드의 '비생산 시간'과 동일 값(수신 공백은 달력 기반 타임라인·추이에만 합쳐 표시, 이 KPI 숫자와는 단위가 달라 합산하지 않음)."
                                   x-text="oee ? (' · 비생산 ' + durSum(oee.plannedDownMs)) : ''"></span>
-                            <!-- 확인 필요(doc/28 §2.8) — 길이만 보면 비생산 기준을 넘는 고장. 클릭 → 정지 로그(확인 필요 필터) -->
+                            <!-- 확인 필요(doc/28 §2.8, 2026-09-14 방향 반전) — 동작 중 멈춘 채 길게 늘어져 비생산으로 둔 행. 클릭 → 정지 로그(확인 필요 필터) -->
                             <span x-show="oee && oee.reviewPendingCount > 0" class="up-review-chip" style="cursor:pointer;" @click="openReviewLog()"
-                                  :title="'길이만 보면 비생산 기준을 넘는 고장 ' + (oee ? oee.reviewPendingCount : 0) + '건 · ' + durSum(oee ? oee.reviewPendingMs : 0) + ' — 설비를 끄고 간 정지가 아닌지 확인하세요. 클릭 → 정지 로그(확인 필요 필터). 비생산으로 전환하거나 고장으로 확정하면 사라집니다.'"
+                                  :title="'끄고 간 정지로 보고 분모에서 뺀 시간 ' + (oee ? oee.reviewPendingCount : 0) + '건 · ' + durSum(oee ? oee.reviewPendingMs : 0) + ' — 동작 중(Going) 멈춘 채 비생산 기준 이상으로 늘어진 정지입니다. 이 중 실제 고장이 있으면 가용성(A)이 그만큼 부풀어 있습니다. 클릭 → 정지 로그(확인 필요 필터)에서 [고장으로 →] 전환하거나 [비생산 확정]하세요.'"
                                   x-text="oee ? ('확인 필요 ' + oee.reviewPendingCount + '건') : ''"></span>
                         </span>
                     </div>
@@ -284,6 +288,8 @@
                                 <span>표준 CT <b x-text="durShort(oee.ctThresholdMs)"></b> <span class="up-codeish">14일 중앙</span></span>
                                 <!-- 미귀속(doc/28 §2.7) — 비가동 − 유지보수 − 고장. 행이 연속이라 0 이어야 정상. 1분 넘으면 데이터 결함 진단 표시 -->
                                 <span x-show="oee && oee.unattributedWallMs > 60000" style="color:var(--amber,#b7791f);" title="비가동 중 고장·유지보수 어디에도 귀속되지 않은 시간 — 사이클 행이 연속이라 0 이어야 정상입니다. 0 이 아니면 행 겹침·누락, 심박이 못 덮은 엔진 재시작 조각 같은 데이터 결함 신호입니다(데이터 무결성 카드 참조).">미귀속 <b x-text="durSum(oee.unattributedWallMs)"></b> <span class="up-codeish">데이터 결함 진단</span></span>
+                                <!-- 판정 불가(2026-09-14) — 표본 게이트 설비의 생산가능 시간. 분모·분자 밖(미계측·진행 중과 같은 자리). 여기서 말하지 않으면 '뺀 것'이 '숨긴 것'이 된다. -->
+                                <span x-show="oee && oee.unjudgedWallMs > 0" style="color:var(--amber,#b7791f);" :title="'기준선 부족(14일 완료 사이클 10건 미만)으로 판정 불가한 설비의 시간 — A·P 분모·분자 어디에도 넣지 않았습니다. 대상: ' + ((oee && oee.unjudgedFlows) || []).join(', ')">· 판정 불가 <b x-text="durSum(oee.unjudgedWallMs)"></b> <span class="up-codeish" x-text="(oee ? oee.unjudgedFlowCount : 0) + '대 · 분모 밖'"></span></span>
                             </div>
                         </div>
                     </template>
@@ -495,7 +501,7 @@
                         </template>
                     </div>
                     <!-- 전환 UX 필터(doc/28 §2.8) — 전환 객체는 행. 시간 범위는 필터일 뿐이고, 뜬 행을 넣을지 뺄지는 사람이 정한다.
-                         주말 처리 기본 동작: 기간 = 그 주말, [확인 필요] 또는 [길이 ≥ 4시간] → 전체 선택 → [→ 비생산으로 일괄 전환]. -->
+                         주말은 이제 기본이 비생산이다(2026-09-14) — 남는 작업은 그 반대: [확인 필요] 필터 → 실제 고장이었던 행만 골라 [→ 고장으로 일괄 전환]. -->
                     <div class="up-filter-row" style="margin-top:4px;">
                         <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">전환 필터</span>
                         <span class="up-chip up-chip-review" :class="dtFilterReview ? 'is-on' : ''" @click="dtFilterReview = !dtFilterReview"
@@ -610,7 +616,7 @@
                                                     <span style="color:var(--color-text-secondary);font-weight:700;" :title="d.note || '진행 중 — 다음 사이클이 시작되면 완료 행으로 확정·분류됩니다(집계 미반영)'">진행 중</span>
                                                 </template>
                                                 <template x-if="d.isNonProd">
-                                                    <span style="color:var(--nonprod);font-weight:700;" :title="'비생산 — 가용성(A) 분모 밖(사이클 전체) · ' + (d.classifySource === 'manual' ? '사용자 확정' : (d.classifySource === 'auto-planned' ? '비생산 지정 시각대 시작' : '자동 판정(대기가 비생산 기준 이상)'))">비생산</span>
+                                                    <span style="color:var(--nonprod);font-weight:700;" :title="'비생산 — 가용성(A) 분모 밖(사이클 전체) · ' + (d.classifySource === 'manual' ? '사용자 확정' : (d.classifySource === 'auto-planned' ? '비생산 지정 시각대 시작' : (d.axis === 'mt' ? '자동 판정(동작 중 멈춘 채 비생산 기준 이상)' : '자동 판정(길이가 비생산 기준 이상)')))">비생산</span>
                                                 </template>
                                                 <!-- 고장/유지보수 체크 — 합성 행(판정 기준 초과 사이클)도 가능: 체크 해제 시 서버가 실제 행으로 승격 후 유지보수 확정. -->
                                                 <template x-if="!d.isNonProd && !isInProgressDt(d)">
@@ -621,8 +627,8 @@
                                                 </template>
                                                 <!-- 판정 축(doc/28) — 동작 초과 / 대기 초과 / 완료 신호 없는 사이클 길이 -->
                                                 <span class="up-dt-axis" x-show="d.axis" x-text="axisLabel(d.axis)" :title="axisTitle(d.axis)"></span>
-                                                <!-- 확인 필요(doc/28 §2.8) — 길이만 보면 비생산 급인 고장. 전환 또는 고장 확정으로 해소 -->
-                                                <span class="up-review-chip" x-show="d.needsReview" title="길이가 비생산 기준 이상인 고장 — 설비를 끄고 간 정지가 아닌지 확인하세요. [비생산으로 →] 전환 또는 [고장 확정]으로 사라집니다.">확인 필요</span>
+                                                <!-- 확인 필요(doc/28 §2.8, 2026-09-14 방향 반전) — 동작 중 멈춘 채 길게 늘어져 비생산으로 둔 행. 고장 전환 또는 비생산 확정으로 해소 -->
+                                                <span class="up-review-chip" x-show="d.needsReview" title="동작 중(Going) 멈춘 채 비생산 기준 이상으로 늘어진 정지 — 끄고 간 정지로 봤습니다. 실제 고장이었다면 [고장으로 →], 맞으면 [비생산 확정]으로 사라집니다.">확인 필요</span>
                                             </td>
                                             <td data-label="감지"><span x-html="detectChipHtml(d.detectSource)" :title="d.note || ''"></span></td>
                                             <td data-label="겹친 신호 (단서)" x-html="clueHtml(d.clue)"></td>
@@ -638,10 +644,10 @@
                                                         @click="reclassifyDt(d, !d.isNonProd)"
                                                         x-text="d.isNonProd ? '고장으로 →' : '비생산으로 →'"></button>
                                                 <button class="btn btn-sm btn-outlined" style="padding:3px 8px; font-size:0.68rem;"
-                                                        x-show="!isInProgressDt(d) && d.needsReview && !d.isNonProd"
+                                                        x-show="!isInProgressDt(d) && d.needsReview && d.isNonProd"
                                                         :disabled="dtReclassBusy"
-                                                        title="진짜 고장이 맞음 — 고장으로 확정(수동 라벨). '확인 필요' 표시가 사라지고 자동 판정에 흔들리지 않습니다."
-                                                        @click="setFault(d, true)">고장 확정</button>
+                                                        title="끄고 간 정지가 맞음 — 비생산으로 확정(수동 라벨). '확인 필요' 표시가 사라지고 자동 판정에 흔들리지 않습니다."
+                                                        @click="reclassifyDt(d, true)">비생산 확정</button>
                                                 <button class="btn btn-sm btn-outlined color-default" style="padding:3px 8px; font-size:0.68rem;"
                                                         x-show="!isInProgressDt(d) && d.id > 0 && d.classifySource === 'manual'"
                                                         :disabled="dtReclassBusy"
@@ -658,13 +664,13 @@
                         <div class="ds-empty" style="border-style:solid;">
                             <span class="material-icons">check_circle</span>
                             <div class="ds-empty-title" x-text="downtime.length === 0 ? '해당 기간 정지 이벤트 없음' : (dtTab === 'nonprod' ? '이 기간 비생산으로 분류된 사이클 없음' : '필터에 해당하는 고장 이벤트 없음')"></div>
-                            <div class="ds-empty-desc" x-text="downtime.length === 0 ? '판정 기준(동작 초과·대기 초과)을 넘긴 사이클이 기록되면 여기에 표시됩니다.' : (dtTab === 'nonprod' ? '대기가 비생산 기준을 넘긴 사이클의 자동 판정 또는 [비생산으로 →] 전환으로 채워집니다.' : '상태·구분·전환 필터나 탭을 변경해 보세요.')"></div>
+                            <div class="ds-empty-desc" x-text="downtime.length === 0 ? '판정 기준(동작 초과·대기 초과)을 넘긴 사이클이 기록되면 여기에 표시됩니다.' : (dtTab === 'nonprod' ? '길이가 비생산 기준을 넘긴 사이클의 자동 판정 또는 [비생산으로 →] 전환으로 채워집니다.' : '상태·구분·전환 필터나 탭을 변경해 보세요.')"></div>
                         </div>
                     </template>
 
                     <!-- 상세 설명은 각 요소 툴팁으로 대체(2026-07-08) — 하단은 핵심 한 줄만 -->
                     <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:12px;">
-                        고장 체크 해제 = 유지보수(평균 고장 간격 제외) · <b style="color:var(--nonprod);">비생산</b> = 가용성(A) 분모 밖 · <b>확인 필요</b> = 길이가 비생산 기준 이상인 고장(끄고 간 정지 후보 — 전환 또는 고장 확정으로 해소) · 고장 시간 = 사이클 전체 · 단서는 표시용(건수·평균 고장 간격 미반영)
+                        고장 체크 해제 = 유지보수(평균 고장 간격 제외) · <b style="color:var(--nonprod);">비생산</b> = 가용성(A) 분모 밖 · <b>확인 필요</b> = 동작 중 멈춘 채 비생산 기준 이상으로 늘어져 비생산으로 둔 행(고장으로 전환 또는 비생산 확정으로 해소) · 고장 시간 = 사이클 전체 · 단서는 표시용(건수·평균 고장 간격 미반영)
                     </div>
                     </div>
                 </div>
@@ -856,7 +862,7 @@
                         <div class="up-cm-lane-head">
                             <b>대기시간(WT) 축</b>
                             <span class="up-codeish">비생산 판정</span>
-                            <span class="up-cm-info" :title="'기준선 = 14일 중앙 WT. 하한: 비생산 기준은 최소 평소 사이클 ' + cm.nonProdFloor + '개분(중앙 CT×' + cm.nonProdFloor + ') — 평소 대기가 거의 0인 설비에서 몇 초 대기가 비생산이 되는 것을 막습니다. 완료 신호가 없는 사이클과 완료 신호가 정의되지 않은 flow 는 사이클 전체 길이를 평소 사이클(중앙 CT) × 같은 배수에 댑니다. 이 배수는 고장 중 \'확인 필요\'(길이만 보면 비생산 급인 고장) 표시 임계로도 쓰입니다.'">ⓘ</span>
+                            <span class="up-cm-info" :title="'기준선 = 14일 중앙 WT. 하한: 비생산 기준은 최소 평소 사이클 ' + cm.nonProdFloor + '개분(중앙 CT×' + cm.nonProdFloor + ') — 평소 대기가 거의 0인 설비에서 몇 초 대기가 비생산이 되는 것을 막습니다. 완료 신호가 없는 사이클과 완료 신호가 정의되지 않은 flow 는 사이클 전체 길이를 평소 사이클(중앙 CT) × 같은 배수에 댑니다. 이 배수는 판정 임계이기도 합니다: 고장 규칙을 넘긴 행이라도 길이가 이 기준 이상이면 \'비생산(확인 필요)\'으로 둡니다 — 동작 중 멈춘 채 퇴근한 정지를 매일 고장으로 세지 않기 위해서입니다.'">ⓘ</span>
                         </div>
                         <div class="up-cm-band">
                             <div class="seg normal" :style="'width:' + cmBandW('wt-normal')">
@@ -888,7 +894,7 @@
                                 <span class="base" x-show="f.hasMtBaseline">동작 <i x-text="cmFmtMs(f.medianMtMs)"></i> · 대기 <i x-text="cmFmtMs(f.medianWtMs)"></i> · 표본 <i x-text="f.sampleCount"></i></span>
                                 <span class="base" x-show="!f.hasMtBaseline" title="완료 신호 미정의 — 동작·대기를 나눌 수 없어 사이클 길이(중앙 CT)로만 비생산을 판정합니다">사이클 <i x-text="cmFmtMs(f.medianCtMs)"></i> · 표본 <i x-text="f.sampleCount"></i></span>
                                 <template x-if="cmGated(f)">
-                                    <span class="th gate" :title="'14일 완료 사이클 ' + f.sampleCount + '건 — ' + cm.minSamples + '건 미만이라 판정 보류(전부 정상)'">판정 보류</span>
+                                    <span class="th gate" :title="'14일 완료 사이클 ' + f.sampleCount + '건 — ' + cm.minSamples + '건 미만이라 판정 불가. 이 설비의 시간은 라인 A·P 분모·분자에서 제외되고 데이터 무결성 카드에 보고됩니다.'">판정 불가</span>
                                 </template>
                                 <template x-if="!cmGated(f)">
                                     <span style="display:contents;">
@@ -912,7 +918,7 @@
                                 고장 <b x-text="cm.preview.current.downtimeCount"></b>건 → <b class="to" x-text="cm.preview.proposed.downtimeCount"></b>건
                                 <small class="up-codeish" :title="'고장 중 동작 초과 ' + cm.preview.proposed.faultMtCount + ' · 미완료 사이클 ' + cm.preview.proposed.faultCtCount" x-text="'(동작 ' + cm.preview.proposed.faultMtCount + ' · 미완료 ' + cm.preview.proposed.faultCtCount + ')'"></small> ·
                                 비생산 <b x-text="cm.preview.current.nonProdCount"></b>건 → <b class="to" x-text="cm.preview.proposed.nonProdCount"></b>건
-                                <small class="up-codeish" :title="'비생산 중 대기 초과 ' + cm.preview.proposed.nonProdWtCount + ' · 미완료 사이클 ' + cm.preview.proposed.nonProdCtCount" x-text="'(대기 ' + cm.preview.proposed.nonProdWtCount + ' · 미완료 ' + cm.preview.proposed.nonProdCtCount + ')'"></small> ·
+                                <small class="up-codeish" :title="'비생산 중 대기 초과 ' + cm.preview.proposed.nonProdWtCount + ' · 미완료 사이클 ' + cm.preview.proposed.nonProdCtCount + ' · 동작 중 멈춘 채 늘어짐(길이로 강등) ' + cm.preview.proposed.nonProdMtCount" x-text="'(대기 ' + cm.preview.proposed.nonProdWtCount + ' · 미완료 ' + cm.preview.proposed.nonProdCtCount + ' · 동작 ' + cm.preview.proposed.nonProdMtCount + ')'"></small> ·
                                 고장 시간 <b x-text="cmFmtH(cm.preview.current.idleCtMs)"></b> → <b class="to" x-text="cmFmtH(cm.preview.proposed.idleCtMs)"></b> ·
                                 비생산 <b x-text="cmFmtH(cm.preview.current.nonProdWallMs)"></b> → <b class="to" x-text="cmFmtH(cm.preview.proposed.nonProdWallMs)"></b> ·
                                 가용성 <b x-text="cmFmtPct(cm.preview.current.availability)"></b> → <b class="to" x-text="cmFmtPct(cm.preview.proposed.availability)"></b> ·
@@ -1001,6 +1007,13 @@
                                     <div class="up-mq-val up-oee-mono" x-text="mq.excludedCycles.toLocaleString()"></div>
                                     <div class="up-mq-note">비가동 판정으로 가용성에서 손실로 잡힌 수</div>
                                 </div>
+                                <!-- 판정 커버리지(2026-09-14) — 설비시간 중 A·P 판정에 실제로 들어간 비율. 표본 게이트 설비(판정 불가)가 빠질수록 내려간다.
+                                     "분모에서 빼면 계측이 나쁠수록 좋아 보인다"는 원칙표의 경고에 대한 답 — 뺀 만큼을 여기서 항상 말한다. -->
+                                <div class="up-mq-kpi" :title="oee && oee.unjudgedFlowCount > 0 ? ('판정 불가 설비: ' + ((oee.unjudgedFlows) || []).join(', ') + ' — 14일 완료 사이클 10건 미만. 이 설비들의 시간 ' + durSum(oee.unjudgedWallMs) + ' 은 라인 A·P 분모·분자 어디에도 넣지 않았습니다.') : '이 범위의 모든 설비가 기준선을 갖고 있어 전 설비시간이 판정에 들어갔습니다.'">
+                                    <div class="up-mq-lbl">판정 커버리지</div>
+                                    <div class="up-mq-val up-oee-mono" x-text="oee && oee.periodMs > 0 && oee.cycleFlowCount > 0 ? mqPct(1 - (oee.unjudgedWallMs || 0) / (oee.periodMs * oee.cycleFlowCount)) : '—'"></div>
+                                    <div class="up-mq-note" x-text="oee && oee.unjudgedFlowCount > 0 ? ('판정 불가 ' + oee.unjudgedFlowCount + '대 · ' + durSum(oee.unjudgedWallMs) + ' 분모 밖') : '판정 불가 설비 없음 — 전 설비시간이 A·P 에 반영'"></div>
+                                </div>
                             </div>
 
                             <!-- 경계(Head/Tail) 이상 — 지표가 조용히 틀리는 가장 흔한 원인. 지정으로 유도한다. -->
@@ -1088,7 +1101,7 @@
                                         <a class="up-mq-name" :href="'/uptime-oee?flow=' + encodeURIComponent(f.flowName)"
                                            :title="f.measurable === false
                                                    ? (f.flowName + ' — 측정 불가: 표준 가동시간 미학습(클린샘플 0). 설비 경계(Head/Tail) 지정을 확인하세요.')
-                                                   : (f.flowName + ' — 고장 경계(동작) ' + (f.thresholdMs > 0 ? durShort(f.thresholdMs) : '판별 불가(완료 신호 미정의)') + (f.baselineGated ? ' · 판정 보류(완료 표본 ' + f.baselineSampleCount + '건)' : '') + (f.unattributedWallMs > 60000 ? ' · 미귀속 ' + durShort(f.unattributedWallMs) : ''))"
+                                                   : (f.flowName + ' — 고장 경계(동작) ' + (f.thresholdMs > 0 ? durShort(f.thresholdMs) : '판별 불가(완료 신호 미정의)') + (f.baselineGated ? ' · 판정 불가 · 라인 집계 제외(완료 표본 ' + f.baselineSampleCount + '건)' : '') + (f.unattributedWallMs > 60000 ? ' · 미귀속 ' + durShort(f.unattributedWallMs) : ''))"
                                            x-text="f.flowName"></a>
                                         <span class="up-mq-bnd-chip" x-show="!!f.boundaryIssue" x-cloak
                                               :title="mqIssueText(f)" x-text="mqIssueLabel(f)"></span>
@@ -1149,13 +1162,13 @@
                                 <tr><td>모델 (2026-09-11, doc/28)</td><td><b>두 규칙 · 사이클 단위</b> — 사이클 = 동작(MT) + 대기(WT). 동작이 평소(14일 중앙)의 고장배수를 넘으면 <b>고장</b>, 대기가 비생산배수 이상이면 <b>비생산</b>, 나머지는 <b>정상</b>. 판정·손실·표시·전환의 단위는 <b>사이클 행 하나</b>(행 안에서 고장이 언제 시작됐는지는 모른다 — 쪼개지 않는다). 수집된 정상 가동만 근거로 삼고 <b>못 본 시간에는 어떤 상태도 주장하지 않는다</b>.</td></tr>
                                 <tr><td>OEE = A × P × Q</td><td><b>A</b> = 가동 ÷ 생산가능(캘린더 − 비생산 − 미계측 − 진행 중) · <b>P</b> = (N × 표준 CT[14일 중앙]) ÷ Σ실측 CT · <b>Q</b> = 양품/총생산(기본 100% 가정). 한 요소라도 미산출이면 OEE = '—'. 비가동 = 생산가능 − 가동 = 고장 + 유지보수.</td></tr>
                                 <tr><td>완료 신호 없는 사이클</td><td>시작 → 다음 시작(불인정 행)은 동작·대기를 나눌 수 없어 사이클 전체 길이를 <b>중앙 CT × 같은 배수</b>에 댄다. 동작 기준선에 대면 대기 비중이 큰 설비(셔틀 87%)에서 정상 길이 사이클도 완료 신호 한 번 누락에 고장이 된다.</td></tr>
-                                <tr><td>고장은 승격 없음</td><td>길이가 아무리 길어도 고장은 비생산으로 바뀌지 않는다 — 끄고 간 정지와 고장 조치는 행으로 구분할 수 없기 때문. 대신 길이가 비생산 기준 이상인 고장을 <b>'확인 필요'</b>로 표시하고, 정지 로그에서 행을 골라 <b>비생산으로 전환</b>하거나 <b>고장으로 확정</b>한다(수동 라벨은 자동 판정에 우선, 재도출 후에도 과반 겹침으로 같은 행에 붙는다).</td></tr>
-                                <tr><td>표준 CT</td><td>최근 <b>14일 정상 사이클 CT 중앙값</b>(flow별, RAM only). 평균은 정지를 머금은 사이클에 끌려 P 가 100% 에 고정됐다. 완료 사이클 <b>10건 미만</b>이면 판정 보류(전부 정상 — '판정 보류' 배지), <b>0개</b>면 '—'.</td></tr>
+                                <tr><td>길이가 길면 기본 비생산</td><td>끄고 간 정지와 고장 조치는 행으로 구분할 수 없다 — 그래서 <b>기본값</b>을 정해야 한다. 행 길이가 비생산 기준 이상이면 고장 규칙을 넘겼더라도 <b>비생산</b>으로 둔다(2026-09-14): 실측에서 이 밴드는 대부분 "동작 중(Going) 멈춘 채 퇴근"이었고, 고장으로 세면 매일 전 설비에 장시간 고장이 쌓여 가용성·평균 고장 간격이 못 쓰게 된다. 대신 <b>'확인 필요'</b>로 표시해, 실제 고장이었으면 정지 로그에서 <b>고장으로 전환</b>하고 맞으면 <b>비생산 확정</b>한다(수동 라벨은 자동 판정에 우선, 재도출 후에도 과반 겹침으로 같은 행에 붙는다). 기준 미만의 정지는 그대로 고장이라 일상적인 고장 감지는 유지된다.</td></tr>
+                                <tr><td>표준 CT</td><td>최근 <b>14일 정상 사이클 CT 중앙값</b>(flow별, RAM only). 평균은 정지를 머금은 사이클에 끌려 P 가 100% 에 고정됐다. 완료 사이클 <b>10건 미만</b>이면 <b>판정 불가</b> — 그 설비의 시간은 A·P 분모·분자 어디에도 넣지 않고(미계측·진행 중과 같은 자리) 데이터 무결성 카드에 '판정 불가'로 보고한다(2026-09-14. 종전 "전부 정상"은 긴 정지까지 가동으로 세어 아래 '사이클 0건이면' 원칙과 모순이었다 — 0건은 '—'인데 9건은 만점). <b>0개</b>면 '—'.</td></tr>
                                 <tr><td>입력은 <b>합집합</b></td><td>CT 를 단순 합산하지 않고 <b>구간 union</b> 으로 잰다. 수집이 오염되면 사이클끼리 겹쳐 합이 달력을 넘는다 — union 은 창을 넘을 수 없다. 카빙 사슬 = 미계측 ▸ 비생산 ▸ 형제가동 ▸ 진행 중 ▸ 비가동.</td></tr>
                                 <tr><td>미귀속 = 0</td><td>비가동 − 유지보수 − 고장은 정의상 0 이어야 한다(행이 연속 + 고장 행 전체 적립). 0 이 아니면 데이터 결함(행 겹침·누락·재시작 조각) — 종전 '가동간 공백' 세그먼트는 삭제하고 데이터 무결성 카드의 진단 항목으로 보낸다.</td></tr>
                                 <tr><td>사이클 0건이면</td><td><b>산출 불가</b>. 근사값을 만들지 않는다 — 종전 달력근사 폴백은 "정지가 감지되지 않았다"를 "100% 가동"으로 번역해, 측정 자체가 안 되는 설비를 만점으로 표시했다.</td></tr>
                                 <tr><td>고장 사이클 평균 시간 / 평균 고장 간격</td><td>고장 행에서만. onset = <b>행 시작</b>, 평균 시간 = <b>고장 행 전체 길이(ct) 평균</b>(정상분 포함 — 초과량은 행 노트). 유지보수 꼬리표 행은 통계에서 제외(A 손실은 유지). OEE 곱셈식과 <b>독립</b> 동반지표. 0건이면 "🟢 고장 없음" 배지(가짜수치 금지).</td></tr>
-                                <tr><td>데이터 무결성 분리</td><td>"얼마나 봤나"는 지표가 아니라 <b>수집 상태</b>다. A·P·Q 에 섞지 않고(손실로 넣으면 계측 실패가 설비 탓, 분모에서 빼면 계측이 나쁠수록 설비가 좋아 보임) 페이지 맨 아래 <b>데이터 무결성</b> 카드가 수집률·미귀속으로 따로 보고한다.</td></tr>
+                                <tr><td>데이터 무결성 분리</td><td>"얼마나 봤나"는 지표가 아니라 <b>수집 상태</b>다. A·P·Q 에 섞지 않고(손실로 넣으면 계측 실패가 설비 탓, 분모에서 빼면 계측이 나쁠수록 설비가 좋아 보임) 페이지 맨 아래 <b>데이터 무결성</b> 카드가 수집률·미귀속으로 따로 보고한다. 판정 불가(표본 게이트) 시간도 같은 카드에 <b>커버리지</b>로 보고한다 — 분모에서 빼는 대신 <b>뺐다고 말하는 것</b>이 조건이다.</td></tr>
                                 <tr><td>필수 입력 0개</td><td>표준 CT·고장/비생산 판정·A·P·고장 사이클 평균 시간·평균 고장 간격 모두 수집 데이터로 자동. 품질%·표준 CT 수동입력·고장/유지보수 구분·전환은 선택(보정). 사용자가 움직이는 배수는 고장·비생산 2개.</td></tr>
                             </tbody>
                         </table>

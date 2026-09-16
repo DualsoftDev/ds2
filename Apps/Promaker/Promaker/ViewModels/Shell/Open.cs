@@ -55,11 +55,11 @@ public partial class MainViewModel
             if (conn is null) return;
             if (Promaker.Shared.AidXgtEndpointSynchronizer.Matches(current, conn)) return;
 
-            var before = $"{current.Vendor} {current.IpAddress}:{current.Port}";
+            var before = $"{current.Vendor} {current.EndpointLabel}";
             sim.PlcSettings.ApplyConnection(conn);
 
-            Log.Info($"AID XGT endpoint 적용: {before} → {conn.Vendor} {conn.IpAddress}:{conn.Port}");
-            StatusText = $"{StatusText} — AID PLC 접속 적용 ({conn.IpAddress}:{conn.Port})";
+            Log.Info($"AID XGT endpoint 적용: {before} → {conn.Vendor} {conn.EndpointLabel}");
+            StatusText = $"{StatusText} — AID PLC 접속 적용 ({conn.EndpointLabel})";
         }
         catch (Exception ex)
         {

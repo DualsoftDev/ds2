@@ -333,14 +333,14 @@ public sealed partial class SimulationHubBridge
             if (status.IsConnected)
             {
                 _addSimLog(
-                    $"[PLC] {status.Name} ({status.Vendor} {status.IpAddress}:{status.Port}) 연결됨",
+                    $"[PLC] {status.Name} ({status.Vendor} {status.Endpoint}) 연결됨",
                     LogSeverity.System);
             }
             else
             {
                 var detail = string.IsNullOrWhiteSpace(status.LastError) ? "사유 미상" : status.LastError;
                 _addSimLog(
-                    $"[PLC] {status.Name} ({status.Vendor} {status.IpAddress}:{status.Port}) 통신 실패 — {detail}",
+                    $"[PLC] {status.Name} ({status.Vendor} {status.Endpoint}) 통신 실패 — {detail}",
                     LogSeverity.Error);
             }
             PlcConnectionStatusChanged?.Invoke(status);

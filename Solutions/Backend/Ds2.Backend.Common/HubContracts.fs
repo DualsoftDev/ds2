@@ -249,6 +249,10 @@ module TagWriteSystem =
 
 /// PLC 어댑터 1개의 연결 상태 스냅샷. SignalR JSON 직렬화로 양방향 전달되는 contract.
 /// 같은 이유로 [<CLIMutable>] 필요 — DSPilot 측 System.Text.Json 역직렬화 호환.
+/// IpAddress/Port: 이더넷 접속의 host/port. USB 접속은 ""/0 이라 표시에 쓰면 ":0" 이 된다 —
+///   화면·로그는 Endpoint 를 쓴다. 두 필드는 모델 AID 엔드포인트와의 ip:port 대조(DSPilot)용으로 남긴다.
+/// Endpoint: 사람이 읽는 접속 표기(host:port | USB | USB(selector)). 게이트웨이가 Core 의
+///   PlcEndpointLabel 로 채우므로 Promaker·DSPilot 은 문자열을 조립하지 않고 그대로 보여준다.
 /// LastError: 마지막 connect 실패 사유 (없으면 "" — IsConnected=true 인 정상 케이스).
 /// FailedAttempts: 마지막 성공 이후 연속 실패 횟수. 0 이면 정상.
 /// AtUtc: 본 상태가 관측된 시각 (UTC) — UI 가 "n초 전 끊김" 같은 표시에 사용 가능.
@@ -258,6 +262,7 @@ type PlcConnectionStatus = {
     Vendor: string
     IpAddress: string
     Port: int
+    Endpoint: string
     IsConnected: bool
     LastError: string
     FailedAttempts: int
@@ -306,9 +311,16 @@ type CollectorTagConfig = {
 [<CLIMutable>]
 type CollectorConnectionConfig = {
     [<JsonPropertyName("name")>]          Name: string
-    [<JsonPropertyName("vendor")>]        Vendor: string          // "LsXgk" | "LsXgi" | "LsXgb" | "Mitsubishi"
+    [<JsonPropertyName("vendor")>]        Vendor: string          // Ds2.Backend.Plc.CollectorConfig.vendorStr: "LsXgk" | "LsXgi" | "LsXgb" | "Mitsubishi" | "MicrexSx"
+    /// 접속 매체 "tcp" | "udp" | "usb" (Ds2.Backend.Plc.PlcTransport.label). 구버전 수집기는 이 필드를 무시하고
+    /// 이더넷으로 붙으므로, USB 접속을 내려주려면 수집기도 함께 배포해야 한다.
+    [<JsonPropertyName("transport")>]     Transport: string
+    /// 이더넷 host. USB 접속은 "".
     [<JsonPropertyName("ip")>]            Ip: string
+    /// 이더넷 포트. USB 접속은 0.
     [<JsonPropertyName("port")>]          Port: int
+    /// USB 전용 — LS USB 로더의 장치 선택 키(목록번호·serial·bus:addr·product 부분일치). "" = 첫 매칭.
+    [<JsonPropertyName("usbDeviceSelector")>] UsbDeviceSelector: string
     [<JsonPropertyName("localEthernet")>] LocalEthernet: bool
     [<JsonPropertyName("timeoutMs")>]     TimeoutMs: int
     [<JsonPropertyName("scanMs")>]        ScanMs: int

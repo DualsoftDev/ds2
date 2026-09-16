@@ -4,6 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Ds2.Core.StandardSubmodels;
+using XgtEndpointBase = Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.XgtEndpointBase;
+using XgtTransport = Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.XgtTransport;
 
 namespace Promaker.Shared;
 
@@ -19,12 +22,31 @@ public enum PlcVendorChoice
 }
 
 /// <summary>
+/// 접속 매체 라벨 상수 — 문자열 계약의 정본은 Ds2.Core 의 <c>XgtEndpointBase.transportLabel</c> 이고
+/// 여기서는 그 값을 C# 이름으로 부를 뿐이다(리터럴을 다시 적지 않는다).
+/// AASX Property <c>transport</c>, PlcConnection.json, 수집기 payload 가 모두 이 세 값을 쓴다.
+/// </summary>
+public static class PlcTransports
+{
+    public static readonly string Tcp = XgtEndpointBase.transportLabel(XgtTransport.XgtTcp);
+    public static readonly string Udp = XgtEndpointBase.transportLabel(XgtTransport.XgtUdp);
+    public static readonly string Usb = XgtEndpointBase.transportLabel(XgtTransport.XgtUsb);
+
+    /// <summary>모르는 값(옛 파일·오타)은 TCP 로 읽는다 — 이더넷만 있던 시절의 기본값.</summary>
+    public static string Normalize(string? label) =>
+        string.Equals(label, Udp, StringComparison.OrdinalIgnoreCase) ? Udp
+        : string.Equals(label, Usb, StringComparison.OrdinalIgnoreCase) ? Usb
+        : Tcp;
+}
+
+/// <summary>
 /// 벤더별 연결 파라미터 프로파일. <see cref="PlcConnectionSettings.Profiles"/> 에 벤더 enum 이름을
 /// 키로 저장돼 사용자가 벤더를 바꿔도 그 벤더에 입력했던 값이 그대로 복원된다.
 /// </summary>
 public sealed class PlcVendorProfile
 {
     public string Name { get; set; } = "PLC#1";
+    /// <summary>이더넷 host. USB 접속에서는 쓰이지 않는다(빈 값 허용).</summary>
     public string IpAddress { get; set; } = "192.168.0.10";
     public int Port { get; set; } = 2004;
     public int TimeoutMs { get; set; } = 3000;
@@ -32,7 +54,17 @@ public sealed class PlcVendorProfile
     public bool LocalEthernet { get; set; } = true;
     public byte NetworkNumber { get; set; } = 0;
     public byte StationNumber { get; set; } = 0xFF;
-    public bool IsUdp { get; set; } = false;
+    /// <summary>접속 매체 — <see cref="PlcTransports"/> 의 "tcp" | "udp" | "usb".
+    /// UDP 는 미쓰비시 MC 프로토콜에서만 의미가 있고(PLC Ethernet 모듈 파라미터가 UDP 면 클라이언트도 UDP 로),
+    /// USB 는 LS(XGI/XGK/XGB) CPU 전면 USB 로더 포트다.</summary>
+    public string Transport { get; set; } = PlcTransports.Tcp;
+    /// <summary>USB 전용 — 장치 선택 키(목록번호 · serial · bus:addr · product 부분일치). "" = 첫 매칭 장치.</summary>
+    public string UsbDeviceSelector { get; set; } = string.Empty;
+
+    public bool IsUsb => PlcEndpointLabel.isUsb(Transport);
+
+    /// <summary>사람이 읽는 접속 표기(host:port | USB | USB(selector)) — 상태바·로그가 그대로 쓴다.</summary>
+    public string EndpointLabel => PlcEndpointLabel.format(Transport, IpAddress ?? string.Empty, Port, UsbDeviceSelector ?? string.Empty);
 
     public static PlcVendorProfile Defaults(PlcVendorChoice vendor) => vendor switch
     {
@@ -46,13 +78,22 @@ public sealed class PlcVendorProfile
     ///
     /// 진실의 출처는 Ds2.Core 의 <c>XgtCpuModel = Xgi | Xgk | Xgb</c> 닫힌 DU 와
     /// <c>AidXgtEndpointSettings.tryCpuModel</c> 이다 — 비-LS 벤더는 거기서 None 이 되어
-    /// UpdateAll/EnsureBindingForSystem 이 0(변경 없음)을 돌려준다.
+    /// EnsureBindingForSystem 이 0(변경 없음)을 돌려준다.
     ///
     /// 이 판정이 갈라놓는 것: 저장 경로(AID endpoint ↔ 전역 PlcConnection.json)와,
     /// System 속성 패널이 화면에 무엇을 진실로 삼을지. 한쪽만 틀리면 저장한 벤더가
     /// 옛 AID endpoint 값으로 되돌아간다.</summary>
     public static bool IsAidXgtVendor(PlcVendorChoice vendor) =>
         vendor is PlcVendorChoice.LsXgi or PlcVendorChoice.LsXgk or PlcVendorChoice.LsXgb;
+
+    /// <summary>이 벤더가 고를 수 있는 접속 매체. USB 는 LS 로더 포트만 dsev2 가 지원하고(미쓰비시 USB 는
+    /// Linux 전용 진단 경로, SX 는 이더넷 로더만), UDP 는 미쓰비시 MC 프로토콜만 쓴다.</summary>
+    public static IReadOnlyList<string> TransportsFor(PlcVendorChoice vendor) => vendor switch
+    {
+        PlcVendorChoice.Mitsubishi => new[] { PlcTransports.Tcp, PlcTransports.Udp },
+        PlcVendorChoice.MicrexSx => new[] { PlcTransports.Tcp },
+        _ => new[] { PlcTransports.Tcp, PlcTransports.Usb },
+    };
 
     /// <summary>이 포트 값이 <b>어떤 벤더의 기본 포트</b>인가 — 사용자가 직접 넣은 포트인지
     /// 판정하는 데 쓴다. 벤더를 바꿀 때 기본 포트 상태면 새 벤더 기본값으로 옮기고, 사용자가
@@ -72,7 +113,8 @@ public sealed class PlcVendorProfile
         LocalEthernet = LocalEthernet,
         NetworkNumber = NetworkNumber,
         StationNumber = StationNumber,
-        IsUdp = IsUdp,
+        Transport = Transport,
+        UsbDeviceSelector = UsbDeviceSelector,
     };
 }
 
@@ -86,9 +128,10 @@ public sealed class PlcVendorProfile
 /// 옛 경로(%AppData%\Dualsoft\Promaker\Settings\PlcConnection.json) 에만 파일이 있으면
 /// Load 시 자동 마이그레이션.
 ///
-/// 최상위 플랫 필드(Vendor, IpAddress, Port…) 는 "현재 활성 벤더" 의 값으로 — Agent 와
-/// <see cref="PlcGatewayConfigBuilder"/> 가 그대로 읽는다. <see cref="Profiles"/> 는 모든 벤더의
-/// 직전 입력값을 보관해, 사용자가 벤더를 토글해도 각 벤더 양식이 복원되도록 한다.
+/// 최상위 플랫 필드(Vendor, IpAddress, Port…) 는 "현재 활성 벤더" 의 값이고, <see cref="Profiles"/> 는
+/// 모든 벤더의 직전 입력값을 보관해 사용자가 벤더를 토글해도 각 벤더 양식이 복원되도록 한다.
+/// 런타임이 실제로 스캔에 쓰는 접속은 이 파일이 아니라 AASX 의 AID endpoint 다(Agent 가 AID 에서만
+/// 게이트웨이를 조립한다) — 이 파일은 UI 입력 보존과 Agent 설정 지문·스캔주기 영속에 쓰인다.
 /// </summary>
 public sealed class PlcConnectionSettings
 {
@@ -119,7 +162,10 @@ public sealed class PlcConnectionSettings
     public bool LocalEthernet { get; set; } = true;
     public byte NetworkNumber { get; set; } = 0;
     public byte StationNumber { get; set; } = 0xFF;
-    public bool IsUdp { get; set; } = false;
+    /// <summary>접속 매체 — <see cref="PlcTransports"/> 참조.</summary>
+    public string Transport { get; set; } = PlcTransports.Tcp;
+    /// <summary>USB 전용 장치 선택 키. <see cref="PlcVendorProfile.UsbDeviceSelector"/> 참조.</summary>
+    public string UsbDeviceSelector { get; set; } = string.Empty;
 
     /// <summary>자동 duration 정합 ON/OFF (모니터링 이상판정 기준 — 실측 학습 vs 모델 확정값).
     /// 벤더별이 아니라 PLC 공통 정책이라 플랫 필드. 스캔주기와 동형으로 hub 토글 → 영속화.
@@ -138,11 +184,15 @@ public sealed class PlcConnectionSettings
     /// <see cref="JsonIgnoreAttribute"/> 로 직렬화에서 빠지므로 Agent 의 설정 지문에도 영향을 주지 않는다.
     ///
     /// <para>false = 파일이 없어 생성자 기본값을 쓰고 있는 상태. 아무도 고른 적 없는 값이므로
-    /// AID endpoint에 기록하면 안 된다(<see cref="AidXgtEndpointSynchronizer.StampToStore"/>).
+    /// AID endpoint에 기록하면 안 된다(<see cref="AidXgtEndpointSynchronizer.EnsureToStore(Ds2.Core.Store.DsStore, Guid, PlcConnectionSettings, IEnumerable{string})"/>).
     /// 값 비교로는 이 판별을 할 수 없다 — 실제로 192.168.0.10:2004 을 쓰는 현장과 구분되지 않는다.</para>
     /// </summary>
     [JsonIgnore]
     public bool WasPersisted { get; set; }
+
+    /// <summary>사람이 읽는 현재 활성 접속 표기.</summary>
+    [JsonIgnore]
+    public string EndpointLabel => PlcEndpointLabel.format(Transport, IpAddress ?? string.Empty, Port, UsbDeviceSelector ?? string.Empty);
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -252,8 +302,26 @@ public sealed class PlcConnectionSettings
         LocalEthernet = LocalEthernet,
         NetworkNumber = NetworkNumber,
         StationNumber = StationNumber,
-        IsUdp = IsUdp,
+        Transport = Transport,
+        UsbDeviceSelector = UsbDeviceSelector,
     };
+
+    /// <summary>프로파일 값을 플랫 필드로 적용 — <see cref="SnapshotFlatToProfile"/> 의 역방향.
+    /// System 속성 패널 저장·AASX 박제(Save.StampPlcConnection)·벤더 전환이 전부 이 한 곳을 쓴다.
+    /// 벤더는 바꾸지 않는다(호출자가 정한다).</summary>
+    public void ApplyProfile(PlcVendorProfile p)
+    {
+        Name = p.Name;
+        IpAddress = p.IpAddress;
+        Port = p.Port;
+        TimeoutMs = p.TimeoutMs;
+        ScanIntervalMs = p.ScanIntervalMs;
+        LocalEthernet = p.LocalEthernet;
+        NetworkNumber = p.NetworkNumber;
+        StationNumber = p.StationNumber;
+        Transport = PlcTransports.Normalize(p.Transport);
+        UsbDeviceSelector = p.UsbDeviceSelector ?? string.Empty;
+    }
 
     /// <summary>지정 벤더 프로파일을 플랫 필드로 적용. 프로파일 없으면 기본값 사용.</summary>
     public void ApplyProfileToFlat(PlcVendorChoice vendor)
@@ -263,15 +331,7 @@ public sealed class PlcConnectionSettings
             p = PlcVendorProfile.Defaults(vendor);
 
         Vendor = key;
-        Name = p.Name;
-        IpAddress = p.IpAddress;
-        Port = p.Port;
-        TimeoutMs = p.TimeoutMs;
-        ScanIntervalMs = p.ScanIntervalMs;
-        LocalEthernet = p.LocalEthernet;
-        NetworkNumber = p.NetworkNumber;
-        StationNumber = p.StationNumber;
-        IsUdp = p.IsUdp;
+        ApplyProfile(p);
     }
 
     /// <summary>지정 경로에 JSON 저장. 디렉터리 자동 생성. 실패해도 throw 없이 false 반환.

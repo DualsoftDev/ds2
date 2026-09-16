@@ -260,6 +260,27 @@ begin
   Result := '';
 end;
 
+#if HasAgent
+// ── 설치 전 안내 / 오픈소스 고지 — Agent 를 번들할 때만(HasAgent). 통합 설치(Suite)는 /SILENT 로 이 설치본을
+// 체이닝하므로 이 페이지는 단독 설치에서만 보이고, 통합 설치는 Suite.iss 의 고지 페이지가 같은 내용을 맡는다.
+// libusb 는 LGPL-2.1 — 재배포 시 고지가 필요하고 전문/출처는 Agent 폴더에 DLL 과 함께 실린다(Promaker.Agent.csproj).
+procedure InitializeWizard();
+begin
+  CreateOutputMsgMemoPage(wpWelcome,
+    '설치 안내', '설치 전 확인해 주세요.',
+    'Promaker Agent 서비스 · 방화벽 · 오픈소스 고지 안내입니다.',
+    '[Windows 서비스]' + #13#10 +
+    '  · ''Promaker Agent + Agent Tray 설치'' 를 선택하면 모니터링 서비스가 시스템 시작 시 자동 실행됩니다.' + #13#10#13#10 +
+    '[방화벽 — Agent 설치 시 아래 인바운드 규칙이 자동 등록됩니다]' + #13#10 +
+    '  · Promaker Agent: TCP {#MyAgentPort}(모니터링) / {#MyAgentUploadPort}(모델 업로드)' + #13#10#13#10 +
+    '[오픈소스 고지]' + #13#10 +
+    '  Promaker Agent 는 LS PLC 의 USB 로더 포트 수집을 위해 아래 오픈소스를 포함/재배포합니다.' + #13#10 +
+    '  · libusb 1.0 (LGPL-2.1)  https://libusb.info' + #13#10 +
+    '  동적 로드(libusb-1.0.dll)로만 사용하며 수정하지 않았습니다. 라이선스 전문과 출처·해시는' + #13#10 +
+    '  설치 폴더의 Agent\LICENSE-libusb-1.0.txt, Agent\NOTICE-libusb-1.0.txt 에서 확인할 수 있습니다.');
+end;
+#endif
+
 #if SelfContainedMode != "true"
 // fd 모드: .NET 9 Desktop Runtime이 없으면 자동 다운로드/설치
 function InitializeSetup: Boolean;

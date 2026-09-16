@@ -52,11 +52,11 @@ type PlcScanService(gateway: IPlcGateway, broadcaster: IPlcHubBroadcaster) =
     /// - 2~: 재시도 지속 (Debug — log4net 설정으로 끌 수 있음)
     let onConnectionStatusChanged (status: PlcConnectionStatus) =
         if status.IsConnected then
-            log.Info($"PLC connection up: {status.Name} ({status.Vendor} {status.IpAddress}:{status.Port})")
+            log.Info($"PLC connection up: {status.Name} ({status.Vendor} {status.Endpoint})")
         elif status.FailedAttempts <= 1 then
-            log.Warn($"PLC connection down: {status.Name} ({status.Vendor} {status.IpAddress}:{status.Port}) — {status.LastError}")
+            log.Warn($"PLC connection down: {status.Name} ({status.Vendor} {status.Endpoint}) — {status.LastError}")
         else
-            log.Debug($"PLC retry #{status.FailedAttempts}: {status.Name} ({status.Vendor} {status.IpAddress}:{status.Port}) — {status.LastError}")
+            log.Debug($"PLC retry #{status.FailedAttempts}: {status.Name} ({status.Vendor} {status.Endpoint}) — {status.LastError}")
         try
             broadcaster.BroadcastPlcConnectionStatus(status) |> ignore
         with ex ->

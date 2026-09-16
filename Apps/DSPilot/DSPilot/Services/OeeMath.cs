@@ -94,16 +94,18 @@ public static class OeeMath
     /// <summary>
     /// 비생산 경계(CT) — 불인정 행(mt NULL) 전용 = max(중앙 CT × 비생산배수, 중앙 CT × 하한 배수). 중앙 CT ≤0 이면 0.
     /// tail 미정의 flow(mt·wt 항상 NULL)의 유일한 판정 경계이기도 하다(고장 판별 불가, 비생산만).
-    /// '확인 필요' 플래그(<see cref="IsReviewPending"/>)의 임계로도 쓴다 — "길이만 보면 비생산 기준을 넘는 고장".
+    /// 완료 행에서도 쓴다(2026-09-14): ①-a 를 넘긴 고장 후보라도 <b>행 길이</b>가 이 경계 이상이면 비생산(확인 필요)으로 강등 —
+    /// <see cref="IsReviewPending"/> 이 그 임계 판정이다.
     /// </summary>
     public static double ResolveCtNonProdBoundaryMs(double medianCtMs, double nonProdMultiplier)
         => medianCtMs <= 0 ? 0
             : Math.Max(medianCtMs * nonProdMultiplier, medianCtMs * WtNonProdFloorCtMultiples);
 
     /// <summary>
-    /// '확인 필요'(needsReview, doc/28 §2.8) — 고장 행의 길이(ct)가 비생산 경계(CT) 이상이면 사람이 볼 대상이다.
-    /// 판정을 바꾸지 않는 표시 플래그. 뜻: 이 행이 대기로 서 있었다면 비생산이 됐을 길이 = "끄고 간 정지가 아닌지 확인".
-    /// 해소 = '비생산으로' 전환 또는 '고장으로' 확정(둘 다 수동 라벨 → 호출측이 플래그를 내린다).
+    /// '확인 필요'(needsReview, doc/28 §2.8 — 2026-09-14 방향 반전) — 고장 규칙을 넘긴 행의 길이(ct)가 비생산 경계(CT)
+    /// 이상인가. 이제는 <b>표시 플래그가 아니라 판정 임계</b>다: 참이면 그 행은 고장이 아니라 비생산(확인 필요)으로 간다
+    /// (<see cref="CycleClass.NonProductionReview"/>). 뜻: "동작 중 멈춘 채 길게 늘어짐 = 끄고 간 정지로 보되 물어본다".
+    /// 해소 = '고장으로' 전환 또는 '비생산으로' 확정(둘 다 수동 라벨 → 호출측이 플래그를 내린다).
     /// </summary>
     public static bool IsReviewPending(double ctMs, double ctNonProdBoundaryMs)
         => ctNonProdBoundaryMs > 0 && ctMs >= ctNonProdBoundaryMs;
@@ -270,9 +272,19 @@ public static class OeeMath
         Normal,
         /// <summary>고장 — 행 전체가 A 손실(비가동), 고장 건수·MTBF 반영. 길이 무관 비생산으로 승격하지 않는다.</summary>
         Fault,
-        /// <summary>비생산 — 행 전체가 분모 밖(생산가능시간 아님). 건수·MTBF 미반영.</summary>
+        /// <summary>비생산 — 행 전체가 분모 밖(생산가능시간 아님). 건수·MTBF 미반영. 근거가 확실한 쪽(tail 찍고 대기·사용자 라벨·지정 시각대).</summary>
         NonProduction,
+        /// <summary>
+        /// 비생산(확인 필요) — 고장 규칙(①)을 넘겼지만 <b>행 전체 길이가 비생산 경계 이상</b>이라 비생산으로 보낸 행 (2026-09-14).
+        /// 뜻: "동작 중(Going) 멈춘 채 길게 늘어진 정지" = 끄고 간 정지일 가능성이 크지만 근거는 약하다.
+        /// 처분은 <see cref="NonProduction"/> 과 같고(분모 밖·MTBF 미반영), 사용자에게 '확인 필요'로 물어 <b>고장 전환</b>을 받는다.
+        /// </summary>
+        NonProductionReview,
     }
+
+    /// <summary>비생산 계열(분모 밖) — 근거 확실한 <see cref="CycleClass.NonProduction"/> 과 <see cref="CycleClass.NonProductionReview"/> 둘 다.</summary>
+    public static bool IsNonProductionClass(CycleClass cls)
+        => cls is CycleClass.NonProduction or CycleClass.NonProductionReview;
 
     /// <summary>
     /// 한 사이클 행을 정상/고장/비생산으로 분류 (doc/28 §1 SSOT — dtCond SQL 과 같은 규칙, 한쪽만 바꾸지 말 것).
@@ -281,6 +293,12 @@ public static class OeeMath
     ///     wt 가 비어 있으면 <c>ct − mt</c>(행 단위 항등 CT = MT + WT).</item>
     ///   <item>불인정 행(mt NULL): ①-b <c>ct &gt; ctFaultMs</c> → 고장 / ②-b <c>ct ≥ ctNonProdMs</c> → 비생산 / 나머지 정상.</item>
     /// </list>
+    /// <para><b>길이에 의한 비생산 강등(2026-09-14)</b> — ① 을 넘긴 행이라도 <b>행 전체 길이가 비생산 경계 이상</b>
+    /// (<see cref="IsReviewPending"/> 과 같은 임계)이면 고장이 아니라 <see cref="CycleClass.NonProductionReview"/> 다.
+    /// 현장 실측(3000, 7일)에서 이 밴드는 45건 307h 가 전부 "Going 인 채로 퇴근" 이었고 진짜 고장은 25건 20.8h 뿐이었다 —
+    /// 고장으로 세면 매일 전 설비에 장시간 고장이 쌓여 A·MTBF 가 못 쓰게 된다. 기본값을 뒤집고 사용자가 '고장으로' 전환한다.
+    /// 불인정 행(mt NULL)은 동작 시간 자체를 모르므로 ②-b 비생산도 전부 '확인 필요' 다.
+    /// 반면 ②-a(tail 을 찍고 기다린 대기 초과)는 근거가 확실하므로 묻지 않는다.</para>
     /// 경계 ≤ 0 은 그 절이 비활성(예: MT 기준선 미보유 flow 는 mtFaultMs=ctFaultMs=0 — 고장 판별 불가).
     /// <paramref name="sampleCount"/> &lt; <see cref="MinBaselineSamples"/> 면 표본 게이트 — 전부 정상.
     /// 사용자 라벨(고장으로/비생산으로)·비생산 지정 시각대는 이 함수 밖에서 호출측이 우선 적용한다(§2.6).
@@ -293,13 +311,15 @@ public static class OeeMath
         if (sampleCount < MinBaselineSamples) return CycleClass.Normal;
         if (mt is int m)
         {
-            if (mtFaultMs > 0 && m > mtFaultMs) return CycleClass.Fault;                       // ①-a
+            if (mtFaultMs > 0 && m > mtFaultMs)                                                // ①-a
+                return IsReviewPending(c, ctNonProdMs) ? CycleClass.NonProductionReview : CycleClass.Fault;
             var w = wt is int w0 && w0 >= 0 ? w0 : Math.Max(0, c - m);
-            if (wtNonProdMs > 0 && w >= wtNonProdMs) return CycleClass.NonProduction;         // ②-a
+            if (wtNonProdMs > 0 && w >= wtNonProdMs) return CycleClass.NonProduction;         // ②-a (tail 후 대기 = 근거 확실)
             return CycleClass.Normal;
         }
-        if (ctFaultMs > 0 && c > ctFaultMs) return CycleClass.Fault;                           // ①-b
-        if (ctNonProdMs > 0 && c >= ctNonProdMs) return CycleClass.NonProduction;             // ②-b
+        if (ctFaultMs > 0 && c > ctFaultMs)                                                    // ①-b
+            return IsReviewPending(c, ctNonProdMs) ? CycleClass.NonProductionReview : CycleClass.Fault;
+        if (ctNonProdMs > 0 && c >= ctNonProdMs) return CycleClass.NonProductionReview;       // ②-b (동작 시간 미상 = 근거 약함)
         return CycleClass.Normal;
     }
 
@@ -328,7 +348,7 @@ public static class OeeMath
     public static (double? Availability, string? Note) ComputeWallClockAvailability(double runWallMs, double availableWallMs)
     {
         if (availableWallMs <= 0)
-            return (null, "생산가능시간 0(전 기간 비생산/미계측/진행 중) — 가용성 산출 불가.");
+            return (null, "생산가능시간 0(전 기간 비생산/미계측/진행 중/판정 불가) — 가용성 산출 불가.");
         return (Math.Clamp(runWallMs / availableWallMs, 0, 1),
             "가동(벽시계) ÷ 생산가능시간(캘린더 − 비생산 − 미계측). 비가동 = 생산가능 − 가동 = 고장 + 유지보수.");
     }

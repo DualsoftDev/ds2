@@ -182,7 +182,8 @@ public class UserTagsController : ControllerBase
             return new UtEditorDto([], [], UserTagEditorSupport.ValueTypes, matchOps, 0, false);
 
         var endpointBySystem = _project.GetPlcEndpoints()
-            .SelectMany(e => e.SystemName.Split('·').Select(n => (Name: n, Ep: $"{e.Ip}:{e.Port}")))
+            // 표기는 서버가 만든 Endpoint(host:port | USB | USB(selector)) — ip:port 를 직접 조립하면 USB 가 ":0" 이 된다.
+            .SelectMany(e => e.SystemName.Split('·').Select(n => (Name: n, Ep: e.Endpoint)))
             .GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First().Ep, StringComparer.OrdinalIgnoreCase);
         var active = _project.GetActiveSystems();

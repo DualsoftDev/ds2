@@ -662,7 +662,11 @@ begin
     '  · MediaMTX (MIT License)  https://github.com/bluenviron/mediamtx' + #13#10 +
     '  · WinSW (MIT License)     https://github.com/winsw/winsw' + #13#10 +
     '  라이선스 전문은 설치 폴더의 mediamtx\LICENSE,' + #13#10 +
-    '  mediamtx\LICENSE-winsw.txt 에서 확인할 수 있습니다.'
+    '  mediamtx\LICENSE-winsw.txt 에서 확인할 수 있습니다.' + #13#10#13#10 +
+    '  ''Promaker Agent'' 옵션은 LS PLC 의 USB 로더 포트 수집을 위해 아래 오픈소스를 포함/재배포합니다.' + #13#10 +
+    '  · libusb 1.0 (LGPL-2.1)  https://libusb.info' + #13#10 +
+    '  동적 로드(libusb-1.0.dll)로만 사용하며 수정하지 않았습니다. 라이선스 전문과 출처·해시는' + #13#10 +
+    '  설치 폴더의 Agent\LICENSE-libusb-1.0.txt, Agent\NOTICE-libusb-1.0.txt 에서 확인할 수 있습니다.'
 #ifdef Lite
     + #13#10#13#10 +
     '[저용량 설치본 — 인터넷 연결 필요]' + #13#10 +

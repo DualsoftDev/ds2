@@ -144,26 +144,45 @@ let ``BCR05 AID roundtrip preserves AutoID event`` () =
         Assert.Equal("line1.bcr05.code", ev.SignalId.Value)
     | _ -> Assert.Fail "expected OpcUa binding"
 
+let private xgtInteraction idShort href signalId : OpcUaInteraction = {
+    IdShort = idShort
+    SemanticId = SemanticId $"urn:dualsoft:test:{idShort}"
+    ValueType = XsBoolean
+    Unit = None
+    Href = href
+    SignalId = SignalId signalId
+}
+
+let private assertError (result: Result<'a, string>) =
+    match result with
+    | Error _ -> ()
+    | Ok value -> Assert.Fail($"expected Error but got Ok {value}")
+
+/// 이더넷과 USB endpoint 가 한 AID 에 공존하며 AASX 왕복 뒤 Agent 게이트웨이 설정으로 이어진다.
+/// USB 는 base 의 path 에 장치 선택 키를 싣고 transport Property 가 "usb" 로 실려야 Agent/Edge 가 USB 로 붙는다.
 [<Fact>]
-let ``InterfaceXGT roundtrip builds Agent gateway config and signal map`` () =
+let ``InterfaceXGT roundtrip builds Agent gateway config for Ethernet and USB endpoints`` () =
+    let ethernetSystem = Guid.NewGuid()
+    let usbSystem = Guid.NewGuid()
     let aid = AssetInterfacesDescription()
-    let endpoint = {
+    let ethernet = {
         XgtEndpointMetadata.empty with
             Base = "xgt+tcp://192.168.10.20:2004"
+            SystemId = Some ethernetSystem
             CpuModel = Xgk
             NetworkNumber = 2uy
             StationNumber = 3uy
             ScanIntervalMs = 250
     }
-    let interaction : OpcUaInteraction = {
-        IdShort = "CylinderReady"
-        SemanticId = SemanticId "urn:dualsoft:cd:cylinder-ready:1"
-        ValueType = XsBoolean
-        Unit = None
-        Href = "%MX100"
-        SignalId = SignalId "line1.station01.cylinder-ready"
+    let usb = {
+        XgtEndpointMetadata.empty with
+            Base = "xgt+usb://localhost/SN12345"
+            SystemId = Some usbSystem
+            CpuModel = Xgb
+            Transport = XgtUsb
     }
-    aid.Interfaces.Add(Xgt(endpoint, [interaction]))
+    aid.Interfaces.Add(Xgt(ethernet, [ xgtInteraction "CylinderReady" "%MX100" "line1.station01.cylinder-ready" ]))
+    aid.Interfaces.Add(Xgt(usb, [ xgtInteraction "Run" "%MX0" "line1.station02.run" ]))
 
     let sm = AasxExportStandardSubmodels.aidToSubmodel aid "station01"
     let elements = descendants sm.SubmodelElements |> Seq.toArray
@@ -180,6 +199,14 @@ let ``InterfaceXGT roundtrip builds Agent gateway config and signal map`` () =
             | :? SubmodelElementCollection as smc when smc.IdShort = "InterfaceXGT" -> Some smc
             | _ -> None)
     Assert.Equal(AasxSemantics.XgtInterfaceSemanticId, xgtCollection.SemanticId.Keys.[0].Value)
+    // transport Property 는 라벨 계약("tcp"|"udp"|"usb")로 실린다.
+    let transports =
+        elements
+        |> Seq.choose (function
+            | :? Property as p when p.IdShort = "transport" -> Some p.Value
+            | _ -> None)
+        |> List.ofSeq
+    Assert.Equal<string list>([ "tcp"; "usb" ], transports)
 
     let conceptIds =
         AasxConceptDescriptions.createAllConceptDescriptions ()
@@ -189,25 +216,40 @@ let ``InterfaceXGT roundtrip builds Agent gateway config and signal map`` () =
     Assert.Contains(AasxSemantics.XgtInterfaceSemanticId, conceptIds)
 
     let restored = AasxImportStandardSubmodels.submodelToAid sm
-    match restored.Interfaces.[0] with
-    | Xgt (ep, interactions) ->
-        Assert.Equal(endpoint.Base, ep.Base)
-        Assert.Equal(Xgk, ep.CpuModel)
-        Assert.Equal(2uy, ep.NetworkNumber)
-        Assert.Equal(3uy, ep.StationNumber)
-        Assert.Equal(250, ep.ScanIntervalMs)
-        Assert.Equal("%MX100", interactions.Head.Href)
-    | _ -> Assert.Fail "expected XGT binding"
+    Assert.Equal(2, restored.Interfaces.Count)
+    match restored.Interfaces.[0], restored.Interfaces.[1] with
+    | Xgt (ep1, interactions1), Xgt (ep2, _) ->
+        Assert.Equal(ethernet.Base, ep1.Base)
+        Assert.Equal(XgtTcp, ep1.Transport)
+        Assert.Equal(Xgk, ep1.CpuModel)
+        Assert.Equal(2uy, ep1.NetworkNumber)
+        Assert.Equal(3uy, ep1.StationNumber)
+        Assert.Equal(250, ep1.ScanIntervalMs)
+        Assert.Equal("%MX100", interactions1.Head.Href)
+        Assert.Equal(XgtUsb, ep2.Transport)
+        Assert.Equal("xgt+usb://localhost/SN12345", ep2.Base)
+        Assert.Equal(Some usbSystem, ep2.SystemId)
+    | _ -> Assert.Fail "expected two XGT bindings"
 
     let plan = AidXgtGatewayConfig.build restored
     Assert.True(plan.HasBinding)
     Assert.True(plan.Success, String.Join(" / ", plan.Errors))
-    Assert.Single(plan.Config.Connections) |> ignore
-    Assert.Equal(PlcVendor.LsXgk, plan.Config.Connections.Head.Vendor)
-    Assert.Equal("192.168.10.20", plan.Config.Connections.Head.IpAddress)
-    Assert.Equal(2004, plan.Config.Connections.Head.Port)
-    Assert.Equal("%MX100", plan.Config.Connections.Head.Tags.Head.HubAddress)
-    Assert.Single(plan.Signals) |> ignore
+    Assert.Equal(2, plan.Config.Connections.Length)
+    let ethernetConnection = plan.Config.Connections |> List.find (fun c -> c.SystemId = Some ethernetSystem)
+    Assert.Equal(PlcVendor.LsXgk, ethernetConnection.Vendor)
+    Assert.Equal(PlcTransport.Tcp, ethernetConnection.Transport)
+    Assert.Equal("192.168.10.20", ethernetConnection.IpAddress)
+    Assert.Equal(2004, ethernetConnection.Port)
+    Assert.Equal("%MX100", ethernetConnection.Tags.Head.HubAddress)
+    Assert.Equal("192.168.10.20:2004", PlcConnectionConfig.endpointLabel ethernetConnection)
+    let usbConnection = plan.Config.Connections |> List.find (fun c -> c.SystemId = Some usbSystem)
+    Assert.Equal(PlcVendor.LsXgb, usbConnection.Vendor)
+    Assert.Equal(PlcTransport.Usb, usbConnection.Transport)
+    Assert.Equal("SN12345", usbConnection.UsbDeviceSelector)
+    Assert.Equal("", usbConnection.IpAddress)
+    Assert.Equal(0, usbConnection.Port)
+    Assert.Equal("USB(SN12345)", PlcConnectionConfig.endpointLabel usbConnection)
+    Assert.Equal(2, plan.Signals.Length)
     Assert.Equal("line1.station01.cylinder-ready", plan.Signals.[0].SignalId)
     Assert.Equal("boolean", plan.Signals.[0].ValueType)
 
@@ -226,52 +268,110 @@ let ``AID without InterfaceXGT is explicitly distinguishable from invalid XGT`` 
     Assert.False(broken.Success)
     Assert.NotEmpty(broken.Errors)
 
+/// base 해석은 Core(Promaker 읽기·쓰기)와 Backend(게이트웨이 조립)가 같은 함수를 쓴다 — 여기서 규칙을 고정한다.
 [<Fact>]
-let ``Promaker PLC settings update only the AID XGT endpoint`` () =
+let ``XGT endpoint base parser handles Ethernet defaults and USB selector paths`` () =
+    // 이더넷: 포트 생략 = 2004. 자격증명·fragment·비 URI 는 거절.
+    Assert.Equal(
+        Ok (XgtEndpointBase.Ethernet ("192.168.1.10", 2004)),
+        XgtEndpointBase.tryParse XgtTcp "xgt+tcp://192.168.1.10")
+    assertError (XgtEndpointBase.tryParse XgtTcp "xgt+tcp://user:pw@192.168.1.10:2004")
+    assertError (XgtEndpointBase.tryParse XgtTcp "xgt+tcp://192.168.1.10:2004#frag")
+    assertError (XgtEndpointBase.tryParse XgtTcp "not a URI")
+
+    // USB: 장치 선택 키는 path 에 실리고, 비우면 첫 장치. host 자리에 두면 bus:addr 가 host:port 로 갈린다.
+    Assert.Equal(Ok (XgtEndpointBase.Usb "3:4"), XgtEndpointBase.tryParse XgtUsb "xgt+usb://localhost/3:4")
+    Assert.Equal(Ok (XgtEndpointBase.Usb ""), XgtEndpointBase.tryParse XgtUsb "xgt+usb://localhost/")
+    Assert.Equal(Ok (XgtEndpointBase.Usb ""), XgtEndpointBase.tryParse XgtUsb "xgt+usb://localhost")
+    assertError (XgtEndpointBase.tryParse XgtUsb "xgt+tcp://192.168.1.10:2004")
+
+    // 조립 → 해석 왕복. 공백이 있는 product 부분일치 키도 살아남고, URI 경계 문자는 조립에서 거절된다.
+    match XgtEndpointBase.tryUsb "XGB Loader" with
+    | Ok baseUri -> Assert.Equal(Ok (XgtEndpointBase.Usb "XGB Loader"), XgtEndpointBase.tryParse XgtUsb baseUri)
+    | Error message -> Assert.Fail message
+    Assert.Equal(Ok "xgt+usb://localhost/", XgtEndpointBase.tryUsb "")
+    assertError (XgtEndpointBase.tryUsb "a/b")
+
+    // 라벨 계약은 대소문자를 가리지 않고 되읽고, 모르는 라벨은 None.
+    Assert.Equal(Some XgtUsb, XgtEndpointBase.tryTransportOfLabel "USB")
+    Assert.Equal(Some XgtUdp, XgtEndpointBase.tryTransportOfLabel "udp")
+    Assert.Equal(None, XgtEndpointBase.tryTransportOfLabel "serial")
+
+[<Fact>]
+let ``InterfaceXGT rejects transport mismatch, vault credentials and duplicate signal identities`` () =
     let aid = AssetInterfacesDescription()
-    let interaction : OpcUaInteraction = {
-        IdShort = "Ready"
-        SemanticId = SemanticId "urn:dualsoft:test:ready"
-        ValueType = XsBoolean
-        Unit = None
-        Href = "%MX100"
-        SignalId = SignalId "line1.station01.ready"
+    let endpoint = {
+        XgtEndpointMetadata.empty with
+            Transport = XgtUdp
+            Base = "xgt+tcp://192.168.10.20:2004"
+            AuthReferenceVault = Some "@vault:secret/xgt"
     }
-    aid.Interfaces.Add(Xgt(XgtEndpointMetadata.empty, [interaction]))
+    let run = xgtInteraction "Run" "%MX0" "line1.xgt.run"
+    aid.Interfaces.Add(Xgt(endpoint, [ run; { run with IdShort = "RunAgain"; Href = "%MX1" } ]))
+
+    let plan = AidXgtGatewayConfig.build aid
+    Assert.True(plan.HasBinding)
+    Assert.False(plan.Success)
+    Assert.Contains(plan.Errors, fun message -> message.Contains("xgt+udp"))
+    Assert.Contains(plan.Errors, fun message -> message.Contains("authReferenceVault"))
+
+    let duplicateAid = AssetInterfacesDescription()
+    duplicateAid.Interfaces.Add(Xgt(XgtEndpointMetadata.empty, [ run; { run with IdShort = "RunAgain"; Href = "%MX1" } ]))
+    let duplicatePlan = AidXgtGatewayConfig.build duplicateAid
+    Assert.False(duplicatePlan.Success)
+    Assert.Contains(duplicatePlan.Errors, fun message -> message.Contains("중복"))
+
+/// 요청 하나가 소유 System 의 endpoint 만 갱신하고 기존 interaction 을 보존한다 — 다른 System 은 손대지 않는다.
+[<Fact>]
+let ``Promaker endpoint request updates only the owning System's XGT endpoint and keeps its interactions`` () =
+    let owner = Guid.NewGuid()
+    let other = Guid.NewGuid()
+    let aid = AssetInterfacesDescription()
+    aid.Interfaces.Add(Xgt(
+        { XgtEndpointMetadata.empty with SystemId = Some owner },
+        [ xgtInteraction "Ready" "%MX100" "line1.station01.ready" ]))
+    aid.Interfaces.Add(Xgt(
+        { XgtEndpointMetadata.empty with SystemId = Some other; Base = "xgt+tcp://10.0.0.9:2004" },
+        [ xgtInteraction "OtherReady" "%MX200" "line1.station02.ready" ]))
 
     let updated =
-        AidXgtEndpointSettings.updateAll(
-            aid, "LsXgb", "192.168.9.102", 2004, false, true,
-            2uy, 3uy, 7000, 250)
+        AidXgtEndpointSettings.ensureBindingForSystem(
+            aid, owner, xgtEthernetRequest "LsXgb" XgtTcp "192.168.9.102" 2004 7000 250, [])
 
+    // 주소 추가 없이 endpoint 만 갱신 — 기존 interaction 1개가 그대로 남아 1 을 돌려준다.
     Assert.Equal(1, updated)
-    let connection = AidXgtEndpointSettings.tryReadFirst aid
+    let connection = AidXgtEndpointSettings.tryReadForSystem(aid, owner)
     Assert.NotNull(connection)
     Assert.Equal("xgt+tcp://192.168.9.102:2004", connection.BaseUri)
     Assert.Equal("LsXgb", connection.Vendor)
+    Assert.Equal(XgtEndpointBase.transportLabel XgtTcp, connection.Transport)
+    Assert.False(connection.IsUsb)
     Assert.Equal("192.168.9.102", connection.IpAddress)
     Assert.Equal(2004, connection.Port)
     Assert.Equal(7000, connection.TimeoutMs)
     Assert.Equal(250, connection.ScanIntervalMs)
+    Assert.Equal("192.168.9.102:2004", connection.EndpointLabel)
 
-    match aid.Interfaces.[0] with
-    | Xgt (endpoint, interactions) ->
+    match aid.Interfaces.[0], aid.Interfaces.[1] with
+    | Xgt (endpoint, interactions), Xgt (untouched, _) ->
         Assert.Equal(Xgb, endpoint.CpuModel)
         Assert.Equal("%MX100", interactions.Head.Href)
-    | _ -> Assert.Fail "expected XGT binding"
+        Assert.Equal("xgt+tcp://10.0.0.9:2004", untouched.Base)
+    | _ -> Assert.Fail "expected two XGT bindings"
 
 [<Fact>]
 let ``Promaker PLC addresses create exportable AID interactions and preserve raw hrefs`` () =
+    let systemId = Guid.NewGuid()
     let aid = AssetInterfacesDescription()
     let created =
-        AidXgtEndpointSettings.ensureBinding(
-            aid, "LsXgi", "192.168.9.102", 2004, false, true,
-            0uy, 255uy, 3000, 100,
+        AidXgtEndpointSettings.ensureBindingForSystem(
+            aid, systemId, xgtTcpRequest "LsXgi" "192.168.9.102" 2004,
             [ "%QX0.1.13"; "%IX0.1.2"; "%qx0.1.13" ])
 
     Assert.Equal(2, created)
     match aid.Interfaces.[0] with
-    | Xgt (_, interactions) ->
+    | Xgt (endpoint, interactions) ->
+        Assert.Equal(Some systemId, endpoint.SystemId)
         Assert.Equal<string list>([ "%QX0.1.13"; "%IX0.1.2" ], interactions |> List.map _.Href)
         Assert.All(interactions, fun i -> Assert.Matches("^[A-Za-z][A-Za-z0-9_]*$", i.IdShort))
         Assert.Equal(2, interactions |> List.map _.IdShort |> Set.ofList |> Set.count)
@@ -287,26 +387,29 @@ let ``Promaker PLC addresses create exportable AID interactions and preserve raw
 
 [<Fact>]
 let ``Promaker AID synchronization merges addresses added after first save`` () =
+    let systemId = Guid.NewGuid()
     let aid = AssetInterfacesDescription()
-    AidXgtEndpointSettings.ensureBinding(
-        aid, "LsXgi", "192.168.9.102", 2004, false, true,
-        0uy, 255uy, 3000, 100, [ "%QX0.1" ])
+    AidXgtEndpointSettings.ensureBindingForSystem(
+        aid, systemId, xgtTcpRequest "LsXgi" "192.168.9.102" 2004, [ "%QX0.1" ])
     |> ignore
 
     let synchronized =
-        AidXgtEndpointSettings.ensureBinding(
-            aid, "LsXgi", "192.168.9.103", 2004, false, true,
-            0uy, 255uy, 3000, 100, [ "%QX0.1"; "%IX0.2" ])
+        AidXgtEndpointSettings.ensureBindingForSystem(
+            aid, systemId, xgtTcpRequest "LsXgi" "192.168.9.103" 2004, [ "%QX0.1"; "%IX0.2" ])
 
     Assert.Equal(2, synchronized)
+    Assert.Equal(1, aid.Interfaces.Count)
     match aid.Interfaces.[0] with
     | Xgt (endpoint, interactions) ->
         Assert.Equal("xgt+tcp://192.168.9.103:2004", endpoint.Base)
         Assert.Equal<string list>([ "%QX0.1"; "%IX0.2" ], interactions |> List.map _.Href)
     | _ -> Assert.Fail "expected XGT binding"
 
+/// systemRef 없는 구버전 endpoint 가 하나만 있으면 저장하는 System 이 그것을 귀속(claim)하고,
+/// 주소 원문을 idShort 로 쓰던 구버전 interaction 은 안전한 식별자로 고쳐진다.
 [<Fact>]
-let ``Promaker AID synchronization repairs legacy raw-address idShort`` () =
+let ``Promaker AID synchronization repairs legacy raw-address idShort and claims the unassigned endpoint`` () =
+    let systemId = Guid.NewGuid()
     let aid = AssetInterfacesDescription()
     let legacy : OpcUaInteraction =
         { IdShort = "%QX0.1"
@@ -317,62 +420,57 @@ let ``Promaker AID synchronization repairs legacy raw-address idShort`` () =
           SignalId = SignalId "%QX0.1" }
     aid.Interfaces.Add(Xgt(XgtEndpointMetadata.empty, [ legacy ]))
 
-    AidXgtEndpointSettings.ensureBinding(
-        aid, "LsXgi", "192.168.9.102", 2004, false, true,
-        0uy, 255uy, 3000, 100, [ "%QX0.1" ])
+    AidXgtEndpointSettings.ensureBindingForSystem(
+        aid, systemId, xgtTcpRequest "LsXgi" "192.168.9.102" 2004, [ "%QX0.1" ])
     |> ignore
 
+    Assert.Equal(1, aid.Interfaces.Count)
     match aid.Interfaces.[0] with
-    | Xgt (_, [ repaired ]) ->
+    | Xgt (endpoint, [ repaired ]) ->
+        Assert.Equal(Some systemId, endpoint.SystemId)
         Assert.Matches("^[A-Za-z][A-Za-z0-9_]*$", repaired.IdShort)
         Assert.Equal("%QX0.1", repaired.Href)
         AasxExportStandardSubmodels.aidToSubmodel aid "legacy-project" |> ignore
     | _ -> Assert.Fail "expected one repaired XGT interaction"
 
+/// USB 요청은 IP/포트 없이 성립하고, 장치 선택 키가 base 의 path 에 실린다. 읽기 DTO 는 IsUsb·선택 키·표기를 돌려주고
+/// 게이트웨이 조립은 Transport=Usb 로 이어진다. URI 경계 문자가 든 키는 거절되어 endpoint 가 그대로다.
 [<Fact>]
-let ``AID endpoint update does not create a compatibility binding`` () =
+let ``USB endpoint request stores the selector in the base path and rejects URI delimiters`` () =
+    let systemId = Guid.NewGuid()
     let aid = AssetInterfacesDescription()
-    aid.Interfaces.Add(OpcUa(EndpointMetadata.empty, [], []))
+    let created =
+        AidXgtEndpointSettings.ensureBindingForSystem(
+            aid, systemId, xgtUsbRequest "LsXgb" "SN12345", [ "%MX0"; "%MX1" ])
+    Assert.Equal(2, created)
+    match aid.Interfaces.[0] with
+    | Xgt (endpoint, _) ->
+        Assert.Equal(XgtUsb, endpoint.Transport)
+        Assert.Equal("xgt+usb://localhost/SN12345", endpoint.Base)
+        Assert.Equal(Xgb, endpoint.CpuModel)
+    | _ -> Assert.Fail "expected XGT binding"
 
-    let updated =
-        AidXgtEndpointSettings.updateAll(
-            aid, "LsXgi", "192.168.9.102", 2004, false, true,
-            0uy, 255uy, 3000, 100)
+    let connection = AidXgtEndpointSettings.tryReadForSystem(aid, systemId)
+    Assert.NotNull(connection)
+    Assert.True(connection.IsUsb)
+    Assert.Equal("SN12345", connection.UsbDeviceSelector)
+    Assert.Equal("", connection.IpAddress)
+    Assert.Equal(0, connection.Port)
+    Assert.Equal("USB(SN12345)", connection.EndpointLabel)
 
-    Assert.Equal(0, updated)
-    Assert.Null(AidXgtEndpointSettings.tryReadFirst aid)
+    // 빈 선택 키 = 첫 장치. 이더넷처럼 IP 를 요구하지 않는다.
+    Assert.True(AidXgtEndpointSettings.ensureBindingForSystem(aid, systemId, xgtUsbRequest "LsXgb" "", []) > 0)
+    Assert.Equal("USB", (AidXgtEndpointSettings.tryReadForSystem(aid, systemId)).EndpointLabel)
 
-[<Fact>]
-let ``InterfaceXGT rejects mismatched transport credentials and duplicate signal identities`` () =
-    let aid = AssetInterfacesDescription()
-    let endpoint = {
-        XgtEndpointMetadata.empty with
-            Transport = XgtUdp
-            Base = "xgt+tcp://192.168.10.20:2004"
-            AuthReferenceVault = Some "@vault:secret/xgt"
-    }
-    let interaction : OpcUaInteraction = {
-        IdShort = "Run"
-        SemanticId = SemanticId "urn:dualsoft:test:run"
-        ValueType = XsBoolean
-        Unit = None
-        Href = "%MX0"
-        SignalId = SignalId "line1.xgt.run"
-    }
-    aid.Interfaces.Add(Xgt(endpoint, [interaction; { interaction with IdShort = "RunAgain"; Href = "%MX1" }]))
+    // URI 경계 문자는 거절 — 0 을 돌려주고 endpoint 는 그대로.
+    Assert.Equal(0, AidXgtEndpointSettings.ensureBindingForSystem(aid, systemId, xgtUsbRequest "LsXgb" "a/b", []))
+    Assert.Equal("xgt+usb://localhost/", (AidXgtEndpointSettings.tryReadForSystem(aid, systemId)).BaseUri)
 
     let plan = AidXgtGatewayConfig.build aid
-    Assert.True(plan.HasBinding)
-    Assert.False(plan.Success)
-    Assert.Contains(plan.Errors, fun message -> message.Contains("xgt+udp"))
-    Assert.Contains(plan.Errors, fun message -> message.Contains("authReferenceVault"))
-
-    let duplicateAid = AssetInterfacesDescription()
-    duplicateAid.Interfaces.Add(Xgt(XgtEndpointMetadata.empty,
-        [interaction; { interaction with IdShort = "RunAgain"; Href = "%MX1" }]))
-    let duplicatePlan = AidXgtGatewayConfig.build duplicateAid
-    Assert.False(duplicatePlan.Success)
-    Assert.Contains(duplicatePlan.Errors, fun message -> message.Contains("중복"))
+    Assert.True(plan.Success, String.Join(" / ", plan.Errors))
+    let usbConnection = Assert.Single plan.Config.Connections
+    Assert.Equal(PlcTransport.Usb, usbConnection.Transport)
+    Assert.Equal("", usbConnection.UsbDeviceSelector)
 
 [<Fact>]
 let ``standard AID bindings build executable southbound plans`` () =
@@ -528,8 +626,7 @@ let ``switching a System to MICREX-SX leaves exactly one AID connection`` () =
     // ① 예전에 LS 로 저장해 둔 endpoint.
     let created =
         AidXgtEndpointSettings.ensureBindingForSystem(
-            aid, systemId, "LsXgi", "192.168.250.101", 2004, false, true,
-            0uy, 255uy, 3000, 100, [ "%IX3.30.0.00" ])
+            aid, systemId, xgtTcpRequest "LsXgi" "192.168.250.101" 2004, [ "%IX3.30.0.00" ])
     Assert.True(created > 0)
 
     // ② 같은 System 을 SX 로 다시 저장 — endpoint 를 만들고 옛 XGT 바인딩을 지운다.
@@ -559,8 +656,7 @@ let ``signalId minting sees both XGT and MICREX-SX bindings`` () =
     let shared = "%IX3.30.0.00"
     let aid = AssetInterfacesDescription()
 
-    AidXgtEndpointSettings.ensureBindingForSystem(
-        aid, systemA, "LsXgi", "10.0.0.1", 2004, false, true, 0uy, 255uy, 3000, 100, [ shared ])
+    AidXgtEndpointSettings.ensureBindingForSystem(aid, systemA, xgtTcpRequest "LsXgi" "10.0.0.1" 2004, [ shared ])
     |> ignore
     AidMicrexSxEndpointSettings.ensureBindingForSystem(
         aid, systemB, "10.0.0.2", 509, "", [], 3000, 100, [ shared ])

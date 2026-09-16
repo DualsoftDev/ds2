@@ -118,7 +118,8 @@ public class OeePlannedStopsController : OeeControllerBase
             return new CtMultipliersPreviewSideDto(nm, f,
                 agg.DowntimeEventCount, agg.NonProdCount, agg.HasThreshold ? agg.NormalCount : 0,
                 agg.IdleCtMs, agg.NonProdWallMs, a, p,
-                agg.FaultMtCount, agg.FaultCtCount, agg.NonProdWtCount, agg.NonProdCtCount, agg.ReviewPendingCount);
+                agg.FaultMtCount, agg.FaultCtCount, agg.NonProdWtCount, agg.NonProdCtCount, agg.ReviewPendingCount,
+                agg.NonProdMtCount);
         }
 
         return new CtMultipliersPreviewDto(
