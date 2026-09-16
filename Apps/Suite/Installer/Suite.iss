@@ -94,6 +94,13 @@ var
   PortPage: TInputQueryWizardPage;
   CompPage: TInputOptionWizardPage;
   SummaryPage: TOutputMsgMemoWizardPage;
+  // ── DSPilot 업데이트(덮어설치) 시 기존 포트 유지 ──
+  //   DsPilotPort     : 이미 설치된 DSPilot 이 쓰는 웹 포트('' = 미설치 → 기존 동작대로 포트 페이지 노출).
+  //   ChangePortCheck : '설치 안내' 페이지의 [웹 포트 변경] 체크박스. 켰을 때만 포트 페이지가 나온다.
+  //   통합본은 /Port=<n> 로 DSPilot 설치본을 덮어쓰므로, 여기서 기존 포트를 못 물려주면
+  //   DSPilot 쪽 유지 로직이 무력화된다(= 이 두 변수가 통합 업데이트의 포트 SSOT).
+  DsPilotPort: String;
+  ChangePortCheck: TNewCheckBox;
 
 // ── 설치 구성 선택 상태 (CompPage 인덱스 SSOT: 0=DSPilot, 1=Promaker, 2=Agent) ──
 function SelDsPilot(): Boolean;  begin Result := CompPage.Values[0]; end;
@@ -137,12 +144,79 @@ begin
   DeleteFile(TempFile);
 end;
 
+// ── 설치된 DSPilot 의 웹 포트 읽기 (DSPilot.iss 의 DetectInstalledPort 와 동일 규약) ──
+// 포트 SSOT = DSPilot 설치 폴더의 appsettings.Hosting.json 의 "Urls": "http://*:<port>".
+// 설치 경로는 DSPilot 언인스톨 키(_is1)의 InstallLocation — Hosting.json 은 제거 후에도 남으므로
+// 키가 살아있을 때만 "설치되어 있음"으로 본다. 못 읽으면 '' → 종전처럼 포트를 묻는다.
+function ReadPortFromUrlsLine(Line: String): String;
+var
+  i, ColonPos: Integer;
+  Ch: String;
+begin
+  Result := '';
+  if Pos('"Urls"', Line) = 0 then
+    Exit;
+  ColonPos := 0;
+  for i := 1 to Length(Line) do
+    if Copy(Line, i, 1) = ':' then
+      ColonPos := i;
+  if ColonPos = 0 then
+    Exit;
+  for i := ColonPos + 1 to Length(Line) do
+  begin
+    Ch := Copy(Line, i, 1);
+    if (Ch >= '0') and (Ch <= '9') then
+      Result := Result + Ch
+    else
+      Break;
+  end;
+end;
+
+function DetectDsPilotPort(): String;
+var
+  KeyPath, Dir, HostingJson: String;
+  Lines: TArrayOfString;
+  i, PortNum: Integer;
+begin
+  Result := '';
+  KeyPath := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#DsPilotAppId}_is1';
+  Dir := '';
+  if IsWin64 then
+    RegQueryStringValue(HKLM64, KeyPath, 'InstallLocation', Dir);
+  if Dir = '' then
+    RegQueryStringValue(HKLM32, KeyPath, 'InstallLocation', Dir);
+  Dir := RemoveQuotes(Dir);
+  if Dir = '' then
+    Exit;
+  HostingJson := AddBackslash(Dir) + 'appsettings.Hosting.json';
+  if not FileExists(HostingJson) then
+    Exit;
+  if not LoadStringsFromFile(HostingJson, Lines) then
+    Exit;
+  for i := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    Result := ReadPortFromUrlsLine(Lines[i]);
+    if Result <> '' then
+      Break;
+  end;
+  PortNum := StrToIntDef(Result, -1);
+  if (PortNum < 1) or (PortNum > 65535) then
+    Result := '';
+end;
+
 procedure InitializeWizard();
 var
   DefaultPort: String;
   PortHint: String;
   NoticePage: TOutputMsgMemoWizardPage;
+  WebPortLine: String;
 begin
+  // DSPilot 이 이미 설치돼 있으면 그 포트를 물려받는다(안내 문구·기본값·페이지 노출 여부가 이 값에 달림).
+  DsPilotPort := DetectDsPilotPort();
+  if DsPilotPort <> '' then
+    WebPortLine := '  · DSPilot 웹: TCP ' + DsPilotPort + ' (기존 설치에서 쓰던 포트 유지)'
+  else
+    WebPortLine := '  · DSPilot 웹: TCP (다음 단계에서 선택한 포트, 기본 {#MyDefaultPort})';
   // ── 페이지 1: 설치 구성 선택 (3개 기본 체크) ──
   CompPage := CreateInputOptionPage(wpWelcome,
     '설치 구성 선택', '설치할 프로그램을 선택하세요.',
@@ -169,7 +243,7 @@ begin
     '[Windows 서비스]' + #13#10 +
     '  · 설치되는 서비스(DSPilot / CCTV / Promaker Agent)는 시스템 시작 시 자동 실행됩니다.' + #13#10#13#10 +
     '[방화벽 — 아래 인바운드 규칙이 자동 등록됩니다]' + #13#10 +
-    '  · DSPilot 웹: TCP (다음 단계에서 선택한 포트, 기본 80)' + #13#10 +
+    WebPortLine + #13#10 +
     '  · CCTV(WebRTC): TCP 8889, UDP 8189' + #13#10 +
     '  · Promaker Agent: TCP 5051(모니터링) / 5050(모델 업로드)' + #13#10#13#10 +
     '[오픈소스 고지]' + #13#10 +
@@ -184,12 +258,34 @@ begin
     '  Agent 설치 폴더(Promaker\Agent 또는 DSPilot\Agent)의 LICENSE-libusb-1.0.txt,' + #13#10 +
     '  NOTICE-libusb-1.0.txt 에서 확인할 수 있습니다.');
 
-  // ── 페이지 4: DSPilot 포트 설정 (DSPilot 미선택 시 ShouldSkipPage 로 건너뜀) ──
+  // ── DSPilot 이 이미 설치돼 있으면 '웹 포트 변경' 체크박스를 안내 페이지 하단에 붙인다 ──
+  // 체크하지 않으면 포트 페이지를 건너뛰고 기존 포트를 그대로 물려준다(ShouldSkipPage → /Port=기존값).
+  if DsPilotPort <> '' then
+  begin
+    NoticePage.RichEditViewer.Height := NoticePage.RichEditViewer.Height - ScaleY(30);
+    ChangePortCheck := TNewCheckBox.Create(NoticePage);
+    ChangePortCheck.Parent := NoticePage.Surface;
+    ChangePortCheck.Left := 0;
+    ChangePortCheck.Top := NoticePage.RichEditViewer.Top + NoticePage.RichEditViewer.Height + ScaleY(10);
+    ChangePortCheck.Width := NoticePage.SurfaceWidth;
+    ChangePortCheck.Height := ScaleY(17);
+    ChangePortCheck.Caption := 'DSPilot 웹 포트 변경 (현재 ' + DsPilotPort + ' — 체크하지 않으면 기존 포트를 그대로 유지)';
+    ChangePortCheck.Checked := False;
+  end;
+
+  // ── 페이지 4: DSPilot 포트 설정 (DSPilot 미선택 / 기존 포트 유지 시 ShouldSkipPage 로 건너뜀) ──
   DefaultPort := '{#MyDefaultPort}';
   PortHint := '기본값: {#MyDefaultPort} (포트 80은 URL에서 포트 번호 생략 가능)';
+  if DsPilotPort <> '' then
+  begin
+    // 덮어설치: 기존 DSPilot 포트가 기본값. (이 분기가 없으면 "기존 DSPilot 이 80 을 듣고 있음"을
+    //  IsPortInUse(80) 이 외부 점유로 오판해 8080 을 제안 → 업데이트가 현장 포트를 옮겨버린다.)
+    DefaultPort := DsPilotPort;
+    PortHint := '기존 설치에서 사용 중인 포트: ' + DsPilotPort;
+  end
   // 80 이 이미 점유돼 있으면 8080 을 권장. (구버전 DSPilot 서비스 점유는 DSPilot 설치본의
   //  PrepareToInstall 이 정리하지만, 통합 마법사 단계에선 단순히 사용 중이면 8080 제안.)
-  if IsPortInUse(80) then
+  else if IsPortInUse(80) then
   begin
     DefaultPort := '8080';
     PortHint := '포트 80 이 사용 중이라 기본값을 8080 으로 제안합니다.';
@@ -217,6 +313,9 @@ begin
         '    · DSPilot 웹 서비스 (Windows 서비스, 시스템 시작 시 자동 실행)' + #13#10 +
         '    · CCTV 중계 게이트웨이 (MediaMTX, Windows 서비스)' + #13#10 +
         '    · 설치 경로: C:\Program Files\DualSoft\DSPilot' + #13#10;
+      // 덮어설치면 포트 페이지를 건너뛰므로, 유지되는 포트를 여기서 한 번 알려준다.
+      if DsPilotPort <> '' then
+        S := S + '    · 웹 포트: ' + DsPilotPort + ' (기존 설치 포트 유지 — 다음 화면에서 변경 가능)' + #13#10;
       // Promaker 없이 Agent 선택 → Agent 는 DSPilot 설치본이 함께 설치.
       if SelAgent() and (not SelPromaker()) then
         S := S + '    · Promaker Agent + Data Collector 포함 설치 (헤드리스 모니터링 서비스)' + #13#10;
@@ -241,12 +340,19 @@ begin
   end;
 end;
 
-// DSPilot 미선택이면 포트 페이지는 의미가 없어 건너뛴다(기본값 유지 → GetDashboardUrl 안전).
+// 포트 페이지를 건너뛰는 두 경우 — 어느 쪽이든 PortPage.Values[0](기본값)이 그대로 쓰인다.
+//   ① DSPilot 미선택 : 물어볼 의미가 없음(기본값 유지 → GetDashboardUrl 안전).
+//   ② DSPilot 덮어설치 : 기본값이 이미 기존 포트 → 안내 페이지의 [웹 포트 변경] 을 켰을 때만 노출.
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
   if PageID = PortPage.ID then
-    Result := not SelDsPilot();
+  begin
+    if not SelDsPilot() then
+      Result := True
+    else if DsPilotPort <> '' then
+      Result := (ChangePortCheck = nil) or (not ChangePortCheck.Checked);
+  end;
 end;
 
 function GetSuitePort(): String;

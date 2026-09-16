@@ -81,6 +81,10 @@
 #define LiteFfmpegUrl "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 #endif
 
+; 언인스톨 레지스트리 키(_is1) 조회용 — 아래 [Setup] AppId 와 반드시 같은 값이어야 한다.
+; (업데이트 감지 = 이 키의 InstallLocation 존재 여부. [Code] DetectInstalledPort 참조.)
+#define MyAppId "{E8A3F2B1-7C4D-4E5F-9A1B-3D6E8F0C2A4B}"
+
 [Setup]
 AppId={{E8A3F2B1-7C4D-4E5F-9A1B-3D6E8F0C2A4B}
 AppName={#MyAppName}
@@ -391,6 +395,11 @@ Filename: "{sys}\netsh.exe"; \
 [Code]
 var
   PortPage: TInputQueryWizardPage;
+  // ── 업데이트(덮어설치) 시 기존 포트 유지 ──
+  //   InstalledPort   : 기존 설치본이 쓰던 웹 포트('' = 신규 설치 또는 읽기 실패 → 기존 동작대로 포트 페이지 노출).
+  //   ChangePortCheck : '설치 안내' 페이지의 [웹 포트 변경] 체크박스. 켰을 때만 포트 페이지가 나온다(ShouldSkipPage).
+  InstalledPort: String;
+  ChangePortCheck: TNewCheckBox;
 #ifdef Lite
   DownloadPage: TDownloadWizardPage;
 #endif
@@ -614,6 +623,73 @@ begin
 end;
 #endif
 
+// ── 기존 설치(업데이트) 감지 : 이전 설치본이 쓰던 웹 포트 읽기 ──
+// 포트 SSOT 는 {app}\appsettings.Hosting.json 의 "Urls": "http://*:<port>" 한 곳뿐이다
+// (Program.cs 가 이 파일만 AddJsonFile 로 읽는다. 사용자 설정 Production.json 과는 분리).
+//
+// ▸ 설치 경로는 언인스톨 키(_is1)의 InstallLocation 에서 얻는다. Hosting.json 은 [UninstallDelete] 대상이
+//   아니라 제거 후에도 폴더에 남으므로, 파일 존재만으로 판정하면 "제거 후 재설치"를 업데이트로 오판한다.
+//   → 언인스톨 키가 살아있을 때만 업데이트로 본다.
+// ▸ 못 읽으면 '' 을 반환 → 종전처럼 포트 페이지를 정상 노출(신규 설치와 동일 동작).
+
+// '"Urls": "http://*:9090"' → '9090'. 마지막 ':' 뒤의 연속 숫자를 취한다(설치기는 항상 엔드포인트 1개만 기록).
+function ReadPortFromUrlsLine(Line: String): String;
+var
+  i, ColonPos: Integer;
+  Ch: String;
+begin
+  Result := '';
+  if Pos('"Urls"', Line) = 0 then
+    Exit;
+  ColonPos := 0;
+  for i := 1 to Length(Line) do
+    if Copy(Line, i, 1) = ':' then
+      ColonPos := i;
+  if ColonPos = 0 then
+    Exit;
+  for i := ColonPos + 1 to Length(Line) do
+  begin
+    Ch := Copy(Line, i, 1);
+    if (Ch >= '0') and (Ch <= '9') then
+      Result := Result + Ch
+    else
+      Break;
+  end;
+end;
+
+function DetectInstalledPort(): String;
+var
+  KeyPath, Dir, HostingJson: String;
+  Lines: TArrayOfString;
+  i, PortNum: Integer;
+begin
+  Result := '';
+  KeyPath := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppId}_is1';
+  Dir := '';
+  // 64bit 모드 설치본이 쓴 키는 64bit 뷰에 있다. 32bit Windows 에서 HKLM64 는 예외를 내므로 IsWin64 로 가드.
+  if IsWin64 then
+    RegQueryStringValue(HKLM64, KeyPath, 'InstallLocation', Dir);
+  if Dir = '' then
+    RegQueryStringValue(HKLM32, KeyPath, 'InstallLocation', Dir);
+  Dir := RemoveQuotes(Dir);
+  if Dir = '' then
+    Exit;
+  HostingJson := AddBackslash(Dir) + 'appsettings.Hosting.json';
+  if not FileExists(HostingJson) then
+    Exit;
+  if not LoadStringsFromFile(HostingJson, Lines) then
+    Exit;
+  for i := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    Result := ReadPortFromUrlsLine(Lines[i]);
+    if Result <> '' then
+      Break;
+  end;
+  PortNum := StrToIntDef(Result, -1);
+  if (PortNum < 1) or (PortNum > 65535) then
+    Result := '';
+end;
+
 procedure InitializeWizard();
 var
   DefaultPort: String;
@@ -621,7 +697,15 @@ var
   NoticePage: TWizardPage;
   NoticeCaption: TNewStaticText;
   NoticeMemo: TNewMemo;
+  WebPortLine: String;
 begin
+  // 기존 설치(업데이트) 여부 판정 — 안내 문구·포트 기본값·포트 페이지 노출 여부가 모두 이 값에 달려 있다.
+  InstalledPort := DetectInstalledPort();
+  if InstalledPort <> '' then
+    WebPortLine := '  · DSPilot 웹: TCP ' + InstalledPort + ' (기존 설치에서 쓰던 포트 유지)'
+  else
+    WebPortLine := '  · DSPilot 웹: TCP (다음 단계에서 선택한 포트, 기본 {#MyDefaultPort})';
+
   // ── 설치 안내 / 오픈소스 고지 페이지 (서비스·방화벽·MediaMTX 등) ──
   //
   // ⚠ CreateOutputMsgMemoPage 를 쓰지 않는다: 그 함수의 마지막 인자(AMsg)는 유니코드 String 이 아니라
@@ -654,7 +738,7 @@ begin
     '  · DSPilot 웹 서비스와 CCTV 중계(MediaMTX) 서비스가 시스템 시작 시 자동 실행됩니다.' + #13#10 +
     '  · ''Promaker Agent'' 옵션을 선택하면 모니터링 Agent와 Data Collector가 함께 등록됩니다.' + #13#10#13#10 +
     '[방화벽 — 아래 인바운드 규칙이 자동 등록됩니다]' + #13#10 +
-    '  · DSPilot 웹: TCP (다음 단계에서 선택한 포트, 기본 8080)' + #13#10 +
+    WebPortLine + #13#10 +
     '  · CCTV(WebRTC): TCP 8889, UDP 8189' + #13#10 +
     '  · Promaker Agent 옵션 선택 시: TCP 5051(모니터링) / 5050(모델 업로드)' + #13#10#13#10 +
     '[오픈소스 고지]' + #13#10 +
@@ -677,11 +761,33 @@ begin
 #endif
     ;
 
+  // ── 업데이트면 '웹 포트 변경' 체크박스를 안내 페이지 하단에 붙인다 ──
+  // 체크하지 않으면 포트 페이지를 건너뛰고 기존 포트를 그대로 유지한다(ShouldSkipPage).
+  if InstalledPort <> '' then
+  begin
+    NoticeMemo.Height := NoticeMemo.Height - ScaleY(30);
+    ChangePortCheck := TNewCheckBox.Create(NoticePage);
+    ChangePortCheck.Parent := NoticePage.Surface;
+    ChangePortCheck.Left := 0;
+    ChangePortCheck.Top := NoticeMemo.Top + NoticeMemo.Height + ScaleY(10);
+    ChangePortCheck.Width := NoticePage.SurfaceWidth;
+    ChangePortCheck.Height := ScaleY(17);
+    ChangePortCheck.Caption := '웹 포트 변경 (현재 ' + InstalledPort + ' — 체크하지 않으면 기존 포트를 그대로 유지)';
+    ChangePortCheck.Checked := False;
+  end;
+
   DefaultPort := '{#MyDefaultPort}';
   PortHint := '기본값: {#MyDefaultPort}';
+  if InstalledPort <> '' then
+  begin
+    // 업데이트: 기존 포트를 기본값으로. (사일런트 설치도 이 값을 쓴다 → /Port 미지정 업데이트가 8080 으로
+    //  리셋되던 문제 해소. InitializeWizard 는 사일런트 모드에서도 호출된다.)
+    DefaultPort := InstalledPort;
+    PortHint := '기존 설치에서 사용 중인 포트: ' + InstalledPort;
+  end
   // 기본 포트가 점유중인데 그게 구버전 우리 서비스가 아니라면 사용자에게 변경을 안내.
   // 구버전 우리 서비스라면 PrepareToInstall 에서 stop 후 정리되므로 기본값 그대로 두어도 됨.
-  if (not IsServiceStopped('{#MyServiceName}')) then
+  else if (not IsServiceStopped('{#MyServiceName}')) then
   begin
     // 우리 구버전이 잡고 있음 → 기본값 유지
   end
@@ -723,6 +829,34 @@ begin
     Result := 'http://localhost:' + Port;
 end;
 
+// 업데이트(기존 포트 감지)면 포트 페이지를 건너뛴다 — 기존 포트 그대로 재설치.
+// 안내 페이지의 [웹 포트 변경] 을 켠 경우에만 페이지를 노출한다.
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  if (PageID = PortPage.ID) and (InstalledPort <> '') then
+    Result := (ChangePortCheck = nil) or (not ChangePortCheck.Checked);
+end;
+
+// 준비 완료 페이지에 실제 적용될 웹 포트를 명시 — 페이지를 건너뛴 경우 사용자가 포트를 확인할 유일한 지점.
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo,
+  MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+var
+  S: String;
+begin
+  S := '';
+  if MemoUserInfoInfo <> '' then S := S + MemoUserInfoInfo + NewLine + NewLine;
+  if MemoDirInfo <> '' then S := S + MemoDirInfo + NewLine + NewLine;
+  if MemoTypeInfo <> '' then S := S + MemoTypeInfo + NewLine + NewLine;
+  if MemoComponentsInfo <> '' then S := S + MemoComponentsInfo + NewLine + NewLine;
+  if MemoGroupInfo <> '' then S := S + MemoGroupInfo + NewLine + NewLine;
+  if MemoTasksInfo <> '' then S := S + MemoTasksInfo + NewLine + NewLine;
+  S := S + '웹 서비스 포트:' + NewLine + Space + GetPort('');
+  if (InstalledPort <> '') and (GetPort('') = InstalledPort) then
+    S := S + ' (기존 설정 유지)';
+  Result := S;
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   Port: String;
@@ -754,7 +888,10 @@ begin
       Exit;
     end;
     // 우리 구버전 서비스가 잡고 있는 경우는 PrepareToInstall 에서 stop 처리되므로 점유 무시.
-    OurServiceRunning := not IsServiceStopped('{#MyServiceName}');
+    // 단, 그 면제는 "구버전이 듣고 있는 그 포트"에만 해당한다 — 업데이트에서 *다른* 포트로 바꾸는 중이라면
+    // 그 포트의 점유자는 우리가 아니므로 정상적으로 경고해야 한다(InstalledPort 를 알 때만 구분 가능).
+    OurServiceRunning := (not IsServiceStopped('{#MyServiceName}'))
+      and ((InstalledPort = '') or (Port = InstalledPort));
     if (not OurServiceRunning) and IsPortInUse(PortNum) then
     begin
       if MsgBox('포트 ' + Port + ' 가 이미 다른 프로세스에 의해 사용 중입니다.' + #13#10 +
