@@ -906,6 +906,71 @@
                                 </div>
                             </div>
 
+
+                            <!-- ════ 사이클 판정 기준 (시간 기반 코어 v68 · /api/kpi/settings) ════
+                                 계수 둘과 품질 하나가 전부다. 기준선 R·W 는 사이클 완료 시점에 행에 박제되므로
+                                 계수를 바꿔도 기준 자체는 움직이지 않고, 저장 즉시 과거 구간까지 다시 칠해진다(doc/30 §4). -->
+                            <div class="card" x-show="activeTab === 'anomaly'" style="align-self: start;">
+                                <div class="card-header">
+                                    <span class="material-icons">rule</span>
+                                    <span>사이클 판정 기준</span>
+                                </div>
+                                <div class="card-content">
+                                    <div class="settings-note">
+                                        <small>
+                                            사이클 하나를 <b>가동 · 비가동 · 비생산</b> 중 하나로 가르는 기준입니다.
+                                            저장하면 과거 구간의 표시도 함께 바뀝니다 — 판정 결과를 저장하지 않고
+                                            조회할 때마다 이 계수로 다시 매기기 때문입니다. 기준 R·W 자체는 변하지 않습니다.
+                                        </small>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label">비생산 계수 (CT ≥ 기준 R × 이 값)</label>
+                                        <input type="number" class="form-field" step="0.5"
+                                               :min="kpi.nonProdMin" :max="kpi.nonProdMax"
+                                               x-model.number="kpi.nonProdKappa" @input="kpiDirty = true" />
+                                        <small class="settings-hint"
+                                               x-text="'평소 사이클의 ' + (kpi.nonProdKappa || 0) + '배 이상 걸린 사이클은 비생산입니다. 범위 '
+                                                     + kpi.nonProdMin + '~' + kpi.nonProdMax + ' · 기본 10. 원인은 단정하지 않습니다 — 주말 정지와 긴 정지는 시간만으로 구분할 수 없습니다.'"></small>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label">비가동 계수 (work 지속시간 &gt; 평소 W × 이 값)</label>
+                                        <input type="number" class="form-field" step="0.1"
+                                               :min="kpi.downMin" :max="kpi.downMax"
+                                               x-model.number="kpi.downKappa" @input="kpiDirty = true" />
+                                        <small class="settings-hint"
+                                               x-text="'flow 안의 work 중 하나라도 평소의 ' + (kpi.downKappa || 0) + '배를 넘으면 그 사이클은 비가동입니다(OR 조건). 범위 '
+                                                     + kpi.downMin + '~' + kpi.downMax + ' · 기본 2.5. 어느 work 가 넘었는지는 연표와 간트 리본에 표시됩니다.'"></small>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label">양품률 Q (%)</label>
+                                        <input type="number" class="form-field" step="0.1" min="0" max="100"
+                                               x-model.number="kpi.qualityPercent" @input="kpiDirty = true" />
+                                        <small class="settings-hint">라인 전체에 적용되는 단일 값입니다. OEE 와 TEEP 에만 곱해지고 가용성·성능에는 영향이 없습니다. 기본 100%.</small>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label">원시 신호 보존 (일)</label>
+                                        <input type="number" class="form-field" step="1" min="0" max="3650"
+                                               x-model.number="kpi.rawRetentionDays" @input="kpiDirty = true" />
+                                        <small class="settings-hint">신호 로그와 알람을 며칠 보관할지. 사이클·기준선·접속 이력은 영구 보존입니다. 0 이면 삭제하지 않습니다.</small>
+                                    </div>
+
+                                    <div class="settings-note">
+                                        <small x-text="'기준선은 최근 ' + kpi.baselineWindowDays + '일 이동 중앙값이며, 완료 사이클이 '
+                                                     + kpi.minBaselineSamples + '건 미만인 설비는 판정하지 않고 계산에서 빠집니다.'"></small>
+                                    </div>
+
+                                    <button class="btn w-100" :class="kpiDirty ? 'btn-primary' : 'btn-outlined'"
+                                            @click="saveKpi()" :disabled="kpiSaving">
+                                        <span class="material-icons">save</span>
+                                        <span x-text="kpiSaving ? '저장 중…' : (kpiDirty ? '판정 기준 저장 *' : '판정 기준 저장')"></span>
+                                    </button>
+                                </div>
+                            </div>
+
                             <!-- 사용자 인터페이스 — 우측 컬럼 상단(CCTV 위) -->
                             <div class="card" x-show="activeTab === 'general'">
                                 <div class="card-header">
@@ -1680,6 +1745,48 @@
                     csv: { show: false, busy: false, fileName: '', rows: [], hasSystemColumn: false, encoding: '', mode: 'append', targetSystemId: '' },
                 },
 
+                // 시간 기반 코어 v68 의 판정 기준(doc/30 §4 · §8.3). 서버가 현재값과 허용 범위를 함께 준다.
+                kpi: {
+                    nonProdKappa: 10, downKappa: 2.5, qualityPercent: 100, rawRetentionDays: 90,
+                    nonProdMin: 3, nonProdMax: 100, downMin: 1.5, downMax: 10,
+                    minBaselineSamples: 10, baselineWindowDays: 14,
+                },
+                kpiDirty: false, kpiSaving: false,
+
+                // 판정 기준 불러오기 — 실패해도 카드만 기본값으로 남고 페이지는 정상 동작한다.
+                async loadKpi() {
+                    try {
+                        const r = await fetch('/api/kpi/settings');
+                        if (!r.ok) return;
+                        this.kpi = await r.json();
+                        this.kpiDirty = false;
+                    } catch (e) { /* 전환 기간: 엔드포인트가 없어도 무해 */ }
+                },
+
+                async saveKpi() {
+                    this.kpiSaving = true;
+                    try {
+                        const r = await fetch('/api/kpi/settings', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                nonProdKappa: this.kpi.nonProdKappa,
+                                downKappa: this.kpi.downKappa,
+                                qualityPercent: this.kpi.qualityPercent,
+                                rawRetentionDays: this.kpi.rawRetentionDays,
+                            }),
+                        });
+                        if (!r.ok) throw new Error('HTTP ' + r.status);
+                        this.kpi = await r.json();
+                        this.kpiDirty = false;
+                        if (window.dspToast) window.dspToast('판정 기준을 저장했습니다 — 조회 화면이 새 기준으로 다시 표시됩니다.');
+                    } catch (e) {
+                        if (window.dspToast) window.dspToast('판정 기준 저장 실패: ' + e.message, 'error');
+                    } finally {
+                        this.kpiSaving = false;
+                    }
+                },
+
                 async init() {
                     this.dark = localStorage.getItem('dspilot-theme') === 'dark';
                     window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
@@ -1705,6 +1812,7 @@
                     this.loadAccount();
                     this.loadOpcUaRejected();
                     this.loadAppInfo();
+                    this.loadKpi();
                     // 가동 시간은 서버 재조회 없이 클라이언트에서 1초씩 증가시켜 표시(새로고침 시 서버값으로 재동기화).
                     // clearInterval 선행: init 이 두 번 돌면(과거 x-init="init()" 중복 호출, 지금은 제거)
                     // 티커가 2개 붙어 가동 시간이 2배속으로 흐른다 — 재진입 가드는 남겨 둔다.

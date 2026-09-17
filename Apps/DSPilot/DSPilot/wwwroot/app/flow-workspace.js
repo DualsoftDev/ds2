@@ -105,6 +105,9 @@
                 callLanes: [],
                 cycleBoundaries: [], tailEdges: [],
                 chartStart: null, chartEnd: null,
+                // 시간 기반 코어(doc/30 §8.2) — 리본에 비가동·비생산을 덧칠하기 위한 판정 세그먼트.
+                // 간트 자체의 분기·중복 로직과 독립이라 조회에 실패해도 간트는 그대로 그려진다.
+                kpiSegs: [], kpiCounts: null, kpiOnlyIssues: false, kpiErr: null,
                 chartStartIso: '', chartEndIso: '',
                 cycleBoundariesIso: [], tailEdgesIso: [],
                 plotWidth: 1200, baseWidth: 1200, zoom: 1, viewMode: 'bar',
@@ -1945,12 +1948,55 @@
                     this.applySort();
                     this.recomputeTopGaps();
                     this.render();
+                    this.loadKpiStates();        // 판정 오버레이(비동기) — 도착하면 리본만 다시 그린다
                     this.$nextTick(() => {
                         this.measurePlotWidth(); this.render();
                         // svgMarkup 은 다음 틱에 DOM 에 붙는다 → 스크롤 폭이 확정된 뒤 이동 슬라이더 동기화.
                         this.syncPanSoon();
                         if (this.tab === 'cycle' && this.cycleView === 'chart') this.renderCycleChart();
                     });
+                },
+
+                // 현재 간트 구간의 사이클 판정(가동·비가동·비생산·제외)을 받아 리본 오버레이로 넘긴다.
+                async loadKpiStates() {
+                    const CG = window.CycleGantt;
+                    if (!CG || !CG.setKpiStates || !this.chartStartIso || !this.chartEndIso) return;
+                    try {
+                        const p = new URLSearchParams({ from: this.chartStartIso, to: this.chartEndIso });
+                        if (this.selectedFlow) p.set('flow', this.selectedFlow);
+                        const r = await fetch('/api/kpi/timeline?' + p.toString());
+                        if (!r.ok) throw new Error('timeline ' + r.status);
+                        const d = await r.json();
+                        this.kpiSegs = d.segments || [];
+                        this.kpiCounts = d.counts || null;
+                        this.kpiErr = null;
+                        CG.setKpiStates(this.kpiSegs);
+                        CG.setKpiOnlyIssues(this.kpiOnlyIssues);
+                        this.render();
+                    } catch (e) {
+                        this.kpiErr = e.message;
+                        this.kpiSegs = []; this.kpiCounts = null;
+                        CG.setKpiStates([]);
+                    }
+                },
+
+                // '비가동·비생산만' 토글 — 가동 밴드를 흐리게 덮어 문제 사이클만 눈에 띄게 한다.
+                toggleKpiOnlyIssues() {
+                    this.kpiOnlyIssues = !this.kpiOnlyIssues;
+                    if (window.CycleGantt && window.CycleGantt.setKpiOnlyIssues) {
+                        window.CycleGantt.setKpiOnlyIssues(this.kpiOnlyIssues);
+                        this.render();
+                    }
+                },
+
+                // 리본에서 다음 비가동·비생산 사이클로 이동(없으면 제자리).
+                jumpToNextIssue() {
+                    const issues = (this.kpiSegs || []).filter(k => k.state === 'Down' || k.state === 'NonProd');
+                    if (!issues.length) return;
+                    this._kpiJumpIdx = ((this._kpiJumpIdx ?? -1) + 1) % issues.length;
+                    const k = issues[this._kpiJumpIdx];
+                    this.selectedRange = { startMs: k.startMs, endMs: k.endMs };
+                    this.render();
                 },
 
                 // 정렬 = Head 맨 위 · Tail 맨 아래 고정. 그 사이는 첫 신호(InTag/OutTag) 시각 순

@@ -34,6 +34,34 @@
     // ════════════════════════════════════════════════════════════════════════
     //  포맷 유틸 (flow.html 동일)
     // ════════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════
+    //  시간 기반 코어(doc/30) 판정 오버레이 — 비가동·비생산 CT 표시
+    // ════════════════════════════════════════════════════════════════════════
+    //  리본의 색·분기 로직은 손대지 않고, 판정 결과를 <b>덧칠</b>만 한다(윗변 띠 + 툴팁).
+    //  페이지가 /api/kpi/timeline 의 세그먼트를 setKpiStates() 로 넣어 주면 켜지고, 없으면 종전 그대로다.
+    var _kpiStates = [];          // [{startMs, endMs, state, worstWork, worstRatio, reason}]
+    var _kpiOnlyIssues = false;   // true = 비가동·비생산 CT 만 강조(나머지는 흐리게)
+
+    var KPI_TONE = {
+        Down:     { color: '#B22F22', label: '비가동' },
+        NonProd:  { color: '#334E7B', label: '비생산' },
+        Excluded: { color: '#9AA3AF', label: '제외' },
+    };
+
+    /// 세그먼트 목록 교체. 서버가 인접 동일 상태를 묶어 주므로 보통 수십 개를 넘지 않는다.
+    function setKpiStates(list) { _kpiStates = Array.isArray(list) ? list : []; }
+    function setKpiOnlyIssues(on) { _kpiOnlyIssues = !!on; }
+    function kpiStates() { return _kpiStates; }
+
+    /// 사이클 시작 시각이 속한 세그먼트. 경계가 1ms 어긋나도 잡히도록 시작점 포함으로 본다.
+    function kpiStateAt(startMs) {
+        for (var i = 0; i < _kpiStates.length; i++) {
+            var k = _kpiStates[i];
+            if (startMs >= k.startMs - 1 && startMs < k.endMs) return k;
+        }
+        return null;
+    }
+
     function f(v) { return String(Math.round(v * 100) / 100); }
     function esc(s) {
         if (s == null || s === '') return '';
@@ -608,6 +636,33 @@
         return sb;
     }
 
+    /// 한 사이클 밴드 위에 판정 결과를 덧칠한다. 가동은 아무것도 그리지 않는다(기본 상태라 조용히).
+    function kpiOverlay(startMs, sx, bandW, barY, barH) {
+        if (!_kpiStates.length) return '';
+        var k = kpiStateAt(startMs);
+        if (!k) return '';
+        var tone = KPI_TONE[k.state];
+        if (!tone) {
+            // 가동 — '문제만 보기' 모드에서는 흐리게 덮어 비가동·비생산이 눈에 띄게 한다.
+            return _kpiOnlyIssues
+                ? '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="#ffffff" opacity="0.62" pointer-events="none"/>'
+                : '';
+        }
+        var tip = tone.label
+            + (k.state === 'Down' && k.worstWork ? ' · 초과 work ' + k.worstWork + ' (평소의 ' + (k.worstRatio || 0).toFixed(1) + '배)' : '')
+            + (k.state === 'Excluded' && k.reason ? ' · ' + k.reason : '');
+        var o = '<g class="kpi-mark"><title>' + esc(tip) + '</title>';
+        // 윗변 띠 — 밴드 자체 색을 가리지 않으면서 상태를 한눈에 준다.
+        o += '<rect x="' + f(sx) + '" y="' + f(barY - 3) + '" width="' + f(bandW) + '" height="3" fill="' + tone.color + '"/>';
+        o += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="none" stroke="' + tone.color + '" stroke-width="1.4"/>';
+        if (bandW > 10) {
+            o += '<text x="' + f(sx + bandW - 3) + '" y="' + f(barY + 9) + '" text-anchor="end" font-size="8.5" font-weight="800" fill="' + tone.color + '">'
+               + (k.state === 'Down' ? '비가동' : k.state === 'NonProd' ? '비생산' : '제외') + '</text>';
+        }
+        o += '</g>';
+        return o;
+    }
+
     function appendCycleRibbon(s, xScale, ribbonTop, ribbonH, cs, ce) {
         var spans = cycleSpansOf(s);
         if (!spans.length) return '';
@@ -670,6 +725,7 @@
                     ug += '<text x="' + f(sx + bandW / 2.0) + '" y="' + f(barCY) + '" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="800" fill="' + fill + '" font-family="' + mono + '"' + (none || u.dup ? '' : ' style="paint-order:stroke" stroke="rgba(0,0,0,0.35)" stroke-width="2"') + '>' + esc(ul) + '</text>';
                 }
                 if (bandW > 22) ug += '<text x="' + f(sx + 4) + '" y="' + f(ribbonTop + 12) + '" font-size="11" font-weight="800" fill="#263238">#' + span.number + (span.isOpen ? ' ↻' : '') + '</text>';
+                ug += kpiOverlay(span.start, sx, bandW, barY, barH);
                 ug += '</g>';
                 sb += ug;
                 continue;
@@ -699,6 +755,7 @@
                 var num = span.isOpen ? '#' + span.number + ' ↻' : '#' + span.number;
                 g += '<text x="' + f(sx + 4) + '" y="' + f(ribbonTop + 12) + '" font-size="11" font-weight="800" fill="#263238">' + num + '</text>';
             }
+            g += kpiOverlay(span.start, sx, bandW, barY, barH);
             g += '</g>';
             sb += g;
         }
@@ -1012,6 +1069,8 @@
         sortLanes: sortLanes,
         cycleRows: cycleRows, isIncompleteCycle: isIncompleteCycle, visibleCycleRows: visibleCycleRows,
         excludedCycleCount: excludedCycleCount, incompleteCycleCount: incompleteCycleCount, ratioCls: ratioCls,
+        // 시간 기반 코어 판정 오버레이(doc/30 §8.2)
+        setKpiStates: setKpiStates, setKpiOnlyIssues: setKpiOnlyIssues, kpiStates: kpiStates, kpiStateAt: kpiStateAt,
         // SVG
         buildSvg: buildSvg
     };

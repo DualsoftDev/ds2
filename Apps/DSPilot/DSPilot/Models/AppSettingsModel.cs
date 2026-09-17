@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Text.Json;
@@ -25,6 +25,37 @@ public class AppSettingsModel
     public AutoCalibrationSettings AutoCalibration { get; set; } = new();
     public EmailBriefingSettings EmailBriefing { get; set; } = new();
     public ExternalAccessSettings ExternalAccess { get; set; } = new();
+    public KpiSettings Kpi { get; set; } = new();
+}
+
+/// <summary>
+/// 시간 기반 코어 v68 의 사용자 설정. doc/30 §4 · §6.
+/// <para>
+/// 계수 둘과 품질 하나가 전부다. 원본 스펙 §18 의 "스펙 버전 고정 상수" 조항은 채택하지 않았다 —
+/// 현장마다 리듬이 달라 조절이 필요하고, 기준선 R·W 가 행에 박제되므로 계수를 바꿔도 기준 자체는 움직이지 않는다.
+/// 계수 변경은 사용자의 명시적 행위라 "과거 KPI 를 몰래 바꾸지 않는다"는 원칙과 충돌하지 않는다.
+/// </para>
+/// </summary>
+public class KpiSettings
+{
+    /// <summary>비생산 판정 계수 — <c>CT ≥ 이 값 × R</c> 이면 비생산. 기본 10.</summary>
+    public double NonProdKappa { get; set; } = Kpi.KpiKappa.NonProdDefault;
+
+    /// <summary>비가동 판정 계수 — 어느 work 라도 <c>지속시간 &gt; 이 값 × W</c> 면 비가동(OR). 기본 2.5.</summary>
+    public double DownKappa { get; set; } = Kpi.KpiKappa.DownDefault;
+
+    /// <summary>전역 양품률 %(0~100). 기본 100 — 미입력을 "미산출"로 두지 않는다(doc/30 §12-⑥).</summary>
+    public double QualityPercent { get; set; } = 100.0;
+
+    /// <summary>원시 신호·알람 보존 일수. 0 이하면 삭제하지 않는다.</summary>
+    public int RawRetentionDays { get; set; } = 90;
+
+    /// <summary>정규화된 계수·품질 묶음 — 판정·집계·표시의 단일 소스.</summary>
+    public Kpi.KpiKappa Resolve()
+        => new Kpi.KpiKappa(NonProdKappa, DownKappa, QualityPercent / 100.0).Normalized();
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 /// <summary>

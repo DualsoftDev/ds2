@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<!-- saved from url=(0115)file:///C:/Users/dual/AppData/Local/Temp/BNZ.6aaa267b6fad216/OEE_TEEP_TimeBased_Core_Spec_v68_Korean_Subscript.html -->
+<html lang="ko"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OEE / TEEP Time-Based Core Spec v68 — 쉬운 정본</title>
+<style>
+:root{
+  --ink:#0d2945;--muted:#5f7185;--line:#dce5ed;--bg:#f4f7fa;
+  --navy:#0b2d4c;--blue:#2b66c5;--teal:#1595a6;--green:#1e7a48;
+  --amber:#a76c00;--red:#b84036;--purple:#7350a6;
+  --bluebg:#edf4ff;--greenbg:#eaf7ef;--amberbg:#fff6e3;--redbg:#fff0ed;--purplebg:#f4effb;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Pretendard","Apple SD Gothic Neo",sans-serif;line-height:1.65}
+.page{width:min(1180px,96vw);margin:18px auto;background:#fff;border:1px solid #e4eaf0;border-radius:14px;box-shadow:0 5px 22px rgba(14,41,69,.06);padding:30px 34px}
+.hero{background:linear-gradient(135deg,#092a47,#114e77);color:#fff}
+h1{font-size:29px;margin:0 0 7px;letter-spacing:-.5px}
+h2{font-size:22px;margin:28px 0 12px;letter-spacing:-.35px}
+h3{font-size:16px;margin:0 0 7px}
+p{margin:8px 0}
+.sub{font-size:14px;color:#d6e5f2}.muted,.small{font-size:12px;color:var(--muted)}
+.badge{display:inline-block;background:#19a0b1;color:#fff;font-size:12px;font-weight:850;padding:5px 10px;border-radius:7px}
+.lead{font-size:19px;font-weight:850;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.18);border-radius:10px;padding:16px 18px;margin-top:18px}
+.grid{display:grid;gap:12px}.g2{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:repeat(3,1fr)}
+.card{border:1px solid var(--line);border-radius:11px;padding:15px 16px;background:#fff}
+.card.blue{border-top:4px solid var(--blue)}.card.green{border-top:4px solid var(--green)}.card.amber{border-top:4px solid var(--amber)}.card.red{border-top:4px solid var(--red)}.card.purple{border-top:4px solid var(--purple)}
+.big{font-size:23px;font-weight:900;margin:3px 0}
+.eq{font-family:"Cambria Math","Times New Roman",serif;font-size:22px;padding:13px 15px;margin:9px 0;border-left:4px solid var(--teal);background:#fafbfd;border-radius:4px;overflow:auto}
+.eq.blue{border-color:var(--blue)}.eq.green{border-color:var(--green)}.eq.red{border-color:var(--red)}.eq.purple{border-color:var(--purple)}
+.explain{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Pretendard",sans-serif;font-size:13px;color:var(--muted);margin-top:5px}
+.call{padding:12px 14px;border-radius:8px;margin:10px 0;font-size:13px}
+.call.blue{background:var(--bluebg);border-left:4px solid var(--blue)}.call.good{background:var(--greenbg);border-left:4px solid var(--green)}
+.call.warn{background:var(--amberbg);border-left:4px solid var(--amber)}.call.red{background:var(--redbg);border-left:4px solid var(--red)}.call.purple{background:var(--purplebg);border-left:4px solid var(--purple)}
+.flow{display:grid;grid-template-columns:1fr 34px 1fr 34px 1fr 34px 1fr;gap:5px;align-items:center;margin:14px 0}
+.node{border:1px solid var(--line);background:#fafcfe;border-radius:9px;padding:14px 10px;text-align:center;font-weight:850}.arr{text-align:center;font-size:22px;color:#708092}
+table{width:100%;border-collapse:collapse;font-size:13px;margin:9px 0}th{background:var(--navy);color:#fff;padding:8px 9px;text-align:left}td{padding:8px 9px;border-bottom:1px solid #edf1f4;vertical-align:top}.term{font-weight:850;white-space:nowrap}
+.timeline{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:12px 0}.seg{padding:15px 10px;text-align:center;font-weight:850}.seg.a{background:#e8f7ef;color:#16693c;flex:1.2}.seg.d{background:#fff5e1;color:#905e00;flex:1.7}.seg.n{background:#fff0ed;color:#a2382f;flex:2.2}
+.case{border:1px solid var(--line);border-radius:12px;margin:13px 0;overflow:hidden}.casehead{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;background:#f9fbfd;border-bottom:1px solid var(--line)}.num{width:34px;height:34px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;flex:none}.casebody{padding:14px 16px}
+.casegrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px}.box{border:1px solid #e3e9ef;border-radius:8px;padding:10px;background:#fff;font-size:12px}.box b{display:block;margin-bottom:4px}
+.tag{display:inline-block;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:850;margin-right:5px}.ok{background:#e8f7ef;color:#1b6a3e}.risk{background:#fff3db;color:#8e5e00}.hard{background:#ffebe9;color:#ab392f}.info{background:#eaf3ff;color:#285cac}
+.check{display:grid;grid-template-columns:1fr 1fr;gap:8px}.check div{border:1px solid #e5eaf0;background:#f8fafc;border-radius:8px;padding:10px 12px;font-size:12px}
+.footer{text-align:center;color:#8492a0;font-size:11px;border-top:1px solid var(--line);padding-top:12px;margin-top:24px}
+code{font-family:Consolas,"JetBrains Mono",monospace;background:#f2f5f8;padding:1px 4px;border-radius:3px}
+
+.ko-sub{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Pretendard","Apple SD Gothic Neo",sans-serif;
+  font-size:.54em;
+  font-style:normal;
+  font-weight:800;
+  letter-spacing:-.03em;
+  vertical-align:-.22em;
+  margin-left:1px;
+}
+
+@media(max-width:900px){.g2,.g3,.casegrid,.check{grid-template-columns:1fr}.flow{grid-template-columns:1fr}.arr{transform:rotate(90deg)}.timeline{flex-direction:column}.page{padding:22px 18px}}
+@media print{body{background:#fff}.page{width:100%;margin:0;box-shadow:none;border:none;padding:12mm;page-break-after:always}.case{break-inside:avoid}}
+</style>
+</head>
+<body>
+
+<section class="page hero">
+  <div style="display:flex;justify-content:space-between;gap:18px;align-items:flex-start">
+    <div>
+      <h1>OEE / TEEP Time-Based Core Spec <span style="color:#6ee1ea">v68</span></h1>
+      <div class="sub">쉬운 정본 · 의미 첨자는 한글로 표기</div>
+    </div>
+    <div style="text-align:right"><span class="badge">EASY FINAL</span><div class="sub" style="margin-top:5px">2026-09-16</div></div>
+  </div>
+  <div class="lead">
+    본 스펙은 <b>제품·수량·레시피·고장정보를 KPI 입력으로 사용하지 않는다.</b><br>
+    설비가 반복해서 만드는 <b>Cycle의 시간</b>만 보고 성능을 계산한다.
+    <b>품질 Q만 사용자가 입력</b>한다.
+  </div>
+  <p style="margin-top:16px;color:#d8e8f3">
+    쉽게 말하면, “무엇을 몇 개 만들었는가?” 대신 <b>“설비가 자기 평소 리듬대로 반복 동작했는가?”</b>를 측정한다.
+  </p>
+</section>
+
+<section class="page">
+  <h2 style="margin-top:0">0. 전체 흐름 — 네 단계만 기억하면 된다</h2>
+  <div class="flow">
+    <div class="node">① Cycle 시간을 잰다<br><b>CT</b></div><div class="arr">→</div>
+    <div class="node">② 평소 기준시간을 만든다<br><b>R</b></div><div class="arr">→</div>
+    <div class="node">③ 실제와 기준을 비교한다<br><b>A<sub class="ko-sub">시간</sub>, P<sub class="ko-sub">시간</sub></b></div><div class="arr">→</div>
+    <div class="node">④ 품질 Q를 곱한다<br><b>OEE<sub class="ko-sub">시간</sub>, TEEP<sub class="ko-sub">시간</sub></b></div>
+  </div>
+
+  <div class="grid g3">
+    <div class="card green"><h3>시스템이 자동으로 보는 것</h3><div class="big">시간</div><p>Cycle 시작/끝, Cycle 길이, 데이터 수집이 정상인지 여부.</p></div>
+    <div class="card red"><h3>계산에 넣지 않는 것</h3><div class="big">제품 정보</div><p>제품코드, 생산수량, Cavity 수, Batch 크기, Recipe, Fault/Alarm 원인.</p></div>
+    <div class="card amber"><h3>사람이 넣는 것</h3><div class="big">Q</div><p>양품률만 입력한다. 예: 98.5% → Q=0.985.</p></div>
+  </div>
+
+  <div class="call warn">
+    <b>이름을 OEE<sub class="ko-sub">시간</sub>, TEEP<sub class="ko-sub">시간</sub>로 쓰는 이유:</b> 일반적인 OEE는 제품별 이상 Cycle Time을 사용할 수 있다.
+    이 스펙은 제품 정보를 일부러 사용하지 않으므로 <b>시간 기반 OEE</b>라는 뜻의 T를 붙인다.
+  </div>
+</section>
+
+<section class="page">
+  <h2 style="margin-top:0">1. 시스템에 필요한 신호</h2>
+  <table>
+    <tbody><tr><th>항목</th><th>필수?</th><th>쉬운 설명</th></tr>
+    <tr><td class="term">Cycle 경계 신호</td><td>필수</td><td>“한 Cycle이 끝나고 다음 Cycle이 시작됐다”는 기준점. CT를 재기 위해 반드시 필요하다.</td></tr>
+    <tr><td class="term">Heartbeat</td><td>필수</td><td>데이터 수집기가 살아 있는지 확인하는 신호. 기계 정지와 통신 끊김을 구별한다.</td></tr>
+    <tr><td class="term">Q</td><td>필수</td><td>사용자가 입력하는 양품률.</td></tr>
+    <tr><td class="term">실행 신호 E</td><td>선택</td><td>있으면 MT/WT를 나눠 볼 수 있다. 없어도 핵심 OEE<sub class="ko-sub">시간</sub>/TEEP<sub class="ko-sub">시간</sub>는 계산한다.</td></tr>
+  </tbody></table>
+
+  <div class="call red">
+    <b>가장 중요한 전제:</b> 제품 정보는 없어도 되지만 <b>“무엇을 한 Cycle로 볼 것인가”</b>는 정해져 있어야 한다.
+    Cycle 경계가 없으면 이 스펙을 적용할 수 없다.
+  </div>
+
+  <h2>2. Cycle이란?</h2>
+  <p><b>Cycle은 같은 기준점이 다시 돌아올 때까지의 시간</b>이다.</p>
+
+  <div class="eq">
+    <b>CT<sub>i</sub> = c<sub>i+1</sub> − c<sub>i</sub></b>
+    <div class="explain">
+      c<sub>i</sub> = 이번 Cycle이 시작된 시각, c<sub>i+1</sub> = 다음 Cycle이 시작된 시각.
+    </div>
+  </div>
+
+  <div class="call good">
+    <b>예:</b> Cycle 신호가 10:00:00에 한 번 들어오고, 다음 신호가 10:00:12에 들어오면
+    <b>CT = 12초</b>다.
+  </div>
+
+  <div class="call blue">
+    <b>하루 집계를 시작했는데 이미 Cycle이 진행 중이라면?</b><br>
+    그 Cycle의 시작 시각을 이전 기록에서 가져온다.
+    이전 시작 시각을 찾을 수 없으면 그 부분은 억지로 계산하지 않고 <b>“모르는 시간(UNK)”</b>으로 표시한다.
+  </div>
+
+  <div class="call warn">
+    <b>Cycle이 아직 끝나지 않았다면?</b><br>
+    완료될 때까지 기다리지 않는다. 마지막 Cycle 시작 후 지금까지 몇 초가 지났는지 계속 센다.
+  </div>
+</section>
+
+<section class="page">
+  <h2 style="margin-top:0">3. 기준시간 R — “이 설비의 평소 Cycle은 몇 초인가?”</h2>
+  <p>제품별 표준 CT를 사용하지 않는다. 대신 설비가 실제로 반복한 Cycle 시간에서 <b>대표값</b>을 하나 만든다.</p>
+
+  <div class="eq blue">
+    <b>R = median(기준으로 사용할 과거 CT)</b>
+    <div class="explain">median = 데이터를 작은 순서로 놓았을 때 가운데 값. 아주 긴 정지 한두 번에 덜 흔들리기 때문에 평균보다 안전하다.</div>
+  </div>
+
+  <div class="call good">
+    <b>예:</b> 과거 CT가 9.8, 10.0, 10.1, 10.2, 25.0초라면 평균은 크게 올라가지만 중앙값은 <b>10.1초</b>다.
+  </div>
+
+  <div class="grid g2">
+    <div class="card blue">
+      <h3>정본 기준 R</h3>
+      <p>한번 기준으로 확정한 값. 과거 OEE를 나중에 몰래 다시 바꾸지 않는다.</p>
+    </div>
+    <div class="card purple">
+      <h3>최근 기준 R<sub class="ko-sub">최근</sub></h3>
+      <p>최근 Cycle의 중앙값. 설비 리듬이 바뀌었는지 감시하는 참고값으로만 쓴다.</p>
+    </div>
+  </div>
+
+  <div class="call warn">
+    <b>왜 두 값을 나누는가?</b> 최근 값으로 기준을 계속 바꾸면 설비가 점점 느려져도 기준도 같이 느려져서 “항상 정상”처럼 보일 수 있다.
+  </div>
+</section>
+
+<section class="page">
+  <h2 style="margin-top:0">4. Cycle이 오래 걸리면 시간을 세 구간으로 나눈다</h2>
+
+  <p>Cycle이 조금 느린 것과, 아주 오래 멈춰 있는 것을 같은 것으로 보지 않는다.
+  그래서 기준 R을 이용해 두 개의 시간 경계를 둔다.</p>
+
+  <div class="eq purple">
+    <b>H<sub class="ko-sub">가동</sub> = 정상 상태(계수 넘은 CT 없음)<br>
+    <b>H<sub class="ko-sub">비가동</sub> = 각 Flow내 work의 기준 time X κ<sub class="ko-sub">비가동</sub>을 넘은 요소가 하나라도 있으면 해당 flow CT는 비가동<br>
+    <b>H<sub class="ko-sub">비생산</sub> = κ<sub class="ko-sub">비생산</sub> × R</b>
+    <div class="explain">H(비가동) = 비가동가 시작되는 경계, H(비생산) = 아주 긴 비활성으로 보는 경계. κ_D와 κ_N은 사용자 입력이 아니라 스펙 버전에 고정한다.</div>
+  </div>
+
+  <div class="timeline">
+    <div class="seg a">0 ~ H<sub class="ko-sub">비가동</sub><br><small>기준 안의 시간</small><br><b>T<sub class="ko-sub">가동</sub></b></div>
+    <div class="seg d">H<sub class="ko-sub">비가동</sub> ~ H<sub class="ko-sub">비생산</sub><br><small>비가동/비가동</small><br><b>T<sub class="ko-sub">비가동</sub></b></div>
+    <div class="seg n">H<sub class="ko-sub">비생산</sub> 이후<br><small>장기 비활성/비생산</small><br><b>T<sub class="ko-sub">비생산</sub></b></div>
+  </div>
+
+  <div class="call good">
+    <b>예:</b> R=10초, H(비생산)=100초이고 다음 Cycle이 130초 뒤에 왔다면
+    0~15초는 T(가동), 100~130초는 T(비생산)으로 센다. H(비생산) 은 사용자가 조절 가능.
+  </div>
+  <div class="call good">
+    비가동의 경우 work 의 각 기준시간 x H(비가동) 계수를 한 값을 넘은 요소가 하나라도 있으면 해당 CT는 비가동 처리한다.  H(비가동) 계수는 기본값 및 사용자 선택 가능.
+  </div>
+  <div class="call red">
+    <b>주의:</b> T(비생산)을 “실제 계획정지”라고 단정하는 것은 아니다.
+    시간만으로는 주말 정지와 긴 고장을 구분할 수 없다.
+    여기서 T(비생산)은 단지 <b>시간 규칙상 아주 긴 비활성</b>이라는 뜻이다.
+  </div>
+</section>
+
+<section class="page">
+  <h2 style="margin-top:0">5. 전체 시간은 반드시 한 번만 센다</h2>
+
+  <div class="eq">
+    <b>T = T<sub class="ko-sub">가동</sub> + T<sub class="ko-sub">비가동</sub> + T<sub class="ko-sub">비생산</sub></b>
+    <div class="explain">T(미관측)는 통신 끊김처럼 “기계 상태를 알 수 없는 시간”이다.(시간 계산 요소에서 제외)</div>
+  </div>
+
+  <div class="call blue">
+    같은 1초를 두 상태에 동시에 넣지 않는다. 모든 시간은 <b>T(기준), T(비가동), T(비생산), T(미관측) 중 하나</b>에만 들어간다.
+  </div>
+
+  <h2>6. 시간 가용률 A<sub class="ko-sub">시간</sub></h2>
+  <div class="eq green">
+    <b>A<sub class="ko-sub">시간</sub> = T<sub class="ko-sub">가동</sub> / (T<sub class="ko-sub">가동</sub> + T<sub class="ko-sub">비가동</sub>)</b>
+    <div class="explain">쉽게 말하면 “생산 대상으로 보고 있는 시간 중, 기준 범위 안에 있었던 시간 비율”.</div>
+  </div>
+
+  <h2>7. 시간 성능률 P<sub class="ko-sub">시간</sub></h2>
+  <div class="eq blue">
+    <b>P<sub class="ko-sub">시간</sub> = ΣR<sub>i</sub> / T<sub class="ko-sub">가동</sub></b>
+	<b>P<sub class="ko-sub">시간</sub> = R x CT개수(지정한만큼) / ΣCT<sub class="ko-sub">i</sub></b>
+    <div class="explain">Cycle 하나가 정상적으로 끝날 때마다 그 Cycle의 기준시간 R을 한 번 적립한다. 제품 수량은 세지 않는다.</div>
+  </div>
+
+  <div class="call good">
+    <b>예:</b> R=10초이고 10 Cycle이 완료되면 기준 성과시간은 100초다.
+    이 10 Cycle의 실제 T(가동)가 120초라면 시간 성능은 약 83.3%다.
+  </div>
+
+  <div class="call warn">
+    P<sub class="ko-sub">시간</sub>가 100%를 넘을 수 있다. 이것은 오류가 아니라 “현재 Cycle이 기준 R보다 빠르다”는 뜻이다.
+    원시값은 100%에서 잘라내지 않는다.
+  </div>
+
+  <h2>8. 품질 Q</h2>
+  <div class="eq">
+    <b>Q = 사용자 입력 양품률</b>
+    <div class="explain">예: 양품률 98.5% → Q=0.985. Q를 모르면 자동으로 1.0을 넣지 않는다.</div>
+  </div>
+</section>
+
+<section class="page">
+  <h2 style="margin-top:0">9. OEE<sub class="ko-sub">시간</sub> — 생산 대상으로 본 시간 안에서의 효율</h2>
+
+  <div class="eq green">
+    <b>OEE<sub class="ko-sub">시간</sub> = A<sub class="ko-sub">시간</sub> × P<sub class="ko-sub">시간</sub> × Q</b><br>
+    <b>= Q × ΣR<sub>i</sub> / (T<sub class="ko-sub">가동</sub> + T<sub class="ko-sub">비가동</sub>)</b>
+  </div>
+
+  <div class="call good">
+    <b>쉽게 말하면:</b> 생산 대상으로 보고 있는 시간 안에서
+    “기준 리듬대로 Cycle을 얼마나 잘 반복했는가?”에 품질을 곱한 값이다.
+  </div>
+
+  <h2>10. TEEP<sub class="ko-sub">시간</sub> — 24/365 전체시간에서의 효율</h2>
+
+  <div class="eq">
+    <b>U<sub class="ko-sub">시간</sub> = (T<sub class="ko-sub">가동</sub> + T<sub class="ko-sub">비가동</sub>) / T</b><br>
+    <b>TEEP<sub class="ko-sub">시간</sub> = U<sub class="ko-sub">시간</sub> × OEE<sub class="ko-sub">시간</sub></b><br>
+    <b>= Q × ΣR<sub>i</sub> / T</b><br>
+    <b>TEEP<sub class="ko-sub">생산</sub> = T / (T<sub class="ko-sub">생산</sub> + T<sub class="ko-sub">비생산</sub>)
+	
+  </div>
+
+  <div class="call blue">
+    <b>가장 쉬운 해석:</b> TEEP<sub class="ko-sub">시간</sub>는 결국
+    “완료한 Cycle들이 벌어들인 기준시간의 합”을 전체 달력시간으로 나눈 뒤 Q를 곱한 값이다.
+  </div>
+
+  <div class="call warn">
+    1년이라고 해서 무조건 24×365를 숫자로 박지 않는다.
+	생산 ct기준을 사용한다. 
+    실제 구현에서는 <b>평가 시작시각부터 종료시각까지의 실제 경과시간</b>을 사용한다.
+  </div>
+</section>
+
+<section class="page">
+  <h2 style="margin-top:0">11. MT / WT — 설비가 왜 느린지 설명하는 보조 진단</h2>
+
+  <p>실행 신호 E가 있으면 Cycle 안에서 “실제로 움직인 시간”과 “움직이지 않은 시간”을 나눠 볼 수 있다.</p>
+
+  <div class="eq red">
+    <b>MT<sub>i</sub> = Cycle 안에서 실행 ON이었던 시간</b><br>
+    <b>WT<sub>i</sub> = CT<sub>i</sub> − MT<sub>i</sub></b><br>
+    <b>CT<sub>i</sub> = WT<sub>i</sub> + MT<sub>i</sub></b>
+  </div>
+
+  <div class="call good">
+    E가 없어도 OEE<sub class="ko-sub">시간</sub>/TEEP<sub class="ko-sub">시간</sub>는 계산한다.
+    E가 있으면 “Cycle이 느린 이유가 실행시간 증가인지, 비실행시간 증가인지”를 추가로 설명할 수 있다.
+  </div>
+
+  <div class="call warn">
+    WT를 무조건 “실행 전 대기”라고 부르지 않는다.
+    설비는 실행→대기→실행 순서로 움직일 수도 있으므로 WT는 단순히 <b>실행하지 않은 시간</b>이다.
+  </div>
+</section>
+
+<section class="page">
+  <h2 style="margin-top:0">12. 비가동 이벤트 — 고장이라고 부르지 않는다</h2>
+
+  <p>Fault/Alarm을 입력으로 쓰지 않으므로 “고장 발생”을 직접 알 수 없다.
+  대신 H(비가동)를 넘은 사실만 <b>비가동(TO)</b>로 기록한다.</p>
+
+  <div class="grid g2">
+    <div class="card red">
+      <h3>TTR<sub class="ko-sub">비가동</sub></h3>
+      <div class="big">평균 비가동 지속시간</div>
+      <p>H(비가동)를 처음 넘은 순간부터 다음 유효 Cycle이 시작될 때까지의 평균.</p>
+    </div>
+    <div class="card purple">
+      <h3>TBF<sub class="ko-sub">비가동</sub></h3>
+      <div class="big">평균 비가동 발생간격</div>
+      <p>한 비가동가 시작된 시각부터 다음 비가동 시작까지의 평균.</p>
+    </div>
+  </div>
+
+  <div class="call red">
+    <b>금지:</b> TTR<sub class="ko-sub">비가동</sub>/TBF<sub class="ko-sub">비가동</sub>를 실제 MTTR/MTBF라고 단정하지 않는다.
+    실제 고장 원인을 사용하지 않기 때문이다.
+  </div>
+</section>
+
+<section class="page">
+  <h2 style="margin-top:0">13. 일반인이 꼭 알아야 할 대표 사례</h2>
+
+  <div class="case">
+    <div class="casehead"><div class="num">1</div><div><h3>정상 Cycle</h3><span class="tag ok">그대로 계산</span></div></div>
+    <div class="casebody"><div class="casegrid">
+      <div class="box"><b>상황</b>R=10초, 실제 CT도 10초</div>
+      <div class="box"><b>시스템 판단</b>기준 리듬과 같음</div>
+      <div class="box"><b>결과</b>시간 성능 약 100%</div>
+    </div></div>
+  </div>
+
+  <div class="case">
+    <div class="casehead"><div class="num">2</div><div><h3>모든 Cycle이 20% 느림</h3><span class="tag ok">느려짐 감지</span></div></div>
+    <div class="casebody"><div class="casegrid">
+      <div class="box"><b>상황</b>R=10초, 실제는 매번 12초</div>
+      <div class="box"><b>시스템 판단</b>제품은 몰라도 리듬이 느려진 것은 보임</div>
+      <div class="box"><b>결과</b>시간 성능 약 83.3%</div>
+    </div></div>
+  </div>
+
+  <div class="case">
+    <div class="casehead"><div class="num">3</div><div><h3>4-Cavity에서 한 Cycle에 4개 생산</h3><span class="tag info">제품수량 무시</span></div></div>
+    <div class="casebody">
+      시스템은 4개라는 사실을 사용하지 않는다. 오직 Cycle이 몇 초 걸렸는지만 본다.
+      <div class="call warn"><b>대가:</b> 실제 생산량이 4배라는 사실은 KPI에 반영되지 않는다.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="casehead"><div class="num">4</div><div><h3>Batch 100개 처리</h3><span class="tag info">Batch 크기 무시</span></div></div>
+    <div class="casebody">
+      100개 Batch든 1,000개 Batch든 “한 Cycle에 몇 초 걸렸는가”만 본다.
+      이 지표는 생산량보다 설비 리듬을 보는 지표다.
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="casehead"><div class="num">5</div><div><h3>빠른 제품 A와 느린 제품 B가 섞임</h3><span class="tag hard">시간만으로 해결 불가</span></div></div>
+    <div class="casebody">
+      A의 정상 CT가 5초, B의 정상 CT가 30초라도 제품정보를 쓰지 않으면 시스템은 “B라서 느린 것”인지 알 수 없다.
+      <div class="call red"><b>중요:</b> 제품 혼류가 바뀌면 OEE<sub class="ko-sub">시간</sub>가 바뀔 수 있다. 이것은 제품 정규화를 버린 대가다.</div>
+    </div>
+  </div>
+</section>
+
+<section class="page">
+  <h2 style="margin-top:0">14. 데이터 때문에 생기는 대표 사례</h2>
+
+  <div class="case">
+    <div class="casehead"><div class="num">6</div><div><h3>Cycle 신호 하나를 놓침</h3><span class="tag hard">자동 복원 금지</span></div></div>
+    <div class="casebody">
+      실제 10초+10초가 20초 한 Cycle로 보일 수 있다.
+      하지만 정말 20초 걸린 Cycle일 수도 있으므로 시스템이 마음대로 둘로 쪼개지 않는다.
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="casehead"><div class="num">7</div><div><h3>Cycle 신호가 튀어서 두 번 들어옴</h3><span class="tag risk">전처리 필요</span></div></div>
+    <div class="casebody">
+      0.05초짜리 가짜 Cycle이 생기면 기준 R도 오염될 수 있다.
+      수집단에서 기술적인 debounce/deglitch가 필요하다.
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="casehead"><div class="num">8</div><div><h3>네트워크가 끊김</h3><span class="tag hard">Heartbeat 필요</span></div></div>
+    <div class="casebody">
+      Cycle 신호가 안 오는 것만 보면 기계가 멈춘 건지 통신이 끊긴 건지 모른다.
+      Heartbeat도 없으면 그 시간은 T(미관측)로 둔다.
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="casehead"><div class="num">9</div><div><h3>하루 경계에서 Cycle이 걸쳐 있음</h3><span class="tag ok">이전 시작시각 사용</span></div></div>
+    <div class="casebody">
+      23:59:58에 시작해서 00:00:06에 끝난 Cycle을 억지로 두 Cycle로 나누지 않는다.
+      다음 날 집계에는 이전 시작시각을 함께 가져와 정확한 CT를 계산한다.
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="casehead"><div class="num">10</div><div><h3>처음 학습한 Cycle이 시운전이라 너무 느림</h3><span class="tag risk">초기 기준 오염</span></div></div>
+    <div class="casebody">
+      잘못 잡힌 R은 이후 모든 KPI에 영향을 준다.
+      최근 R(최근)와 차이가 오래 유지되면 “기준 재검토” 경고를 낸다.
+    </div>
+  </div>
+</section>
+
+<section class="page">
+  <h2 style="margin-top:0">15. 시간만으로는 절대 확정할 수 없는 것</h2>
+
+  <table>
+    <tbody><tr><th>상황</th><th>왜 못 아는가?</th><th>스펙의 태도</th></tr>
+    <tr><td class="term">주말 계획정지 vs 긴 고장</td><td>둘 다 Cycle이 오랫동안 끝나지 않는 모습일 수 있음</td><td>둘 다 장기 비활성으로만 표현. 원인 단정 금지.</td></tr>
+    <tr><td class="term">느린 제품 vs 설비 성능저하</td><td>제품코드/Recipe를 일부러 사용하지 않음</td><td>Cycle 리듬 변화만 표현.</td></tr>
+    <tr><td class="term">Cycle 신호 누락 vs 실제 장주기</td><td>관측 결과가 똑같이 긴 CT로 보일 수 있음</td><td>의심 경고는 가능, 자동 복원 금지.</td></tr>
+    <tr><td class="term">1개 생산 vs 100개 Batch</td><td>수량을 KPI 입력으로 사용하지 않음</td><td>생산량 가치가 아니라 Cycle 시간 효율만 측정.</td></tr>
+    <tr><td class="term">실제 고장 원인</td><td>Fault/Alarm 정보를 사용하지 않음</td><td>TO(비가동)만 기록.</td></tr>
+  </tbody></table>
+
+  <div class="call red">
+    <b>최종 정직성 원칙:</b> 이 모델은 원인을 맞히는 모델이 아니다.
+    <b>제품과 고장정보가 없어도 동일한 시간 규칙으로 설비 리듬을 측정</b>하는 모델이다.
+  </div>
+</section>
+
+<section class="page">
+  <h2 style="margin-top:0">16. 계산이 맞는지 확인하는 기본 규칙</h2>
+  <div class="check">
+    <div><b>①</b> 시간은 뒤로 가지 않는다.</div>
+    <div><b>②</b> 모든 시간은 T(가동)/T(비가동)/T(비생산)/T(미관측) 중 하나에만 들어간다.</div>
+    <div><b>③</b> Cycle이 끝나기 전에는 그 Cycle의 R을 성과로 미리 주지 않는다.</div>
+    <div><b>④</b> Q가 없으면 OEE(시간)/TEEP(시간)를 “미산출”로 둔다.</div>
+    <div><b>⑤</b> 통신이 끊겼는데 기계정지라고 가정하지 않는다.</div>
+    <div><b>⑥</b> 기준 R을 바꿔도 과거 KPI를 몰래 다시 계산하지 않는다.</div>
+    <div><b>⑦</b> A(시간)×P(시간)가 최종 시간효율과 맞는지 검산한다.</div>
+    <div><b>⑧</b> TEEP(시간) = Q×ΣR/T가 항상 맞는지 검산한다.</div>
+  </div>
+
+  <h2>17. 최종 핵심식만 다시 보기</h2>
+  <div class="eq"><b>CT<sub>i</sub> = c<sub>i+1</sub> − c<sub>i</sub></b></div>
+  <div class="eq blue"><b>R = median(과거 CT)</b></div>
+  <div class="eq purple"><b>H<sub class="ko-sub">비가동</sub> = κ<sub class="ko-sub">비가동</sub>R, &nbsp; H<sub class="ko-sub">비생산</sub> = κ<sub class="ko-sub">비생산</sub>R</b></div>
+  <div class="eq green"><b>A<sub class="ko-sub">시간</sub> = T<sub class="ko-sub">가동</sub>/(T<sub class="ko-sub">가동</sub>+T<sub class="ko-sub">비가동</sub>)</b></div>
+  <div class="eq blue"><b>P<sub class="ko-sub">시간</sub> = ΣR/T<sub class="ko-sub">가동</sub></b></div>
+  <div class="eq"><b>OEE<sub class="ko-sub">시간</sub> = A<sub class="ko-sub">시간</sub>P<sub class="ko-sub">시간</sub>Q</b></div>
+  <div class="eq"><b>TEEP<sub class="ko-sub">시간</sub> = QΣR/T</b></div>
+  <div class="eq red"><b>CT = WT + MT</b> <span class="small">— 실행 신호가 있을 때만 사용하는 보조 진단</span></div>
+
+  <div class="call good">
+    <b>한 줄 결론:</b> 완료한 Cycle마다 “기준시간 R만큼의 성과”를 적립하고,
+    실제로 흘러간 시간과 비교해 OEE<sub class="ko-sub">시간</sub>/TEEP<sub class="ko-sub">시간</sub>를 계산한다.
+  </div>
+</section>
+
+<section class="page">
+  <h2 style="margin-top:0">18. 실제 구현 전에 마지막으로 확정할 것</h2>
+
+  <table>
+    <tbody><tr><th>항목</th><th>현재 원칙</th><th>최종 배포 전에 할 일</th></tr>
+    <tr><td class="term">기준 학습 Cycle 수 K</td><td>모든 설비에 같은 스펙값 사용</td><td>최종 숫자 확정</td></tr>
+    <tr><td class="term">κ_D</td><td>비가동 시작 경계</td><td>최종 숫자 확정</td></tr>
+    <tr><td class="term">κ_N</td><td>장기 비활성 시작 경계</td><td>최종 숫자 확정</td></tr>
+  </tbody></table>
+
+  <div class="call blue">
+    이 세 값은 현장 사용자가 매번 입력하는 값이 아니다.
+    <b>소프트웨어 스펙 버전에 고정되는 공통 상수</b>다.
+    값이 바뀌면 같은 알고리즘이 아니므로 스펙 버전도 바꾼다.
+  </div>
+
+  <div class="lead" style="background:linear-gradient(135deg,#0b2d4c,#15537d);color:#fff;padding:16px 18px;border-radius:10px;text-align:center">
+    제품을 맞히는 알고리즘이 아니라, 설비의 시간 리듬을 같은 기준으로 재는 알고리즘
+  </div>
+
+  <div class="footer">OEE / TEEP Time-Based Core Spec v68 · 쉬운 정본 · 2026-09-16</div>
+</section>
+
+  <div class="call blue">
+   DB(plc.db, oee.db) 도 불필요한 스키마 ,db는 제거 및 정리, 최적화 필요하다.(가능하면 oee.db는 버리기, 새 버전은 plc.db말고 다른 이름을 사용)<br>
+   사용자가 시간 구간을 정하면 그 안의 유효한 CT를 기준으로 계산한다.<br>
+   CT는 필수인 HEAD를 기준으로 하고 그 안에서 실측 데이터로 정렬해서 CT를 구한다.( head - head 사이가 ct)
+   tail은 선택으로, 사용자가 mt와 wt를 구분해서 보고 싶을때 사용. mt wt는 oee, teep등에 계산요소가 아니다.<br>
+   work의 경우를 비가동 판별로 사용. work별 샘플 중앙값x 계수를 넘으면 비가동, 비생산 기준 넘으면 비생산 처리.<br>
+   T(미관측)의 경우 계산 요소에 들어가지 않는다. 크게 T = T(가동) + T(비가동) + T(비생산) 이다.<br>
+   
+   추가로 각 plc의 연결상태 변화 내역도 저장 필요. 추후 plc 연결상태내역도 제공 필요하다.<br>
+   
+  </div>
+
+</body></html>

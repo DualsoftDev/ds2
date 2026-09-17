@@ -81,6 +81,9 @@
                 //   서버 OEE API 는 가상이름 "부모_분기" 를 flow= 로 받는다(scopeFlowName). 구 딥링크 ?flow=부모_분기 는 resolveBranchScope 가 분해.
                 curBranch: '',
                 brMap: { virt: {}, byParent: {} },   // window.dspBranch.mapFromNav(/api/nav) — 가상 행 ↔ 부모 매칭(flowMatches)·칩 표기
+                // 한줄 연표(doc/30 §8.1) — 시간 기반 코어의 구간 조회. 설비효율·생산효율·가동시간 분석 3페이지 공용
+                // 컴포넌트(kpi-timeline.js)의 핸들과 마지막 응답. 구 OEE 카드들과 독립이라 실패해도 페이지는 산다.
+                ktl: null, ktlData: null, ktlErr: null, ktlSelected: null,
                 curSystem: '', // '' = 스코프 없음, 그 외 = 시스템 단위 묶음(?system=, 좌측 나브 기능 트리의 시스템 행). curFlow 가 우선.
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
@@ -1263,6 +1266,33 @@
                     }
                 },
 
+                // 연표 컴포넌트 생성(1회). 컨테이너가 없는 페이지(이상·알람)에서는 조용히 넘어간다.
+                initKpiTimeline() {
+                    if (this.ktl || !window.dspKpiTimeline) return;
+                    const host = document.getElementById('kpi-timeline');
+                    if (!host) return;
+                    this.ktl = window.dspKpiTimeline.create(host, {
+                        onSelect: seg => { this.ktlSelected = seg; },
+                    });
+                },
+
+                // 현재 기간·스코프로 연표를 다시 그린다. 서버가 세그먼트를 이미 묶어 보내 호출 1번이면 된다.
+                async loadKpiTimeline() {
+                    this.initKpiTimeline();
+                    if (!this.ktl) return;
+                    const r = this.rangeForPeriod();
+                    try {
+                        this.ktlData = await this.ktl.load({
+                            from: r.from, to: r.to,
+                            flow: this.curFlow || undefined,
+                            branch: this.curBranch || undefined,
+                        });
+                        this.ktlErr = null;
+                    } catch (e) {
+                        this.ktlErr = e.message;
+                    }
+                },
+
                 async loadOee(silent) {
                     if (this.view === 'alarm') return; // OEE 지표는 알람 전용 페이지에서 미사용
                     const r = this.rangeForPeriod();
@@ -1281,6 +1311,7 @@
                             this.oee = summary;
                             this.oeeError = null;
                             await Promise.all([this.loadTeep(), this.loadTeepMatrix(silent), this.loadTeepNonProd()]);
+                            this.loadKpiTimeline();      // 시간 기반 코어(독립 경로) — 실패해도 위 KPI 는 그대로
                             this.loadMeasureQuality();   // 생산효율 페이지에도 같은 무결성 카드(별개 축, 실패해도 무해)
                         } catch (e) {
                             if (seq !== this._oeeSeq) return;
@@ -1292,6 +1323,7 @@
                         // plan-time 은 더 이상 호출하지 않는다 — 시간기반 폴백(시프트/자동추정/달력)을 없애면서
                         // 화면 소비처가 사라졌는데 10초 폴링만 남아 있었다(2026-08-21). 엔드포인트 자체는
                         // TEEP 매트릭스·사전계산이 계속 쓰므로 서버에는 유지.
+                        this.loadKpiTimeline();          // 시간 기반 코어(독립 경로) — 구 OEE 조회와 병렬, 실패 무해
                         const [summary, downtime, ranking, daily] = await Promise.all([
                             this.apiGet('/api/oee/summary?' + fqs),
                             this.apiGet('/api/oee/downtime?' + fqs),

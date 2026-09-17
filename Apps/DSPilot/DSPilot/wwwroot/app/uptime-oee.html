@@ -224,6 +224,44 @@
                     </div>
                 </section>
 
+                <!-- ════ 한줄 연표 (시간 기반 코어 v68 · /api/kpi/timeline) ════
+                     구간 안의 CT 가 몇 개이고 각각 어떤 상태였는지를 한 줄로 본다. 사이클 행이 시간축을
+                     빈틈없이 타일링하므로 계산이 아니라 조회다. 상태는 저장하지 않고 현재 계수로 도출하므로
+                     설정에서 계수를 바꾸면 이 줄이 즉시 다시 칠해진다(doc/30 §4 · §8.1). -->
+                <section class="card up-section">
+                    <div class="ds-card-h">
+                        <h4>사이클 연표</h4>
+                        <span class="ds-card-h-sub"
+                              x-text="(ktlData ? ('T = ' + durSum(ktlData.kpi.tMs) + ' · 유효 CT 합산') : '구간 안의 CT 개수와 상태') + ' · ' + scopeLabel()"></span>
+                    </div>
+
+                    <div x-show="ktlErr" class="up-note warn" x-text="'연표를 불러오지 못했습니다: ' + ktlErr"></div>
+
+                    <div id="kpi-timeline"></div>
+
+                    <!-- 선택한 세그먼트 상세 — 비가동이면 어느 work 가 넘었는지까지 -->
+                    <div x-show="ktlSelected" class="up-note" style="margin-top:8px;" x-cloak>
+                        <template x-if="ktlSelected">
+                            <span>
+                                <b x-text="({Run:'가동',Down:'비가동',NonProd:'비생산',Excluded:'제외'})[ktlSelected.state]"></b>
+                                · 사이클 <span x-text="ktlSelected.cycles"></span>회
+                                · 합 <span x-text="durSum(ktlSelected.ctMs)"></span>
+                                <template x-if="ktlSelected.state === 'Down' && ktlSelected.worstWork">
+                                    <span> · 초과 work <b x-text="ktlSelected.worstWork"></b>
+                                        (평소의 <span x-text="ktlSelected.worstRatio.toFixed(1)"></span>배)</span>
+                                </template>
+                                <template x-if="ktlSelected.reason">
+                                    <span> · <span x-text="({Cut:'구간에 잘림',Unknown:'이전 사이클 미상',InProgress:'진행 중',Gap:'기록 공백',NoBaseline:'기준 표본 부족'})[ktlSelected.reason] || ktlSelected.reason"></span> — 계산에서 빠짐</span>
+                                </template>
+                            </span>
+                        </template>
+                    </div>
+
+                    <div class="up-note" style="margin-top:6px; opacity:.75;"
+                         x-show="ktlData"
+                         x-text="'비생산 = CT ≥ 기준 R × ' + (ktlData ? ktlData.kappa.nonProd : '') + ' · 비가동 = work 하나라도 평소 W × ' + (ktlData ? ktlData.kappa.down : '') + ' 초과 · 잘린 구간과 진행 중은 계산 밖'"></div>
+                </section>
+
                 <!-- ════ 일자별 라인 가동 — 달력 축(2026-08-21): 막대는 슬롯별 <b>실측</b>(정상 사이클 구간 ∩ 슬롯).
                      채우지 못한 만큼은 여백 = 미수집. 아래 '가용성 누적 정산'(CT축 구성비)과 축은 다르지만 소스는 같다.
                       세로 합 = 정산, 정지부 = 도넛. 라인은 설비별 합산(축 최대 24h × 설비 수) ════ -->
@@ -1222,6 +1260,7 @@
     <script src="/lib/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="/lib/signalr.min.js"></script>
     <script>window.DSP_UPTIME_VIEW = "oee";</script>
+    <script src="/app/kpi-timeline.js"></script>
     <script src="/app/uptime-workspace.js"></script>
     <script src="/app/shell.js" defer></script>
     <script defer src="/lib/alpine.min.js"></script>

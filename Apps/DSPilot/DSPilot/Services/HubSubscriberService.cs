@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Ds2.Backend.Common;
@@ -38,6 +38,7 @@ public sealed class HubSubscriberService : BackgroundService
     private readonly IConfiguration _configuration;
     private readonly SimulationEngineService _engineService;
     private readonly PlcConnectionStatusTracker _plcStatusTracker;
+    private readonly DSPilot.Kpi.LinkEventRecorder _linkRecorder;
 
     private HubConnection? _connection;
     private HubSignalProcessor? _processor;
@@ -218,12 +219,14 @@ public sealed class HubSubscriberService : BackgroundService
         ILogger<HubSubscriberService> logger,
         IConfiguration configuration,
         SimulationEngineService engineService,
-        PlcConnectionStatusTracker plcStatusTracker)
+        PlcConnectionStatusTracker plcStatusTracker,
+        DSPilot.Kpi.LinkEventRecorder linkRecorder)
     {
         _logger = logger;
         _configuration = configuration;
         _engineService = engineService;
         _plcStatusTracker = plcStatusTracker;
+        _linkRecorder = linkRecorder;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -290,6 +293,9 @@ public sealed class HubSubscriberService : BackgroundService
         _connection.On<int>(HubMethod.OnScanIntervalChanged, OnHubScanIntervalChanged);
         // 자동 duration 정합 ON/OFF 동기화.
         _connection.On<bool>(HubMethod.OnAutoCalibrateChanged, OnHubAutoCalibrateChanged);
+        // 수집 심박(~1s) — 태그 변화가 없어도 스캔이 살아 있음을 알린다. 저장하지 않고 마지막 수신 시각만
+        // 갱신해, 침묵이 임계를 넘으면 접속 이력에 공백 1행을 연다(doc/30 §7, 계산 인자 아님).
+        _connection.On(HubMethod.OnScanHeartbeat, _linkRecorder.OnHeartbeat);
 
         _connection.Reconnecting += ex =>
         {
@@ -304,6 +310,7 @@ public sealed class HubSubscriberService : BackgroundService
             // 끊긴 동안(모델 교체/Agent 재기동 등) 사라진 어댑터가 UPSERT-only 캐시에 잔존하지 않도록
             // 먼저 비운다 — Closed 경로의 ClearAll 과 짝(무한 재시도 정책이라 Closed 는 거의 안 탄다).
             _plcStatusTracker.ClearAll();
+            _linkRecorder.OnHubDisconnected();
             RaiseStatusChanged();
             _ = SyncScanIntervalAsync();
             return Task.CompletedTask;
@@ -314,6 +321,7 @@ public sealed class HubSubscriberService : BackgroundService
             // Hub 가 끊긴 동안 stale PLC 상태로 사용자 오해 유발 방지 — 캐시 비움.
             // 재연결 시 SignalHub.OnConnectedAsync 가 다시 snapshot push.
             _plcStatusTracker.ClearAll();
+            _linkRecorder.OnHubDisconnected();
             RaiseStatusChanged();
             return Task.CompletedTask;
         };

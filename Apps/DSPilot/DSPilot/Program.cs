@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Services;
@@ -263,6 +263,18 @@ builder.Services.AddSingleton<PlcConnectionStatusTracker>();
 // Agent 보고가 없을 때(허브 끊김/모니터링 비활성) PLC 를 직접 핑(TCP)하는 폴백 — NavController 가 사용.
 builder.Services.AddSingleton<PlcPingService>();
 
+// ── 시간 기반 코어 v68 (doc/30) ───────────────────────────────────────────────
+// 새 단일 DB(dspilot.db) + 사이클/기준선/접속이력. 구 OEE 파이프라인과 병행하다 7단계에서 교체한다.
+builder.Services.AddSingleton<DSPilot.Kpi.KpiDb>();
+builder.Services.AddSingleton<DSPilot.Kpi.LegacyDbPurge>();
+builder.Services.AddSingleton<DSPilot.Kpi.KpiRepository>();
+builder.Services.AddSingleton<DSPilot.Kpi.BaselineService>();
+builder.Services.AddSingleton<DSPilot.Kpi.CycleIngestService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<DSPilot.Kpi.CycleIngestService>());
+// 접속 전이·심박 공백 기록(계산 인자 아님 — 연표 대조용). HubSubscriberService 가 심박을 밀어 넣는다.
+builder.Services.AddSingleton<DSPilot.Kpi.LinkEventRecorder>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<DSPilot.Kpi.LinkEventRecorder>());
+
 // Promaker SignalHub 클라이언트 — DSPilot 의 핵심 모니터링 경로라 무조건 등록.
 // URL/AcceptedSources 는 여전히 appsettings 의 Hub 섹션에서 오버라이드 가능 (HubSubscriberService 가 직접 읽음).
 // Singleton + HostedService 패턴 — MonitoringHub 가 NudgeConnectAsync 호출용으로 동일 인스턴스 주입.
@@ -297,6 +309,19 @@ var app = builder.Build();
     var dspRepoEarly = app.Services.GetRequiredService<DspRepositoryAdapter>();
     var schemaOk = await dspRepoEarly.CreateSchemaAsync();
     app.Logger.LogInformation("[Startup] Eager schema creation: {Ok}", schemaOk);
+}
+
+// 시간 기반 코어 DB(dspilot.db) 스키마 v1 — doc/30 §9. 한 파일에 사이클·work·기준선·접속이력·원시신호.
+{
+    var kpiDb = app.Services.GetRequiredService<DSPilot.Kpi.KpiDb>();
+    var kpiOk = await kpiDb.EnsureSchemaAsync();
+    app.Logger.LogInformation("[Startup] KPI schema creation: {Ok} — {Path}", kpiOk, kpiDb.Path);
+
+    // 구 DB(plc.db/oee.db) 삭제 — 설치본은 처음부터 수집한다(doc/30 §9).
+    // ★ 구 파이프라인이 아직 plc.db 를 SSOT 로 쓰는 전환 기간에는 기본값이 꺼짐이다.
+    //   교체 완료(doc/30 §13 7단계) 시 이 기본값을 true 로 바꾼다.
+    if (app.Configuration.GetValue("Kpi:PurgeLegacyDatabases", false))
+        app.Services.GetRequiredService<DSPilot.Kpi.LegacyDbPurge>().Purge();
 }
 
 // OEE 전용 oee.db 스키마 1회 생성 (별도 파일이라 plc.db CreateSchemaAsync 가 만들지 않음). repo 가 scoped 라 scope 필요.

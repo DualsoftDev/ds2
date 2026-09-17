@@ -339,6 +339,41 @@
                                         <span class="fg-gantt-tag" x-show="branches.length" x-cloak title="분기 사용 중 — flow 자체 시작/끝 편집은 잠깁니다(분기 간트에서 정의)">편집 잠김</span>
                                     </div>
 
+                                    <!-- ════ 사이클 판정(시간 기반 코어 v68 · /api/kpi/timeline) ════
+                                         이 구간의 CT 가 몇 개이고 각각 어떤 상태였는지. 리본 위에 같은 색으로 덧칠되며
+                                         '문제만 보기'를 켜면 가동 밴드가 흐려져 비가동·비생산만 남는다(doc/30 §8.2). -->
+                                    <div class="fb-stats" x-show="kpiCounts" x-cloak style="width:100%;">
+                                        <span class="fb-hint" style="font-weight:800; color:var(--color-text-primary);">사이클 판정</span>
+                                        <span class="fb-stat" title="기준 안에서 평소 리듬대로 돈 사이클">
+                                            <i style="background:#1E9BE8;"></i>가동 <b x-text="(kpiCounts ? kpiCounts.run : 0) + '회'"></b>
+                                        </span>
+                                        <span class="fb-stat" :class="kpiCounts && kpiCounts.down > 0 ? 'is-warn' : ''"
+                                              title="work 중 하나라도 평소 중앙값 × 비가동 계수를 넘은 사이클 — 리본에 붉은 윗변 띠">
+                                            <i style="background:#B22F22;"></i>비가동 <b x-text="(kpiCounts ? kpiCounts.down : 0) + '회'"></b>
+                                        </span>
+                                        <span class="fb-stat" title="CT 가 기준 R × 비생산 계수 이상인 사이클 — 길이만으로 판정하며 원인은 단정하지 않는다">
+                                            <i style="background:#334E7B;"></i>비생산 <b x-text="(kpiCounts ? kpiCounts.nonProd : 0) + '회'"></b>
+                                        </span>
+                                        <span class="fb-stat is-un" x-show="kpiCounts && kpiCounts.excluded.total > 0" x-cloak
+                                              :title="'계산에서 빠진 사이클 — 잘림 ' + (kpiCounts ? kpiCounts.excluded.cut : 0)
+                                                    + ' · 미상 ' + (kpiCounts ? kpiCounts.excluded.unknown : 0)
+                                                    + ' · 진행 중 ' + (kpiCounts ? kpiCounts.excluded.inProgress : 0)
+                                                    + ' · 기준 표본 부족 ' + (kpiCounts ? kpiCounts.excluded.noBaseline : 0)">
+                                            <i style="background:#C9CED6; border:1px solid #90a4ae;"></i>제외 <b x-text="(kpiCounts ? kpiCounts.excluded.total : 0) + '회'"></b>
+                                        </span>
+                                        <button type="button" class="fb-stat fg-stat-link" @click="toggleKpiOnlyIssues()"
+                                                :style="kpiOnlyIssues ? 'font-weight:800; outline:1.5px solid var(--color-primary);' : ''"
+                                                title="가동 밴드를 흐리게 덮어 비가동·비생산 사이클만 눈에 띄게 합니다">
+                                            <span x-text="kpiOnlyIssues ? '문제만 보기 해제' : '문제만 보기'"></span>
+                                        </button>
+                                        <button type="button" class="fb-stat fg-stat-link" @click="jumpToNextIssue()"
+                                                x-show="kpiCounts && (kpiCounts.down + kpiCounts.nonProd) > 0" x-cloak
+                                                title="다음 비가동·비생산 사이클을 선택 범위로 잡습니다">다음 문제 CT →</button>
+                                    </div>
+                                    <div class="fb-stats" x-show="kpiErr" x-cloak style="width:100%;">
+                                        <span class="fb-hint" x-text="'사이클 판정을 불러오지 못했습니다: ' + kpiErr"></span>
+                                    </div>
+
                                     <!-- flow 전체 + 분기 있음: 분기별 CT 합산 요약 -->
                                     <div class="fb-stats fg-union" x-show="branches.length > 0" x-cloak>
                                         <template x-if="branchPreview.total > 0 || branchPreview.open > 0">

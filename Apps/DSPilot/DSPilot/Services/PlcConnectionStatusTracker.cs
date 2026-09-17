@@ -40,6 +40,11 @@ public sealed class PlcConnectionStatusTracker
     /// 통신 blackout 처리용 — HubSubscriberService 가 구독해 진행 중 래치 사이클을 abandon 시킨다.</summary>
     public event Action<PlcConnectionStatus>? AdapterDisconnected;
 
+    /// <summary>연결 상태가 *바뀔 때마다* 양방향으로 1회 발화(첫 관측 포함). 지속 실패의 재시도 status 는 발화 안 함.
+    /// 시간 기반 코어의 접속 이력 기록(<c>Kpi.LinkEventRecorder</c>)이 구독한다 — 끊김뿐 아니라 복구도 남겨야
+    /// 연표에 구간으로 그릴 수 있다.</summary>
+    public event Action<PlcConnectionStatus>? AdapterTransitioned;
+
     /// <summary>Hub 가 끊기면 모든 상태를 폐기 — 끊긴 동안 보여줄 stale 상태가 없도록.
     /// Hub 가 재연결되면 SignalHub.OnConnectedAsync 가 다시 스냅샷을 push 해 채워준다.</summary>
     public void ClearAll()
@@ -82,6 +87,13 @@ public sealed class PlcConnectionStatusTracker
         {
             try { AdapterDisconnected?.Invoke(status); }
             catch (Exception ex) { _logger.LogDebug(ex, "[Plc] AdapterDisconnected subscriber threw"); }
+        }
+
+        // 양방향 전이 — 접속 이력 기록용(끊김·복구 모두).
+        if (previous is null || previous.IsConnected != status.IsConnected)
+        {
+            try { AdapterTransitioned?.Invoke(status); }
+            catch (Exception ex) { _logger.LogDebug(ex, "[Plc] AdapterTransitioned subscriber threw"); }
         }
 
         RaiseChanged();
