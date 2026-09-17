@@ -450,3 +450,76 @@ module LoggingHelpers =
             | UserTagMatchOp.Gte -> sprintf "≥ %s" mv
             | UserTagMatchOp.Lt -> sprintf "< %s" mv
             | UserTagMatchOp.Lte -> sprintf "≤ %s" mv
+
+    // -------------------------------------------------------------------------
+    // Signal Policy Helpers — "얼마나 자주·얼마나 크게 변할 때 기록하는가"
+    // -------------------------------------------------------------------------
+
+    /// SignalPolicy 를 signalId 로 넣고 빼는 얇은 도우미. 모니터링TAG 의 데드밴드·최소 기록 간격이 여기 산다.
+    ///
+    /// UserTag 가 "무엇을 기록할 것인가"(WHAT)라면 SignalPolicy 는 "어떻게 샘플링할 것인가"(HOW)다.
+    /// 아날로그 태그는 스캔마다 값이 흔들려, 거르지 않으면 신호 표가 하루에 수백만 행으로 불어난다.
+    ///
+    /// XGT(LS PLC) 수집 경로는 지금 SamplingIntervalMs 만 읽고 데드밴드는 버린다(AidXgtConfig).
+    /// 그래서 데드밴드의 실제 집행은 DSPilot 이 신호를 기록하기 직전에 한다. 값이 여기 사는 이유는
+    /// 그것이 형상(AASX)의 일부이기 때문이며, 수집기가 나중에 지원하면 집행만 상류로 옮기면 된다.
+    module SignalPolicyHelpers =
+
+        /// ChangeOfValue = "값이 (데드밴드 이상) 변할 때 기록". 모니터링TAG 의 기본 수집 방식이다.
+        let private monitorMode = AcquisitionMode.ChangeOfValue
+
+        /// 기본 보존 — 신호 표의 롤링 삭제 기준(ISO-8601). 태그별로 다르게 두고 싶을 때만 바꾼다.
+        [<Literal>]
+        let DefaultRetention = "P90D"
+
+        /// signalId 로 정책 하나 찾기.
+        let tryFind (props: LoggingSystemProperties) (signalId: string) : SignalPolicy option =
+            if isNull (box props) || String.IsNullOrWhiteSpace signalId then None
+            else
+                props.SignalPolicies
+                |> Seq.tryFind (fun p -> String.Equals(p.SignalId.Value, signalId, StringComparison.Ordinal))
+
+        /// 모니터링 수집 정책을 넣거나 갱신한다. deadband·intervalMs 가 None/0 이면 그 항목을 비운다.
+        /// 둘 다 비면 정책 자체를 지운다 — 읽는 곳이 없는 행을 남기지 않는다(doc/30 §9.1-4).
+        /// 반환 = 실제로 바뀌었나.
+        let upsertMonitor
+            (props: LoggingSystemProperties)
+            (signalId: string)
+            (deadbandAbsolute: float option)
+            (intervalMs: int option) : bool =
+            if isNull (box props) || String.IsNullOrWhiteSpace signalId then false
+            else
+                let deadband = deadbandAbsolute |> Option.filter (fun v -> v > 0.0)
+                let interval = intervalMs |> Option.filter (fun v -> v > 0)
+                let existing = tryFind props signalId
+                match deadband, interval, existing with
+                | None, None, None -> false
+                | None, None, Some old ->
+                    props.SignalPolicies.Remove old |> ignore
+                    true
+                | _ ->
+                    let next =
+                        match existing with
+                        | Some old ->
+                            { old with
+                                AcquisitionMode = monitorMode
+                                SamplingIntervalMs = interval
+                                DeadbandAbsolute = deadband }
+                        | None ->
+                            { SignalId = SignalId signalId
+                              AcquisitionMode = monitorMode
+                              SamplingIntervalMs = interval
+                              PublishingIntervalMs = None
+                              DeadbandAbsolute = deadband
+                              DeadbandPercent = None
+                              EngineeringRangeLow = None
+                              EngineeringRangeHigh = None
+                              QueueSize = None
+                              Retention = DefaultRetention }
+                    if existing = Some next then false
+                    else
+                        match existing with
+                        | Some old -> props.SignalPolicies.Remove old |> ignore
+                        | None -> ()
+                        props.SignalPolicies.Add next
+                        true

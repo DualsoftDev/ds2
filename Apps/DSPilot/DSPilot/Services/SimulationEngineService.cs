@@ -511,8 +511,14 @@ public sealed class SimulationEngineService : IDisposable
                 // 위생 검사 포함(미래/24h 초과 과거는 기각 후 도착시각 폴백) — 규칙과 근거는
                 // HubLogTimestampPolicy 참조. 송신기 시계가 미동기면 데이터가 조용히 사라진다.
                 var stamp = HubLogTimestampPolicy.Resolve(wallClockMs, DateTime.UtcNow);
-                _logWriter.TryWrite(tagId, value, stamp.AtUtc);
-                _lastLoggedValueByTagId[tagId] = value;
+                // 모니터링TAG 의 데드밴드·최소 기록 간격은 <b>기록만</b> 줄인다. 아래 엔진 주입(상태 판정·알람)은
+                // 그대로 흘러가야 한다 — 판정은 언제나 원본 신호로 해야 하므로 여기서 메서드를 빠져나가면 안 된다.
+                if (!ShouldSkipBySignalPolicy(tagId, value, stamp.AtUtc))
+                {
+                    _logWriter.TryWrite(tagId, value, stamp.AtUtc);
+                    _lastLoggedValueByTagId[tagId] = value;
+                    _lastLoggedAtMsByTagId[tagId] = Kpi.KpiTime.ToMs(stamp.AtUtc);
+                }
 
                 // replay 로 과거 구간이 들어왔다 — 사이클 재도출 창을 여기까지 넓히지 않으면 그 구간이
                 // plcTagLog 에만 복원되고 이력엔 안 들어가, 무사이클 정지가 정상가동을 계속 삼킨다.
@@ -755,6 +761,10 @@ public sealed class SimulationEngineService : IDisposable
                 IndexTagRow(sysKey, row.Address, row.Id);
             }
 
+            // 모니터링 수집 정책(데드밴드·최소 기록 간격) 적재. 값 자체는 AASX 에 살지만 집행은 여기서 한다 —
+            // XGT 수집 경로가 데드밴드를 지원하지 않기 때문이다(AidXgtConfig 는 SamplingIntervalMs 만 읽는다).
+            LoadMonitorPolicies();
+
             // L3 — AASX 가 변경되어 plcTag 에 stale row 가 있을 수 있음.
             // FK 무결성 (plcTagLog.plcTagId 참조) 때문에 자동 삭제는 안 하고 경고만.
             // 사용자가 Settings → "DB 초기화" 로 정리 가능.
@@ -786,6 +796,80 @@ public sealed class SimulationEngineService : IDisposable
     /// </summary>
     /// <summary>태그 표에 실을 UserTag 메타 — 실제 값 종류와 표시 이름.</summary>
     private sealed record UserTagMeta(string ValueType, string? Label);
+
+    /// <summary>모니터링TAG 의 기록 감량 규칙. 둘 다 없으면 이 태그에는 정책이 없다(전부 기록).</summary>
+    private sealed record MonitorPolicy(double? Deadband, int? MinIntervalMs);
+
+    // tagId → 정책. 부트스트랩에서 AASX 를 읽어 채우고, 기록 직전(ShouldSkipBySignalPolicy)에서만 읽는다.
+    private volatile Dictionary<int, MonitorPolicy> _monitorPolicies = new();
+
+    // tagId → 마지막으로 **기록한** 시각(ms). 최소 기록 간격 판정용. 값 비교용은 _lastLoggedValueByTagId.
+    private readonly ConcurrentDictionary<int, long> _lastLoggedAtMsByTagId = new();
+
+    /// <summary>
+    /// AASX 의 수집 정책을 tagId 기준으로 펼친다. 주소→tagId 는 방금 채운 캐시(_plcTagIdByKey)를 쓴다.
+    /// 실패해도 수집은 계속된다 — 정책이 없으면 종전처럼 모든 변화를 기록할 뿐이다.
+    /// </summary>
+    private void LoadMonitorPolicies()
+    {
+        var next = new Dictionary<int, MonitorPolicy>();
+        try
+        {
+            foreach (var sys in _projectService.GetActiveSystems())
+            {
+                var meta = _projectService.GetMonitorMetaForSystem(sys.Id);
+                if (meta.Count == 0) continue;
+                var sysKey = SystemKeyConvention.Key(sys.Id);
+                foreach (var (address, m) in meta)
+                {
+                    if (m.DeadbandAbsolute is not > 0 && m.MinIntervalMs is not > 0) continue;
+                    if (!_plcTagIdByKey.TryGetValue(TagCacheKey(sysKey, address), out var tagId)) continue;
+                    next[tagId] = new MonitorPolicy(m.DeadbandAbsolute, m.MinIntervalMs);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Engine] 모니터링 수집 정책 적재 실패 — 모든 변화를 기록합니다");
+        }
+        _monitorPolicies = next;
+        _lastLoggedAtMsByTagId.Clear();
+        if (next.Count > 0)
+            _logger.LogInformation("[Engine] 모니터링 수집 정책 {Count}건 적용(데드밴드·최소 기록 간격)", next.Count);
+    }
+
+    /// <summary>
+    /// 이 값 변화를 기록하지 <b>않을</b> 것인가. 모니터링TAG 의 기록량을 줄이는 두 손잡이를 여기서 집행한다.
+    /// <list type="bullet">
+    ///   <item><b>데드밴드</b> — 직전 기록값과의 차이가 임계 미만이면 버린다. 수치로 읽히지 않으면 적용하지 않는다.</item>
+    ///   <item><b>최소 기록 간격</b> — 직전 기록 이후 그 시간이 지나지 않았으면 버린다.</item>
+    /// </list>
+    /// 둘 다 "기록"을 줄일 뿐 엔진 주입(상태 판정·알람)은 건드리지 않는다 — 판정은 언제나 원본 신호로 한다.
+    /// </summary>
+    private bool ShouldSkipBySignalPolicy(int tagId, string value, DateTime atUtc)
+    {
+        var policies = _monitorPolicies;
+        if (policies.Count == 0 || !policies.TryGetValue(tagId, out var policy)) return false;
+
+        if (policy.MinIntervalMs is > 0 && _lastLoggedAtMsByTagId.TryGetValue(tagId, out var lastMs))
+        {
+            var nowMs = Kpi.KpiTime.ToMs(atUtc);
+            // 과거로 되돌아온 replay 는 간격 규칙에서 빼 준다 — 복구 데이터가 통째로 사라지면 안 된다.
+            if (nowMs >= lastMs && nowMs - lastMs < policy.MinIntervalMs.Value) return true;
+        }
+
+        if (policy.Deadband is > 0
+            && _lastLoggedValueByTagId.TryGetValue(tagId, out var prev)
+            && double.TryParse(prev, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var prevNum)
+            && double.TryParse(value, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var nextNum)
+            && Math.Abs(nextNum - prevNum) < policy.Deadband.Value)
+        {
+            return true;
+        }
+        return false;
+    }
 
     private Dictionary<Guid, int> EnsurePlcRowsForSystems(
         SqliteConnection conn, Dictionary<string, HashSet<Guid>> ownersByAddress)

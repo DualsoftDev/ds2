@@ -7,6 +7,7 @@ using Ds2.Core.Store;
 using Ds2.Editor;
 using DSPilot.Infrastructure;
 using Microsoft.FSharp.Collections;
+using Microsoft.FSharp.Core;
 using AidXgtEndpointSettings = Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidXgtEndpointSettings;
 using AssetInterfacesDescription = Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AssetInterfacesDescription;
 
@@ -827,7 +828,13 @@ public class DsProjectService
                     warnings.Add($"{sysName}: PLC 접속 정보 병합에 실패했습니다(vendor '{info.Vendor}'). 새 주소가 수집되지 않을 수 있습니다.");
             }
 
-            // 3) store 전체 재export → 공유 project.aasx.
+            // 3) 모니터링 표시·수집 메타. 단위는 신호 정의(AID interaction.unit)에, 데드밴드·최소 기록 간격은
+            //    수집 정책(SignalPolicy)에 넣는다 — UserTag 6칸에 없는 값이지만 AASX 안에는 제자리가 있다.
+            //    ★ interaction 이 먼저 있어야 하므로 반드시 AID 병합(2) 다음이다.
+            if (aid is not null)
+                ApplyMonitorMeta(aid, bySystem, activeById, warnings);
+
+            // 4) store 전체 재export → 공유 project.aasx.
             var ok = Ds2.Aasx.AasxExporter.exportFromStore(
                 _store, AasxFilePath, AasxIriPrefix, AasxSplitDevice, AasxAutoCreateEmptySubmodels);
             if (!ok)
@@ -856,6 +863,118 @@ public class DsProjectService
         finally
         {
             SharedWriteLock.Release("DSPilot");
+        }
+    }
+
+    /// <summary>
+    /// 저장된 모니터링 메타를 주소별로 읽어 온다(편집기 초기 로드용). 쓰기의 역연산이며 같은 자리에서 읽는다 —
+    /// 단위는 AID interaction, 데드밴드·간격은 SignalPolicy. 모델이 없거나 System 이 비활성이면 빈 표.
+    /// </summary>
+    public Dictionary<string, MonitorTagMeta> GetMonitorMetaForSystem(Guid systemId)
+    {
+        var result = new Dictionary<string, MonitorTagMeta>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            if (!IsLoaded || GetProject() is not { } project) return result;
+            var aidOption = project.AssetInterfaces;
+            if (aidOption is null || !FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption)) return result;
+            var aid = aidOption.Value;
+
+            var sys = GetActiveSystems().FirstOrDefault(s => s.Id == systemId);
+            var propsOpt = sys?.GetLoggingProperties();
+            var props = propsOpt is not null && FSharpOption<LoggingSystemProperties>.get_IsSome(propsOpt)
+                ? propsOpt.Value : null;
+
+            var signalIds = AidXgtEndpointSettings.SignalIdsByAddressForSystem(aid, systemId);
+            var units = AidXgtEndpointSettings.UnitsByAddressForSystem(aid, systemId);
+
+            foreach (var kv in signalIds)
+            {
+                units.TryGetValue(kv.Key, out var unit);
+                double? deadband = null;
+                int? interval = null;
+                if (props is not null)
+                {
+                    var policy = LoggingHelpers.SignalPolicyHelpers.tryFind(props, kv.Value);
+                    if (policy is not null && FSharpOption<SignalPolicy>.get_IsSome(policy))
+                    {
+                        var p = policy.Value;
+                        if (FSharpOption<double>.get_IsSome(p.DeadbandAbsolute)) deadband = p.DeadbandAbsolute.Value;
+                        if (FSharpOption<int>.get_IsSome(p.SamplingIntervalMs)) interval = p.SamplingIntervalMs.Value;
+                    }
+                }
+                if (string.IsNullOrWhiteSpace(unit) && deadband is null && interval is null) continue;
+                result[kv.Key] = new MonitorTagMeta(unit, deadband, interval);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[DsProject] 모니터링 메타 조회 실패 (system={SystemId})", systemId);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// 모니터링TAG 의 표시·수집 메타를 AASX 제자리에 심는다.
+    /// <list type="bullet">
+    ///   <item><b>단위</b> → AID interaction 의 <c>unit</c>. 신호를 "어떻게 읽어야 하는가" 라 정의의 자리이고,
+    ///         export/import 로 왕복한다. 이상알람TAG 도 단위를 가질 수 있어 종류를 가리지 않는다.</item>
+    ///   <item><b>데드밴드·최소 기록 간격</b> → SignalPolicy(신호별 수집 정책). 키가 signalId 라
+    ///         주소→signalId 다리를 건넌다.</item>
+    /// </list>
+    /// 실패해도 태그 저장 자체는 살린다 — 메타는 표시·감량 용도이고, 못 심었으면 경고로 드러낸다.
+    /// </summary>
+    private void ApplyMonitorMeta(
+        AssetInterfacesDescription aid,
+        IReadOnlyDictionary<Guid, IReadOnlyList<UserTagWriteEntry>> bySystem,
+        IReadOnlyDictionary<Guid, DsSystem> activeById,
+        List<string> warnings)
+    {
+        foreach (var (sid, entries) in bySystem)
+        {
+            if (entries.Count == 0) continue;
+            var sysName = activeById.TryGetValue(sid, out var s) ? s.Name : sid.ToString();
+            try
+            {
+                // 단위: 값이 있으면 심고 비어 있으면 지운다(사용자가 칸을 비우면 사라지는 것이 자연스럽다).
+                var units = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var e in entries)
+                    if (!string.IsNullOrWhiteSpace(e.TagAddress))
+                        units[e.TagAddress.Trim()] = e.Unit?.Trim() ?? string.Empty;
+                if (units.Count > 0) AidXgtEndpointSettings.SetUnitsForSystem(aid, sid, units);
+
+                // 데드밴드·간격: 값을 가진 항목만. LoggingProperties 는 UserTag 교체(1)에서 이미 만들어져 있다.
+                var wanted = entries
+                    .Where(e => e.DeadbandAbsolute is > 0 || e.MinIntervalMs is > 0)
+                    .ToList();
+                if (wanted.Count == 0) continue;
+                if (!activeById.TryGetValue(sid, out var sys)) continue;
+                var propsOpt = sys.GetLoggingProperties();
+                if (propsOpt is null || !FSharpOption<LoggingSystemProperties>.get_IsSome(propsOpt)) continue;
+                var props = propsOpt.Value;
+
+                var signalIds = AidXgtEndpointSettings.SignalIdsByAddressForSystem(aid, sid);
+                var missing = 0;
+                foreach (var e in wanted)
+                {
+                    if (!signalIds.TryGetValue(e.TagAddress.Trim(), out var signalId) || string.IsNullOrWhiteSpace(signalId))
+                    {
+                        missing++;
+                        continue;
+                    }
+                    LoggingHelpers.SignalPolicyHelpers.upsertMonitor(
+                        props, signalId,
+                        e.DeadbandAbsolute is > 0 ? FSharpOption<double>.Some(e.DeadbandAbsolute.Value) : null,
+                        e.MinIntervalMs is > 0 ? FSharpOption<int>.Some(e.MinIntervalMs.Value) : null);
+                }
+                if (missing > 0)
+                    warnings.Add($"{sysName}: {missing}건은 수집 대상(AID)에 주소가 없어 데드밴드·기록 간격을 저장하지 못했습니다.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[DsProject] {System} 모니터링 메타 적용 실패", sysName);
+                warnings.Add($"{sysName}: 단위·데드밴드 설정을 저장하지 못했습니다({ex.Message}).");
+            }
         }
     }
 
@@ -1037,8 +1156,15 @@ public sealed record PlcEndpointInfo(
 /// 섞어 담고(<c>LoggingProperties.UserTags</c>), 갈라지는 것은 화면뿐이다.
 /// </para>
 /// </summary>
+/// <summary>주소 하나의 모니터링 메타(저장된 값). 셋 다 비어 있으면 표에 담지 않는다.</summary>
+public sealed record MonitorTagMeta(string? Unit, double? DeadbandAbsolute, int? MinIntervalMs);
+
+/// <param name="Unit">표시 단위(bar·A·℃…). AID interaction 의 <c>unit</c> 으로 저장되어 AASX 를 왕복한다.</param>
+/// <param name="DeadbandAbsolute">이만큼 넘게 변할 때만 기록. null/0 = 모든 변화를 기록.</param>
+/// <param name="MinIntervalMs">직전 기록 이후 이 시간 안의 변화는 건너뛴다. null/0 = 제한 없음.</param>
 public sealed record UserTagWriteEntry(
-    string Name, string TagAddress, string ValueType, string MatchOp, string MatchValue, string Level);
+    string Name, string TagAddress, string ValueType, string MatchOp, string MatchValue, string Level,
+    string? Unit = null, double? DeadbandAbsolute = null, int? MinIntervalMs = null);
 
 /// <summary>
 /// <see cref="DsProjectService.WriteUserTagsAndExport"/> 결과. Exported=false 면 Error 에 사유.

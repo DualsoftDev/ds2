@@ -505,6 +505,10 @@
                                                     <th @click="utSort('valueType')">타입 <span class="material-icons ude-sort" x-text="utSortIcon('valueType')"></span></th>
                                                     <!-- 매칭 조건은 이상알람TAG 에만 뜻이 있다 — 모니터링TAG 는 값이 바뀌면 그냥 기록한다. -->
                                                     <th x-show="ut.tab === 'Error'" @click="utSort('match')">매칭 조건 <span class="material-icons ude-sort" x-text="utSortIcon('match')"></span></th>
+                                                    <!-- 모니터링TAG 전용: 표시 단위 + 기록량을 줄이는 두 손잡이 -->
+                                                    <th x-show="ut.tab === 'Info'" style="cursor:default;">단위</th>
+                                                    <th x-show="ut.tab === 'Info'" style="cursor:default;" title="이만큼 넘게 변할 때만 기록합니다">데드밴드</th>
+                                                    <th x-show="ut.tab === 'Info'" style="cursor:default;" title="직전 기록 이후 이 시간 안의 변화는 건너뜁니다">기록 간격</th>
                                                     <th style="cursor:default;"></th>
                                                 </tr></thead>
                                                 <tbody>
@@ -523,6 +527,9 @@
                                                             <td data-label="주소"><span class="ut-addr" style="font-family:var(--font-mono);" x-text="d.tagAddress"></span></td>
                                                             <td data-label="타입" x-text="d.valueType"></td>
                                                             <td data-label="매칭 조건" x-show="ut.tab === 'Error'" x-text="describeUtOp(d.matchOp, d.matchValue)"></td>
+                                                            <td data-label="단위" x-show="ut.tab === 'Info'" x-text="d.unit || '—'"></td>
+                                                            <td data-label="데드밴드" x-show="ut.tab === 'Info'" x-text="d.deadband ? d.deadband : '모든 변화'"></td>
+                                                            <td data-label="기록 간격" x-show="ut.tab === 'Info'" x-text="d.minIntervalMs ? (d.minIntervalMs + ' ms') : '제한 없음'"></td>
                                                             <td class="ut-actions" data-label="">
                                                                 <template x-if="d.state !== 'del'">
                                                                     <span>
@@ -1675,9 +1682,36 @@
                         </template>
                     </div>
                 </div>
-                <div class="ut-form-row" x-show="ut.modal.f.level === 'Info'">
-                    <small class="settings-hint">값이 바뀔 때마다 기록합니다 — 매칭 조건·기준값은 쓰지 않습니다. 값 타입은 표시 형식(비트/수치/문자열)을 정하는 데 쓰입니다.</small>
-                </div>
+                <template x-if="ut.modal.f.level === 'Info'">
+                    <div>
+                        <div class="ut-form-row">
+                            <small class="settings-hint">값이 바뀔 때마다 기록합니다 — 매칭 조건·기준값은 쓰지 않습니다. 값 타입은 표시 형식(비트/수치/문자열)을 정하는 데 쓰입니다.</small>
+                        </div>
+                        <div class="ut-form-2col">
+                            <div class="ut-form-row">
+                                <label>단위 <span style="font-weight:400;">— 화면 표시용</span></label>
+                                <input type="text" class="form-field" x-model="ut.modal.f.unit" placeholder="예: bar, A, ℃" maxlength="16" />
+                            </div>
+                            <div class="ut-form-row">
+                                <label>데드밴드 <span style="font-weight:400;">— 비우면 모든 변화 기록</span></label>
+                                <!-- 숫자 입력은 type=text + inputmode — type=number 는 로케일·재렌더에서 값이 지워진다(reference). -->
+                                <input type="text" inputmode="decimal" class="form-field mono" x-model="ut.modal.f.deadband"
+                                       :disabled="ut.modal.f.valueType === 'Bit' || ut.modal.f.valueType === 'String'"
+                                       :placeholder="(ut.modal.f.valueType === 'Bit' || ut.modal.f.valueType === 'String') ? '수치 태그에만 적용' : '예: 0.5'" />
+                                <div class="ut-field-err" x-show="ut.modal.err.deadband" x-text="ut.modal.err.deadband"></div>
+                            </div>
+                        </div>
+                        <div class="ut-form-row">
+                            <label>최소 기록 간격 (ms) <span style="font-weight:400;">— 비우면 제한 없음</span></label>
+                            <input type="text" inputmode="numeric" class="form-field mono" x-model="ut.modal.f.minIntervalMs" placeholder="예: 1000" />
+                            <div class="ut-field-err" x-show="ut.modal.err.minIntervalMs" x-text="ut.modal.err.minIntervalMs"></div>
+                            <small class="settings-hint" style="display:block; margin-top:4px;">
+                                아날로그 값은 스캔마다 흔들립니다. 두 손잡이가 없으면 신호 기록이 하루 수백만 행으로 불어납니다.
+                                데드밴드는 DSPilot 이 기록 직전에 적용하고, 값 자체는 모델(AASX)에 저장됩니다.
+                            </small>
+                        </div>
+                    </div>
+                </template>
                 <div class="actions">
                     <button class="btn btn-outlined color-default" @click="ut.modal.show = false">취소</button>
                     <button class="btn btn-filled" @click="utModalSave()" :disabled="Object.keys(ut.modal.err).length > 0">
@@ -1919,6 +1953,9 @@
                             key: t.systemId + '|' + i, systemId: t.systemId, systemName: t.systemName,
                             name: t.name, tagAddress: t.tagAddress, valueType: t.valueType, matchOp: t.matchOp, matchValue: t.matchValue || '',
                             level: t.level === 'Info' ? 'Info' : 'Error',
+                            // 모니터링 메타 — 폼에서 문자열로 다루고(빈칸 = 없음) 전송 직전에 숫자로 되돌린다.
+                            unit: t.unit || '', deadband: t.deadband == null ? '' : String(t.deadband),
+                            minIntervalMs: t.minIntervalMs == null ? '' : String(t.minIntervalMs),
                             state: '', orig: null,
                         }));
                         if (this.ut.sys && !this.ut.systems.some(s => s.systemId === this.ut.sys)) this.ut.sys = '';
@@ -1940,6 +1977,17 @@
                 },
                 // 탭 배지 — 삭제 예약을 뺀 현재 목록 건수(추가 예약은 포함).
                 utTabCount(tab) { return this.ut.items.filter(i => i.level === tab && i.state !== 'del').length; },
+                // 되돌리기용 원본 스냅샷 + 변경 판정의 단일 소스. 칸이 늘 때 한 곳만 고치면 되도록 모아 둔다
+                // (세 곳에 흩어져 있던 때는 새 칸을 더해도 '수정' 표시가 안 뜨는 조용한 누락이 생겼다).
+                UT_FIELDS: ['name', 'tagAddress', 'valueType', 'matchOp', 'matchValue', 'level', 'unit', 'deadband', 'minIntervalMs'],
+                utSnapshot(it) {
+                    const o = { systemId: it.systemId, systemName: it.systemName };
+                    for (const k of this.UT_FIELDS) o[k] = it[k];
+                    return o;
+                },
+                utSame(it) {
+                    return !!it.orig && this.UT_FIELDS.every(k => (it.orig[k] ?? '') === (it[k] ?? ''));
+                },
                 // 지금 탭의 전체 항목(검색 필터 적용 전) — 빈 목록 안내가 "검색 결과 없음"과 "정의 없음"을 구분하는 데 쓴다.
                 get utTabItems() { return (this.ut.items || []).filter(d => d.level === this.ut.tab); },
                 // 보이지 않는 탭에 쌓인 미적용 변경 수 — 적용 바가 "이것도 같이 나갑니다" 를 알리는 근거.
@@ -2016,12 +2064,14 @@
                     const lv = this.ut.tab;
                     const vt = lv === 'Info' ? 'Word' : 'Bit';
                     this.ut.modal = { show: true, mode: 'add', key: null, err: {},
-                        f: { systemId: sysId, name: '', tagAddress: '', valueType: vt, matchOp: lv === 'Info' ? 'Changed' : 'RisingEdge', matchValue: '', level: lv } };
+                        f: { systemId: sysId, name: '', tagAddress: '', valueType: vt, matchOp: lv === 'Info' ? 'Changed' : 'RisingEdge', matchValue: '', level: lv,
+                             unit: '', deadband: '', minIntervalMs: '' } };
                     this.$nextTick(() => this.$refs.utNameInput?.focus());
                 },
                 utOpenEdit(d) {
                     this.ut.modal = { show: true, mode: 'edit', key: d.key, err: {},
-                        f: { systemId: d.systemId, name: d.name, tagAddress: d.tagAddress, valueType: d.valueType, matchOp: d.matchOp, matchValue: d.matchValue || '', level: d.level || 'Error' } };
+                        f: { systemId: d.systemId, name: d.name, tagAddress: d.tagAddress, valueType: d.valueType, matchOp: d.matchOp, matchValue: d.matchValue || '', level: d.level || 'Error',
+                             unit: d.unit || '', deadband: d.deadband || '', minIntervalMs: d.minIntervalMs || '' } };
                     this.$nextTick(() => this.$refs.utNameInput?.focus());
                 },
                 // 종류 전환 — 모니터링으로 가면 조건을 Changed 로 중립화하고, 알람으로 돌아오면 값 타입 기본 조건을 세운다.
@@ -2074,6 +2124,13 @@
                     }
                     if (!addr) { if (!soft) err.tagAddress = '태그 주소를 입력하세요.'; }
                     else if (/\s/.test(addr)) err.tagAddress = '주소에 공백이 있습니다.';
+                    // 모니터링 메타 — 서버 ValidateMonitorMeta 의 클라이언트 미러.
+                    if (f.level === 'Info') {
+                        const db = (f.deadband || '').toString().trim();
+                        if (db && !(isFinite(Number(db)) && Number(db) >= 0)) err.deadband = '0 이상의 숫자를 입력하세요.';
+                        const iv = (f.minIntervalMs || '').toString().trim();
+                        if (iv && !(/^\d+$/.test(iv) && Number(iv) <= 86400000)) err.minIntervalMs = '0 이상 86,400,000 이하의 정수(ms)를 입력하세요.';
+                    }
                     // 모니터링TAG 는 매칭 조건·기준값을 쓰지 않으므로 검증도 건너뛴다(서버 Normalize 와 같은 규칙).
                     if (f.level !== 'Info' && this.utModalNeedsValue()) {
                         const mv = (f.matchValue || '').trim();
@@ -2089,10 +2146,15 @@
                     const f = this.ut.modal.f;
                     const sys = this.utModalSystem;
                     const isMonitor = f.level === 'Info';
+                    // 수치가 아닌 태그(Bit·String)에는 데드밴드가 뜻이 없다 — 폼에서 막고 값도 비운다.
+                    const numeric = isMonitor && f.valueType !== 'Bit' && f.valueType !== 'String';
                     const vals = { systemId: f.systemId, systemName: sys?.systemName || '', name: f.name.trim(), tagAddress: f.tagAddress.trim(),
                                    valueType: f.valueType, level: f.level,
                                    matchOp: isMonitor ? 'Changed' : f.matchOp,
-                                   matchValue: (!isMonitor && this.utModalNeedsValue()) ? f.matchValue.trim() : '' };
+                                   matchValue: (!isMonitor && this.utModalNeedsValue()) ? f.matchValue.trim() : '',
+                                   unit: isMonitor ? (f.unit || '').trim() : '',
+                                   deadband: numeric ? (f.deadband || '').toString().trim() : '',
+                                   minIntervalMs: isMonitor ? (f.minIntervalMs || '').toString().trim() : '' };
                     const movedTab = this.ut.modal.mode === 'edit' && f.level !== this.ut.tab;
                     if (this.ut.modal.mode === 'add') {
                         this.ut.items.push({ key: 'new|' + Date.now() + '|' + Math.random().toString(36).slice(2, 7), ...vals, state: 'new', orig: null });
@@ -2100,11 +2162,11 @@
                     } else {
                         const it = this.ut.items.find(i => i.key === this.ut.modal.key);
                         if (!it) return;
-                        if (it.state === '' ) it.orig = { systemId: it.systemId, systemName: it.systemName, name: it.name, tagAddress: it.tagAddress, valueType: it.valueType, matchOp: it.matchOp, matchValue: it.matchValue, level: it.level };
+                        if (it.state === '' ) it.orig = this.utSnapshot(it);
                         // System 이동은 원 System 에서 삭제 + 새 System 에 추가와 같다 — 단순화를 위해 편집에서 System 은 잠근다(모달 disabled).
                         Object.assign(it, vals);
                         if (it.state !== 'new') {
-                            const same = it.orig && ['name', 'tagAddress', 'valueType', 'matchOp', 'matchValue', 'level'].every(k => (it.orig[k] || '') === (it[k] || ''));
+                            const same = this.utSame(it);
                             it.state = same ? '' : 'mod';
                             if (same) it.orig = null;
                         }
@@ -2116,7 +2178,7 @@
                 },
                 utDelete(d) {
                     if (d.state === 'new') { this.ut.items = this.ut.items.filter(i => i.key !== d.key); return; }
-                    if (d.state === '' ) d.orig = { systemId: d.systemId, systemName: d.systemName, name: d.name, tagAddress: d.tagAddress, valueType: d.valueType, matchOp: d.matchOp, matchValue: d.matchValue, level: d.level };
+                    if (d.state === '' ) d.orig = this.utSnapshot(d);
                     d.state = 'del';
                 },
                 utRestore(d) {
@@ -2145,7 +2207,14 @@
                     const systems = changedSys.map(id => ({
                         systemId: id,
                         tags: this.ut.items.filter(i => i.systemId === id && i.state !== 'del')
-                            .map(i => ({ name: i.name, tagAddress: i.tagAddress, valueType: i.valueType, matchOp: i.matchOp, matchValue: i.matchValue || '', level: i.level || 'Error' })),
+                            .map(i => ({
+                                name: i.name, tagAddress: i.tagAddress, valueType: i.valueType,
+                                matchOp: i.matchOp, matchValue: i.matchValue || '', level: i.level || 'Error',
+                                // 폼은 문자열로 다루므로 전송 직전에 숫자로 되돌린다. 빈칸·0·숫자 아님 = 설정 없음.
+                                unit: i.unit || null,
+                                deadband: Number(i.deadband) > 0 ? Number(i.deadband) : null,
+                                minIntervalMs: parseInt(i.minIntervalMs, 10) > 0 ? parseInt(i.minIntervalMs, 10) : null,
+                            })),
                     }));
                     this.ut.busy = true; this.ut.saveErrors = []; this.ut.warnings = [];
                     try {
@@ -2265,7 +2334,9 @@
                         if (seen.has(k)) continue;
                         seen.add(k); touchedSys.add(s.systemId);
                         toAdd.push({ systemId: s.systemId, systemName: s.systemName, name: r.name, tagAddress: r.tagAddress, valueType: r.valueType,
-                                     matchOp: r.matchOp, matchValue: r.matchValue || '', level: r.level === 'Info' ? 'Info' : 'Error' });
+                                     matchOp: r.matchOp, matchValue: r.matchValue || '', level: r.level === 'Info' ? 'Info' : 'Error',
+                                     unit: r.unit || '', deadband: r.deadband == null ? '' : String(r.deadband),
+                                     minIntervalMs: r.minIntervalMs == null ? '' : String(r.minIntervalMs) });
                     }
                     if (csv.mode === 'replace') {
                         // 교체 = 파일이 건드리는 System 의 기존 태그를 삭제 예약(적용 전 되돌리기 가능).
@@ -2275,7 +2346,7 @@
                         for (const it of this.ut.items) {
                             if (!touchedSys.has(it.systemId) || it.level !== lv) continue;
                             if (it.state === 'new') continue;
-                            if (it.state === '') it.orig = { systemId: it.systemId, systemName: it.systemName, name: it.name, tagAddress: it.tagAddress, valueType: it.valueType, matchOp: it.matchOp, matchValue: it.matchValue, level: it.level };
+                            if (it.state === '') it.orig = this.utSnapshot(it);
                             it.state = 'del';
                         }
                         this.ut.items = this.ut.items.filter(i => !(i.state === 'new' && i.level === lv && touchedSys.has(i.systemId)));

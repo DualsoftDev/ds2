@@ -604,6 +604,85 @@ module AssetInterfacesDescriptionTypes =
                         aid.Interfaces.Add(Xgt (nextEndpoint, interactions))
                         List.length interactions
 
+        /// 주소별 표시 단위(engineering unit)를 이 System 의 XGT interaction 에 심는다.
+        /// 단위는 값 자체가 아니라 "그 값을 어떻게 읽어야 하는가" 라서 신호 정의(interaction)의 자리이며,
+        /// AASX 로 export/import 될 때 `unit` Property 로 왕복한다(SignalUaMetadata.Unit 계약).
+        ///
+        /// 태그 모니터링 화면이 값 옆에 bar·A·℃ 를 붙이는 근거가 이것이다. 빈 문자열/공백은 "단위 없음"
+        /// 으로 보고 지운다 — 사용자가 칸을 비우면 지워지는 것이 자연스럽다.
+        /// 사전에 없는 주소의 interaction 은 건드리지 않는다. 반환 = 값이 실제로 바뀐 interaction 수.
+        [<CompiledName("SetUnitsForSystem")>]
+        let setUnitsForSystem
+            (aid: AssetInterfacesDescription,
+             systemId: Guid,
+             unitsByAddress: IDictionary<string, string>) : int =
+            if isNull (box aid) || systemId = Guid.Empty || isNull (box unitsByAddress) then 0
+            else
+                let lookup = Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                for kv in unitsByAddress do
+                    if not (String.IsNullOrWhiteSpace kv.Key) then
+                        lookup.[kv.Key.Trim()] <- (if isNull kv.Value then "" else kv.Value.Trim())
+                if lookup.Count = 0 then 0
+                else
+                    let mutable changed = 0
+                    for index in 0 .. aid.Interfaces.Count - 1 do
+                        match aid.Interfaces.[index] with
+                        | Xgt (endpoint, interactions) when endpoint.SystemId = Some systemId ->
+                            let mutable touched = 0
+                            let next =
+                                interactions
+                                |> List.map (fun interaction ->
+                                    match lookup.TryGetValue interaction.Href with
+                                    | true, unit ->
+                                        let nextUnit = if String.IsNullOrWhiteSpace unit then None else Some unit
+                                        if nextUnit = interaction.Unit then interaction
+                                        else
+                                            touched <- touched + 1
+                                            { interaction with Unit = nextUnit }
+                                    | _ -> interaction)
+                            if touched > 0 then
+                                aid.Interfaces.[index] <- Xgt (endpoint, next)
+                                changed <- changed + touched
+                        | _ -> ()
+                    changed
+
+        /// 이 System 의 주소 → 단위 표. <see cref="setUnitsForSystem"/> 의 역연산이며 편집기가 저장된 값을 되읽는다.
+        /// 단위가 없는 주소는 담지 않는다.
+        [<CompiledName("UnitsByAddressForSystem")>]
+        let unitsByAddressForSystem
+            (aid: AssetInterfacesDescription, systemId: Guid) : IDictionary<string, string> =
+            let result = Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            if isNull (box aid) || systemId = Guid.Empty then result :> IDictionary<string, string>
+            else
+                for binding in aid.Interfaces do
+                    match binding with
+                    | Xgt (endpoint, interactions) when endpoint.SystemId = Some systemId ->
+                        for interaction in interactions do
+                            match interaction.Unit with
+                            | Some unit when not (String.IsNullOrWhiteSpace interaction.Href) ->
+                                result.[interaction.Href] <- unit
+                            | _ -> ()
+                    | _ -> ()
+                result :> IDictionary<string, string>
+
+        /// 이 System 의 주소 → signalId 표. SignalPolicy(수집 정책)가 signalId 로 키를 잡으므로,
+        /// 주소로 정책을 걸려면 이 다리를 건너야 한다. 주소를 모르는 호출자는 빈 표를 받는다.
+        [<CompiledName("SignalIdsByAddressForSystem")>]
+        let signalIdsByAddressForSystem
+            (aid: AssetInterfacesDescription, systemId: Guid) : IDictionary<string, string> =
+            let result = Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            if isNull (box aid) || systemId = Guid.Empty then result :> IDictionary<string, string>
+            else
+                for binding in aid.Interfaces do
+                    match binding with
+                    | Xgt (endpoint, interactions) when endpoint.SystemId = Some systemId ->
+                        for interaction in interactions do
+                            if not (String.IsNullOrWhiteSpace interaction.Href)
+                               && not (String.IsNullOrWhiteSpace interaction.SignalId.Value) then
+                                result.[interaction.Href] <- interaction.SignalId.Value
+                    | _ -> ()
+                result :> IDictionary<string, string>
+
         /// 이미 저장된 모델의 signalId 중복·공백 **자동 복구**.
         /// 중복 주소 모델은 AASX 저장 자체는 성공하고 불러와 활성화할 때만 실패하므로,
         /// 현장에 "저장은 됐는데 안 뜨는" 파일이 이미 존재할 수 있다. 그런 파일도 사용자가

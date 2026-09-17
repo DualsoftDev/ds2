@@ -196,14 +196,26 @@ public class UserTagsController : ControllerBase
         var activeIds = active.Select(s => s.Id).ToHashSet();
 
         var rows = _project.GetStore().GetAllUserTagsForProject();
+        // 모니터링 메타(단위·데드밴드·간격)는 UserTag 문자열 밖(AID interaction · SignalPolicy)에 살아서 따로 읽는다.
+        // System 단위 조회라 한 번씩만 부른다.
+        var metaBySystem = new Dictionary<Guid, Dictionary<string, MonitorTagMeta>>();
+        foreach (var id in activeIds) metaBySystem[id] = _project.GetMonitorMetaForSystem(id);
+
         var tags = rows
             .Where(r => activeIds.Contains(r.SystemId))
-            .Select(r => new UtEditorTagDto(
-                r.SystemId.ToString(), r.SystemName, r.Name, r.TagAddress,
-                UserTagEditorSupport.NormalizeValueType(r.ValueType) ?? "Bit",
-                UserTagEditorSupport.NormalizeMatchOp(r.MatchOp, r.ValueType) ?? "RisingEdge",
-                r.MatchValue,
-                UserTagEditorSupport.NormalizeLevel(r.LogLevel)))
+            .Select(r =>
+            {
+                MonitorTagMeta? meta = null;
+                if (metaBySystem.TryGetValue(r.SystemId, out var m) && !string.IsNullOrWhiteSpace(r.TagAddress))
+                    m.TryGetValue(r.TagAddress.Trim(), out meta);
+                return new UtEditorTagDto(
+                    r.SystemId.ToString(), r.SystemName, r.Name, r.TagAddress,
+                    UserTagEditorSupport.NormalizeValueType(r.ValueType) ?? "Bit",
+                    UserTagEditorSupport.NormalizeMatchOp(r.MatchOp, r.ValueType) ?? "RisingEdge",
+                    r.MatchValue,
+                    UserTagEditorSupport.NormalizeLevel(r.LogLevel),
+                    meta?.Unit, meta?.DeadbandAbsolute, meta?.MinIntervalMs);
+            })
             .OrderBy(t => t.SystemName).ThenBy(t => t.Name)
             .ToList();
         var hidden = rows.Count(r => !activeIds.Contains(r.SystemId));
@@ -240,8 +252,22 @@ public class UserTagsController : ControllerBase
             {
                 var (entry, err) = UserTagEditorSupport.Normalize(
                     t.Name, t.TagAddress, t.ValueType, t.MatchOp, t.MatchValue, t.Level);
-                if (entry is null) errors.Add($"{sysName} / '{t.Name}': {err}");
-                else entries.Add(entry);
+                if (entry is null) { errors.Add($"{sysName} / '{t.Name}': {err}"); continue; }
+
+                // 모니터링 메타는 모니터링TAG 에만 뜻이 있다 — 이상알람TAG 에 섞여 오면 조용히 버린다.
+                // (탭을 옮긴 태그가 옛 값을 끌고 가 SignalPolicy 에 유령 행을 남기는 것을 막는다.)
+                if (UserTagEditorSupport.IsMonitorLevel(entry.Level))
+                {
+                    var metaErr = UserTagEditorSupport.ValidateMonitorMeta(t.Deadband, t.MinIntervalMs);
+                    if (metaErr is not null) { errors.Add($"{sysName} / '{t.Name}': {metaErr}"); continue; }
+                    entry = entry with
+                    {
+                        Unit = string.IsNullOrWhiteSpace(t.Unit) ? null : t.Unit.Trim(),
+                        DeadbandAbsolute = t.Deadband is > 0 ? t.Deadband : null,
+                        MinIntervalMs = t.MinIntervalMs is > 0 ? t.MinIntervalMs : null,
+                    };
+                }
+                entries.Add(entry);
             }
             // 이름·주소 중복은 두 탭을 합친 목록으로 본다 — 요청이 그 System 의 최종 목록 전체이므로 여기가 그 범위다.
             // 탭이 다르다고 같은 이름을 허용하면 AASX 한 리스트 안에서 충돌한다.

@@ -149,6 +149,19 @@ public static class UserTagEditorSupport
         return (new UserTagWriteEntry(n, a, vt, op, mv, lv), null);
     }
 
+    /// <summary>
+    /// 모니터링 메타 검증 — 데드밴드는 음수 불가, 기록 간격은 하루를 넘지 않는다.
+    /// 값이 없거나 0 이면 "제한 없음" 이라 정상이다. 문제가 없으면 null.
+    /// </summary>
+    public static string? ValidateMonitorMeta(double? deadband, int? minIntervalMs)
+    {
+        if (deadband is < 0) return "데드밴드는 0 이상이어야 합니다.";
+        if (deadband is double.NaN or double.PositiveInfinity) return "데드밴드가 숫자가 아닙니다.";
+        if (minIntervalMs is < 0) return "최소 기록 간격은 0 이상이어야 합니다.";
+        if (minIntervalMs is > 86_400_000) return "최소 기록 간격이 하루를 넘습니다.";
+        return null;
+    }
+
     /// <summary>같은 System 안에서 대소문자 무시로 겹치는 이름 목록.</summary>
     public static List<string> FindDuplicateNames(IEnumerable<string> names) =>
         names.GroupBy(n => n.Trim(), StringComparer.OrdinalIgnoreCase)
@@ -161,6 +174,13 @@ public static class UserTagEditorSupport
     /// <summary>Promaker UserTagPanel.CsvHeaderColumns 와 동일한 6컬럼 + DSPilot 확장 System 컬럼(맨 앞).</summary>
     public static readonly string[] CsvHeader = ["System", "이름", "로그 레벨", "태그 주소", "값 타입", "매칭 조건", "기준값"];
 
+    /// <summary>
+    /// 모니터링TAG 양식 — 위 7컬럼 뒤에 표시·수집 메타 3칸을 덧댄다. 매칭 조건·기준값 칸은 자리만 지키고 비운다
+    /// (Promaker 6컬럼 파서와 열 위치를 어긋나게 하지 않으려고 빼지 않는다).
+    /// </summary>
+    public static readonly string[] CsvHeaderMonitor =
+        [.. CsvHeader, "단위", "데드밴드", "최소 기록 간격(ms)"];
+
     public const string CsvMimeType = "text/csv; charset=utf-8";
 
     /// <summary>
@@ -171,23 +191,33 @@ public static class UserTagEditorSupport
     public static byte[] BuildCsv(IEnumerable<UtEditorTagDto> rows, bool includeExample, string? level = null)
     {
         var lv = NormalizeLevel(level);
+        var monitor = lv == LevelMonitor;
         var sb = new StringBuilder();
-        sb.AppendLine(string.Join(",", CsvHeader));
+        sb.AppendLine(string.Join(",", monitor ? CsvHeaderMonitor : CsvHeader));
         var any = false;
         foreach (var r in rows)
         {
             any = true;
-            sb.AppendLine(string.Join(",",
+            var cells = new List<string>
+            {
                 Esc(r.SystemName), Esc(r.Name), NormalizeLevel(r.Level), Esc(r.TagAddress), Esc(r.ValueType),
-                Esc(r.MatchOp), Esc(r.MatchValue ?? string.Empty)));
+                Esc(r.MatchOp), Esc(r.MatchValue ?? string.Empty),
+            };
+            if (monitor)
+            {
+                cells.Add(Esc(r.Unit ?? string.Empty));
+                cells.Add(r.Deadband?.ToString(CultureInfo.InvariantCulture) ?? string.Empty);
+                cells.Add(r.MinIntervalMs?.ToString(CultureInfo.InvariantCulture) ?? string.Empty);
+            }
+            sb.AppendLine(string.Join(",", cells));
         }
         if (!any && includeExample)
         {
-            if (lv == LevelMonitor)
+            if (monitor)
             {
                 // 모니터링TAG 는 매칭 조건·기준값을 쓰지 않는다(값이 바뀌면 기록). 칸은 양식 호환을 위해 남기되 비운다.
-                sb.AppendLine(string.Join(",", "", "예시_펌프압력", LevelMonitor, "D200", "Real", "", ""));
-                sb.AppendLine(string.Join(",", "", "예시_생산카운터", LevelMonitor, "D100", "Word", "", ""));
+                sb.AppendLine(string.Join(",", "", "예시_펌프압력", LevelMonitor, "D200", "Real", "", "", "bar", "0.5", "1000"));
+                sb.AppendLine(string.Join(",", "", "예시_생산카운터", LevelMonitor, "D100", "Word", "", "", "ea", "", ""));
             }
             else
             {
@@ -242,6 +272,10 @@ public static class UserTagEditorSupport
             var vt = Cell(off + 3);
             var op = Cell(off + 4);
             var mv = Cell(off + 5);
+            // 모니터링 양식의 덧댄 3칸. 없는 파일(Promaker 6컬럼·이상알람 양식)은 그냥 빈 값이 된다.
+            var unit = Cell(off + 6);
+            var deadbandCell = Cell(off + 7);
+            var intervalCell = Cell(off + 8);
             var lv = forced ?? csvLevel;
             var adjusted = forced is not null && !string.Equals(csvLevel, forced, StringComparison.Ordinal);
             if (p.Count - off < 3)
@@ -251,10 +285,27 @@ public static class UserTagEditorSupport
                 continue;
             }
             var (entry, err) = Normalize(name, addr, string.IsNullOrWhiteSpace(vt) ? "Bit" : vt, op, mv, lv);
-            rows.Add(entry is null
-                ? new UtCsvRowDto(i + 1, sys, name, addr, vt, op, mv, err, lv, adjusted)
-                : new UtCsvRowDto(i + 1, sys, entry.Name, entry.TagAddress, entry.ValueType, entry.MatchOp,
-                    entry.MatchValue, null, entry.Level, adjusted));
+            if (entry is null)
+            {
+                rows.Add(new UtCsvRowDto(i + 1, sys, name, addr, vt, op, mv, err, lv, adjusted));
+                continue;
+            }
+
+            // 메타는 모니터링TAG 행에만 싣는다. 숫자가 아니면 그 칸만 버리고 행은 살린다 —
+            // 표시·감량 설정 하나 때문에 태그 등록 전체를 막을 이유가 없다.
+            double? deadband = null;
+            int? interval = null;
+            if (entry.Level == LevelMonitor)
+            {
+                if (double.TryParse(deadbandCell, NumberStyles.Float, CultureInfo.InvariantCulture, out var db) && db > 0)
+                    deadband = db;
+                if (int.TryParse(intervalCell, NumberStyles.Integer, CultureInfo.InvariantCulture, out var iv) && iv > 0)
+                    interval = iv;
+            }
+            var metaErr = entry.Level == LevelMonitor ? ValidateMonitorMeta(deadband, interval) : null;
+            rows.Add(new UtCsvRowDto(i + 1, sys, entry.Name, entry.TagAddress, entry.ValueType, entry.MatchOp,
+                entry.MatchValue, metaErr, entry.Level, adjusted,
+                entry.Level == LevelMonitor && unit.Length > 0 ? unit : null, deadband, interval));
         }
         return new UtCsvParseResult(rows, headerDetected, hasSystemCol, encodingName);
     }

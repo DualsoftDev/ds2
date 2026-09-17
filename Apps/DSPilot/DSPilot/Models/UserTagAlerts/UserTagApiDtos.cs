@@ -108,7 +108,11 @@ public record UtEditorTagDto(
     string ValueType,
     string MatchOp,
     string? MatchValue,
-    string Level);
+    string Level,
+    // 모니터링TAG 전용 표시·수집 메타. 단위는 AID interaction, 데드밴드·간격은 SignalPolicy 에서 온다.
+    string? Unit = null,
+    double? Deadband = null,
+    int? MinIntervalMs = null);
 
 /// <summary>편집기 초기 로드 — System 목록 + 태그 + 허용 값 표. HiddenPassiveCount = Passive System 에 남아 있는(편집 불가) 태그 수.</summary>
 public record UtEditorDto(
@@ -120,7 +124,8 @@ public record UtEditorDto(
     bool ProjectLoaded);
 
 public record UtEditorTagInput(
-    string? Name, string? TagAddress, string? ValueType, string? MatchOp, string? MatchValue, string? Level = null);
+    string? Name, string? TagAddress, string? ValueType, string? MatchOp, string? MatchValue, string? Level = null,
+    string? Unit = null, double? Deadband = null, int? MinIntervalMs = null);
 
 /// <summary>System 별 최종 목록(통째 교체). 포함되지 않은 System 은 건드리지 않는다.</summary>
 public record UtEditorSystemInput(string SystemId, List<UtEditorTagInput> Tags);
@@ -145,6 +150,10 @@ public record UtCsvRowDto(
     string MatchValue,
     string? Error,
     string Level = UserTagEditorSupport.LevelAlarm,
-    bool LevelAdjusted = false);
+    bool LevelAdjusted = false,
+    // 모니터링 양식(열 8~10)에서만 채워진다. 이상알람 행에서는 언제나 null 이다.
+    string? Unit = null,
+    double? Deadband = null,
+    int? MinIntervalMs = null);
 
 public record UtCsvParseResult(List<UtCsvRowDto> Rows, bool HeaderDetected, bool HasSystemColumn, string Encoding);
