@@ -146,7 +146,7 @@ GET /api/kpi/timeline?from=&to=&flow=[&branch=]
 | 표 | 컬럼 |
 |---|---|
 | system | id, name, guid, vendor, endpoint |
-| tag | id, systemId, name, address, dataType |
+| tag | id, systemId, name, address, dataType, label, unit, isUserTag |
 | flow | id, name, guid, systemId, headCallId, tailCallId |
 | work | id, flowId, name |
 | call | id, guid, name, apiCall, workId, flowId, device, inTagId, outTagId |
@@ -164,8 +164,12 @@ GET /api/kpi/timeline?from=&to=&flow=[&branch=]
 
 | 표 | 컬럼 |
 |---|---|
-| signal | id, tagId, atMs, value(INTEGER 0/1), valueReal(숫자 태그만, 보통 NULL) |
+| signal | id, tagId, atMs, value |
 | alert | id, occurredMs, clearedMs, systemId, name, level, tagId, valueType, matchOp, matchValue, actualValue |
+
+`signal.value` 는 **타입 친화도를 선언하지 않는다.** SQLite 는 값을 넣은 그대로 담으므로 비트는 1바이트 정수로,
+수치는 REAL 로, 문자열은 TEXT 로 한 칸에 들어간다. UserTag 의 값 종류가 Bit·Byte·Word·DWord·Int16·Int32·Real·String
+여덟 가지라 칸을 나누면 대부분 NULL 인 칸이 늘어난다.
 
 색인은 `signal(tagId, atMs)` 와 `signal(atMs)` 둘이다. 앞은 조회(태그별 구간), 뒤는 보존 삭제용이다.
 
@@ -196,6 +200,20 @@ GET /api/kpi/timeline?from=&to=&flow=[&branch=]
 - 보존: `signal` · `alert` 만 기간 경과분 삭제 + `wal_checkpoint(TRUNCATE)` + `incremental_vacuum`.
   나머지는 영구. 파생 표(cycle 이하)는 원시 신호에서 언제든 다시 만들 수 있다.
 - DB 밖: 설정 JSON(κ·Q 포함), demo-admin.json, project.aasx, PlcConnection.json, 업로드 이미지.
+
+### 9.4 UserTag 모니터링이 요구하는 것
+
+값 변화 기록과 추이 조회는 위 표로 그대로 된다. UserTag 주소도 다른 태그와 똑같이 `tag` 에 행이 생기고
+값 변화는 `signal` 에 쌓이며, 색인 `(tagId, atMs)` 가 태그별 구간 조회를 받아 준다. 다만 셋을 지켜야 한다.
+
+1. **값 종류를 실제 종류로 채운다.** 종전 코드는 UserTag 주소를 등록할 때 자료형을 `BOOL` 로 못박았다.
+   Word·Int32·Real·String UserTag 도 전부 BOOL 로 기록돼, 화면이 단위와 표시 형식을 정할 근거가 없었다.
+   AASX 의 valueType 을 그대로 `tag.dataType` 에 넣는다.
+2. **계단식으로 읽는다.** 신호는 변할 때만 기록되므로 구간 시작 시점의 값은 그 구간 안에 없다.
+   추이 조회는 구간 직전의 마지막 행 하나를 함께 읽어 시작값을 세운다.
+3. **보존은 태그별로 나눈다.** 원시 신호는 롤링이라 보존 기간을 넘으면 추이도 끊긴다. UserTag 는 변화가 드물어
+   (실측 11일 164건) 오래 둬도 부담이 없다. 자주 변하는 수치 UserTag 가 생기면 그때 일별 요약 표를 따로 만든다 —
+   지금 만들면 읽는 곳 없는 표가 하나 더 생긴다.
 
 ## 10. 폐기 목록
 
