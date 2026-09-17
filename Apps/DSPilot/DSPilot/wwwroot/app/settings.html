@@ -143,12 +143,16 @@
         .ude-pager-nav .btn-sm .material-icons { font-size: 16px; }
         .ude-pager-page { font-size: 0.75rem; padding: 0 6px; white-space: nowrap; }
 
-        /* ── 수동등록TAG 편집기 (ut-*) — 행 상태 표시·툴바·모달 폼 ── */
+        /* ── 사용자 태그 편집기 (ut-*) — 종류 탭·행 상태 표시·툴바·모달 폼 ── */
         /* 6열 테이블 + 행 액션이라 2열 그리드 한 칸(~460px)엔 좁다 — 이 카드만 전폭. */
         .settings-grid > .card.ut-card { grid-column: 1 / -1; }
         .ut-head-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
         .ut-head-actions .btn .material-icons { font-size: 16px; }
         .ut-count { margin-left: 6px; }
+        /* 종류 탭(이상알람TAG / 모니터링TAG) — 카드 제목 옆. 건수 배지는 활성 탭에서 대비를 유지한다. */
+        .ut-tabs .material-icons { font-size: 16px; vertical-align: -3px; margin-right: 2px; }
+        .ut-tabs .ut-count { font-size: 0.66rem; padding: 0 5px; margin-left: 5px; opacity: 0.85; }
+        .ut-tabs button.active .ut-count { background: rgba(255, 255, 255, 0.22); color: inherit; }
         .ut-row-new  td:first-child { box-shadow: inset 3px 0 0 var(--color-success); }
         .ut-row-mod  td:first-child { box-shadow: inset 3px 0 0 var(--color-warning); }
         .ut-row-del  { opacity: 0.55; }
@@ -402,16 +406,31 @@
                                 </div>
                             </div>
 
-                            <!-- 수동등록TAG(UserTag) 편집기 — 정본은 공유 project.aasx(System.LoggingProperties.UserTags).
+                            <!-- 사용자 태그(UserTag) 편집기 — 정본은 공유 project.aasx(System.LoggingProperties.UserTags).
                                  편집은 클라이언트 작업 복사본(ut.items 의 state new/mod/del)에 쌓이고 '적용' 1회에 System 별 통째 교체 →
-                                 AID 주소 병합 → aasx 재export 로 반영된다(Agent 는 파일 워처로 재시작 1회). Promaker 사용자 태그 패널과 형상 호환. -->
+                                 AID 주소 병합 → aasx 재export 로 반영된다(Agent 는 파일 워처로 재시작 1회). Promaker 사용자 태그 패널과 형상 호환.
+
+                                 종류 축 = 로그 레벨(2026-09-17). Error = 이상알람TAG, Info = 모니터링TAG. AASX 는 둘을 System 마다
+                                 한 리스트에 섞어 담고 탭은 <b>뷰 필터</b>일 뿐이다 — 저장(utApply)은 언제나 그 System 의 두 레벨 전부를
+                                 보낸다. ★탭 필터가 전송 경로까지 타면 반대쪽 탭의 태그가 통째로 사라진다(ReplaceUserTags = Clear 후 재삽입). -->
                             <div class="card ut-card" x-show="activeTab === 'monitoring'">
                                 <div class="card-header" style="flex-wrap:wrap; gap:8px;">
                                     <span class="material-icons">rule</span>
-                                    <span>수동등록TAG</span>
-                                    <span class="chip ut-count" :class="ut.items.filter(i => i.state !== 'del').length ? 'chip-primary' : ''" x-text="ut.items.filter(i => i.state !== 'del').length + '건'"></span>
+                                    <span>사용자 태그</span>
+                                    <div class="segmented ut-tabs" role="group" aria-label="사용자 태그 종류">
+                                        <button type="button" :class="{ active: ut.tab === 'Error' }" @click="utSetTab('Error')"
+                                                title="PLC 값 조건으로 알람을 발화하는 태그 — 이상·알람 화면에 뜹니다">
+                                            <span class="material-icons">notifications_active</span> 이상알람TAG
+                                            <span class="chip ut-count" x-text="utTabCount('Error')"></span>
+                                        </button>
+                                        <button type="button" :class="{ active: ut.tab === 'Info' }" @click="utSetTab('Info')"
+                                                title="발화하지 않고 값 변화만 기록하는 태그 — 태그 모니터링 화면에서 추이로 봅니다">
+                                            <span class="material-icons">show_chart</span> 모니터링TAG
+                                            <span class="chip ut-count" x-text="utTabCount('Info')"></span>
+                                        </button>
+                                    </div>
                                     <div class="ut-head-actions">
-                                        <button class="btn btn-sm btn-outlined color-default" @click="utExportCsv()" :disabled="ut.busy || !ut.loaded" title="현재 목록(필터 System 기준)을 CSV 로 내려받기">
+                                        <button class="btn btn-sm btn-outlined color-default" @click="utExportCsv()" :disabled="ut.busy || !ut.loaded" title="현재 탭의 목록(필터 System 기준)을 CSV 로 내려받기">
                                             <span class="material-icons">download</span> CSV 내보내기
                                         </button>
                                         <button class="btn btn-sm btn-outlined color-default" @click="utCsvPick()" :disabled="ut.busy || !ut.loaded || !ut.systems.length" title="CSV 파일을 읽어 미리보기 후 목록에 반영(적용 전까지 저장되지 않음)">
@@ -425,9 +444,13 @@
                                 </div>
                                 <div class="card-content">
                                     <div class="settings-note" style="display:flex; align-items:flex-start; gap:6px;">
-                                        <small style="flex:1;">
-                                            PLC 값 조건으로 알람을 만드는 사용자 태그를 여기서 추가·편집·삭제하고 <b>적용</b>하면 공유 project.aasx 에 저장되어 Agent 가 수집을 시작합니다 — 이력은
+                                        <small style="flex:1;" x-show="ut.tab === 'Error'">
+                                            PLC 값 조건으로 <b>알람을 발화</b>하는 태그입니다. 추가·편집·삭제하고 <b>적용</b>하면 공유 project.aasx 에 저장되어 Agent 가 수집을 시작합니다 — 이력은
                                             <a href="/uptime-alarm" style="color:var(--color-primary);">이상·알람 분석</a>에서.
+                                        </small>
+                                        <small style="flex:1;" x-show="ut.tab === 'Info'">
+                                            알람을 발화하지 않고 <b>값 변화만 기록</b>하는 태그입니다. 매칭 조건 없이 값이 바뀔 때마다 남으며, 추이·통계는
+                                            <a href="/tag-monitor" style="color:var(--color-primary);">태그 모니터링</a>에서 봅니다. 같은 태그를 알람으로 쓰려면 탭을 옮기세요(편집 창에서 종류 변경).
                                         </small>
                                         <button class="btn-icon btn-sm" @click="ut.showInfo = !ut.showInfo" :title="ut.showInfo ? '설명 접기' : '자세히'"><span class="material-icons" x-text="ut.showInfo ? 'expand_less' : 'info'"></span></button>
                                     </div>
@@ -435,8 +458,9 @@
                                         <li>적용 시 태그 주소가 그 System 의 PLC 접속 정보(AID)에 수집 대상으로 함께 등록됩니다. PLC 접속이 없는 System(<span class="material-icons ut-noep" style="cursor:default;">warning</span> 표시)은 태그는 저장되지만 수집되지 않으니 Promaker 에서 PLC 접속을 먼저 지정하세요.</li>
                                         <li>Agent 는 파일 변경을 감지해 자동 재시작합니다(수 초 모니터링 공백). 변경을 모아 한 번에 적용하는 것을 권장합니다.</li>
                                         <li>엣지 스캐너(Edge 위임 수집) 현장은 스캐너 설정에 주소를 따로 추가해야 수집됩니다.</li>
-                                        <li>Promaker 에서 같은 파일을 열어 둔 경우 마지막에 저장한 쪽이 남습니다. 로그 레벨은 운영 정책상 항상 Error 입니다.</li>
-                                        <li>CSV 양식은 Promaker 사용자 태그 내보내기와 같고(<code>이름, 로그 레벨, 태그 주소, 값 타입, 매칭 조건, 기준값</code>) 맨 앞에 <code>System</code> 열이 추가됩니다. Promaker 파일(System 열 없음)도 그대로 가져올 수 있습니다. <a href="#" @click.prevent="utTemplateCsv()" style="color:var(--color-primary);">양식 내려받기</a></li>
+                                        <li>Promaker 에서 같은 파일을 열어 둔 경우 마지막에 저장한 쪽이 남습니다.</li>
+                                        <li><b>두 탭은 한 번에 저장됩니다.</b> 종류(이상알람/모니터링)는 AASX 의 로그 레벨 칸으로 구분되며, 탭을 오가며 편집한 내용이 <b>적용</b> 한 번에 함께 반영됩니다(Agent 재시작도 1회).</li>
+                                        <li>CSV 양식은 Promaker 사용자 태그 내보내기와 같고(<code>이름, 로그 레벨, 태그 주소, 값 타입, 매칭 조건, 기준값</code>) 맨 앞에 <code>System</code> 열이 추가됩니다. Promaker 파일(System 열 없음)도 그대로 가져올 수 있습니다. 내보내기·가져오기는 <b>현재 탭</b>만 다루며, 다른 종류가 적힌 파일을 가져오면 이 탭 종류로 맞추고 알려 줍니다. <a href="#" @click.prevent="utTemplateCsv()" style="color:var(--color-primary);">양식 내려받기</a></li>
                                     </ul>
 
                                     <div x-show="ut.loading" class="progress-bar progress-bar-indeterminate" style="margin:8px 0;"><div class="progress-bar-fill"></div></div>
@@ -479,7 +503,8 @@
                                                     <th @click="utSort('name')">이름 <span class="material-icons ude-sort" x-text="utSortIcon('name')"></span></th>
                                                     <th @click="utSort('tagAddress')">주소 <span class="material-icons ude-sort" x-text="utSortIcon('tagAddress')"></span></th>
                                                     <th @click="utSort('valueType')">타입 <span class="material-icons ude-sort" x-text="utSortIcon('valueType')"></span></th>
-                                                    <th @click="utSort('match')">매칭 조건 <span class="material-icons ude-sort" x-text="utSortIcon('match')"></span></th>
+                                                    <!-- 매칭 조건은 이상알람TAG 에만 뜻이 있다 — 모니터링TAG 는 값이 바뀌면 그냥 기록한다. -->
+                                                    <th x-show="ut.tab === 'Error'" @click="utSort('match')">매칭 조건 <span class="material-icons ude-sort" x-text="utSortIcon('match')"></span></th>
                                                     <th style="cursor:default;"></th>
                                                 </tr></thead>
                                                 <tbody>
@@ -497,7 +522,7 @@
                                                             </td>
                                                             <td data-label="주소"><span class="ut-addr" style="font-family:var(--font-mono);" x-text="d.tagAddress"></span></td>
                                                             <td data-label="타입" x-text="d.valueType"></td>
-                                                            <td data-label="매칭 조건" x-text="describeUtOp(d.matchOp, d.matchValue)"></td>
+                                                            <td data-label="매칭 조건" x-show="ut.tab === 'Error'" x-text="describeUtOp(d.matchOp, d.matchValue)"></td>
                                                             <td class="ut-actions" data-label="">
                                                                 <template x-if="d.state !== 'del'">
                                                                     <span>
@@ -513,8 +538,9 @@
                                                     </template>
                                                     <tr x-show="utFiltered.length === 0">
                                                         <td colspan="6" style="text-align:center; color:var(--color-text-secondary); padding:18px;">
-                                                            <span x-show="ut.items.length === 0">정의된 수동등록TAG 가 없습니다. <b>추가</b> 또는 <b>CSV 가져오기</b>로 등록하세요.</span>
-                                                            <span x-show="ut.items.length > 0">검색 조건에 맞는 항목이 없습니다.</span>
+                                                            <span x-show="utTabItems.length === 0 && ut.tab === 'Error'">정의된 이상알람TAG 가 없습니다. <b>추가</b> 또는 <b>CSV 가져오기</b>로 등록하세요.</span>
+                                                            <span x-show="utTabItems.length === 0 && ut.tab === 'Info'">정의된 모니터링TAG 가 없습니다. <b>추가</b> 로 값을 지켜볼 주소를 등록하세요.</span>
+                                                            <span x-show="utTabItems.length > 0">검색 조건에 맞는 항목이 없습니다.</span>
                                                         </td>
                                                     </tr>
                                                 </tbody>
@@ -540,6 +566,8 @@
                                                 <template x-if="utDirty">
                                                     <span>미적용 변경 <b x-text="utChangeCount.total + '건'"></b>
                                                         (<span x-show="utChangeCount.add">추가 <span x-text="utChangeCount.add"></span></span><span x-show="utChangeCount.add && (utChangeCount.mod || utChangeCount.del)"> · </span><span x-show="utChangeCount.mod">수정 <span x-text="utChangeCount.mod"></span></span><span x-show="utChangeCount.mod && utChangeCount.del"> · </span><span x-show="utChangeCount.del">삭제 <span x-text="utChangeCount.del"></span></span>)
+                                                        <!-- 두 탭이 한 번에 저장되므로, 지금 안 보이는 탭의 변경도 함께 나간다는 것을 알려 준다. -->
+                                                        <span x-show="utOtherTabChanges > 0">— <b x-text="ut.tab === 'Error' ? '모니터링TAG' : '이상알람TAG'"></b> 탭 <b x-text="utOtherTabChanges + '건'"></b> 포함</span>
                                                         — 적용하면 project.aasx 에 저장되고 Agent 가 재시작됩니다.</span>
                                                 </template>
                                                 <template x-if="!utDirty"><span>변경 없음 — 목록은 공유 project.aasx 와 동일합니다.</span></template>
@@ -1573,10 +1601,26 @@
         <!-- 수동등록TAG 추가/편집 모달 — 라이브 미리보기 + 타입/조건 칩. 서버 규칙(UserTagEditorSupport)의 클라이언트 미러 검증. -->
         <div class="modal-overlay" x-show="ut.modal.show" style="display:none; z-index:3000;" @click.self="ut.modal.show = false" @keydown.escape.window="ut.modal.show && (ut.modal.show = false)">
             <div class="modal-content ut-modal" @click.stop>
-                <h3><span class="material-icons" x-text="ut.modal.mode === 'add' ? 'add_circle' : 'edit'"></span><span x-text="ut.modal.mode === 'add' ? '수동등록TAG 추가' : '수동등록TAG 편집'"></span></h3>
-                <div class="ut-preview">
+                <h3><span class="material-icons" x-text="ut.modal.mode === 'add' ? 'add_circle' : 'edit'"></span><span x-text="(ut.modal.mode === 'add' ? '추가' : '편집') + ' — ' + (ut.modal.f.level === 'Info' ? '모니터링TAG' : '이상알람TAG')"></span></h3>
+                <div class="ut-preview" x-show="ut.modal.f.level === 'Error'">
                     <b x-text="utModalPreview.sys"></b> · <b x-text="utModalPreview.name"></b> : 주소 <code x-text="utModalPreview.addr"></code> (<span x-text="utModalPreview.type"></span>) 값이
                     <b x-text="utModalPreview.cond"></b> 이면 <b>Error 알림</b> 1건 기록
+                </div>
+                <div class="ut-preview" x-show="ut.modal.f.level === 'Info'">
+                    <b x-text="utModalPreview.sys"></b> · <b x-text="utModalPreview.name"></b> : 주소 <code x-text="utModalPreview.addr"></code> (<span x-text="utModalPreview.type"></span>) 값이
+                    바뀔 때마다 <b>기록</b> — 알람은 뜨지 않고 <b>태그 모니터링</b>에서 추이로 봅니다
+                </div>
+                <!-- 종류 전환 = 탭 이동. 주소·값 타입·쌓인 신호 이력은 그대로 따라간다(레벨 칸 하나만 바뀐다). -->
+                <div class="ut-form-row">
+                    <label>종류</label>
+                    <div class="segmented" role="group" aria-label="태그 종류">
+                        <button type="button" :class="{ active: ut.modal.f.level !== 'Info' }" @click="utModalSetLevel('Error')">
+                            <span class="material-icons">notifications_active</span> 이상알람TAG
+                        </button>
+                        <button type="button" :class="{ active: ut.modal.f.level === 'Info' }" @click="utModalSetLevel('Info')">
+                            <span class="material-icons">show_chart</span> 모니터링TAG
+                        </button>
+                    </div>
                 </div>
                 <div class="ut-form-2col">
                     <div class="ut-form-row">
@@ -1600,7 +1644,7 @@
                         <input type="text" class="form-field mono" x-model="ut.modal.f.tagAddress" @input="utModalValidate(true)" @keydown.enter="utModalSave()" placeholder="예: M901, D100" maxlength="64" autocapitalize="characters" />
                         <div class="ut-field-err" x-show="ut.modal.err.tagAddress" x-text="ut.modal.err.tagAddress"></div>
                     </div>
-                    <div class="ut-form-row" x-show="utModalNeedsValue()">
+                    <div class="ut-form-row" x-show="ut.modal.f.level === 'Error' && utModalNeedsValue()">
                         <label>기준값</label>
                         <template x-if="ut.modal.f.valueType === 'Bit'">
                             <div class="ut-chips">
@@ -1622,13 +1666,17 @@
                         </template>
                     </div>
                 </div>
-                <div class="ut-form-row">
+                <!-- 모니터링TAG 는 "언제 발화하나"를 묻지 않는다 — 값이 바뀌면 기록할 뿐이다. -->
+                <div class="ut-form-row" x-show="ut.modal.f.level === 'Error'">
                     <label>매칭 조건 <span style="font-weight:400;">— 값 타입에 맞는 조건만 표시</span></label>
                     <div class="ut-chips">
                         <template x-for="op in utModalOps" :key="op">
                             <button type="button" :class="ut.modal.f.matchOp === op ? 'is-active' : ''" @click="utModalSetOp(op)" x-text="utOpLabel(op)"></button>
                         </template>
                     </div>
+                </div>
+                <div class="ut-form-row" x-show="ut.modal.f.level === 'Info'">
+                    <small class="settings-hint">값이 바뀔 때마다 기록합니다 — 매칭 조건·기준값은 쓰지 않습니다. 값 타입은 표시 형식(비트/수치/문자열)을 정하는 데 쓰입니다.</small>
                 </div>
                 <div class="actions">
                     <button class="btn btn-outlined color-default" @click="ut.modal.show = false">취소</button>
@@ -1650,6 +1698,12 @@
                     <span x-show="utCsvSummary.bad" style="color:var(--color-error);">오류 <b x-text="utCsvSummary.bad"></b></span>
                     <span>System 열 <b x-text="ut.csv.hasSystemColumn ? '있음' : '없음'"></b></span>
                     <span>인코딩 <b x-text="ut.csv.encoding"></b></span>
+                    <span>종류 <b x-text="ut.csv.level === 'Info' ? '모니터링TAG' : '이상알람TAG'"></b></span>
+                </div>
+                <!-- 다른 종류가 적힌 파일을 이 탭으로 가져왔다 — 거부하지 않고 맞추되 반드시 알린다(조용한 이동 금지). -->
+                <div x-show="ut.csv.adjusted > 0" class="alert alert-warning" style="margin:8px 0;">
+                    <span class="material-icons">warning</span>
+                    <span>파일에 다른 종류로 적힌 <b x-text="ut.csv.adjusted"></b>건을 <b x-text="ut.csv.level === 'Info' ? '모니터링TAG' : '이상알람TAG'"></b> 로 맞췄습니다.</span>
                 </div>
                 <div class="ut-csv-opts">
                     <div class="ut-form-row">
@@ -1734,15 +1788,17 @@
                     gatePassword: '',
                     cred: { current: '', newId: '', newPw: '', newPw2: '', error: '' },
                 },
-                // 수동등록TAG(UserTag) 편집기 — 서버 정의의 작업 복사본. items[i].state = ''|'new'|'mod'|'del', orig = 로드 시점 값.
+                // 사용자 태그(UserTag) 편집기 — 서버 정의의 작업 복사본. items[i].state = ''|'new'|'mod'|'del', orig = 로드 시점 값.
                 //   filter/sort/page 는 클라이언트 처리. '적용' 이 변경된 System 만 통째 교체(PUT /api/user-tags/editor).
+                //   tab = 종류 축('Error' 이상알람TAG | 'Info' 모니터링TAG). items 에는 두 종류가 섞여 있고 탭은 뷰 필터다.
                 ut: {
                     loading: false, loaded: false, projectLoaded: true, busy: false, error: '', showInfo: false,
+                    tab: 'Error',
                     systems: [], valueTypes: [], matchOpsByType: {}, hiddenPassiveCount: 0,
                     items: [], warnings: [], saveErrors: [],
                     q: '', sys: '', sortKey: 'systemName', sortDir: 'asc', page: 0, pageSize: 20,
-                    modal: { show: false, mode: 'add', key: null, f: { systemId: '', name: '', tagAddress: '', valueType: 'Bit', matchOp: 'RisingEdge', matchValue: '' }, err: {} },
-                    csv: { show: false, busy: false, fileName: '', rows: [], hasSystemColumn: false, encoding: '', mode: 'append', targetSystemId: '' },
+                    modal: { show: false, mode: 'add', key: null, f: { systemId: '', name: '', tagAddress: '', valueType: 'Bit', matchOp: 'RisingEdge', matchValue: '', level: 'Error' }, err: {} },
+                    csv: { show: false, busy: false, fileName: '', rows: [], hasSystemColumn: false, encoding: '', mode: 'append', targetSystemId: '', level: 'Error', adjusted: 0 },
                 },
 
                 // 시간 기반 코어 v68 의 판정 기준(doc/30 §4 · §8.3). 서버가 현재값과 허용 범위를 함께 준다.
@@ -1862,6 +1918,7 @@
                         this.ut.items = (d.tags || []).map((t, i) => ({
                             key: t.systemId + '|' + i, systemId: t.systemId, systemName: t.systemName,
                             name: t.name, tagAddress: t.tagAddress, valueType: t.valueType, matchOp: t.matchOp, matchValue: t.matchValue || '',
+                            level: t.level === 'Info' ? 'Info' : 'Error',
                             state: '', orig: null,
                         }));
                         if (this.ut.sys && !this.ut.systems.some(s => s.systemId === this.ut.sys)) this.ut.sys = '';
@@ -1869,10 +1926,24 @@
                         this.ut.loaded = true;
                         if (this.ut.page >= this.utMaxPage) this.ut.page = 0;
                     } catch (e) {
-                        this.ut.error = '수동등록TAG 목록을 불러오지 못했습니다: ' + e.message;
+                        this.ut.error = '사용자 태그 목록을 불러오지 못했습니다: ' + e.message;
                         this.ut.items = [];
                     } finally { this.ut.loading = false; }
                 },
+                // 탭 전환 = 뷰 필터만 바꾼다. 편집 중인 변경(state)은 그대로 남아 '적용' 한 번에 함께 저장된다.
+                utSetTab(tab) {
+                    if (this.ut.tab === tab) return;
+                    this.ut.tab = tab;
+                    this.ut.page = 0;
+                    // 정렬 키가 그 탭에 없는 컬럼(매칭 조건)이면 기본으로 되돌린다.
+                    if (tab === 'Info' && this.ut.sortKey === 'match') { this.ut.sortKey = 'systemName'; this.ut.sortDir = 'asc'; }
+                },
+                // 탭 배지 — 삭제 예약을 뺀 현재 목록 건수(추가 예약은 포함).
+                utTabCount(tab) { return this.ut.items.filter(i => i.level === tab && i.state !== 'del').length; },
+                // 지금 탭의 전체 항목(검색 필터 적용 전) — 빈 목록 안내가 "검색 결과 없음"과 "정의 없음"을 구분하는 데 쓴다.
+                get utTabItems() { return (this.ut.items || []).filter(d => d.level === this.ut.tab); },
+                // 보이지 않는 탭에 쌓인 미적용 변경 수 — 적용 바가 "이것도 같이 나갑니다" 를 알리는 근거.
+                get utOtherTabChanges() { return (this.ut.items || []).filter(i => i.state && i.level !== this.ut.tab).length; },
                 // 매칭 조건 표기 — UserTag 는 AbnormalDetect 가 아닌 값/엣지 조건.
                 describeUtOp(op, mv) {
                     const v = (mv == null || mv === '') ? '?' : mv;
@@ -1897,6 +1968,8 @@
                     const q = (this.ut.q || '').trim().toLowerCase();
                     const sys = this.ut.sys;
                     let list = (this.ut.items || []).filter(d => {
+                        // ★뷰 필터 — 전송(utApply)에는 절대 걸지 않는다. 걸면 반대 탭 태그가 통째로 사라진다.
+                        if (d.level !== this.ut.tab) return false;
                         if (sys && d.systemId !== sys) return false;
                         if (q) {
                             const hay = [d.systemName, d.name, d.tagAddress, d.valueType, this.describeUtOp(d.matchOp, d.matchValue)]
@@ -1939,14 +2012,29 @@
                 // ── 행 편집 (추가/편집 모달) ──
                 utOpenAdd() {
                     const sysId = this.ut.sys || (this.ut.systems[0]?.systemId ?? '');
+                    // 새 태그는 지금 보고 있는 탭의 종류로 시작한다. 모니터링TAG 는 수치 관측이 흔해 Word 를 기본으로.
+                    const lv = this.ut.tab;
+                    const vt = lv === 'Info' ? 'Word' : 'Bit';
                     this.ut.modal = { show: true, mode: 'add', key: null, err: {},
-                        f: { systemId: sysId, name: '', tagAddress: '', valueType: 'Bit', matchOp: 'RisingEdge', matchValue: '' } };
+                        f: { systemId: sysId, name: '', tagAddress: '', valueType: vt, matchOp: lv === 'Info' ? 'Changed' : 'RisingEdge', matchValue: '', level: lv } };
                     this.$nextTick(() => this.$refs.utNameInput?.focus());
                 },
                 utOpenEdit(d) {
                     this.ut.modal = { show: true, mode: 'edit', key: d.key, err: {},
-                        f: { systemId: d.systemId, name: d.name, tagAddress: d.tagAddress, valueType: d.valueType, matchOp: d.matchOp, matchValue: d.matchValue || '' } };
+                        f: { systemId: d.systemId, name: d.name, tagAddress: d.tagAddress, valueType: d.valueType, matchOp: d.matchOp, matchValue: d.matchValue || '', level: d.level || 'Error' } };
                     this.$nextTick(() => this.$refs.utNameInput?.focus());
+                },
+                // 종류 전환 — 모니터링으로 가면 조건을 Changed 로 중립화하고, 알람으로 돌아오면 값 타입 기본 조건을 세운다.
+                utModalSetLevel(level) {
+                    const f = this.ut.modal.f;
+                    if (f.level === level) return;
+                    f.level = level;
+                    if (level === 'Info') { f.matchOp = 'Changed'; f.matchValue = ''; }
+                    else {
+                        const ops = this.ut.matchOpsByType[f.valueType] || ['Changed'];
+                        if (!ops.includes(f.matchOp)) f.matchOp = f.valueType === 'Bit' ? 'RisingEdge' : 'Changed';
+                    }
+                    this.utModalValidate(true);
                 },
                 get utModalOps() { return this.ut.matchOpsByType[this.ut.modal.f.valueType] || ['Changed']; },
                 utModalNeedsValue(op) { return ['Eq', 'Neq', 'Gt', 'Gte', 'Lt', 'Lte'].includes(op || this.ut.modal.f.matchOp); },
@@ -1986,7 +2074,8 @@
                     }
                     if (!addr) { if (!soft) err.tagAddress = '태그 주소를 입력하세요.'; }
                     else if (/\s/.test(addr)) err.tagAddress = '주소에 공백이 있습니다.';
-                    if (this.utModalNeedsValue()) {
+                    // 모니터링TAG 는 매칭 조건·기준값을 쓰지 않으므로 검증도 건너뛴다(서버 Normalize 와 같은 규칙).
+                    if (f.level !== 'Info' && this.utModalNeedsValue()) {
                         const mv = (f.matchValue || '').trim();
                         if (!mv) { if (!soft) err.matchValue = '기준값을 입력하세요.'; }
                         else if (f.valueType === 'Bit' && !['0', '1', 'true', 'false'].includes(mv.toLowerCase())) err.matchValue = 'Bit 기준값은 0 또는 1 입니다.';
@@ -1999,28 +2088,35 @@
                     if (!this.utModalValidate(false)) return;
                     const f = this.ut.modal.f;
                     const sys = this.utModalSystem;
+                    const isMonitor = f.level === 'Info';
                     const vals = { systemId: f.systemId, systemName: sys?.systemName || '', name: f.name.trim(), tagAddress: f.tagAddress.trim(),
-                                   valueType: f.valueType, matchOp: f.matchOp, matchValue: this.utModalNeedsValue() ? f.matchValue.trim() : '' };
+                                   valueType: f.valueType, level: f.level,
+                                   matchOp: isMonitor ? 'Changed' : f.matchOp,
+                                   matchValue: (!isMonitor && this.utModalNeedsValue()) ? f.matchValue.trim() : '' };
+                    const movedTab = this.ut.modal.mode === 'edit' && f.level !== this.ut.tab;
                     if (this.ut.modal.mode === 'add') {
                         this.ut.items.push({ key: 'new|' + Date.now() + '|' + Math.random().toString(36).slice(2, 7), ...vals, state: 'new', orig: null });
                         this.showToast(`'${vals.name}' 추가 대기 — 적용을 누르면 저장됩니다.`, 'info');
                     } else {
                         const it = this.ut.items.find(i => i.key === this.ut.modal.key);
                         if (!it) return;
-                        if (it.state === '' ) it.orig = { systemId: it.systemId, systemName: it.systemName, name: it.name, tagAddress: it.tagAddress, valueType: it.valueType, matchOp: it.matchOp, matchValue: it.matchValue };
+                        if (it.state === '' ) it.orig = { systemId: it.systemId, systemName: it.systemName, name: it.name, tagAddress: it.tagAddress, valueType: it.valueType, matchOp: it.matchOp, matchValue: it.matchValue, level: it.level };
                         // System 이동은 원 System 에서 삭제 + 새 System 에 추가와 같다 — 단순화를 위해 편집에서 System 은 잠근다(모달 disabled).
                         Object.assign(it, vals);
                         if (it.state !== 'new') {
-                            const same = it.orig && ['name', 'tagAddress', 'valueType', 'matchOp', 'matchValue'].every(k => (it.orig[k] || '') === (it[k] || ''));
+                            const same = it.orig && ['name', 'tagAddress', 'valueType', 'matchOp', 'matchValue', 'level'].every(k => (it.orig[k] || '') === (it[k] || ''));
                             it.state = same ? '' : 'mod';
                             if (same) it.orig = null;
                         }
                     }
                     this.ut.modal.show = false;
+                    // 종류를 바꾸면 이 탭에서 사라진다 — 어디로 갔는지 말해 주지 않으면 삭제된 줄 안다.
+                    if (movedTab)
+                        this.showToast(`'${vals.name}' 를 ${vals.level === 'Info' ? '모니터링TAG' : '이상알람TAG'} 로 옮겼습니다 — 그 탭에서 확인하세요.`, 'info');
                 },
                 utDelete(d) {
                     if (d.state === 'new') { this.ut.items = this.ut.items.filter(i => i.key !== d.key); return; }
-                    if (d.state === '' ) d.orig = { systemId: d.systemId, systemName: d.systemName, name: d.name, tagAddress: d.tagAddress, valueType: d.valueType, matchOp: d.matchOp, matchValue: d.matchValue };
+                    if (d.state === '' ) d.orig = { systemId: d.systemId, systemName: d.systemName, name: d.name, tagAddress: d.tagAddress, valueType: d.valueType, matchOp: d.matchOp, matchValue: d.matchValue, level: d.level };
                     d.state = 'del';
                 },
                 utRestore(d) {
@@ -2035,16 +2131,21 @@
                     const c = this.utChangeCount;
                     const changedSys = [...new Set(this.ut.items.filter(i => i.state).map(i => i.systemId))];
                     const noEp = changedSys.filter(id => !this.utSystemHasEndpoint(id)).map(id => this.ut.systems.find(s => s.systemId === id)?.systemName).filter(Boolean);
+                    const byLevel = { Error: 0, Info: 0 };
+                    for (const i of this.ut.items) if (i.state) byLevel[i.level === 'Info' ? 'Info' : 'Error']++;
                     let msg = `추가 ${c.add} · 수정 ${c.mod} · 삭제 ${c.del} 건을 공유 project.aasx 에 저장합니다.\n` +
+                              `이상알람TAG ${byLevel.Error}건 · 모니터링TAG ${byLevel.Info}건 — 두 종류가 한 번에 반영됩니다.\n` +
                               `Agent 가 파일 변경을 감지해 자동 재시작되며(수 초 모니터링 공백), 새 주소는 재시작 후부터 수집됩니다.`;
                     if (noEp.length) msg += `\n\n⚠ PLC 접속(AID)이 없는 System: ${noEp.join(', ')} — 태그는 저장되지만 수집되지 않습니다.`;
-                    const ok = await this.askConfirm('수동등록TAG 적용', msg, '적용');
+                    const ok = await this.askConfirm('사용자 태그 적용', msg, '적용');
                     if (!ok) return;
 
+                    // ★탭 필터를 여기 걸면 안 된다 — 한 System 의 최종 목록은 두 종류 전부여야 한다.
+                    //   서버가 ReplaceUserTags 로 그 System 을 통째 교체하므로, 빠진 종류는 AASX 에서 삭제된다.
                     const systems = changedSys.map(id => ({
                         systemId: id,
                         tags: this.ut.items.filter(i => i.systemId === id && i.state !== 'del')
-                            .map(i => ({ name: i.name, tagAddress: i.tagAddress, valueType: i.valueType, matchOp: i.matchOp, matchValue: i.matchValue || '' })),
+                            .map(i => ({ name: i.name, tagAddress: i.tagAddress, valueType: i.valueType, matchOp: i.matchOp, matchValue: i.matchValue || '', level: i.level || 'Error' })),
                     }));
                     this.ut.busy = true; this.ut.saveErrors = []; this.ut.warnings = [];
                     try {
@@ -2057,7 +2158,7 @@
                             return;
                         }
                         this.ut.warnings = r.warnings || [];
-                        this.showToast(`수동등록TAG ${r.applied}건 적용 — project.aasx 저장됨${this.ut.warnings.length ? ' (경고 ' + this.ut.warnings.length + '건)' : ''}`, this.ut.warnings.length ? 'info' : 'success');
+                        this.showToast(`사용자 태그 ${r.applied}건 적용 — project.aasx 저장됨${this.ut.warnings.length ? ' (경고 ' + this.ut.warnings.length + '건)' : ''}`, this.ut.warnings.length ? 'info' : 'success');
                         await this.utLoad();
                     } catch (e) {
                         this.ut.saveErrors = ['서버 통신 실패: ' + e.message];
@@ -2085,12 +2186,16 @@
                         if (!ok) return;
                     }
                     try {
-                        const q = this.ut.sys ? '?systemId=' + encodeURIComponent(this.ut.sys) : '';
-                        await this.utDownload('/api/user-tags/editor/csv' + q, 'UserTags.csv');
+                        // 내보내기·양식은 현재 탭 종류만 — 다른 탭 행이 섞여 나가면 가져올 때 레벨이 강제로 맞춰져 종류가 바뀐다.
+                        const q = '?level=' + this.ut.tab + (this.ut.sys ? '&systemId=' + encodeURIComponent(this.ut.sys) : '');
+                        await this.utDownload('/api/user-tags/editor/csv' + q, this.ut.tab === 'Info' ? 'MonitorTags.csv' : 'UserTags.csv');
                     } catch (e) { this.showToast('CSV 내보내기 실패: ' + e.message, 'error'); }
                 },
                 async utTemplateCsv() {
-                    try { await this.utDownload('/api/user-tags/editor/csv?template=true', 'UserTags_Template.csv'); }
+                    try {
+                        await this.utDownload('/api/user-tags/editor/csv?template=true&level=' + this.ut.tab,
+                            this.ut.tab === 'Info' ? 'MonitorTags_Template.csv' : 'UserTags_Template.csv');
+                    }
                     catch (e) { this.showToast('양식 내려받기 실패: ' + e.message, 'error'); }
                 },
                 utCsvPick() { const el = this.$refs.utCsvFile; if (el) { el.value = ''; el.click(); } },
@@ -2100,11 +2205,14 @@
                     this.ut.csv.busy = true;
                     try {
                         const fd = new FormData(); fd.append('file', file);
-                        const res = await fetch('/api/user-tags/editor/csv/parse', { method: 'POST', body: fd });
+                        // 가져오기는 현재 탭으로 귀속된다 — 서버가 행마다 levelAdjusted 로 "맞췄음" 을 알려 준다.
+                        const res = await fetch('/api/user-tags/editor/csv/parse?level=' + this.ut.tab, { method: 'POST', body: fd });
                         const body = await res.json().catch(() => ({}));
                         if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
-                        this.ut.csv = { show: true, busy: false, fileName: file.name, rows: body.rows || [], hasSystemColumn: !!body.hasSystemColumn,
-                                        encoding: body.encoding || '', mode: 'append', targetSystemId: this.ut.sys || (this.ut.systems[0]?.systemId ?? '') };
+                        const rows = body.rows || [];
+                        this.ut.csv = { show: true, busy: false, fileName: file.name, rows, hasSystemColumn: !!body.hasSystemColumn,
+                                        encoding: body.encoding || '', mode: 'append', targetSystemId: this.ut.sys || (this.ut.systems[0]?.systemId ?? ''),
+                                        level: this.ut.tab, adjusted: rows.filter(r => r.levelAdjusted).length };
                     } catch (e) {
                         this.ut.csv.busy = false;
                         this.showToast('CSV 읽기 실패: ' + e.message, 'error');
@@ -2156,17 +2264,21 @@
                         const k = s.systemId + '|' + r.name.toLowerCase();
                         if (seen.has(k)) continue;
                         seen.add(k); touchedSys.add(s.systemId);
-                        toAdd.push({ systemId: s.systemId, systemName: s.systemName, name: r.name, tagAddress: r.tagAddress, valueType: r.valueType, matchOp: r.matchOp, matchValue: r.matchValue || '' });
+                        toAdd.push({ systemId: s.systemId, systemName: s.systemName, name: r.name, tagAddress: r.tagAddress, valueType: r.valueType,
+                                     matchOp: r.matchOp, matchValue: r.matchValue || '', level: r.level === 'Info' ? 'Info' : 'Error' });
                     }
                     if (csv.mode === 'replace') {
-                        // 교체 = 파일이 건드리는 System 의 기존 태그를 전부 삭제 예약(적용 전 되돌리기 가능).
+                        // 교체 = 파일이 건드리는 System 의 기존 태그를 삭제 예약(적용 전 되돌리기 가능).
+                        // ★같은 종류만 지운다 — 이상알람TAG 를 CSV 로 교체했다고 그 System 의 모니터링TAG 까지
+                        //   사라지면 안 된다. 탭별 파일이므로 교체 범위도 탭 단위다.
+                        const lv = csv.level || 'Error';
                         for (const it of this.ut.items) {
-                            if (!touchedSys.has(it.systemId)) continue;
+                            if (!touchedSys.has(it.systemId) || it.level !== lv) continue;
                             if (it.state === 'new') continue;
-                            if (it.state === '') it.orig = { systemId: it.systemId, systemName: it.systemName, name: it.name, tagAddress: it.tagAddress, valueType: it.valueType, matchOp: it.matchOp, matchValue: it.matchValue };
+                            if (it.state === '') it.orig = { systemId: it.systemId, systemName: it.systemName, name: it.name, tagAddress: it.tagAddress, valueType: it.valueType, matchOp: it.matchOp, matchValue: it.matchValue, level: it.level };
                             it.state = 'del';
                         }
-                        this.ut.items = this.ut.items.filter(i => !(i.state === 'new' && touchedSys.has(i.systemId)));
+                        this.ut.items = this.ut.items.filter(i => !(i.state === 'new' && i.level === lv && touchedSys.has(i.systemId)));
                     }
                     let n = 0;
                     for (const v of toAdd) {

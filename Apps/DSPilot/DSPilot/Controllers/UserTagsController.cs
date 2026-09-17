@@ -202,7 +202,8 @@ public class UserTagsController : ControllerBase
                 r.SystemId.ToString(), r.SystemName, r.Name, r.TagAddress,
                 UserTagEditorSupport.NormalizeValueType(r.ValueType) ?? "Bit",
                 UserTagEditorSupport.NormalizeMatchOp(r.MatchOp, r.ValueType) ?? "RisingEdge",
-                r.MatchValue))
+                r.MatchValue,
+                UserTagEditorSupport.NormalizeLevel(r.LogLevel)))
             .OrderBy(t => t.SystemName).ThenBy(t => t.Name)
             .ToList();
         var hidden = rows.Count(r => !activeIds.Contains(r.SystemId));
@@ -224,6 +225,7 @@ public class UserTagsController : ControllerBase
 
         var nameById = _project.GetActiveSystems().ToDictionary(s => s.Id, s => s.Name);
         var bySystem = new Dictionary<Guid, IReadOnlyList<UserTagWriteEntry>>();
+        var addrWarnings = new List<string>();
         foreach (var sysIn in req.Systems)
         {
             if (!Guid.TryParse(sysIn.SystemId, out var sid) || !nameById.TryGetValue(sid, out var sysName))
@@ -236,24 +238,33 @@ public class UserTagsController : ControllerBase
             var entries = new List<UserTagWriteEntry>();
             foreach (var t in sysIn.Tags ?? [])
             {
-                var (entry, err) = UserTagEditorSupport.Normalize(t.Name, t.TagAddress, t.ValueType, t.MatchOp, t.MatchValue);
+                var (entry, err) = UserTagEditorSupport.Normalize(
+                    t.Name, t.TagAddress, t.ValueType, t.MatchOp, t.MatchValue, t.Level);
                 if (entry is null) errors.Add($"{sysName} / '{t.Name}': {err}");
                 else entries.Add(entry);
             }
+            // 이름·주소 중복은 두 탭을 합친 목록으로 본다 — 요청이 그 System 의 최종 목록 전체이므로 여기가 그 범위다.
+            // 탭이 다르다고 같은 이름을 허용하면 AASX 한 리스트 안에서 충돌한다.
             foreach (var dup in UserTagEditorSupport.FindDuplicateNames(entries.Select(e => e.Name)))
                 errors.Add($"{sysName}: 이름 '{dup}' 가 중복됩니다(대소문자 무시).");
+            // 주소 중복은 거부하지 않고 경고만 — 기존 현장 파일에 이미 있을 수 있어 저장 자체를 막으면 손발이 묶인다.
+            // 같은 주소를 두 번 등록할 실익은 없다(tag 표가 (systemId,address) UNIQUE 라 신호 이력은 한 벌이고,
+            // 이상알람TAG 의 값 추이도 태그 모니터링 화면에서 볼 수 있다).
+            foreach (var dup in UserTagEditorSupport.FindDuplicateNames(entries.Select(e => e.TagAddress)))
+                addrWarnings.Add($"{sysName}: 주소 '{dup}' 를 여러 태그가 쓰고 있습니다 — 신호 이력은 한 벌이라 값 추이가 같습니다.");
             bySystem[sid] = entries;
         }
         if (errors.Count > 0)
             return new UtEditorSaveResult(false, 0, [], errors, $"검증 실패 {errors.Count}건 — 저장하지 않았습니다.");
 
         var result = _project.WriteUserTagsAndExport(bySystem);
+        var warnings = addrWarnings.Concat(result.Warnings).ToList();
         if (!result.Exported)
         {
             _logger.LogWarning("[UserTags] 편집기 적용 실패 — {Error}", result.Error);
-            return new UtEditorSaveResult(false, result.Applied, result.Warnings, errors, result.Error ?? "저장에 실패했습니다.");
+            return new UtEditorSaveResult(false, result.Applied, warnings, errors, result.Error ?? "저장에 실패했습니다.");
         }
-        return new UtEditorSaveResult(true, result.Applied, result.Warnings, errors, null);
+        return new UtEditorSaveResult(true, result.Applied, warnings, errors, null);
     }
 
     /// <summary>
@@ -261,10 +272,15 @@ public class UserTagsController : ControllerBase
     /// 양식으로 쓸 수 있게 한다. UTF-8 BOM — Excel 한글 호환. 헤더는 Promaker CSV 와 같고 맨 앞에 System 컬럼만 추가.
     /// </summary>
     [HttpGet("editor/csv")]
-    public IActionResult GetEditorCsv([FromQuery] string? systemId = null, [FromQuery] bool template = false)
+    public IActionResult GetEditorCsv(
+        [FromQuery] string? systemId = null, [FromQuery] bool template = false, [FromQuery] string? level = null)
     {
         var editor = GetEditor().Value!;
-        IEnumerable<UtEditorTagDto> rows = editor.Tags;
+        // 탭별 내보내기 — 지정한 종류의 행만 나간다. 미지정(구 클라이언트)은 종전처럼 전체.
+        var lv = string.IsNullOrWhiteSpace(level) ? null : UserTagEditorSupport.NormalizeLevel(level);
+        IEnumerable<UtEditorTagDto> rows = lv is null
+            ? editor.Tags
+            : editor.Tags.Where(t => string.Equals(t.Level, lv, StringComparison.Ordinal));
         var fnPart = "All";
         if (!string.IsNullOrWhiteSpace(systemId))
         {
@@ -272,9 +288,10 @@ public class UserTagsController : ControllerBase
             fnPart = editor.Systems.FirstOrDefault(s => string.Equals(s.SystemId, systemId, StringComparison.OrdinalIgnoreCase))?.SystemName ?? "System";
         }
         List<UtEditorTagDto> list = template ? [] : rows.ToList();
-        var bytes = UserTagEditorSupport.BuildCsv(list, includeExample: template);
+        var bytes = UserTagEditorSupport.BuildCsv(list, includeExample: template, level: lv);
         var safe = string.Concat(fnPart.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
-        var fn = template ? "UserTags_Template.csv" : $"{safe}_UserTags_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+        var kind = lv == UserTagEditorSupport.LevelMonitor ? "MonitorTags" : "UserTags";
+        var fn = template ? $"{kind}_Template.csv" : $"{safe}_{kind}_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
         return File(bytes, UserTagEditorSupport.CsvMimeType, fn);
     }
 
@@ -284,7 +301,8 @@ public class UserTagsController : ControllerBase
     /// </summary>
     [HttpPost("editor/csv/parse")]
     [RequestSizeLimit(4 * 1024 * 1024)]
-    public async Task<ActionResult<UtCsvParseResult>> ParseEditorCsv([FromForm] IFormFile? file, CancellationToken ct)
+    public async Task<ActionResult<UtCsvParseResult>> ParseEditorCsv(
+        [FromForm] IFormFile? file, [FromQuery] string? level, CancellationToken ct)
     {
         if (file is null || file.Length == 0)
             return BadRequest(new { error = "파일이 비어 있습니다." });
@@ -292,7 +310,9 @@ public class UserTagsController : ControllerBase
         await file.CopyToAsync(ms, ct);
         try
         {
-            return UserTagEditorSupport.ParseCsv(ms.ToArray());
+            // level = 가져오기를 실행한 탭. 파일에 다른 레벨이 적혀 있어도 그 탭 것으로 귀속시키고
+            // 행마다 LevelAdjusted 로 알린다(UserTagEditorSupport.ParseCsv 주석 참조).
+            return UserTagEditorSupport.ParseCsv(ms.ToArray(), level);
         }
         catch (Exception ex)
         {

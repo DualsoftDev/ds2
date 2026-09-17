@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
+using DSPilot.Services;
+
 namespace DSPilot.Models.UserTagAlerts;
 
 // 격리형 호스팅 UserTag(이상발생 관리) API DTO. 전역 camelCase 정책으로 직렬화.
@@ -93,7 +95,11 @@ public record UserTagErrorStatusDto(
 /// <summary>편집 가능한 활성 System 1건. HasEndpoint=false 면 AID XGT 접속이 없어 새 주소가 Agent 수집 대상에 못 들어간다(UI 경고).</summary>
 public record UtEditorSystemDto(string SystemId, string SystemName, bool HasEndpoint, string? Endpoint);
 
-/// <summary>편집기 태그 행 — 정의(UtDefinitionDto)에 SystemId 를 더해 System 단위 교체 저장이 가능하게 한다.</summary>
+/// <summary>
+/// 편집기 태그 행 — 정의(UtDefinitionDto)에 SystemId 를 더해 System 단위 교체 저장이 가능하게 한다.
+/// <para>Level = 종류 축. "Error" = 이상알람TAG 탭, "Info" = 모니터링TAG 탭. 한 System 의 행들이
+/// 두 레벨 섞여 오고, 탭은 이 값으로 거르는 <b>뷰 필터</b>일 뿐이다(저장은 언제나 두 레벨 전부).</para>
+/// </summary>
 public record UtEditorTagDto(
     string SystemId,
     string SystemName,
@@ -101,7 +107,8 @@ public record UtEditorTagDto(
     string TagAddress,
     string ValueType,
     string MatchOp,
-    string? MatchValue);
+    string? MatchValue,
+    string Level);
 
 /// <summary>편집기 초기 로드 — System 목록 + 태그 + 허용 값 표. HiddenPassiveCount = Passive System 에 남아 있는(편집 불가) 태그 수.</summary>
 public record UtEditorDto(
@@ -112,7 +119,8 @@ public record UtEditorDto(
     int HiddenPassiveCount,
     bool ProjectLoaded);
 
-public record UtEditorTagInput(string? Name, string? TagAddress, string? ValueType, string? MatchOp, string? MatchValue);
+public record UtEditorTagInput(
+    string? Name, string? TagAddress, string? ValueType, string? MatchOp, string? MatchValue, string? Level = null);
 
 /// <summary>System 별 최종 목록(통째 교체). 포함되지 않은 System 은 건드리지 않는다.</summary>
 public record UtEditorSystemInput(string SystemId, List<UtEditorTagInput> Tags);
@@ -122,7 +130,11 @@ public record UtEditorSaveRequest(List<UtEditorSystemInput> Systems);
 /// <summary>Ok=false 면 Error 에 사유(검증 실패 시 Errors 에 항목별). Warnings = 저장은 됐지만 수집 반영 주의.</summary>
 public record UtEditorSaveResult(bool Ok, int Applied, List<string> Warnings, List<string> Errors, string? Error);
 
-/// <summary>CSV 한 행 파싱 결과. Error=null 이면 유효(정규화된 값). SystemName 은 System 컬럼이 있을 때만 채워진다.</summary>
+/// <summary>
+/// CSV 한 행 파싱 결과. Error=null 이면 유효(정규화된 값). SystemName 은 System 컬럼이 있을 때만 채워진다.
+/// <para>Level = 이 행이 들어갈 종류. 탭에서 가져오면 그 탭의 레벨로 맞추며, 파일에 적힌 레벨과 달랐던
+/// 행은 LevelAdjusted=true 로 표시해 "N 건의 레벨을 맞췄습니다" 안내를 띄운다(조용한 이동 금지).</para>
+/// </summary>
 public record UtCsvRowDto(
     int Line,
     string SystemName,
@@ -131,6 +143,8 @@ public record UtCsvRowDto(
     string ValueType,
     string MatchOp,
     string MatchValue,
-    string? Error);
+    string? Error,
+    string Level = UserTagEditorSupport.LevelAlarm,
+    bool LevelAdjusted = false);
 
 public record UtCsvParseResult(List<UtCsvRowDto> Rows, bool HeaderDetected, bool HasSystemColumn, string Encoding);

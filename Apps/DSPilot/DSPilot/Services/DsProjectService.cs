@@ -784,10 +784,12 @@ public class DsProjectService
             var applied = 0;
             foreach (var (sid, entries) in bySystem)
             {
+                // 레벨은 항목이 들고 온 값 그대로 — 종전처럼 "Error" 로 덮으면 모니터링TAG(Info)가
+                // 저장하는 순간 이상알람TAG 로 바뀐다. 정규화(Info|Error)는 편집기·CSV 입구에서 끝냈다.
                 var tuples = entries
                     .Where(e => !string.IsNullOrWhiteSpace(e.Name) && !string.IsNullOrWhiteSpace(e.TagAddress))
-                    .Select(e => (e.Name.Trim(), "Error", e.TagAddress.Trim(), e.ValueType ?? "Bit",
-                                  e.MatchOp ?? string.Empty, e.MatchValue ?? string.Empty))
+                    .Select(e => (e.Name.Trim(), UserTagEditorSupport.NormalizeLevel(e.Level), e.TagAddress.Trim(),
+                                  e.ValueType ?? "Bit", e.MatchOp ?? string.Empty, e.MatchValue ?? string.Empty))
                     .ToList();
                 applied += _store.ReplaceUserTags(sid, tuples);
             }
@@ -1027,8 +1029,16 @@ public record CalibrationWorkStatus(
 public sealed record PlcEndpointInfo(
     string SystemName, string Vendor, string Ip, int Port, int TimeoutMs, string Endpoint);
 
-/// <summary>수동등록TAG 편집기 → <see cref="DsProjectService.WriteUserTagsAndExport"/> 입력 1건 (LogLevel 은 서버가 Error 로 고정).</summary>
-public sealed record UserTagWriteEntry(string Name, string TagAddress, string ValueType, string MatchOp, string MatchValue);
+/// <summary>
+/// UserTag 편집기 → <see cref="DsProjectService.WriteUserTagsAndExport"/> 입력 1건.
+/// <para>
+/// <b>Level 이 종류 축이다</b>(2026-09-17): <c>Error</c> = 이상알람TAG(조건에 걸리면 알람 발화),
+/// <c>Info</c> = 모니터링TAG(값 변화를 기록해 추이로 본다). AASX 는 둘을 System 마다 한 리스트에
+/// 섞어 담고(<c>LoggingProperties.UserTags</c>), 갈라지는 것은 화면뿐이다.
+/// </para>
+/// </summary>
+public sealed record UserTagWriteEntry(
+    string Name, string TagAddress, string ValueType, string MatchOp, string MatchValue, string Level);
 
 /// <summary>
 /// <see cref="DsProjectService.WriteUserTagsAndExport"/> 결과. Exported=false 면 Error 에 사유.

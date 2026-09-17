@@ -223,25 +223,21 @@ public sealed class UserTagAlertService : BackgroundService
 
         var store = _projectService.GetStore();
         var rows = store.GetAllUserTagsForProject();
-        // ★알람(에러) 대상은 <b>Bit UserTag 뿐</b>이다 — DSPilot 레벨 규칙.
-        //   Word·Int32·Real·String UserTag 는 "값을 보는" 정보용이고, 알람이 아니라
-        //   태그 모니터링 기능이 값과 추이로 보여 준다. 여기서 걸러 내지 않으면 수치 비교 조건이
-        //   그대로 알람으로 발화해 이상·알람 목록이 모니터링 값으로 오염된다.
-        var all = rows.Where(r => !string.IsNullOrWhiteSpace(r.TagAddress)).ToList();
-        var defs = all
-            .Where(r => string.Equals(
-                UserTagEditorSupport.NormalizeValueType(r.ValueType) ?? "Bit", "Bit", StringComparison.Ordinal))
+        // 값 종류로 거르지 않는다 — 알람 조건은 Bit 상승엣지가 기본이지만, 수치·문자열 UserTag 에도
+        // 사용자가 조건(비교·변화)을 걸 수 있는 것이 기존 동작이자 Promaker 편집기의 계약이다.
+        // 태그 모니터링은 알람과 별개 축이다: 같은 UserTag 를 알람으로도, 값 추이로도 본다.
+        //
+        // 대신 <b>레벨</b>로 거른다(2026-09-17): Info = 모니터링TAG 라 발화하지 않는다. 안 거르면 조건이
+        // 걸린 모니터링TAG 가 alert 행을 쌓는데, 조회는 Error 만 표시하므로(UserTagsController.DisplayLevel)
+        // 아무도 안 보는 행만 늘어난다. 값 변화 자체는 signal 에 그대로 쌓이므로 추이는 영향이 없다.
+        var defs = rows
+            .Where(r => !string.IsNullOrWhiteSpace(r.TagAddress))
+            .Where(r => !UserTagEditorSupport.IsMonitorLevel(r.LogLevel))
             .Select(r => new UserTagDefinition(
                 r.SystemId, r.SystemName, r.Name,
                 r.LogLevel ?? "Info", r.TagAddress, r.ValueType ?? "Bit",
                 r.MatchOp ?? string.Empty, r.MatchValue ?? string.Empty))
             .ToList();
-
-        var monitorOnly = all.Count - defs.Count;
-        if (monitorOnly > 0)
-            _logger.LogInformation(
-                "[UserTagAlert] 비트가 아닌 UserTag {Count}건은 알람 대상에서 제외 — 태그 모니터링에서 값·추이로 봅니다.",
-                monitorOnly);
 
         // 주소 단독 인덱스 — systemId 를 모르는 로그(레거시 행·귀속 미상)의 폴백.
         // ★TryAdd first-wins 라 두 System 이 같은 주소를 정의하면 한쪽이 조용히 사라진다.

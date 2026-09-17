@@ -11,7 +11,9 @@ namespace DSPilot.Services;
 /// 설정▸수동등록TAG 편집기의 공통 규칙 — 허용 값 타입/매칭 조건 표, 항목 검증, CSV 양식(내보내기/가져오기).
 ///
 /// 규칙은 Promaker UserTagEditDialog / UserTagPanel(CSV) 과 맞춘다:
-///   · LogLevel 은 항상 Error(Warning/Info 미사용) — CSV 의 '로그 레벨' 컬럼은 읽되 무시.
+///   · LogLevel 은 <b>종류 축</b>(2026-09-17): Error = 이상알람TAG, Info = 모니터링TAG.
+///     AASX 는 둘을 한 리스트에 섞어 담고 화면만 탭으로 갈린다. CSV 의 '로그 레벨' 컬럼도 이제 읽고 쓴다
+///     (종전엔 "읽되 무시"하고 내보낼 때 Error 로 박았다 — 모니터링TAG 를 왕복시키면 알람이 됐다).
 ///   · 값 타입별 매칭 조건: Bit=Rising/Falling/Changed/Eq/Neq, String=Changed/Eq/Neq, 수치=Changed+비교 6종.
 ///   · CSV 6컬럼 헤더 `이름,로그 레벨,태그 주소,값 타입,매칭 조건,기준값` + UTF-8 BOM(Excel 한글 호환).
 ///     DSPilot 은 다중 System 을 한 파일로 다루므로 맨 앞에 `System` 컬럼을 둔 7컬럼이 기본이며,
@@ -26,6 +28,29 @@ public static class UserTagEditorSupport
     }
 
     public static readonly string[] ValueTypes = ["Bit", "Byte", "Word", "DWord", "Int16", "Int32", "Real", "String"];
+
+    /// <summary>이상알람TAG — 매칭 조건에 걸리면 알람으로 발화하고 이상·알람 화면에 뜬다.</summary>
+    public const string LevelAlarm = "Error";
+
+    /// <summary>모니터링TAG — 발화하지 않는다. 값 변화만 기록해 태그 모니터링 화면이 추이로 보여 준다.</summary>
+    public const string LevelMonitor = "Info";
+
+    public static readonly string[] Levels = [LevelAlarm, LevelMonitor];
+
+    /// <summary>
+    /// 로그 레벨 = <b>종류 축</b>(2026-09-17). Info 만 모니터링TAG 이고 나머지는 전부 이상알람TAG 다.
+    /// <para>
+    /// Warning 은 두 앱 모두 쓴 적이 없고(Promaker·DSPilot 이 항상 Error 로 기록했다) 조회도 Error 만
+    /// 표시하므로 Error 로 모은다. 빈 값·미일치도 Error 다 — F# <c>parseLogLevel</c> 은 미일치를 Info 로
+    /// 떨어뜨리는데, 그 기본값을 그대로 쓰면 값이 깨졌을 때 알람이 조용히 사라진다.
+    /// </para>
+    /// </summary>
+    public static string NormalizeLevel(string? s) =>
+        string.Equals((s ?? string.Empty).Trim(), LevelMonitor, StringComparison.OrdinalIgnoreCase)
+            ? LevelMonitor : LevelAlarm;
+
+    /// <summary>모니터링TAG 인가(= 알람 발화 대상이 아닌가).</summary>
+    public static bool IsMonitorLevel(string? s) => NormalizeLevel(s) == LevelMonitor;
 
     public static readonly string[] BitMatchOps = ["RisingEdge", "FallingEdge", "Changed", "Eq", "Neq"];
     public static readonly string[] StringMatchOps = ["Changed", "Eq", "Neq"];
@@ -88,7 +113,8 @@ public static class UserTagEditorSupport
     /// 이름 중복은 목록 단위 규칙이라 <see cref="FindDuplicateNames"/> 에서 따로 본다.
     /// </summary>
     public static (UserTagWriteEntry? Entry, string? Error) Normalize(
-        string? name, string? tagAddress, string? valueType, string? matchOp, string? matchValue)
+        string? name, string? tagAddress, string? valueType, string? matchOp, string? matchValue,
+        string? level = null)
     {
         var n = (name ?? string.Empty).Trim();
         var a = (tagAddress ?? string.Empty).Trim();
@@ -97,6 +123,14 @@ public static class UserTagEditorSupport
         if (a.Any(char.IsWhiteSpace)) return (null, "태그 주소에 공백이 있습니다.");
         var vt = NormalizeValueType(string.IsNullOrWhiteSpace(valueType) ? "Bit" : valueType);
         if (vt is null) return (null, $"알 수 없는 값 타입 '{valueType}' (허용: {string.Join("/", ValueTypes)}).");
+        var lv = NormalizeLevel(level);
+
+        // 모니터링TAG 는 "언제 발화하나"를 묻지 않는다 — 값이 바뀌면 기록할 뿐이다. 그래서 매칭 조건·기준값을
+        // 검증하지 않고 Changed(모든 값 타입이 허용)로 고정한다. 나중에 사용자가 레벨만 이상알람으로 되돌려도
+        // 조건이 비어 있지 않도록 빈 칸 대신 Changed 를 박아 둔다.
+        if (lv == LevelMonitor)
+            return (new UserTagWriteEntry(n, a, vt, "Changed", string.Empty, lv), null);
+
         var op = NormalizeMatchOp(matchOp, vt);
         if (op is null) return (null, $"알 수 없는 매칭 조건 '{matchOp}'.");
         if (!MatchOpsFor(vt).Contains(op, StringComparer.Ordinal))
@@ -112,7 +146,7 @@ public static class UserTagEditorSupport
                 return (null, $"Bit 기준값은 0/1(true/false) 만 허용합니다 ('{mv}').");
         }
         else mv = string.Empty; // edge/Changed 는 기준값 무의미 — 저장 시 비운다(Promaker 와 동일).
-        return (new UserTagWriteEntry(n, a, vt, op, mv), null);
+        return (new UserTagWriteEntry(n, a, vt, op, mv, lv), null);
     }
 
     /// <summary>같은 System 안에서 대소문자 무시로 겹치는 이름 목록.</summary>
@@ -129,9 +163,14 @@ public static class UserTagEditorSupport
 
     public const string CsvMimeType = "text/csv; charset=utf-8";
 
-    /// <summary>UTF-8 BOM 포함 CSV 바이트. rows 가 비면 헤더만(양식).</summary>
-    public static byte[] BuildCsv(IEnumerable<UtEditorTagDto> rows, bool includeExample)
+    /// <summary>
+    /// UTF-8 BOM 포함 CSV 바이트. rows 가 비면 헤더만(양식).
+    /// <para>레벨 칸은 이제 실제 종류를 적는다(종전엔 "Error" 고정). 양식 예시는 <paramref name="level"/> 에 맞춘다 —
+    /// 모니터링TAG 탭에서 받은 양식으로 등록했더니 알람이 되더라는 사고를 막는다.</para>
+    /// </summary>
+    public static byte[] BuildCsv(IEnumerable<UtEditorTagDto> rows, bool includeExample, string? level = null)
     {
+        var lv = NormalizeLevel(level);
         var sb = new StringBuilder();
         sb.AppendLine(string.Join(",", CsvHeader));
         var any = false;
@@ -139,12 +178,22 @@ public static class UserTagEditorSupport
         {
             any = true;
             sb.AppendLine(string.Join(",",
-                Esc(r.SystemName), Esc(r.Name), "Error", Esc(r.TagAddress), Esc(r.ValueType), Esc(r.MatchOp), Esc(r.MatchValue ?? string.Empty)));
+                Esc(r.SystemName), Esc(r.Name), NormalizeLevel(r.Level), Esc(r.TagAddress), Esc(r.ValueType),
+                Esc(r.MatchOp), Esc(r.MatchValue ?? string.Empty)));
         }
         if (!any && includeExample)
         {
-            sb.AppendLine(string.Join(",", "", "예시_모터과부하", "Error", "M901", "Bit", "RisingEdge", ""));
-            sb.AppendLine(string.Join(",", "", "예시_생산카운터", "Error", "D100", "Word", "Gte", "1000"));
+            if (lv == LevelMonitor)
+            {
+                // 모니터링TAG 는 매칭 조건·기준값을 쓰지 않는다(값이 바뀌면 기록). 칸은 양식 호환을 위해 남기되 비운다.
+                sb.AppendLine(string.Join(",", "", "예시_펌프압력", LevelMonitor, "D200", "Real", "", ""));
+                sb.AppendLine(string.Join(",", "", "예시_생산카운터", LevelMonitor, "D100", "Word", "", ""));
+            }
+            else
+            {
+                sb.AppendLine(string.Join(",", "", "예시_모터과부하", LevelAlarm, "M901", "Bit", "RisingEdge", ""));
+                sb.AppendLine(string.Join(",", "", "예시_고온경보", LevelAlarm, "D100", "Word", "Gte", "1000"));
+            }
         }
         return new UTF8Encoding(true).GetBytes(sb.ToString());
     }
@@ -160,8 +209,11 @@ public static class UserTagEditorSupport
     /// 헤더 행은 첫 셀이 'System'/'이름'/'Name' 이면 건너뛴다. System 컬럼은 첫 셀이 헤더상 System 일 때만 존재한다고 본다
     /// (Promaker 6컬럼 파일 = System 없음). 헤더가 없는 파일은 컬럼 수(7=System 포함, ≤6=미포함)로 추정.
     /// </summary>
-    public static UtCsvParseResult ParseCsv(byte[] bytes)
+    public static UtCsvParseResult ParseCsv(byte[] bytes, string? targetLevel = null)
     {
+        // 탭에서 가져오면 그 탭의 레벨로 귀속시킨다(targetLevel). 지정이 없으면 파일에 적힌 레벨을 따른다.
+        // 거부하지 않고 맞추되 LevelAdjusted 로 알린다 — 다른 탭 파일을 잘못 넣었을 때 조용히 사라지는 것보다 낫다.
+        var forced = string.IsNullOrWhiteSpace(targetLevel) ? null : NormalizeLevel(targetLevel);
         var (text, encodingName) = Decode(bytes);
         var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
         var rows = new List<UtCsvRowDto>();
@@ -185,19 +237,24 @@ public static class UserTagEditorSupport
             string Cell(int idx) => idx < p.Count ? p[idx].Trim() : string.Empty;
             var sys = hasSystemCol ? Cell(0) : string.Empty;
             var name = Cell(off + 0);
+            var csvLevel = NormalizeLevel(Cell(off + 1));
             var addr = Cell(off + 2);
             var vt = Cell(off + 3);
             var op = Cell(off + 4);
             var mv = Cell(off + 5);
+            var lv = forced ?? csvLevel;
+            var adjusted = forced is not null && !string.Equals(csvLevel, forced, StringComparison.Ordinal);
             if (p.Count - off < 3)
             {
-                rows.Add(new UtCsvRowDto(i + 1, sys, name, addr, vt, op, mv, "컬럼이 부족합니다(최소: 이름, 로그 레벨, 태그 주소)."));
+                rows.Add(new UtCsvRowDto(i + 1, sys, name, addr, vt, op, mv,
+                    "컬럼이 부족합니다(최소: 이름, 로그 레벨, 태그 주소).", lv, adjusted));
                 continue;
             }
-            var (entry, err) = Normalize(name, addr, string.IsNullOrWhiteSpace(vt) ? "Bit" : vt, op, mv);
+            var (entry, err) = Normalize(name, addr, string.IsNullOrWhiteSpace(vt) ? "Bit" : vt, op, mv, lv);
             rows.Add(entry is null
-                ? new UtCsvRowDto(i + 1, sys, name, addr, vt, op, mv, err)
-                : new UtCsvRowDto(i + 1, sys, entry.Name, entry.TagAddress, entry.ValueType, entry.MatchOp, entry.MatchValue, null));
+                ? new UtCsvRowDto(i + 1, sys, name, addr, vt, op, mv, err, lv, adjusted)
+                : new UtCsvRowDto(i + 1, sys, entry.Name, entry.TagAddress, entry.ValueType, entry.MatchOp,
+                    entry.MatchValue, null, entry.Level, adjusted));
         }
         return new UtCsvParseResult(rows, headerDetected, hasSystemCol, encodingName);
     }
