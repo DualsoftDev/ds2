@@ -40,7 +40,7 @@ public static class UserTagAlertExcelExporter
             var isAbn = string.Equals(a.ValueType, "Abnormal", StringComparison.Ordinal);
             ws.Cell(row, 1).Value = a.OccurredAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
             ws.Cell(row, 2).Value = a.LogLevel;
-            ws.Cell(row, 3).Value = isAbn ? "자동감지" : "수동등록TAG";
+            ws.Cell(row, 3).Value = isAbn ? "자동감지" : "이상알람TAG";
             ws.Cell(row, 4).Value = a.SystemName;
             ws.Cell(row, 5).Value = a.Name;
             ws.Cell(row, 6).Value = a.TagAddress;

@@ -1598,7 +1598,7 @@
             </div>
         </div>
 
-        <!-- 수동등록TAG 추가/편집 모달 — 라이브 미리보기 + 타입/조건 칩. 서버 규칙(UserTagEditorSupport)의 클라이언트 미러 검증. -->
+        <!-- 사용자 태그 추가/편집 모달 — 라이브 미리보기 + 타입/조건 칩. 서버 규칙(UserTagEditorSupport)의 클라이언트 미러 검증. -->
         <div class="modal-overlay" x-show="ut.modal.show" style="display:none; z-index:3000;" @click.self="ut.modal.show = false" @keydown.escape.window="ut.modal.show && (ut.modal.show = false)">
             <div class="modal-content ut-modal" @click.stop>
                 <h3><span class="material-icons" x-text="ut.modal.mode === 'add' ? 'add_circle' : 'edit'"></span><span x-text="(ut.modal.mode === 'add' ? '추가' : '편집') + ' — ' + (ut.modal.f.level === 'Info' ? '모니터링TAG' : '이상알람TAG')"></span></h3>
@@ -1687,7 +1687,7 @@
             </div>
         </div>
 
-        <!-- 수동등록TAG CSV 가져오기 미리보기 모달 — 서버 파싱 결과(행별 검증)를 보여주고 System 배정·모드 선택 후 작업 목록에 반영. -->
+        <!-- 사용자 태그 CSV 가져오기 미리보기 모달(현재 탭 종류로 귀속) — 서버 파싱 결과(행별 검증)를 보여주고 System 배정·모드 선택 후 작업 목록에 반영. -->
         <div class="modal-overlay" x-show="ut.csv.show" style="display:none; z-index:3000;" @click.self="ut.csv.show = false">
             <div class="modal-content ut-modal" style="max-width:min(860px, calc(100vw - 32px));" @click.stop>
                 <h3><span class="material-icons">upload_file</span>CSV 가져오기 <span style="font-weight:400; font-size:0.8rem; color:var(--color-text-secondary);" x-text="ut.csv.fileName"></span></h3>
@@ -1902,7 +1902,7 @@
                     }
                 },
 
-                // ══ 수동등록TAG(UserTag) 편집기 ══════════════════════════════════════════
+                // ══ 사용자 태그(UserTag) 편집기 ══════════════════════════════════════════
                 // 서버(GET /api/user-tags/editor)의 정의를 작업 복사본(ut.items)으로 들고 편집을 쌓는다.
                 //   state '' = 서버와 동일 / 'new' = 추가 / 'mod' = 수정(orig 보유) / 'del' = 삭제 예약(적용 전 되돌리기 가능).
                 //   적용(PUT) 은 변경이 있는 System 만 통째 교체 → 서버가 검증·AID 병합·aasx export 를 한 번에 수행.

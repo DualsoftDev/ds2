@@ -1397,7 +1397,7 @@
             },
 
             // 알람 한 건의 표시 문구 — "M월 D일 H시 M분 · 경로: 내용" (시간을 맨 앞에). 세로 티커가 한 건씩 소비한다.
-            // ⚠ kindName 은 붙이지 않는다 — 자동감지는 'SensorOpen', 수동등록TAG 는 매칭연산('RisingEdge')이
+            // ⚠ kindName 은 붙이지 않는다 — 자동감지는 'SensorOpen', 이상알람TAG 는 매칭연산('RisingEdge')이
             //   그대로 들어오는 내부 토큰이라 현장에서 읽을 값이 아니고, label 이 이미 사람이 읽는 문구다(2026-09-11).
             abnMsgText(a) {
                 if (!a) return '';

@@ -10,7 +10,7 @@ namespace DSPilot.Tests;
 
 /// <summary>
 /// 이상·알람 Excel 내보내기(저장하기)에 해소 기록이 함께 실리는지 — 화면 목록의 "해소" 칸과 같은 원본(clearedAt).
-/// 수동등록TAG: 해소되면 '해소'+시각+지속(초), 아직이면 '진행 중'. 자동감지(Abnormal)는 점 이벤트라 '—'.
+/// 이상알람TAG: 해소되면 '해소'+시각+지속(초), 아직이면 '진행 중'. 자동감지(Abnormal)는 점 이벤트라 '—'.
 /// </summary>
 public class UserTagAlertExcelClearTests
 {

@@ -458,7 +458,7 @@ window.dspBranch = {
             // 이상·알람: 시스템 행 = 알람 행 systemName 등식(UserTag=AASX System, Abnormal=flow→System 해석) → 둘 다 포함,
             //   FLOW 행 = 자동감지만(UserTag 는 Flow 소속이 아님 — uptime-workspace utQs 주석). badge = 최근 10분 Error 수.
             { label: '이상·알람',    href: '/uptime-alarm', icon: 'warning_amber', match: 'all', lineScope: true, badge: true,
-              tree: { flowParam: 'flow', sysTitle: '이 시스템의 이상·알람(자동감지 + 수동등록TAG)', flowTitle: '이 설비의 자동감지 알람만' } },
+              tree: { flowParam: 'flow', sysTitle: '이 시스템의 이상·알람(자동감지 + 이상알람TAG)', flowTitle: '이 설비의 자동감지 알람만' } },
             // OEE 메뉴 숨김 — 페이지(/oee)는 URL 로 접근 가능, 네비에서만 제외. 복구는 이 줄 주석 해제.
             // { label: 'OEE',         href: '/oee',                 icon: 'precision_manufacturing', match: 'prefix', legacy: '/app/oee.html' },
             // CCTV 메뉴 숨김 — 실시간 시청은 대시보드 레이아웃 카드의 'CCTV' 토글에서 사용. /cctv 는 설정(카메라·오버레이 편집) 페이지로 URL/[설정] 버튼 접근. 복구는 이 줄 주석 해제.

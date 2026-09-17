@@ -19,7 +19,7 @@ function levelColors() {
     };
 }
 
-// 구분(ABNORMAL/USERTAG) 색 — 수동등록TAG 로즈레드로 통일.
+// 구분(ABNORMAL/USERTAG) 색 — 이상알람TAG 로즈레드로 통일.
 function categoryColors() {
     return {
         'ABNORMAL': { fill: 'rgba(190, 18, 60, 0.85)', border: 'rgb(190, 18, 60)' },
@@ -28,7 +28,7 @@ function categoryColors() {
 }
 
 // 범례 표시용 한글 라벨(데이터 키는 서버가 주는 ABNORMAL/USERTAG 코드 유지).
-const CATEGORY_LABELS = { 'ABNORMAL': '자동감지', 'USERTAG': '수동등록TAG' };
+const CATEGORY_LABELS = { 'ABNORMAL': '자동감지', 'USERTAG': '이상알람TAG' };
 
 // 축/범례/툴팁 텍스트·격자선을 테마 가변으로 (다크 캔버스에서 가독성 확보).
 function themeChartColors() {
@@ -178,9 +178,9 @@ function altLabel(alt) {
 }
 
 // topRows: [{ name, level, count, altName }] — level 슬롯은 구분(ABNORMAL/USERTAG). 막대색을 구분으로 칠해
-// 수동등록TAG 를 자동감지와 시각적으로 분리한다(시계열 스택·구분 도넛과 동일 팔레트).
+// 이상알람TAG 를 자동감지와 시각적으로 분리한다(시계열 스택·구분 도넛과 동일 팔레트).
 // 축 라벨은 2줄 — 1줄=그룹키(경로 기준이면 태그 주소), 2줄=반대편 이름(altName). 주소만으로는 어떤
-// 수동등록TAG/자동감지인지 알 수 없어 둘을 함께 보여준다.
+// 이상알람TAG/자동감지인지 알 수 없어 둘을 함께 보여준다.
 export function renderTopChart(chartId, topRows) {
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
@@ -244,7 +244,7 @@ export function renderTopChart(chartId, topRows) {
                             const names = chart?._rowAlts?.[i] || [];
                             return names.length ? [String(key), ...names.map(n => '· ' + n)] : [String(key)];
                         },
-                        // 막대색만으론 구분이 애매할 수 있어 툴팁에 자동감지/수동등록TAG 를 병기.
+                        // 막대색만으론 구분이 애매할 수 있어 툴팁에 자동감지/이상알람TAG 를 병기.
                         label(ctx) {
                             const cat = ctx.chart._rowCats?.[ctx.dataIndex];
                             const catLabel = CATEGORY_LABELS[cat] || cat || '';

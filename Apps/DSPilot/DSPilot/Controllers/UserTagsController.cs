@@ -166,7 +166,7 @@ public class UserTagsController : ControllerBase
         return defs;
     }
 
-    // ── 설정▸수동등록TAG 편집기 ────────────────────────────────────────────────
+    // ── 설정▸사용자 태그 편집기(이상알람TAG · 모니터링TAG 두 탭) ──────────────
     //   정의의 정본은 공유 project.aasx(System.LoggingProperties.UserTags). 여기서 편집한 결과는
     //   DsProjectService.WriteUserTagsAndExport 가 store 교체 → AID 주소 병합 → 재export 하고,
     //   Agent 는 aasx 파일 워처로 재시작해 새 주소를 수집한다(엣지 스캐너는 정적 설정이라 별도 배포).

@@ -8,7 +8,7 @@ using DSPilot.Models.UserTagAlerts;
 namespace DSPilot.Services;
 
 /// <summary>
-/// 설정▸수동등록TAG 편집기의 공통 규칙 — 허용 값 타입/매칭 조건 표, 항목 검증, CSV 양식(내보내기/가져오기).
+/// 설정▸사용자 태그 편집기의 공통 규칙 — 허용 값 타입/매칭 조건 표, 항목 검증, CSV 양식(내보내기/가져오기).
 ///
 /// 규칙은 Promaker UserTagEditDialog / UserTagPanel(CSV) 과 맞춘다:
 ///   · LogLevel 은 <b>종류 축</b>(2026-09-17): Error = 이상알람TAG, Info = 모니터링TAG.

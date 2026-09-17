@@ -737,7 +737,7 @@ public class DsProjectService
     }
 
     /// <summary>
-    /// 설정▸수동등록TAG 편집기의 적용 경로 — 지정한 활성 System 들의 UserTag 목록을 <b>통째로 교체</b>하고
+    /// 설정▸사용자 태그 편집기의 적용 경로 — 지정한 활성 System 들의 UserTag 목록을 <b>통째로 교체</b>하고
     /// 공유 project.aasx 로 재export 한다. Promaker UserTagPanel 이 쓰는 <c>Store.ReplaceUserTags</c> 와 동일
     /// 메서드(인코딩 = UserTagHelpers.format 6필드)라 형상 호환된다.
     ///
@@ -766,7 +766,7 @@ public class DsProjectService
         {
             if (!activeById.ContainsKey(sid))
                 return new UserTagWriteResult(false, 0, warnings,
-                    $"System {sid} 는 활성 System 이 아닙니다(Passive/디바이스 System 은 수동등록TAG 를 지원하지 않음).");
+                    $"System {sid} 는 활성 System 이 아닙니다(Passive/디바이스 System 은 사용자 태그를 지원하지 않음).");
         }
 
         // cross-process 직렬화 — Promaker publish / Agent 업로드 / 다른 인스턴스의 동시 export 충돌 방지.

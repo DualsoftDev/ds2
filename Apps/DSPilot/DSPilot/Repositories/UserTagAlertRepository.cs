@@ -324,7 +324,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         // 있어(같은 주소의 자동감지 4유형 등) DISTINCT 콘캣으로 모두 담고 축약은 표시 측에 맡긴다.
         var altCol = byPath ? "name" : "tagAddress";
         // Level 슬롯엔 구분(ABNORMAL/USERTAG)을 담는다 — 레벨이 Error 단일로 통일돼 Top N 막대색은
-        // 자동감지/수동등록 구분으로 칠한다(버킷 스택과 동일 규약). 같은 키는 단일 구분이라 그룹 분열 없음.
+        // 자동감지/이상알람TAG 구분으로 칠한다(버킷 스택과 동일 규약). 같은 키는 단일 구분이라 그룹 분열 없음.
         // ⚠ GROUP BY 별칭 LogLevel 은 테이블 컬럼 logLevel 로 해석됨(버킷 쿼리와 동일 함정) → CASE 식으로 직접 그룹.
         var sql = $@"
             SELECT {keyCol} AS Name, {CategoryCase} AS LogLevel, COUNT(*) AS Count,

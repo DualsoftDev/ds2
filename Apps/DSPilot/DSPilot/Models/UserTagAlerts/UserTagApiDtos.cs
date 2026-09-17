@@ -90,7 +90,7 @@ public record UserTagErrorStatusDto(
     string? LatestErrorSystem,
     string? LatestErrorName);
 
-// ── 설정▸수동등록TAG 편집기 (/api/user-tags/editor) ──────────────────────────
+// ── 설정▸사용자 태그 편집기 (/api/user-tags/editor) ──────────────────────────
 
 /// <summary>편집 가능한 활성 System 1건. HasEndpoint=false 면 AID XGT 접속이 없어 새 주소가 Agent 수집 대상에 못 들어간다(UI 경고).</summary>
 public record UtEditorSystemDto(string SystemId, string SystemName, bool HasEndpoint, string? Endpoint);

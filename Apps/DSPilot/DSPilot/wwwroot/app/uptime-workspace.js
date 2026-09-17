@@ -1722,8 +1722,8 @@
                 // ── 구분(ABNORMAL/USERTAG) 도넛/배지 ──
                 // 구분 판별 SSOT(클라) — abnormal 행은 matchOp='AbnormalDetect'(서버 valueType='Abnormal' 과 대응).
                 categoryOf(a) { return (a && a.matchOp === 'AbnormalDetect') ? 'ABNORMAL' : 'USERTAG'; },
-                // 표시 라벨: ABNORMAL=자동감지(엔진 자동), USERTAG=수동등록TAG(사용자 정의 태그).
-                categoryLabel(a) { return this.categoryOf(a) === 'ABNORMAL' ? '자동감지' : '수동등록TAG'; },
+                // 표시 라벨: ABNORMAL=자동감지(엔진 자동), USERTAG=이상알람TAG(사용자 정의 태그).
+                categoryLabel(a) { return this.categoryOf(a) === 'ABNORMAL' ? '자동감지' : '이상알람TAG'; },
                 // ds-status 톤: 둘 다 Error 알람이라 bad(빨강)로 통일, 구분은 라벨로만.
                 categoryStatus(a) { return 'bad'; },
                 cc(cat) { return (this.ut && this.ut.categoryCounts && this.ut.categoryCounts[cat]) || 0; },
@@ -1745,8 +1745,8 @@
                 // 현재 조회 중인 구분 문구 — 시계열/Top10 부제가 요약 카드 필터와 어긋나지 않게 한다.
                 get utCategoryLabel() {
                     if (this.curFlow || this.utCategory === 'abnormal') return '자동감지';
-                    if (this.utCategory === 'usertag') return '수동등록TAG';
-                    return '자동감지 + 수동등록TAG';
+                    if (this.utCategory === 'usertag') return '이상알람TAG';
+                    return '자동감지 + 이상알람TAG';
                 },
                 // 최다 발생 카드 — '태그별 Top 10' 차트와 동일 소스(경로 기준 1위).
                 get utTopPath() {
