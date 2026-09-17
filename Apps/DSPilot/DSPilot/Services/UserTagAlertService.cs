@@ -223,13 +223,25 @@ public sealed class UserTagAlertService : BackgroundService
 
         var store = _projectService.GetStore();
         var rows = store.GetAllUserTagsForProject();
-        var defs = rows
-            .Where(r => !string.IsNullOrWhiteSpace(r.TagAddress))
+        // ★알람(에러) 대상은 <b>Bit UserTag 뿐</b>이다 — DSPilot 레벨 규칙.
+        //   Word·Int32·Real·String UserTag 는 "값을 보는" 정보용이고, 알람이 아니라
+        //   태그 모니터링 기능이 값과 추이로 보여 준다. 여기서 걸러 내지 않으면 수치 비교 조건이
+        //   그대로 알람으로 발화해 이상·알람 목록이 모니터링 값으로 오염된다.
+        var all = rows.Where(r => !string.IsNullOrWhiteSpace(r.TagAddress)).ToList();
+        var defs = all
+            .Where(r => string.Equals(
+                UserTagEditorSupport.NormalizeValueType(r.ValueType) ?? "Bit", "Bit", StringComparison.Ordinal))
             .Select(r => new UserTagDefinition(
                 r.SystemId, r.SystemName, r.Name,
                 r.LogLevel ?? "Info", r.TagAddress, r.ValueType ?? "Bit",
                 r.MatchOp ?? string.Empty, r.MatchValue ?? string.Empty))
             .ToList();
+
+        var monitorOnly = all.Count - defs.Count;
+        if (monitorOnly > 0)
+            _logger.LogInformation(
+                "[UserTagAlert] 비트가 아닌 UserTag {Count}건은 알람 대상에서 제외 — 태그 모니터링에서 값·추이로 봅니다.",
+                monitorOnly);
 
         // 주소 단독 인덱스 — systemId 를 모르는 로그(레거시 행·귀속 미상)의 폴백.
         // ★TryAdd first-wins 라 두 System 이 같은 주소를 정의하면 한쪽이 조용히 사라진다.

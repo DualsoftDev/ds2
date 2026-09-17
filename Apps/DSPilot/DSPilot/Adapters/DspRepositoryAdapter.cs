@@ -81,111 +81,6 @@ public class DspRepositoryAdapter : IDspRepository
         return names.Any(n => n == columnName);
     }
 
-    /// <summary>
-    /// 테이블에 컬럼이 없으면 ALTER TABLE ADD COLUMN 으로 추가. 옛 스키마 호환용.
-    /// </summary>
-    private async Task EnsureColumnAsync(SqliteConnection conn, string table, string column, string definition)
-    {
-        try
-        {
-            var existsSql = $"SELECT name FROM pragma_table_info('{table}')";
-            var names = await conn.QueryAsync<string>(existsSql);
-            if (names.Any(n => string.Equals(n, column, StringComparison.OrdinalIgnoreCase)))
-                return;
-
-            await conn.ExecuteAsync($"ALTER TABLE {table} ADD COLUMN {column} {definition}");
-            _logger.LogInformation("Added missing column {Column} {Definition} to {Table}", column, definition, table);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "EnsureColumn failed for {Table}.{Column}", table, column);
-        }
-    }
-
-    /// <summary>
-    /// plcTag 의 주소 유일성을 address 단독 → (plcId, address) 로 교체한다.
-    /// 멀티 PLC 에서 서로 다른 PLC 가 같은 주소를 쓸 수 있어야 하기 때문. SQLite 는 제약 삭제가
-    /// 불가해 테이블 재작성이 유일한 방법이다.
-    ///
-    /// ★id 를 반드시 보존한다 — plcTagLog.plcTagId(수백만 행)가 이 값을 참조하므로 id 가 바뀌면
-    ///   이력 전체가 끊긴다. plcTagLog 자체는 건드리지 않는다(테이블이 크고 손댈 이유도 없다).
-    /// ★AUTOINCREMENT 를 유지한다 — 빼면 삭제된 id 가 재사용되어 옛 plcTagLog 행이 엉뚱한 태그에
-    ///   붙을 수 있다.
-    /// 판정은 "컬럼이 address 하나뿐인 UNIQUE 인덱스가 있는가" 로 한다(DDL 문자열 매칭은 취약).
-    /// 이미 교체된 DB 에서는 아무 것도 하지 않는다(멱등).
-    /// </summary>
-    private async Task MigratePlcTagUniquenessAsync(SqliteConnection conn)
-    {
-        try
-        {
-            if (!await TableExistsAsync(conn, "plcTag")) return;
-
-            var needsMigration = false;
-            var indexes = (await conn.QueryAsync("PRAGMA index_list('plcTag')")).ToList();
-            foreach (var idx in indexes)
-            {
-                var row = (IDictionary<string, object?>)idx;
-                var name = row.TryGetValue("name", out var n) ? n?.ToString() : null;
-                var isUnique = row.TryGetValue("unique", out var u) && Convert.ToInt64(u) == 1;
-                if (!isUnique || string.IsNullOrEmpty(name)) continue;
-
-                var cols = (await conn.QueryAsync<string>(
-                    $"SELECT name FROM pragma_index_info('{name}')")).ToList();
-                if (cols.Count == 1 && string.Equals(cols[0], "address", StringComparison.OrdinalIgnoreCase))
-                {
-                    needsMigration = true;
-                    break;
-                }
-            }
-
-            if (!needsMigration) return;
-
-            var before = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM plcTag");
-
-            // foreign_keys PRAGMA 는 트랜잭션 안에서 바꿀 수 없어 밖에서 끈다.
-            await conn.ExecuteAsync("PRAGMA foreign_keys=off");
-            try
-            {
-                using var tx = conn.BeginTransaction();
-                await conn.ExecuteAsync(@"
-                    CREATE TABLE plcTag_migrate (
-                        id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                        plcId     INTEGER NOT NULL DEFAULT 1,
-                        name      NVARCHAR(128) NOT NULL,
-                        address   NVARCHAR(128) NOT NULL,
-                        dataType  NVARCHAR(32)  NOT NULL DEFAULT 'BOOL',
-                        UNIQUE(plcId, address)
-                    )", transaction: tx);
-                await conn.ExecuteAsync(@"
-                    INSERT INTO plcTag_migrate (id, plcId, name, address, dataType)
-                    SELECT id, plcId, name, address, dataType FROM plcTag", transaction: tx);
-                await conn.ExecuteAsync("DROP TABLE plcTag", transaction: tx);
-                await conn.ExecuteAsync("ALTER TABLE plcTag_migrate RENAME TO plcTag", transaction: tx);
-                tx.Commit();
-            }
-            finally
-            {
-                await conn.ExecuteAsync("PRAGMA foreign_keys=on");
-            }
-
-            var after = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM plcTag");
-            var orphans = await conn.ExecuteScalarAsync<long>(
-                "SELECT COUNT(*) FROM plcTagLog l LEFT JOIN plcTag t ON t.id = l.plcTagId WHERE t.id IS NULL");
-            _logger.LogInformation(
-                "plcTag 유일성 마이그레이션 완료 — UNIQUE(address) → UNIQUE(plcId, address). " +
-                "행 {Before}→{After} (id 보존), 고아 plcTagLog {Orphans}건",
-                before, after, orphans);
-            if (before != after || orphans > 0)
-                _logger.LogError(
-                    "plcTag 마이그레이션 정합성 이상 — 행 {Before}→{After}, 고아 {Orphans}. 확인 필요.",
-                    before, after, orphans);
-        }
-        catch (Exception ex)
-        {
-            // 실패해도 부팅은 계속한다(구 제약이 남아 멀티 PLC 만 안 되는 상태 = 종전 동작).
-            _logger.LogError(ex, "plcTag 유일성 마이그레이션 실패 — 기존 제약 유지");
-        }
-    }
 
     private async Task EnsureIsIdleColumnAsync(SqliteConnection conn)
     {
@@ -207,6 +102,27 @@ public class DspRepositoryAdapter : IDspRepository
     }
 
     // ===== IDspRepository =====
+
+    /// <summary>
+    /// 테이블에 컬럼이 없으면 ALTER TABLE ADD COLUMN 으로 추가. 옛 스키마 호환용.
+    /// </summary>
+    private async Task EnsureColumnAsync(SqliteConnection conn, string table, string column, string definition)
+    {
+        try
+        {
+            var existsSql = $"SELECT name FROM pragma_table_info('{table}')";
+            var names = await conn.QueryAsync<string>(existsSql);
+            if (names.Any(n => string.Equals(n, column, StringComparison.OrdinalIgnoreCase)))
+                return;
+
+            await conn.ExecuteAsync($"ALTER TABLE {table} ADD COLUMN {column} {definition}");
+            _logger.LogInformation("Added missing column {Column} {Definition} to {Table}", column, definition, table);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "EnsureColumn failed for {Table}.{Column}", table, column);
+        }
+    }
 
     public async Task<bool> CreateSchemaAsync()
     {
@@ -331,53 +247,8 @@ public class DspRepositoryAdapter : IDspRepository
             const string createFlowBoundaryChangeLogIdxFlow =
                 "CREATE INDEX IF NOT EXISTS idx_flowBoundaryChangeLog_flowName ON flowBoundaryChangeLog(flowName)";
 
-            // plc / plcTag / plcTagLog — Hub 모니터링 모드에서 DsPilot 자체가 채움.
-            // 컬럼 구성은 [PlcEntity](Apps/DSPilot/DSPilot/Models/Plc/PlcEntity.cs) 와 일치.
-            // CycleTimeAnalysis 와 PlcDebug 가 이 테이블을 읽음.
-            const string createPlc = @"
-                CREATE TABLE IF NOT EXISTS plc (
-                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                    projectId  INTEGER,
-                    name       NVARCHAR(128) NOT NULL UNIQUE,
-                    connection TEXT
-                )";
-
-            // 주소 유일성은 **PLC 단위**다 — 멀티 PLC 에서 서로 다른 PLC 가 같은 주소를 쓸 수 있어
-            // address 단독 UNIQUE 로 두면 두 번째 PLC 의 태그 행이 아예 안 생기고 두 PLC 의 신호가
-            // 한 plcTagId 이력으로 섞인다(복구 불가). 기존 DB 는 MigratePlcTagUniquenessAsync 가 교체.
-            const string createPlcTag = @"
-                CREATE TABLE IF NOT EXISTS plcTag (
-                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                    plcId     INTEGER NOT NULL DEFAULT 1,
-                    name      NVARCHAR(128) NOT NULL,
-                    address   NVARCHAR(128) NOT NULL,
-                    dataType  NVARCHAR(32)  NOT NULL DEFAULT 'BOOL',
-                    UNIQUE(plcId, address)
-                )";
-
-            const string createPlcTagLog = @"
-                CREATE TABLE IF NOT EXISTS plcTagLog (
-                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                    plcTagId  INTEGER NOT NULL,
-                    dateTime  DATETIME NOT NULL,
-                    value     TEXT NOT NULL,
-                    FOREIGN KEY (plcTagId) REFERENCES plcTag(id)
-                )";
-
-            const string createPlcTagLogIdx =
-                "CREATE INDEX IF NOT EXISTS idx_plcTagLog_dateTime ON plcTagLog(dateTime)";
-            const string createPlcTagLogTagIdx =
-                "CREATE INDEX IF NOT EXISTS idx_plcTagLog_plcTagId ON plcTagLog(plcTagId)";
-            // 시간범위 쿼리 (cycle-time-analysis 메인 쿼리 등) 의 핵심 인덱스 —
-            //   WHERE plcTagId IN (..) AND dateTime BETWEEN @start AND @end
-            //   GROUP BY plcTagId 의 MAX(dateTime <= @at) (latest-before)
-            // 둘 다 (plcTagId, dateTime) 복합 인덱스 위에서 태그당 1회 index seek 로 끝낼 수 있다.
-            // 단일 인덱스 두 개로는 SQLite 가 풀스캔 또는 거대한 인메모리 필터로 처리해 시간범위 1분이라도
-            // plcTagLog 전체에 비례한 비용이 든다.
-            const string createPlcTagLogTagDateTimeIdx =
-                "CREATE INDEX IF NOT EXISTS idx_plcTagLog_tagId_dateTime ON plcTagLog(plcTagId, dateTime)";
-            const string createPlcTagAddressIdx =
-                "CREATE INDEX IF NOT EXISTS idx_plcTag_address ON plcTag(address)";
+            // 원시 계층(system · tag · signal)은 시간 기반 코어가 소유한다(Kpi.KpiDb, doc/30 §9).
+            // 여기서 같은 이름의 표를 또 만들면 같은 데이터가 두 벌이 되고, 표 이름이 겹쳐 서로를 덮는다.
 
             // UserTag 알림 raw 로그 — 매칭된 이벤트만 저장 (모든 plcTagLog 행을 다시 쓰지 않음).
             // occurredAt: ISO8601 UTC 문자열 (plcTagLog.dateTime 과 동일 포맷).
@@ -439,22 +310,7 @@ public class DspRepositoryAdapter : IDspRepository
             await conn.ExecuteAsync(createFlowHistory);
             await conn.ExecuteAsync(createFlowHistoryIdxFlowTime);
             await conn.ExecuteAsync(createFlowHistoryIdxTime);
-            await conn.ExecuteAsync(createPlc);
-            await conn.ExecuteAsync(createPlcTag);
-            await conn.ExecuteAsync(createPlcTagLog);
-            // plc 에 소유 System 각인 — 이름이 아니라 이 컬럼이 귀속의 키다(System 이름은 사용자가 바꾼다).
-            // plc.name 에는 UNIQUE 가 걸려 있어 이름을 키로 쓰면 이름 변경·중복에서 깨진다.
-            await EnsureColumnAsync(conn, "plc", "systemId", "TEXT");
-            await conn.ExecuteAsync(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_plc_systemId ON plc(systemId) WHERE systemId IS NOT NULL");
-            // ★인덱스 생성보다 먼저 — 테이블을 재작성하면 그 테이블의 인덱스가 함께 사라지므로,
-            //   교체를 끝낸 뒤 아래 CREATE INDEX 들이 새 테이블에 인덱스를 만들게 한다.
-            await MigratePlcTagUniquenessAsync(conn);
-            await conn.ExecuteAsync(createPlcTagLogIdx);
-            await conn.ExecuteAsync(createPlcTagLogTagIdx);
-            await conn.ExecuteAsync(createPlcTagLogTagDateTimeIdx);
-            await conn.ExecuteAsync(createPlcTagAddressIdx);
-            await conn.ExecuteAsync(createUserTagAlertLog);
+                        await conn.ExecuteAsync(createUserTagAlertLog);
             await conn.ExecuteAsync(createUserTagAlertLogIdxTime);
             await conn.ExecuteAsync(createUserTagAlertLogIdxNameTime);
             await conn.ExecuteAsync(createUserTagAlertLogIdxLevelTime);
@@ -466,9 +322,9 @@ public class DspRepositoryAdapter : IDspRepository
             await conn.ExecuteAsync(createFlowBoundaryChangeLogIdxTime);
             await conn.ExecuteAsync(createFlowBoundaryChangeLogIdxFlow);
 
-            // 기본 plc 행 보장 (id=1) — plcTag.plcId 가 참조하는 단일 PLC
+            // 기본 system 행 보장 (id=1) — 귀속 미상 태그가 떨어지는 버킷.
             await conn.ExecuteAsync(
-                "INSERT INTO plc (id, name) VALUES (1, 'DSPilot') ON CONFLICT(name) DO NOTHING");
+                "INSERT INTO system (id, name) VALUES (1, 'DSPilot') ON CONFLICT(name) DO NOTHING");
 
             // M2 — 옛 EV2 스키마 마이그레이션. CREATE TABLE IF NOT EXISTS 는 기존 테이블의 컬럼을
             // 추가하지 않으므로, 우리 코드가 쓰는 컬럼이 누락되어 있으면 SQL 에러가 fire-and-forget
@@ -1791,14 +1647,15 @@ public class DspRepositoryAdapter : IDspRepository
 
         var cutoffStr = SqliteDateTimeHelpers.ToSqliteUtcString(cutoffUtc);
         var cutoffDate = cutoffUtc.ToString("yyyy-MM-dd");
+        var cutoffMs = Kpi.KpiTime.ToMs(cutoffUtc);   // 신호 표는 정수 epoch ms
 
         await using var conn = await OpenAsync();
         using var tx = conn.BeginTransaction();
         try
         {
-            var plcDeleted = await TableExistsAsync(conn, "plcTagLog")
-                ? await conn.ExecuteAsync("DELETE FROM plcTagLog WHERE dateTime < @Cutoff",
-                    new { Cutoff = cutoffStr }, tx)
+            var plcDeleted = await TableExistsAsync(conn, "signal")
+                ? await conn.ExecuteAsync("DELETE FROM signal WHERE atMs < @CutoffMs",
+                    new { CutoffMs = cutoffMs }, tx)
                 : 0;
 
             var alertDeleted = await TableExistsAsync(conn, "userTagAlertLog")

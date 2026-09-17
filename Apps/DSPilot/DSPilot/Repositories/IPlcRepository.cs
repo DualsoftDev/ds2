@@ -6,15 +6,11 @@ using DSPilot.Models.Plc;
 namespace DSPilot.Repositories;
 
 /// <summary>
-/// PLC 데이터 저장소 인터페이스
+/// PLC 원시 데이터 조회 계약. 저장은 시간 기반 코어의 단일 DB(system · tag · signal)이며,
+/// 시각 규약은 <b>호출자가 로컬 시각을 넣고 로컬 시각을 받는다</b>(변환은 구현부 한 곳에서).
 /// </summary>
 public interface IPlcRepository
 {
-    /// <summary>
-    /// 모든 PLC 정보 조회
-    /// </summary>
-    Task<List<PlcEntity>> GetAllPlcsAsync();
-
     /// <summary>
     /// 모든 PLC 태그 정보 조회
     /// </summary>

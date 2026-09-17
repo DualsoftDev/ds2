@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Globalization;
@@ -91,7 +91,7 @@ public class PlcDebugService
             using var conn = await OpenReadOnlyAsync();
 
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT Id, PlcId, Address, Name, DataType FROM plcTag ORDER BY Address";
+            cmd.CommandText = "SELECT Id, systemId AS PlcId, Address, Name, DataType FROM tag ORDER BY Address";
 
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
@@ -179,18 +179,18 @@ public class PlcDebugService
         DateTime? endTime)
     {
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM plcTagLog WHERE PlcTagId = @tagId";
+        cmd.CommandText = "SELECT COUNT(*) FROM signal WHERE tagId = @tagId";
 
         if (startTime.HasValue)
         {
-            cmd.CommandText += " AND julianday(DateTime) >= julianday(@startTime)";
-            cmd.Parameters.AddWithValue("@startTime", ToSqliteDateTime(startTime.Value));
+            cmd.CommandText += " AND atMs >= @startTime";
+            cmd.Parameters.AddWithValue("@startTime", Kpi.KpiTime.ToMs(startTime.Value));
         }
 
         if (endTime.HasValue)
         {
-            cmd.CommandText += " AND julianday(DateTime) <= julianday(@endTime)";
-            cmd.Parameters.AddWithValue("@endTime", ToSqliteDateTime(endTime.Value));
+            cmd.CommandText += " AND atMs <= @endTime";
+            cmd.Parameters.AddWithValue("@endTime", Kpi.KpiTime.ToMs(endTime.Value));
         }
 
         cmd.Parameters.AddWithValue("@tagId", tagId);
@@ -217,29 +217,29 @@ public class PlcDebugService
         cmd.CommandText = @"
             WITH numbered AS (
                 SELECT
-                    Id, PlcTagId, DateTime, Value,
-                    ROW_NUMBER() OVER (ORDER BY DateTime) as rn
-                FROM plcTagLog
-                WHERE PlcTagId = @tagId";
+                    id AS Id, tagId, atMs, value,
+                    ROW_NUMBER() OVER (ORDER BY atMs) as rn
+                FROM signal
+                WHERE tagId = @tagId";
 
         if (startTime.HasValue)
         {
-            cmd.CommandText += " AND julianday(DateTime) >= julianday(@startTime)";
-            cmd.Parameters.AddWithValue("@startTime", ToSqliteDateTime(startTime.Value));
+            cmd.CommandText += " AND atMs >= @startTime";
+            cmd.Parameters.AddWithValue("@startTime", Kpi.KpiTime.ToMs(startTime.Value));
         }
 
         if (endTime.HasValue)
         {
-            cmd.CommandText += " AND julianday(DateTime) <= julianday(@endTime)";
-            cmd.Parameters.AddWithValue("@endTime", ToSqliteDateTime(endTime.Value));
+            cmd.CommandText += " AND atMs <= @endTime";
+            cmd.Parameters.AddWithValue("@endTime", Kpi.KpiTime.ToMs(endTime.Value));
         }
 
         cmd.CommandText += @"
             )
-            SELECT Id, PlcTagId, DateTime, Value
+            SELECT Id, tagId, atMs, value
             FROM numbered
             WHERE (rn - 1) % @interval = 0
-            ORDER BY DateTime";
+            ORDER BY atMs";
 
         cmd.Parameters.AddWithValue("@tagId", tagId);
         cmd.Parameters.AddWithValue("@interval", samplingInterval);
@@ -251,8 +251,8 @@ public class PlcDebugService
             {
                 Id = reader.GetInt32(0),
                 PlcTagId = reader.GetInt32(1),
-                DateTime = ParseSqliteDateTime(reader.GetString(2)),
-                Value = reader.IsDBNull(3) ? null : reader.GetString(3)
+                DateTime = Kpi.KpiTime.ToLocal(reader.GetInt64(2)),
+                Value = reader.IsDBNull(3) ? null : reader.GetValue(3)?.ToString()
             });
         }
 
@@ -311,8 +311,8 @@ public class PlcDebugService
             using var cmd = conn.CreateCommand();
             cmd.CommandText = @"
                 SELECT
-                    (SELECT COUNT(*) FROM plcTag) as TotalTags,
-                    (SELECT COUNT(*) FROM plcTagLog) as TotalLogs";
+                    (SELECT COUNT(*) FROM tag) as TotalTags,
+                    (SELECT COUNT(*) FROM signal) as TotalLogs";
 
             using var reader = await cmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
@@ -343,15 +343,15 @@ public class PlcDebugService
             using var cmd = conn.CreateCommand();
             cmd.CommandText = @"
                 SELECT
-                    MIN(DateTime) as Oldest,
-                    MAX(DateTime) as Latest
-                FROM plcTagLog";
+                    MIN(atMs) as Oldest,
+                    MAX(atMs) as Latest
+                FROM signal";
 
             using var reader = await cmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
             {
-                var oldest = reader.IsDBNull(0) ? (DateTime?)null : ParseSqliteDateTime(reader.GetString(0));
-                var latest = reader.IsDBNull(1) ? (DateTime?)null : ParseSqliteDateTime(reader.GetString(1));
+                var oldest = reader.IsDBNull(0) ? (DateTime?)null : Kpi.KpiTime.ToLocal(reader.GetInt64(0));
+                var latest = reader.IsDBNull(1) ? (DateTime?)null : Kpi.KpiTime.ToLocal(reader.GetInt64(1));
                 return (oldest, latest);
             }
         }
@@ -380,10 +380,10 @@ public class PlcDebugService
             using var cmd = conn.CreateCommand();
             var tagIdParams = string.Join(",", tagIds.Select((_, i) => $"@tagId{i}"));
             cmd.CommandText = $@"
-                SELECT PlcTagId, COUNT(*) as LogCount
-                FROM plcTagLog
-                WHERE PlcTagId IN ({tagIdParams})
-                GROUP BY PlcTagId";
+                SELECT tagId, COUNT(*) as LogCount
+                FROM signal
+                WHERE tagId IN ({tagIdParams})
+                GROUP BY tagId";
 
             for (int i = 0; i < tagIds.Count; i++)
             {

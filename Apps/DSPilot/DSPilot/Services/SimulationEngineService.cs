@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Collections.Concurrent;
@@ -633,6 +633,8 @@ public sealed class SimulationEngineService : IDisposable
             // UserTag 주소 추가 — IOMap 과 중복되면 HashSet 이 자동 dedup.
             // UserTag 는 SystemId 가 아니라 SystemName 만 들고 있어 이름→Guid 로 되짚는다.
             var userTagAddrs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // 주소 → (값 종류, 라벨). 태그 표에 실제 자료형을 넣고 태그 모니터링이 표시 형식을 정하는 근거.
+            var userTagMeta = new Dictionary<string, UserTagMeta>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 var store = _projectService.GetStore();
@@ -653,6 +655,9 @@ public sealed class SimulationEngineService : IDisposable
                     var t = r.TagAddress.Trim();
                     allAddresses.Add(t);
                     userTagAddrs.Add(t);
+                    userTagMeta[t] = new UserTagMeta(
+                        UserTagEditorSupport.NormalizeValueType(r.ValueType) ?? "Bit",
+                        string.IsNullOrWhiteSpace(r.Name) ? null : r.Name);
                     if (!string.IsNullOrWhiteSpace(r.SystemName)
                         && systemIdByName.TryGetValue(r.SystemName, out var sid))
                     {
@@ -664,7 +669,7 @@ public sealed class SimulationEngineService : IDisposable
             }
             catch (Exception exUt)
             {
-                _logger.LogWarning(exUt, "[Engine] UserTag 주소 수집 실패 (IOMap 만 plcTag 에 등록)");
+                _logger.LogWarning(exUt, "[Engine] UserTag 주소 수집 실패 (IOMap 만 태그 표에 등록)");
             }
 
             // 진단용 UserTag 주소 집합 초기화 (HandleHubTagChanged 의 hit/miss 로깅 한정).
@@ -681,22 +686,37 @@ public sealed class SimulationEngineService : IDisposable
 
             using (var tx = conn.BeginTransaction())
             {
+                // 자료형은 UserTag 정의의 값 종류를 그대로 쓴다. IO 맵 주소는 비트다.
+                // 종전에는 전부 'BOOL' 로 못박아, Word·Int32·Real·String UserTag 도 비트로 기록됐다 —
+                // 태그 모니터링이 표시 형식을 정할 근거가 사라지는 문제라 실제 종류를 넣는다.
                 const string upsert = @"
-                    INSERT INTO plcTag (plcId, name, address, dataType)
-                    VALUES (@PlcId, @Name, @Addr, 'BOOL')
-                    ON CONFLICT(plcId, address) DO NOTHING";
+                    INSERT INTO tag (systemId, name, address, dataType, label, isUserTag)
+                    VALUES (@PlcId, @Name, @Addr, @DataType, @Label, @IsUserTag)
+                    ON CONFLICT(systemId, address) DO UPDATE SET
+                        dataType = excluded.dataType,
+                        label    = COALESCE(excluded.label, tag.label),
+                        isUserTag = MAX(tag.isUserTag, excluded.isUserTag)";
                 foreach (var addr in allAddresses)
                 {
-                    // 소유 System 이 밝혀진 주소는 System 별로 한 행씩. 귀속 미상은 기본 행(plcId=1).
+                    userTagMeta.TryGetValue(addr, out var meta);
+                    var args = new
+                    {
+                        Name = addr,
+                        Addr = addr,
+                        DataType = meta?.ValueType ?? "Bit",
+                        Label = meta?.Label,
+                        IsUserTag = meta is null ? 0 : 1,
+                    };
+                    // 소유 System 이 밝혀진 주소는 System 별로 한 행씩. 귀속 미상은 기본 행(systemId=1).
                     if (ownersByAddress.TryGetValue(addr, out var owners) && owners.Count > 0)
                     {
                         foreach (var sid in owners)
                             if (plcIdBySystem.TryGetValue(sid, out var plcId))
-                                conn.Execute(upsert, new { PlcId = plcId, Name = addr, Addr = addr }, tx);
+                                conn.Execute(upsert, new { PlcId = plcId, args.Name, args.Addr, args.DataType, args.Label, args.IsUserTag }, tx);
                     }
                     else
                     {
-                        conn.Execute(upsert, new { PlcId = 1, Name = addr, Addr = addr }, tx);
+                        conn.Execute(upsert, new { PlcId = 1, args.Name, args.Addr, args.DataType, args.Label, args.IsUserTag }, tx);
                     }
                 }
 
@@ -704,9 +724,9 @@ public sealed class SimulationEngineService : IDisposable
                 // 모든 기존 행을 모호함 없이 정확한 System 으로 소급 귀속시킬 수 있다.
                 // ★id 는 건드리지 않으므로 plcTagLog(수백만 행)의 FK 가 유지되고 이력이 그대로 따라온다.
                 const string backfill = @"
-                    UPDATE plcTag SET plcId = @PlcId
-                    WHERE plcId = 1 AND address = @Addr
-                      AND NOT EXISTS (SELECT 1 FROM plcTag x WHERE x.plcId = @PlcId AND x.address = @Addr)";
+                    UPDATE tag SET systemId = @PlcId
+                    WHERE systemId = 1 AND address = @Addr
+                      AND NOT EXISTS (SELECT 1 FROM tag x WHERE x.systemId = @PlcId AND x.address = @Addr)";
                 var backfilled = 0;
                 foreach (var kv in ownersByAddress)
                 {
@@ -718,7 +738,7 @@ public sealed class SimulationEngineService : IDisposable
                 tx.Commit();
                 if (backfilled > 0)
                     _logger.LogInformation(
-                        "[Engine] 기존 plcTag {Count}행을 소유 System 으로 소급 귀속(id 보존 — plcTagLog 이력 유지)",
+                        "[Engine] 기존 태그 {Count}행을 소유 System 으로 소급 귀속(id 보존 — 신호 이력 유지)",
                         backfilled);
             }
 
@@ -726,10 +746,10 @@ public sealed class SimulationEngineService : IDisposable
             _plcTagIdByKey.Clear();
             _tagIdsByAddress.Clear();
             var systemKeyByPlcId = conn
-                .Query<(int Id, string? SystemId)>("SELECT id, systemId FROM plc")
+                .Query<(int Id, string? SystemId)>("SELECT id, guid AS SystemId FROM system")
                 .ToDictionary(r => r.Id, r => SystemKeyConvention.Key(r.SystemId));
             foreach (var row in conn.Query<(int Id, int PlcId, string Address)>(
-                "SELECT id, plcId, address FROM plcTag"))
+                "SELECT id, systemId AS PlcId, address FROM tag"))
             {
                 var sysKey = systemKeyByPlcId.TryGetValue(row.PlcId, out var k) ? k : "";
                 IndexTagRow(sysKey, row.Address, row.Id);
@@ -741,7 +761,7 @@ public sealed class SimulationEngineService : IDisposable
             var stale = _tagIdsByAddress.Keys.Except(allAddresses, StringComparer.OrdinalIgnoreCase).ToArray();
             if (stale.Length > 0)
                 _logger.LogWarning(
-                    "[Engine] {Count} stale plcTag row(s) — address not in current AASX (예: {Sample}). " +
+                    "[Engine] {Count} stale tag row(s) — address not in current AASX (예: {Sample}). " +
                     "Settings → \"DB 초기화\" 로 정리 권장.",
                     stale.Length, string.Join(", ", stale.Take(3)));
         }
@@ -764,6 +784,9 @@ public sealed class SimulationEngineService : IDisposable
     /// 않으므로 plcTagLog 이력이 그대로 따라온다.
     /// </para>
     /// </summary>
+    /// <summary>태그 표에 실을 UserTag 메타 — 실제 값 종류와 표시 이름.</summary>
+    private sealed record UserTagMeta(string ValueType, string? Label);
+
     private Dictionary<Guid, int> EnsurePlcRowsForSystems(
         SqliteConnection conn, Dictionary<string, HashSet<Guid>> ownersByAddress)
     {
@@ -793,7 +816,7 @@ public sealed class SimulationEngineService : IDisposable
         PlcOwnerReconciler.Report? report = null;
         try
         {
-            var rows = conn.Query<(int Id, string? SystemId, string? Name)>("SELECT id, systemId, name FROM plc")
+            var rows = conn.Query<(int Id, string? SystemId, string? Name)>("SELECT id, guid AS SystemId, name FROM system")
                 .Select(r => new PlcOwnerReconciler.PlcRow(r.Id, r.SystemId, r.Name ?? string.Empty))
                 .ToList();
             report = PlcOwnerReconciler.Reconcile(modelSystems.Values.ToList(), rows);
@@ -821,7 +844,7 @@ public sealed class SimulationEngineService : IDisposable
             try
             {
                 var existing = conn.QuerySingleOrDefault<int?>(
-                    "SELECT id FROM plc WHERE systemId = @Key", new { Key = key });
+                    "SELECT id FROM system WHERE guid = @Key", new { Key = key });
                 if (existing.HasValue) { result[sid] = existing.Value; continue; }
 
                 var name = nameById.TryGetValue(sid, out var n) && !string.IsNullOrWhiteSpace(n) ? n : key;
@@ -832,14 +855,14 @@ public sealed class SimulationEngineService : IDisposable
                     && decision.PlcId is int rekeyId)
                 {
                     var updated = conn.Execute(
-                        "UPDATE plc SET systemId = @Key WHERE id = @Id AND systemId = @OldKey",
+                        "UPDATE system SET guid = @Key WHERE id = @Id AND guid = @OldKey",
                         new { Key = key, Id = rekeyId, OldKey = decision.OldSystemKey });
                     if (updated == 1)
                     {
                         result[sid] = rekeyId;
                         _logger.LogWarning(
                             "[Engine] System '{Name}' 의 GUID 가 {Old} → {New} 로 바뀜(AASX 재업로드) — 기존 plc 행 id={Id} 를 " +
-                            "새 GUID 로 재키잉(plcTag/plcTagLog 이력 유지). 새 행을 만들지 않았습니다.",
+                            "새 GUID 로 재키잉(태그·신호 이력 유지). 새 행을 만들지 않았습니다.",
                             name, decision.OldSystemKey, key, rekeyId);
                         continue;
                     }
@@ -848,12 +871,12 @@ public sealed class SimulationEngineService : IDisposable
                 }
 
                 // name UNIQUE 회피 — 같은 이름이 이미 있으면(다른 System 이거나 기본 행) systemId 앞자리를 덧붙인다.
-                if (conn.ExecuteScalar<long>("SELECT COUNT(*) FROM plc WHERE name = @Name", new { Name = name }) > 0)
+                if (conn.ExecuteScalar<long>("SELECT COUNT(*) FROM system WHERE name = @Name", new { Name = name }) > 0)
                     name = $"{name}#{key[..8]}";
 
                 // ON CONFLICT 뒤 last_insert_rowid 는 신뢰할 수 없으므로 RETURNING 으로 받는다.
                 result[sid] = conn.QuerySingle<int>(
-                    "INSERT INTO plc (name, systemId) VALUES (@Name, @Key) RETURNING id",
+                    "INSERT INTO system (name, guid) VALUES (@Name, @Key) RETURNING id",
                     new { Name = name, Key = key });
                 _logger.LogInformation("[Engine] plc 행 생성 — system={System} name={Name} id={Id}",
                     key, name, result[sid]);
@@ -907,9 +930,9 @@ public sealed class SimulationEngineService : IDisposable
                 // BootstrapPlcTags 가 모델 전체를 보고 정하는 게 정본이고, 그 사이에 새로 생긴 주소는
                 // 기본 행(plcId=1)에 두어도 기록이 끊기지 않는다(다음 모델 재로딩에서 소급 귀속됨).
                 const string upsert = @"
-                    INSERT INTO plcTag (plcId, name, address, dataType)
-                    VALUES (1, @Name, @Addr, 'BOOL')
-                    ON CONFLICT(plcId, address) DO NOTHING";
+                    INSERT INTO tag (systemId, name, address, dataType)
+                    VALUES (1, @Name, @Addr, 'Bit')
+                    ON CONFLICT(systemId, address) DO NOTHING";
                 foreach (var addr in newAddresses)
                     conn.Execute(upsert, new { Name = addr, Addr = addr }, tx);
                 tx.Commit();
@@ -917,10 +940,10 @@ public sealed class SimulationEngineService : IDisposable
 
             // 새로 INSERT 된 + 기존에 다른 시스템이 이미 넣어둔 행 모두 캐시에 반영.
             var systemKeyByPlcId = conn
-                .Query<(int Id, string? SystemId)>("SELECT id, systemId FROM plc")
+                .Query<(int Id, string? SystemId)>("SELECT id, guid AS SystemId FROM system")
                 .ToDictionary(r => r.Id, r => SystemKeyConvention.Key(r.SystemId));
             foreach (var row in conn.Query<(int Id, int PlcId, string Address)>(
-                "SELECT id, plcId, address FROM plcTag WHERE address IN @Addrs",
+                "SELECT id, systemId AS PlcId, address FROM tag WHERE address IN @Addrs",
                 new { Addrs = newAddresses }))
             {
                 IndexTagRow(systemKeyByPlcId.TryGetValue(row.PlcId, out var k) ? k : "", row.Address, row.Id);

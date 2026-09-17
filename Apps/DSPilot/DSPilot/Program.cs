@@ -268,6 +268,8 @@ builder.Services.AddSingleton<PlcPingService>();
 builder.Services.AddSingleton<DSPilot.Kpi.KpiDb>();
 builder.Services.AddSingleton<DSPilot.Kpi.LegacyDbPurge>();
 builder.Services.AddSingleton<DSPilot.Kpi.KpiRepository>();
+// 태그 모니터링 — UserTag 값·추이 조회(알람은 Bit 만, 나머지는 여기서 본다).
+builder.Services.AddSingleton<DSPilot.Kpi.TagMonitorRepository>();
 builder.Services.AddSingleton<DSPilot.Kpi.BaselineService>();
 builder.Services.AddSingleton<DSPilot.Kpi.CycleIngestService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DSPilot.Kpi.CycleIngestService>());

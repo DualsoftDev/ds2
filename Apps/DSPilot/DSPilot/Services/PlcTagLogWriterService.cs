@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Threading.Channels;
@@ -95,6 +95,29 @@ public sealed class PlcTagLogWriterService : BackgroundService
         _logger.LogInformation("PlcTagLogWriterService stopped");
     }
 
+    /// <summary>
+    /// 문자열로 도착한 값을 저장에 맞는 형태로 바꾼다. 신호 표의 값 칸은 타입 친화도를 선언하지 않아
+    /// 넣은 그대로 담긴다 — 비트는 1바이트 정수, 수치는 실수, 나머지는 문자열이다.
+    /// <para>
+    /// 비트를 "true"(4~5바이트 문자열) 대신 1/0 으로 넣는 것이 원시 로그 용량의 핵심이다.
+    /// 조회 쪽 정규화는 <c>lower(trim(coalesce(value,'')))</c> 라 정수도 그대로 받아 준다.
+    /// </para>
+    /// </summary>
+    internal static object NativeValue(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "";
+        switch (raw)
+        {
+            case "true": case "True": case "TRUE": case "on": case "On": case "1": return 1L;
+            case "false": case "False": case "FALSE": case "off": case "Off": case "0": return 0L;
+        }
+        if (long.TryParse(raw, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var i)) return i;
+        if (double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var d)) return d;
+        return raw;
+    }
+
     private async Task FlushAsync(List<PlcTagLogEntry> entries)
     {
         try
@@ -105,24 +128,24 @@ public sealed class PlcTagLogWriterService : BackgroundService
             using var tx = conn.BeginTransaction();
 
             const string sql = @"
-                INSERT INTO plcTagLog (plcTagId, dateTime, value)
-                VALUES (@TagId, @Dt, @Val)";
+                INSERT INTO signal (tagId, atMs, value)
+                VALUES (@TagId, @At, @Val)";
 
             await conn.ExecuteAsync(sql, entries.Select(e => new
             {
                 TagId = e.PlcTagId,
-                Dt = SqliteDateTimeHelpers.ToSqliteUtcString(e.Timestamp),
-                Val = e.Value,
+                At = Kpi.KpiTime.ToMs(e.Timestamp),
+                Val = NativeValue(e.Value),
             }), tx);
 
             tx.Commit();
-            _logger.LogTrace("[plcTagLog] flushed {Count} entries", entries.Count);
+            _logger.LogTrace("[signal] flushed {Count} entries", entries.Count);
 
             // 연속 실패 카운터 리셋 — 회복 시점을 명확히 로그.
             if (_consecutiveFailures > 0)
             {
                 _logger.LogInformation(
-                    "[plcTagLog] write recovered after {Failures} consecutive failures (total dropped so far={Dropped})",
+                    "[signal] write recovered after {Failures} consecutive failures (total dropped so far={Dropped})",
                     _consecutiveFailures, _totalDropped);
                 _consecutiveFailures = 0;
             }
@@ -136,7 +159,7 @@ public sealed class PlcTagLogWriterService : BackgroundService
             var oldest = entries[0].Timestamp;
             var newest = entries[entries.Count - 1].Timestamp;
             _logger.LogError(ex,
-                "[plcTagLog] flush failed: dropped={Count}, range={Oldest:HH:mm:ss.fff}~{Newest:HH:mm:ss.fff}, consecutive={Consec}, totalDropped={Total}",
+                "[signal] flush failed: dropped={Count}, range={Oldest:HH:mm:ss.fff}~{Newest:HH:mm:ss.fff}, consecutive={Consec}, totalDropped={Total}",
                 entries.Count, oldest, newest, _consecutiveFailures, _totalDropped);
         }
     }

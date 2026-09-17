@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Dapper;
@@ -16,9 +16,9 @@ namespace DSPilot.Repositories;
 /// <remarks>
 /// <para><b>멀티 PLC 조회 스코프 규약</b> — 주소 기반 조회 쿼리는 모두 다음 두 조각을 함께 쓴다:</para>
 /// <code>
-/// LEFT JOIN plc p ON p.id = t.plcId
+/// LEFT JOIN system p ON p.id = t.systemId
 /// ...
-/// AND (@SystemId IS NULL OR p.systemId = @SystemId)
+/// AND (@SystemId IS NULL OR p.guid = @SystemId)
 /// </code>
 /// <para>
 /// LEFT JOIN 이어야 plcId 가 끊긴 과거 행이 사라지지 않고, @SystemId 파라미터는 반드시
@@ -70,47 +70,11 @@ public class PlcRepository : IPlcRepository
     private async Task<bool> RequiredTablesExistAsync(IDbConnection connection)
     {
         return await TableExistsAsync(connection, "plc") &&
-               await TableExistsAsync(connection, "plcTag") &&
-               await TableExistsAsync(connection, "plcTagLog");
+               await TableExistsAsync(connection, "tag") &&
+               await TableExistsAsync(connection, "signal");
     }
 
     /// <inheritdoc />
-    public async Task<List<PlcEntity>> GetAllPlcsAsync()
-    {
-        try
-        {
-            using var connection = CreateConnection();
-
-            if (!await TableExistsAsync(connection, "plc"))
-            {
-                _logger.LogWarning("Table 'plc' does not exist. Returning empty list.");
-                return new List<PlcEntity>();
-            }
-
-            const string sql = @"
-                SELECT
-                    id as Id,
-                    projectId as ProjectId,
-                    name as Name,
-                    connection as Connection
-                FROM plc
-                ORDER BY id";
-
-            var plcs = await connection.QueryAsync<PlcEntity>(sql);
-            return plcs.ToList();
-        }
-        catch (SqliteException ex)
-        {
-            _logger.LogError(ex, "SQLite error in GetAllPlcsAsync");
-            return new List<PlcEntity>();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error in GetAllPlcsAsync");
-            return new List<PlcEntity>();
-        }
-    }
-
     /// <inheritdoc />
     public async Task<List<PlcTagEntity>> GetAllTagsAsync()
     {
@@ -118,21 +82,21 @@ public class PlcRepository : IPlcRepository
         {
             using var connection = CreateConnection();
 
-            if (!await TableExistsAsync(connection, "plcTag"))
+            if (!await TableExistsAsync(connection, "tag"))
             {
-                _logger.LogWarning("Table 'plcTag' does not exist. Returning empty list.");
+                _logger.LogWarning("Table 'tag' does not exist. Returning empty list.");
                 return new List<PlcTagEntity>();
             }
 
             const string sql = @"
                 SELECT
                     id as Id,
-                    plcId as PlcId,
+                    systemId as PlcId,
                     name as Name,
                     address as Address,
                     dataType as DataType
-                FROM plcTag
-                ORDER BY plcId, id";
+                FROM tag
+                ORDER BY systemId, id";
 
             var tags = await connection.QueryAsync<PlcTagEntity>(sql);
             return tags.ToList();
@@ -157,11 +121,11 @@ public class PlcRepository : IPlcRepository
         const string sql = @"
             SELECT
                 id as Id,
-                plcId as PlcId,
+                systemId as PlcId,
                 name as Name,
                 address as Address,
                 dataType as DataType
-            FROM plcTag
+            FROM tag
             WHERE id = @TagId
             LIMIT 1";
 
@@ -175,7 +139,7 @@ public class PlcRepository : IPlcRepository
         using var connection = CreateConnection();
 
         // F# QueryHelpers 사용
-        var sinceStr = SqliteDateTimeHelpers.ToSqliteUtcString(sinceDateTime);
+        var sinceStr = Kpi.KpiTime.ToMs(sinceDateTime);
 
         const string sql = @"
             SELECT
@@ -183,7 +147,7 @@ public class PlcRepository : IPlcRepository
                 plcTagId as PlcTagId,
                 dateTime as DateTime,
                 value as Value
-            FROM plcTagLog
+            FROM signal
             WHERE dateTime > @SinceDateTime
             ORDER BY dateTime ASC, id ASC";
 
@@ -201,8 +165,8 @@ public class PlcRepository : IPlcRepository
         using var connection = CreateConnection();
 
         // F# QueryHelpers 사용
-        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startExclusive);
-        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endInclusive);
+        var startStr = Kpi.KpiTime.ToMs(startExclusive);
+        var endStr = Kpi.KpiTime.ToMs(endInclusive);
 
         _logger.LogInformation("🔍 GetLogsInRangeAsync: Local ({LocalStart} ~ {LocalEnd}] → UTC ({UtcStart} ~ {UtcEnd}]",
             startExclusive.ToString("HH:mm:ss.fff"),
@@ -216,7 +180,7 @@ public class PlcRepository : IPlcRepository
                 plcTagId as PlcTagId,
                 dateTime as DateTime,
                 value as Value
-            FROM plcTagLog
+            FROM signal
             WHERE dateTime > @StartExclusive
               AND dateTime <= @EndInclusive
             ORDER BY dateTime ASC, id ASC";
@@ -241,7 +205,7 @@ public class PlcRepository : IPlcRepository
     {
         using var connection = CreateConnection();
 
-        const string sql = "SELECT MIN(dateTime) FROM plcTagLog";
+        const string sql = "SELECT MIN(dateTime) FROM signal";
         var resultStr = await connection.ExecuteScalarAsync<string>(sql);
 
         if (string.IsNullOrEmpty(resultStr))
@@ -263,7 +227,7 @@ public class PlcRepository : IPlcRepository
     {
         using var connection = CreateConnection();
 
-        const string sql = "SELECT MAX(dateTime) FROM plcTagLog";
+        const string sql = "SELECT MAX(dateTime) FROM signal";
         var resultStr = await connection.ExecuteScalarAsync<string>(sql);
 
         if (string.IsNullOrEmpty(resultStr))
@@ -291,7 +255,7 @@ public class PlcRepository : IPlcRepository
                 plcTagId as PlcTagId,
                 dateTime as DateTime,
                 value as Value
-            FROM plcTagLog
+            FROM signal
             WHERE plcTagId = @TagId
             ORDER BY dateTime DESC
             LIMIT 1";
@@ -307,7 +271,7 @@ public class PlcRepository : IPlcRepository
         if (addresses.Count == 0) return new List<PlcTagLogEntity>();
 
         using var connection = CreateConnection();
-        var atOrBeforeStr = SqliteDateTimeHelpers.ToSqliteUtcString(atOrBefore);
+        var atOrBeforeStr = Kpi.KpiTime.ToMs(atOrBefore);
 
         // 최적화: ROW_NUMBER() OVER (PARTITION BY ...) 는 시작시각 이전의 전체 로그를 스캔/랭킹.
         // plc.db 가 수십만~수백만 행이면 cycle-time-analysis 시간범위 변경 시 매번 메가스캔.
@@ -315,23 +279,23 @@ public class PlcRepository : IPlcRepository
         //   태그당 1회 index seek 로 끝나므로 plc.db 사이즈와 무관하게 일정 시간.
         const string sql = @"
 WITH max_times AS (
-    SELECT l.plcTagId AS PlcTagId, MAX(l.dateTime) AS MaxDateTime
-    FROM plcTagLog l
-    INNER JOIN plcTag t ON l.plcTagId = t.id
-    LEFT JOIN plc p ON p.id = t.plcId
+    SELECT l.tagId AS PlcTagId, MAX(l.atMs) AS MaxDateTime
+    FROM signal l
+    INNER JOIN tag t ON l.tagId = t.id
+    LEFT JOIN system p ON p.id = t.systemId
     WHERE t.address IN @Addresses
-      AND (@SystemId IS NULL OR p.systemId = @SystemId)
-      AND l.dateTime <= @AtOrBefore
-    GROUP BY l.plcTagId
+      AND (@SystemId IS NULL OR p.guid = @SystemId)
+      AND l.atMs <= @AtOrBefore
+    GROUP BY l.tagId
 )
 SELECT
     l.id AS Id,
-    l.plcTagId AS PlcTagId,
-    l.dateTime AS DateTime,
+    l.tagId AS PlcTagId,
+    l.atMs AS DateTime,
     l.value AS Value
-FROM plcTagLog l
+FROM signal l
 INNER JOIN max_times m
-    ON l.plcTagId = m.PlcTagId AND l.dateTime = m.MaxDateTime";
+    ON l.tagId = m.PlcTagId AND l.atMs = m.MaxDateTime";
 
         var logs = await connection.QueryAsync<PlcTagLogEntity>(sql, new
         {
@@ -348,7 +312,7 @@ INNER JOIN max_times m
     {
         using var connection = CreateConnection();
 
-        const string sql = "SELECT COUNT(*) FROM plcTagLog";
+        const string sql = "SELECT COUNT(*) FROM signal";
         var count = await connection.ExecuteScalarAsync<int>(sql);
 
         return count;
@@ -365,7 +329,7 @@ INNER JOIN max_times m
             // 테이블 존재 확인
             const string sql = @"
                 SELECT COUNT(*) FROM sqlite_master
-                WHERE type='table' AND name IN ('plc', 'plcTag', 'plcTagLog')";
+                WHERE type='table' AND name IN ('system', 'tag', 'signal')";
 
             var tableCount = await connection.ExecuteScalarAsync<int>(sql);
 
@@ -390,53 +354,28 @@ INNER JOIN max_times m
     }
 
     /// <summary>
-    /// plcTagLog 성능 최적화 인덱스 생성 (IF NOT EXISTS로 안전)
+    /// 인덱스는 스키마(<see cref="Kpi.KpiDb"/>)가 소유한다 — 여기서 따로 만들지 않는다.
+    /// 두 곳에서 만들면 이름·정의가 갈라져 어느 쪽이 실제로 쓰이는지 알 수 없게 된다.
     /// </summary>
-    private async Task EnsureIndexesAsync(IDbConnection connection)
-    {
-        var indexes = new[]
-        {
-            "CREATE INDEX IF NOT EXISTS idx_plcTagLog_dateTime_id ON plcTagLog(dateTime, id)",
-            "CREATE INDEX IF NOT EXISTS idx_plcTagLog_tagId_id ON plcTagLog(plcTagId, id DESC)",
-            // GetMultipleTagLogsInRangeAsync 의 핵심 쿼리(plcTagId IN (..) AND dateTime BETWEEN .. AND ..)
-            // 를 단일 인덱스 스캔으로 처리하기 위한 복합 인덱스. cycle-time-analysis 등 시간범위 조회 페이지의
-            // 주요 병목.
-            "CREATE INDEX IF NOT EXISTS idx_plcTagLog_tagId_dateTime ON plcTagLog(plcTagId, dateTime)",
-            "CREATE INDEX IF NOT EXISTS idx_plcTag_address ON plcTag(address)",
-        };
-
-        foreach (var ddl in indexes)
-        {
-            try
-            {
-                await connection.ExecuteAsync(ddl);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to create index: {Sql}", ddl);
-            }
-        }
-
-        _logger.LogInformation("Database indexes ensured");
-    }
+    private static Task EnsureIndexesAsync(IDbConnection connection) => Task.CompletedTask;
 
     public async Task<List<PlcTagLogEntity>> GetTagLogsByAddressInRangeAsync(
         string address, DateTime startTime, DateTime endTime, Guid? systemId = null)
     {
         using var connection = CreateConnection();
-        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
-        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
+        var startStr = Kpi.KpiTime.ToMs(startTime);
+        var endStr = Kpi.KpiTime.ToMs(endTime);
 
         const string sql = @"
-SELECT l.Id, l.PlcTagId, l.DateTime, l.Value
-FROM plcTagLog l
-INNER JOIN plcTag t ON l.PlcTagId = t.Id
-LEFT JOIN plc p ON p.id = t.plcId
+SELECT l.Id, l.tagId AS PlcTagId, l.atMs AS DateTime, CAST(l.value AS TEXT) AS Value
+FROM signal l
+INNER JOIN tag t ON l.tagId = t.Id
+LEFT JOIN system p ON p.id = t.systemId
 WHERE t.Address = @Address
-  AND (@SystemId IS NULL OR p.systemId = @SystemId)
-  AND l.DateTime >= @StartTime
-  AND l.DateTime <= @EndTime
-ORDER BY l.DateTime ASC";
+  AND (@SystemId IS NULL OR p.guid = @SystemId)
+  AND l.atMs >= @StartTime
+  AND l.atMs <= @EndTime
+ORDER BY l.atMs ASC";
 
         var logs = await connection.QueryAsync<PlcTagLogEntity>(sql, new
         {
@@ -455,25 +394,25 @@ ORDER BY l.DateTime ASC";
         if (addresses.Count == 0) return new List<PlcTagLogEntity>();
 
         using var connection = CreateConnection();
-        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
-        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
+        var startStr = Kpi.KpiTime.ToMs(startTime);
+        var endStr = Kpi.KpiTime.ToMs(endTime);
 
         const string sql = @"
 SELECT
     l.Id AS Id,
-    l.PlcTagId AS PlcTagId,
-    l.DateTime AS DateTime,
-    l.Value AS Value,
+    l.tagId AS PlcTagId,
+    l.atMs AS DateTime,
+    CAST(l.value AS TEXT) AS Value,
     t.Name AS TagName,
     t.Address AS Address
-FROM plcTagLog l
-INNER JOIN plcTag t ON l.PlcTagId = t.Id
-LEFT JOIN plc p ON p.id = t.plcId
+FROM signal l
+INNER JOIN tag t ON l.tagId = t.Id
+LEFT JOIN system p ON p.id = t.systemId
 WHERE t.Address IN @Addresses
-  AND (@SystemId IS NULL OR p.systemId = @SystemId)
-  AND l.DateTime >= @StartTime
-  AND l.DateTime <= @EndTime
-ORDER BY l.DateTime ASC";
+  AND (@SystemId IS NULL OR p.guid = @SystemId)
+  AND l.atMs >= @StartTime
+  AND l.atMs <= @EndTime
+ORDER BY l.atMs ASC";
 
         var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new
         {
@@ -505,35 +444,35 @@ ORDER BY l.DateTime ASC";
         if (addresses.Count == 0) return new List<PlcTagLogEntity>();
 
         using var connection = CreateConnection();
-        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
-        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
+        var startStr = Kpi.KpiTime.ToMs(startTime);
+        var endStr = Kpi.KpiTime.ToMs(endTime);
 
         const string sql = @"
 WITH ordered_logs AS (
     SELECT
         l.Id AS Id,
-        l.PlcTagId AS PlcTagId,
-        l.DateTime AS DateTime,
-        l.Value AS Value,
+        l.tagId AS PlcTagId,
+        l.atMs AS DateTime,
+        CAST(l.value AS TEXT) AS Value,
         t.Name AS TagName,
         t.Address AS Address,
         CASE
-            WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+            WHEN lower(trim(coalesce(l.value, ''))) IN ('1', 'true', 'on') THEN '1'
             ELSE '0'
         END AS NormalizedValue,
         LAG(
             CASE
-                WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+                WHEN lower(trim(coalesce(l.value, ''))) IN ('1', 'true', 'on') THEN '1'
                 ELSE '0'
             END
-        ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
-    FROM plcTagLog l
-    INNER JOIN plcTag t ON l.PlcTagId = t.Id
-    LEFT JOIN plc p ON p.id = t.plcId
+        ) OVER (PARTITION BY l.tagId ORDER BY l.atMs ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM signal l
+    INNER JOIN tag t ON l.tagId = t.Id
+    LEFT JOIN system p ON p.id = t.systemId
     WHERE t.Address IN @Addresses
-      AND (@SystemId IS NULL OR p.systemId = @SystemId)
-      AND l.DateTime >= @StartTime
-      AND l.DateTime <= @EndTime
+      AND (@SystemId IS NULL OR p.guid = @SystemId)
+      AND l.atMs >= @StartTime
+      AND l.atMs <= @EndTime
 )
 SELECT
     Id,
@@ -573,31 +512,31 @@ ORDER BY DateTime ASC, Id ASC";
         string address, DateTime startTime, DateTime endTime, Guid? systemId = null)
     {
         using var connection = CreateConnection();
-        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
-        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
+        var startStr = Kpi.KpiTime.ToMs(startTime);
+        var endStr = Kpi.KpiTime.ToMs(endTime);
 
         const string sql = @"
 WITH ordered_logs AS (
     SELECT
         l.Id AS Id,
-        l.DateTime AS DateTime,
+        l.atMs AS DateTime,
         CASE
-            WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+            WHEN lower(trim(coalesce(l.value, ''))) IN ('1', 'true', 'on') THEN '1'
             ELSE '0'
         END AS NormalizedValue,
         LAG(
             CASE
-                WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+                WHEN lower(trim(coalesce(l.value, ''))) IN ('1', 'true', 'on') THEN '1'
                 ELSE '0'
             END
-        ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
-    FROM plcTagLog l
-    INNER JOIN plcTag t ON l.PlcTagId = t.Id
-    LEFT JOIN plc p ON p.id = t.plcId
+        ) OVER (PARTITION BY l.tagId ORDER BY l.atMs ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM signal l
+    INNER JOIN tag t ON l.tagId = t.Id
+    LEFT JOIN system p ON p.id = t.systemId
     WHERE t.Address = @Address
-      AND (@SystemId IS NULL OR p.systemId = @SystemId)
-      AND l.DateTime >= @StartTime
-      AND l.DateTime <= @EndTime
+      AND (@SystemId IS NULL OR p.guid = @SystemId)
+      AND l.atMs >= @StartTime
+      AND l.atMs <= @EndTime
 )
 SELECT
     Id,
@@ -622,8 +561,8 @@ ORDER BY DateTime ASC, Id ASC";
         string address, DateTime startTime, DateTime endTime, Guid? systemId = null)
     {
         using var connection = CreateConnection();
-        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
-        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
+        var startStr = Kpi.KpiTime.ToMs(startTime);
+        var endStr = Kpi.KpiTime.ToMs(endTime);
 
         // FindRisingEdgesAsync 의 역 — prev='1' AND cur='0'. leading 행(LAG NULL)은 '1'≠NULL 이므로
         // falling 으로 오검출되지 않는다. 호출부(OEE 폴러)가 onset '1' 로그를 포함하도록 윈도를 잡아
@@ -632,24 +571,24 @@ ORDER BY DateTime ASC, Id ASC";
 WITH ordered_logs AS (
     SELECT
         l.Id AS Id,
-        l.DateTime AS DateTime,
+        l.atMs AS DateTime,
         CASE
-            WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+            WHEN lower(trim(coalesce(l.value, ''))) IN ('1', 'true', 'on') THEN '1'
             ELSE '0'
         END AS NormalizedValue,
         LAG(
             CASE
-                WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+                WHEN lower(trim(coalesce(l.value, ''))) IN ('1', 'true', 'on') THEN '1'
                 ELSE '0'
             END
-        ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
-    FROM plcTagLog l
-    INNER JOIN plcTag t ON l.PlcTagId = t.Id
-    LEFT JOIN plc p ON p.id = t.plcId
+        ) OVER (PARTITION BY l.tagId ORDER BY l.atMs ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM signal l
+    INNER JOIN tag t ON l.tagId = t.Id
+    LEFT JOIN system p ON p.id = t.systemId
     WHERE t.Address = @Address
-      AND (@SystemId IS NULL OR p.systemId = @SystemId)
-      AND l.DateTime >= @StartTime
-      AND l.DateTime <= @EndTime
+      AND (@SystemId IS NULL OR p.guid = @SystemId)
+      AND l.atMs >= @StartTime
+      AND l.atMs <= @EndTime
 )
 SELECT
     Id,
@@ -690,31 +629,31 @@ ORDER BY DateTime ASC, Id ASC";
 
         // 값형(Int/Float/String) — 활성 = 값 일치(lower/trim 문자열 비교, 로그 원문 기준 근사).
         using var connection = CreateConnection();
-        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
-        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
+        var startStr = Kpi.KpiTime.ToMs(startTime);
+        var endStr = Kpi.KpiTime.ToMs(endTime);
 
         const string sql = @"
 WITH ordered_logs AS (
     SELECT
         l.Id AS Id,
-        l.DateTime AS DateTime,
+        l.atMs AS DateTime,
         CASE
-            WHEN lower(trim(coalesce(l.Value, ''))) = lower(trim(@ActiveValue)) THEN '1'
+            WHEN lower(trim(coalesce(l.value, ''))) = lower(trim(@ActiveValue)) THEN '1'
             ELSE '0'
         END AS NormalizedValue,
         LAG(
             CASE
-                WHEN lower(trim(coalesce(l.Value, ''))) = lower(trim(@ActiveValue)) THEN '1'
+                WHEN lower(trim(coalesce(l.value, ''))) = lower(trim(@ActiveValue)) THEN '1'
                 ELSE '0'
             END
-        ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
-    FROM plcTagLog l
-    INNER JOIN plcTag t ON l.PlcTagId = t.Id
-    LEFT JOIN plc p ON p.id = t.plcId
+        ) OVER (PARTITION BY l.tagId ORDER BY l.atMs ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM signal l
+    INNER JOIN tag t ON l.tagId = t.Id
+    LEFT JOIN system p ON p.id = t.systemId
     WHERE t.Address = @Address
-      AND (@SystemId IS NULL OR p.systemId = @SystemId)
-      AND l.DateTime >= @StartTime
-      AND l.DateTime <= @EndTime
+      AND (@SystemId IS NULL OR p.guid = @SystemId)
+      AND l.atMs >= @StartTime
+      AND l.atMs <= @EndTime
 )
 SELECT
     Id,
@@ -767,29 +706,29 @@ ORDER BY DateTime ASC, Id ASC";
         string address, string? activeValue, DateTime startTime, DateTime endTime, Guid? systemId)
     {
         using var connection = CreateConnection();
-        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
-        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
+        var startStr = Kpi.KpiTime.ToMs(startTime);
+        var endStr = Kpi.KpiTime.ToMs(endTime);
 
         bool invert = string.Equals(activeValue, "false", StringComparison.OrdinalIgnoreCase);
         bool valueMatch = activeValue is not null && !invert;
         string normalize = valueMatch
-            ? "CASE WHEN lower(trim(coalesce(l.Value, ''))) = lower(trim(@ActiveValue)) THEN '1' ELSE '0' END"
-            : "CASE WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1' ELSE '0' END";
+            ? "CASE WHEN lower(trim(coalesce(l.value, ''))) = lower(trim(@ActiveValue)) THEN '1' ELSE '0' END"
+            : "CASE WHEN lower(trim(coalesce(l.value, ''))) IN ('1', 'true', 'on') THEN '1' ELSE '0' END";
 
         var sql = $@"
 WITH ordered_logs AS (
     SELECT
         l.Id AS Id,
-        l.DateTime AS DateTime,
+        l.atMs AS DateTime,
         {normalize} AS NormalizedValue,
-        LAG({normalize}) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
-    FROM plcTagLog l
-    INNER JOIN plcTag t ON l.PlcTagId = t.Id
-    LEFT JOIN plc p ON p.id = t.plcId
+        LAG({normalize}) OVER (PARTITION BY l.tagId ORDER BY l.atMs ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM signal l
+    INNER JOIN tag t ON l.tagId = t.Id
+    LEFT JOIN system p ON p.id = t.systemId
     WHERE t.Address = @Address
-      AND (@SystemId IS NULL OR p.systemId = @SystemId)
-      AND l.DateTime >= @StartTime
-      AND l.DateTime <= @EndTime
+      AND (@SystemId IS NULL OR p.guid = @SystemId)
+      AND l.atMs >= @StartTime
+      AND l.atMs <= @EndTime
 )
 SELECT
     Id,
@@ -822,32 +761,32 @@ ORDER BY DateTime ASC, Id ASC";
         string address, DateTime startTime, DateTime endTime, Guid? systemId = null)
     {
         using var connection = CreateConnection();
-        var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
-        var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
+        var startStr = Kpi.KpiTime.ToMs(startTime);
+        var endStr = Kpi.KpiTime.ToMs(endTime);
 
         // FindRisingEdgesAsync 와 동일하나 엣지 로그의 id 를 함께 반환(OEE onset 멱등 키 sourceLogId 용).
         const string sql = @"
 WITH ordered_logs AS (
     SELECT
         l.Id AS Id,
-        l.DateTime AS DateTime,
+        l.atMs AS DateTime,
         CASE
-            WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+            WHEN lower(trim(coalesce(l.value, ''))) IN ('1', 'true', 'on') THEN '1'
             ELSE '0'
         END AS NormalizedValue,
         LAG(
             CASE
-                WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+                WHEN lower(trim(coalesce(l.value, ''))) IN ('1', 'true', 'on') THEN '1'
                 ELSE '0'
             END
-        ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
-    FROM plcTagLog l
-    INNER JOIN plcTag t ON l.PlcTagId = t.Id
-    LEFT JOIN plc p ON p.id = t.plcId
+        ) OVER (PARTITION BY l.tagId ORDER BY l.atMs ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM signal l
+    INNER JOIN tag t ON l.tagId = t.Id
+    LEFT JOIN system p ON p.id = t.systemId
     WHERE t.Address = @Address
-      AND (@SystemId IS NULL OR p.systemId = @SystemId)
-      AND l.DateTime >= @StartTime
-      AND l.DateTime <= @EndTime
+      AND (@SystemId IS NULL OR p.guid = @SystemId)
+      AND l.atMs >= @StartTime
+      AND l.atMs <= @EndTime
 )
 SELECT
     Id,
@@ -879,22 +818,22 @@ ORDER BY DateTime ASC, Id ASC";
 WITH recent_logs AS (
     SELECT
         l.Id AS Id,
-        l.DateTime AS DateTime,
+        l.atMs AS DateTime,
         CASE
-            WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+            WHEN lower(trim(coalesce(l.value, ''))) IN ('1', 'true', 'on') THEN '1'
             ELSE '0'
         END AS NormalizedValue,
         LAG(
             CASE
-                WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+                WHEN lower(trim(coalesce(l.value, ''))) IN ('1', 'true', 'on') THEN '1'
                 ELSE '0'
             END
-        ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
-    FROM plcTagLog l
-    INNER JOIN plcTag t ON l.PlcTagId = t.Id
-    LEFT JOIN plc p ON p.id = t.plcId
+        ) OVER (PARTITION BY l.tagId ORDER BY l.atMs ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM signal l
+    INNER JOIN tag t ON l.tagId = t.Id
+    LEFT JOIN system p ON p.id = t.systemId
     WHERE t.Address = @Address
-      AND (@SystemId IS NULL OR p.systemId = @SystemId)
+      AND (@SystemId IS NULL OR p.guid = @SystemId)
 ),
 edges AS (
     SELECT DateTime
@@ -916,17 +855,17 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
         return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
     }
 
-    private static DateTime ParseSqliteDateTime(string value)
-    {
-        var parsed = SqliteDateTimeHelpers.FromSqliteUtcString(value);
-        return parsed ?? DateTime.Parse(value);
-    }
+    /// <summary>
+    /// 저장된 정수 epoch ms 를 <b>로컬</b> DateTime 으로 돌린다. 이 저장소의 계약은 종전과 같다 —
+    /// 호출자는 로컬 시각을 넣고 로컬 시각을 받는다. 변환은 여기 한 곳에서만 한다.
+    /// </summary>
+    private static DateTime ParseSqliteDateTime(long atMs) => Kpi.KpiTime.ToLocal(atMs);
 
     private sealed class PlcTagLogAddressRow
     {
         public int Id { get; set; }
         public int PlcTagId { get; set; }
-        public string DateTime { get; set; } = string.Empty;
+        public long DateTime { get; set; }
         public string? Value { get; set; }
         public string TagName { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
@@ -937,20 +876,20 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
     private sealed class PlcTagLogValueRow
     {
         public int Id { get; set; }
-        public string DateTime { get; set; } = string.Empty;
+        public long DateTime { get; set; }
         public string? Value { get; set; }
     }
 
     private sealed class PlcTagDateTimeRow
     {
         public int Id { get; set; }
-        public string DateTime { get; set; } = string.Empty;
+        public long DateTime { get; set; }
     }
 
     private sealed class PlcTagTransitionRow
     {
         public int Id { get; set; }
-        public string DateTime { get; set; } = string.Empty;
+        public long DateTime { get; set; }
         public string NormalizedValue { get; set; } = string.Empty;
     }
 
@@ -962,16 +901,16 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
         const string sql = @"
             SELECT
                 l.id as Id,
-                l.plcTagId as PlcTagId,
-                l.dateTime as DateTime,
+                l.tagId as PlcTagId,
+                l.atMs as DateTime,
                 l.value as Value,
                 t.name as TagName,
                 t.address as Address
-            FROM plcTagLog l
-            INNER JOIN plcTag t ON l.plcTagId = t.id
-            LEFT JOIN plc p ON p.id = t.plcId
+            FROM signal l
+            INNER JOIN tag t ON l.tagId = t.id
+            LEFT JOIN system p ON p.id = t.systemId
             WHERE t.address = @Address
-              AND (@SystemId IS NULL OR p.systemId = @SystemId)
+              AND (@SystemId IS NULL OR p.guid = @SystemId)
             ORDER BY l.id DESC
             LIMIT @Count";
 
@@ -1007,24 +946,24 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
                 return new List<PlcTagLogEntity>();
             }
 
-            var startStr = SqliteDateTimeHelpers.ToSqliteUtcString(startTime);
-            var endStr = SqliteDateTimeHelpers.ToSqliteUtcString(endTime);
+            var startStr = Kpi.KpiTime.ToMs(startTime);
+            var endStr = Kpi.KpiTime.ToMs(endTime);
 
             const string sql = @"
                 SELECT
                     l.id as Id,
-                    l.plcTagId as PlcTagId,
-                    l.dateTime as DateTime,
+                    l.tagId as PlcTagId,
+                    l.atMs as DateTime,
                     l.value as Value,
                     t.name as TagName,
                     t.address as Address
-                FROM plcTagLog l
-                INNER JOIN plcTag t ON l.plcTagId = t.id
-                LEFT JOIN plc p ON p.id = t.plcId
+                FROM signal l
+                INNER JOIN tag t ON l.tagId = t.id
+                LEFT JOIN system p ON p.id = t.systemId
                 WHERE t.address = @Address
-                  AND (@SystemId IS NULL OR p.systemId = @SystemId)
-                  AND l.dateTime >= @StartTime
-                  AND l.dateTime <= @EndTime
+                  AND (@SystemId IS NULL OR p.guid = @SystemId)
+                  AND l.atMs >= @StartTime
+                  AND l.atMs <= @EndTime
                 ORDER BY l.id ASC";
 
             var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new
@@ -1064,11 +1003,11 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
 
         if (!await RequiredTablesExistAsync(connection))
         {
-            _logger.LogDebug("Required tables (plcTag/plcTagLog) do not exist yet. Returning 0 watermark.");
+            _logger.LogDebug("Required tables (tag/signal) do not exist yet. Returning 0 watermark.");
             return 0L;
         }
 
-        return await connection.ExecuteScalarAsync<long?>("SELECT MAX(id) FROM plcTagLog") ?? 0L;
+        return await connection.ExecuteScalarAsync<long?>("SELECT MAX(id) FROM signal") ?? 0L;
     }
 
     /// <inheritdoc />
@@ -1082,20 +1021,20 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
         }
 
         // LIMIT 필수 — 워터마크가 크게 뒤처진 상태(부팅 직후 등)에서 무제한 조회하면 수개월치
-        // plcTagLog 를 통째로 materialize 한다. 호출측은 id ASC + 배치 Max(id) 워터마크 전진
+        // signal 을 통째로 materialize 한다. 호출측은 id ASC + 배치 Max(id) 워터마크 전진
         // 패턴이라, 잘린 잔여분은 다음 폴링 주기에 이어서 처리된다.
         const string sql = @"
             SELECT
                 l.id AS Id,
-                l.plcTagId AS PlcTagId,
-                l.dateTime AS DateTime,
+                l.tagId AS PlcTagId,
+                l.atMs AS DateTime,
                 l.value AS Value,
                 t.name AS TagName,
                 t.address AS Address,
-                COALESCE(p.systemId, '') AS SystemId
-            FROM plcTagLog l
-            INNER JOIN plcTag t ON l.plcTagId = t.id
-            LEFT JOIN plc p ON p.id = t.plcId
+                COALESCE(p.guid, '') AS SystemId
+            FROM signal l
+            INNER JOIN tag t ON l.tagId = t.id
+            LEFT JOIN system p ON p.id = t.systemId
             WHERE l.id > @AfterId
             ORDER BY l.id ASC
             LIMIT @Limit";

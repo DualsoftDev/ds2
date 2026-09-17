@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Microsoft.Data.Sqlite;
@@ -46,7 +46,7 @@ public static class DiagnosticTool
             Console.WriteLine("2. Checking plcTagLog...");
             using (var cmd = connection.CreateCommand())
             {
-                cmd.CommandText = "SELECT COUNT(*) FROM plcTagLog;";
+                cmd.CommandText = "SELECT COUNT(*) FROM signal;";
                 var count = (long)(cmd.ExecuteScalar() ?? 0L);
                 Console.WriteLine($"   Total rows: {count}");
             }
@@ -72,7 +72,7 @@ public static class DiagnosticTool
             // 4. Check MIN/MAX dateTime
             using (var cmd = connection.CreateCommand())
             {
-                cmd.CommandText = "SELECT MIN(dateTime), MAX(dateTime) FROM plcTagLog;";
+                cmd.CommandText = "SELECT MIN(atMs), MAX(atMs) FROM signal;";
                 using var reader = cmd.ExecuteReader();
                 if (reader.Read())
                 {
@@ -111,7 +111,7 @@ public static class DiagnosticTool
             Console.WriteLine("4. Sample data (first 5 rows)...");
             using (var cmd = connection.CreateCommand())
             {
-                cmd.CommandText = "SELECT id, plcTagId, dateTime, value FROM plcTagLog ORDER BY id LIMIT 5;";
+                cmd.CommandText = "SELECT id, tagId, atMs, value FROM signal ORDER BY id LIMIT 5;";
                 using var reader = cmd.ExecuteReader();
                 int row = 0;
                 while (reader.Read())
@@ -130,14 +130,14 @@ public static class DiagnosticTool
             Console.WriteLine("5. Checking plcTag...");
             using (var cmd = connection.CreateCommand())
             {
-                cmd.CommandText = "SELECT COUNT(*) FROM plcTag;";
+                cmd.CommandText = "SELECT COUNT(*) FROM tag;";
                 var count = (long)(cmd.ExecuteScalar() ?? 0L);
                 Console.WriteLine($"   Total tags: {count}");
             }
 
             using (var cmd = connection.CreateCommand())
             {
-                cmd.CommandText = "SELECT id, name, address FROM plcTag LIMIT 5;";
+                cmd.CommandText = "SELECT id, name, address FROM tag LIMIT 5;";
                 using var reader = cmd.ExecuteReader();
                 Console.WriteLine("   Sample tags:");
                 while (reader.Read())

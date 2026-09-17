@@ -23,11 +23,10 @@ public sealed class KpiDb
 {
     /// <summary>
     /// 스키마 버전 — PRAGMA user_version 에 기록된다.
-    /// v2(2026-09-17): 단일 DB 전환. 원시 신호·모델·알람 표를 여기서 만들지 않는다 —
-    /// 같은 파일 안에 기존 표(plcTagLog · plcTag · plc · dspFlow · dspCall · userTagAlertLog)가
-    /// 이미 그 역할을 하고 있어 나란히 만들면 같은 데이터가 두 벌이 된다.
+    /// v3(2026-09-17): 원시 계층(system · tag · signal · alert)을 이 코어가 소유한다.
+    /// 시각은 정수 epoch ms 이고, 신호 값은 타입 친화도를 선언하지 않아 비트·수치·문자열이 한 칸에 들어간다.
     /// </summary>
-    public const int SchemaVersion = 2;
+    public const int SchemaVersion = 3;
 
     /// <summary>판정 규칙 버전 — 사이클 행에 박제해 어떤 규칙으로 만들어진 행인지 남긴다.</summary>
     public const string SpecVersion = "v68.1";
@@ -185,13 +184,85 @@ public sealed class KpiDb
     private static readonly string[] DerivedTables =
     [
         "cycleWork", "cycle", "baseline", "linkEvent",
-        // v1 이 만들었던 표 — 같은 파일의 기존 표와 이름이 겹치거나 역할이 중복되어 폐기했다.
-        "signalLog", "tag", "alertLog",
+        // v1 이 만들었다 폐기한 이름 — 남아 있으면 지운다.
+        "signalLog", "alertLog",
     ];
 
-    /// <summary>스키마 v2 — doc/30 §9. 판정 결과와 보조 관측만 소유한다.</summary>
+    /// <summary>
+    /// 스키마 — doc/30 §9. 원시 계층(system · tag · signal · alert)과 판정 계층(cycle 이하)을 함께 소유한다.
+    /// 원시는 절대 버리지 않고(재생성 불가), 판정 계층만 버전이 바뀌면 다시 만든다.
+    /// </summary>
     private static readonly string[] SchemaV2 =
     [
+        // ── 원시 계층 ──────────────────────────────────────────────────────────
+        // 시스템 = PLC 연결 하나. 이름은 표시용이고 귀속 키는 guid 다(사용자가 이름을 바꿀 수 있다).
+        """
+        CREATE TABLE IF NOT EXISTS system (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            name     TEXT NOT NULL UNIQUE,
+            guid     TEXT,
+            vendor   TEXT,
+            endpoint TEXT
+        )
+        """,
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_system_guid ON system(guid) WHERE guid IS NOT NULL",
+
+        // 태그. dataType 은 UserTag 의 값 종류 어휘를 그대로 쓴다
+        // (Bit · Byte · Word · DWord · Int16 · Int32 · Real · String). IO 맵 주소는 Bit.
+        // label · unit · isUserTag 는 태그 모니터링 화면이 표시 형식을 정하는 근거다.
+        """
+        CREATE TABLE IF NOT EXISTS tag (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            systemId  INTEGER NOT NULL DEFAULT 1,
+            name      TEXT    NOT NULL,
+            address   TEXT    NOT NULL,
+            dataType  TEXT    NOT NULL DEFAULT 'Bit',
+            label     TEXT,
+            unit      TEXT,
+            isUserTag INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (systemId, address)
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_tag_address ON tag(address)",
+        "CREATE INDEX IF NOT EXISTS idx_tag_user ON tag(isUserTag) WHERE isUserTag = 1",
+
+        // 값 변화 하나가 한 줄. value 에 타입을 선언하지 않는 것이 요점이다 —
+        // 비트는 1바이트 정수, 수치는 REAL, 문자열은 TEXT 로 같은 칸에 들어간다.
+        """
+        CREATE TABLE IF NOT EXISTS signal (
+            id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            tagId INTEGER NOT NULL,
+            atMs  INTEGER NOT NULL,
+            value         NOT NULL
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_signal_tag_at ON signal(tagId, atMs)",
+        "CREATE INDEX IF NOT EXISTS idx_signal_at ON signal(atMs)",
+
+        // 이상·알람. 시스템 이름과 태그 주소를 함께 박제한다 — 모델이 바뀌어 태그가 사라져도
+        // 과거 알람이 어디서 났는지 읽을 수 있어야 한다.
+        """
+        CREATE TABLE IF NOT EXISTS alert (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            occurredMs  INTEGER NOT NULL,
+            clearedMs   INTEGER,
+            systemGuid  TEXT,
+            systemName  TEXT,
+            name        TEXT    NOT NULL,
+            level       TEXT    NOT NULL,
+            tagId       INTEGER,
+            tagAddress  TEXT,
+            valueType   TEXT,
+            matchOp     TEXT,
+            matchValue  TEXT,
+            actualValue TEXT
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_alert_occurred ON alert(occurredMs)",
+        "CREATE INDEX IF NOT EXISTS idx_alert_level_time ON alert(level, occurredMs)",
+        "CREATE INDEX IF NOT EXISTS idx_alert_name_time ON alert(name, occurredMs)",
+
+        // ── 판정 계층 ──────────────────────────────────────────────────────────
         // 사이클 행. 상태 컬럼은 없다 — 상태는 조회 시 현재 κ 로 도출한다(doc/30 §5).
         // rUsedMs · worstRatio 가 완료 시점에 박제되므로 기준선이 움직여도 과거는 변하지 않는다.
         // 시각은 전부 정수 epoch ms — 텍스트 날짜(약 28바이트)보다 짧고 파싱 함정이 없다.
