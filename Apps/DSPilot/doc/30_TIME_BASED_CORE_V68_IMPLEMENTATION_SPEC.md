@@ -123,23 +123,79 @@ GET /api/kpi/timeline?from=&to=&flow=[&branch=]
 - Q 전역 입력(기본 100%).
 - 종전 배수 미리보기 API 는 불필요(즉시 반영으로 대체).
 
-## 9. 저장 — DB 1개
+## 9. 저장 — DB 1개, 백지에서 다시
 
-파일: `Shared/dspilot.db`. `PRAGMA user_version = 1` 로 시작. **ALTER 체인 금지**, 스키마 변경은 버전 증가 + 명시적 마이그레이션 코드.
+파일: `Shared/dspilot.db`. `PRAGMA user_version` 로 버전을 찍고, 바뀌면 **ALTER 를 쌓지 않고 다시 만든다**.
+구 DB 두 개는 기동 시 지운다. 이관할 데이터가 없으므로 구 표 이름·형식을 물려받지 않는다.
 
-| 테이블 | 핵심 컬럼 | 보존 |
-|---|---|---|
-| cycle | id, flow, branch, startAt(head), endAt(next head), ct, mt, wt, rUsed, worstWork, worstRatio, excludeReason, specVersion | 영구 |
-| cycleWork | cycleId, work, durationMs, wUsed | 영구 |
-| baseline | flow, branch, work(NULL=R), value, sampleCount, asOfDate | 영구(일별 스냅샷) |
-| linkEvent | system, isConnected, error, atUtc, source(agent/pi) | 영구 |
-| signalLog | tagId, at, value(현 plcTagLog) | **롤링** 보존 + `auto_vacuum=INCREMENTAL` + 주기 `wal_checkpoint(TRUNCATE)` |
-| plc, plcTag, flow, call | AASX 파생 현재 모델 | 로드 시 갱신, 유령 정리 |
-| alertLog | 이상·알람 페이지용(현 userTagAlertLog) | 롤링 |
+### 9.1 설계 규칙 넷
 
-- **기존 DB 삭제**: 기동 시 `Shared/plc.db`, `Shared/oee.db`, 구 위치 `DSPilot/plc.db` 가 있으면 `-wal`·`-shm` 포함 삭제 후 새 DB 생성. 삭제 전 커넥션 풀 비움·인메모리 미러 정지(현 재초기화 코드 순서 재사용). Promaker·Agent 는 SQLite 를 쓰지 않아 영향 없음.
-- DB 밖에 남는 것: 설정 JSON(κ·Q 포함), demo-admin.json, project.aasx, PlcConnection.json, 업로드 이미지.
-- 63일 인메모리 미러는 `cycle`·`cycleWork`·`linkEvent`·`alertLog` 만 태운다.
+1. **모든 시각은 정수 epoch ms.** 텍스트 날짜는 한 줄에 28바이트를 쓰고 색인마다 또 한 벌씩 들어간다.
+   실측으로 신호 1행당 약 70바이트, 하루 9만 행 현장이면 연 2.1GB 가 형식 때문에 새어 나갔다.
+   예외는 달력 칸 하나(`baseline.asOfDate`) — 순간이 아니라 "며칠자"라 문자열이 자연스럽고 하루 몇 줄뿐이다.
+2. **반복되는 이름은 정수 id 로.** 사이클은 수백만 행이 되는데 거기에 flow 이름(20바이트 이상)과 work 이름을
+   매 행 적는 것이 가장 큰 낭비다. 이름은 모델 표에 한 번만 두고 행은 id 만 든다. 리네임도 한 줄 수정으로 끝난다.
+3. **같은 사실을 두 곳에 두지 않는다.** 판정 결과는 저장하지 않고 조회 시 도출한다(§5). 접속 사실은
+   전이 한 벌만 남긴다. 평균·중앙값 같은 파생값은 기준선 표 하나로 모은다.
+4. **읽는 곳이 없는 표·컬럼은 만들지 않는다.**
+
+### 9.2 표
+
+**모델 — AASX 를 읽을 때마다 현재값으로 재구성**
+
+| 표 | 컬럼 |
+|---|---|
+| system | id, name, guid, vendor, endpoint |
+| tag | id, systemId, name, address, dataType |
+| flow | id, name, guid, systemId, headCallId, tailCallId |
+| work | id, flowId, name |
+| call | id, guid, name, apiCall, workId, flowId, device, inTagId, outTagId |
+
+`work` 가 1급 표인 이유는 그것이 **비가동 판정의 단위**이기 때문이다(§5). 종전에는 call 행의 문자열 칸이었다.
+
+**런타임 현재 상태 — 작고, 재시작에 살아남아야 하는 것만**
+
+| 표 | 컬럼 |
+|---|---|
+| flowState | flowId(PK), state, lastCtMs, lastMtMs, lastWtMs, updatedMs |
+| callState | callId(PK), state, progressRate, prevGoingMs, avgGoingMs, stdDevGoingMs, goingCount, errorText, updatedMs |
+
+**원시 — 롤링 보존**
+
+| 표 | 컬럼 |
+|---|---|
+| signal | id, tagId, atMs, value(INTEGER 0/1), valueReal(숫자 태그만, 보통 NULL) |
+| alert | id, occurredMs, clearedMs, systemId, name, level, tagId, valueType, matchOp, matchValue, actualValue |
+
+색인은 `signal(tagId, atMs)` 와 `signal(atMs)` 둘이다. 앞은 조회(태그별 구간), 뒤는 보존 삭제용이다.
+
+**판정 결과 — 영구**
+
+| 표 | 컬럼 |
+|---|---|
+| cycle | id, flowId, branch, startMs, endMs, ctMs, mtMs, wtMs, rUsedMs, worstWorkId, worstRatio, excludeReason, specVer |
+| cycleWork | cycleId, workId, durationMs, wUsedMs |
+| baseline | scope('R'/'W'), flowId, branch, workId, asOfDate, valueMs, sampleCount |
+
+**보조 관측·이력 — 영구**
+
+| 표 | 컬럼 |
+|---|---|
+| linkEvent | id, systemId, atMs, endMs, isConnected, kind, detail |
+| modelChange | id, changedMs, source, notes |
+
+표 14개다. 종전 두 파일의 19개에서 중복과 죽은 표를 걷어낸 결과다.
+
+### 9.3 만들지 않는 표
+
+`dspFlowHistory`(→ cycle), `oeeCommHealthLog`(→ linkEvent), `oeeDowntimeEvent` · `oeeNonProdDetectionLog`
+(판정을 저장하지 않으므로 불필요), `oeeProductionCount` · `oeeShiftException`(수량·시프트 모델 폐기),
+`userTagAlertDaily` · `flowBoundaryChangeLog`(읽는 곳 없음), `aasxChangeLog` 의 미사용 7컬럼,
+`dspCall` 의 next/prev/autoPre/commonPre, `plc` 의 projectId/connection.
+
+- 보존: `signal` · `alert` 만 기간 경과분 삭제 + `wal_checkpoint(TRUNCATE)` + `incremental_vacuum`.
+  나머지는 영구. 파생 표(cycle 이하)는 원시 신호에서 언제든 다시 만들 수 있다.
+- DB 밖: 설정 JSON(κ·Q 포함), demo-admin.json, project.aasx, PlcConnection.json, 업로드 이미지.
 
 ## 10. 폐기 목록
 
@@ -173,30 +229,56 @@ CycleDerivation·CycleBoundaryEdges(head→head), SignalDebounce, 원시 신호 
 | ⑧ | 비생산·비가동 동시 성립 | **비생산 우선** |
 | ⑨ | κ 변경 시 과거 | **자동 재라벨**(상태 미저장, 조회 시 도출) |
 
-## 13. 구현 순서
+## 13. 구현 순서 — 백지 재계획 (2026-09-17)
 
-1. 새 DB 스키마 + 기동 시 구 DB 삭제 + `linkEvent` 구독(`OnPlcConnectionStatus`·`OnScanHeartbeat`). 기존 화면 영향 없음.
-2. `cycleWork` 기록기: 사이클 완료 시 work 별 지속시간 산출·저장.
-3. 기준선 R·W 이동 중앙값 + 완료 시 박제 + 일별 스냅샷.
-4. 연표 API `GET /api/kpi/timeline` + 상태 도출 함수(순수 함수, 단위 테스트: 우선순위·검산 4항).
-5. 한줄 연표 컴포넌트 → OEE·TEEP·가동시간 분석 3 페이지 적용, 간트 CT 리본 교체, 설정 κ·Q.
-6. 브리핑 메일·Excel 을 새 DTO 로 전환.
-7. 구 엔진(OeeControllerBase·OeeMath 판정부·OeeCtStatsService·OeeRepositoryAdapter·프리컴퓨트)·`oee.db` 코드 삭제.
+구 DB 두 개가 지워졌고 이관할 데이터가 없다. 그래서 "구 표를 살려 두고 옆에 새 표를 만드는" 전환은 그만두고,
+**두 번의 이동**으로 끝낸다. 각 이동이 끝난 시점에 앱은 빌드되고 화면이 살아 있어야 한다.
+
+### 1차 — 원시 신호 계층 (signal · tag · system · alert)
+
+바꾸는 것: 태그 로그 기록, 태그·시스템 부트스트랩, 신호를 읽는 모든 조회, 알람 저장.
+
+| 대상 | 파일 |
+|---|---|
+| 쓰기 | PlcTagLogWriterService, SimulationEngineService(태그·시스템 부트스트랩), UserTagAlertRepository |
+| 읽기 | PlcRepository(엣지·구간 조회 20여 개), CycleAnalysisService(간트), HeatmapService, CycleBoundaryEdges, PlcDebugService, DiagnosticTool |
+| 스키마 | KpiDb(신규 표), DspRepositoryAdapter(구 표 생성 코드 삭제) |
+
+구 OEE 엔진은 사이클 표만 읽으므로 이 이동에서 깨지지 않는다. **용량 절감의 대부분이 여기서 나온다.**
+
+### 2차 — 사이클·모델 계층 + 구 엔진 철거
+
+바꾸는 것과 지우는 것이 한 묶음이다. 구 OEE 엔진이 사이클 표의 최대 독자라, 표를 바꾸려면 엔진을 같이 지워야 하고,
+엔진을 지우면 화면을 같이 갈아야 한다.
+
+| 항목 | 내용 |
+|---|---|
+| 새 표 | flow · work · call · flowState · callState. cycle 의 flow/work 를 정수 id 로 |
+| 사이클 출처 | FlowMetricsService·CycleRecomputeService 가 `cycle`·`cycleWork` 에 직접 쓴다. CycleIngestService 의 구 DB 읽기 경로 삭제 |
+| 철거 | 구 OEE 엔진 **약 9,282줄 / 18파일** — OeeControllerBase 와 4개 컨트롤러, OeeMath 판정부, OeeCtStats, NonProd 패턴·큐, 사전계산, 심박 서비스, 시프트 추론, OEE 저장소·DTO·Excel |
+| 화면 | uptime-oee · uptime-teep 를 새 지표(A·P·Q·OEE·U·TEEP·TO/TTR/TBF)로 교체. 브리핑 메일·Excel 도 같이 |
+| 어휘 | 고장·유지보수·확인 필요·수동 전환·비생산 시간대·시프트 제거(§10) |
+
+### 하지 않는 것
+
+Agent·Pi 수집기는 손대지 않는다. 두 쪽은 허브로 태그·접속상태·심박만 보내고, 무엇을 어디에 저장할지는 DSPilot 이
+혼자 정한다. 허브 계약은 그대로다.
 
 ## 14. 구현 현황 (2026-09-17)
 
-| 단계 | 상태 | 산출물 |
-|---|---|---|
-| 1. 새 DB + 구 DB 정리 + 접속 이력 | **완료** | `Kpi/KpiDb.cs`(스키마 v1·epoch ms·WAL·incremental vacuum), `Kpi/LegacyDbPurge.cs`, `Kpi/LinkEventRecorder.cs`, `Kpi/KpiTime.cs`, `PlcConnectionStatusTracker.AdapterTransitioned`(양방향 전이), `HubSubscriberService` 의 `OnScanHeartbeat` 구독 |
-| 2. work 지속시간 기록 | **완료** | `Kpi/WorkSpanMath.cs`(OUT↑→IN↑ 짝짓기·work 합집합·겹침), `Kpi/CycleIngestService.cs` |
-| 3. 기준선 R·W + 완료 시 박제 | **완료** | `Kpi/BaselineService.cs`(14일 이동 중앙값·1분 캐시·일별 스냅샷), `cycle.rUsedMs`/`cycleWork.wUsedMs` |
-| 4. 연표 API + 판정 순수함수 | **완료** | `Kpi/KpiRules.cs`, `Controllers/KpiController.cs`(`/api/kpi/timeline`·`/api/kpi/cycle/{id}/works`·`/api/kpi/settings`), 테스트 41건 |
-| 5. 화면 | **일부** | `wwwroot/app/kpi-timeline.js`(3페이지 공용 연표), 설비효율·생산효율 카드, 간트 리본 판정 오버레이 + '문제만 보기'. **남음**: 설정 화면의 κ·Q 카드 |
-| 6. 브리핑·Excel 전환 | 미착수 | |
-| 7. 구 엔진·oee.db 삭제 | 미착수 | `Kpi:PurgeLegacyDatabases` 기본값을 true 로 |
+| 항목 | 상태 |
+|---|---|
+| 판정·집계 순수함수(KpiRules) · work 스팬(WorkSpanMath) | 완료 · 테스트 42건 |
+| 기준선 R·W(BaselineService) · 사이클 적재(CycleIngestService) | 완료(출처는 2차에서 교체) |
+| 접속 이력·심박(LinkEventRecorder) — Agent 1초 심박 첫 구독 | 완료 |
+| 연표 API(/api/kpi/timeline · cycle/{id}/works · settings) | 완료 |
+| 3페이지 공용 한줄 연표 · 간트 리본 판정 오버레이 · 설정 카드 | 완료 |
+| 단일 DB 전환(경로·기동 순서·구 DB 삭제) | 완료 |
+| **1차 — 원시 신호 계층 교체** | 미착수 |
+| **2차 — 사이클·모델 계층 + 구 엔진 철거 + 화면 전환** | 미착수 |
 
-### 전환 기간 메모
-- 구 OEE 파이프라인은 그대로 동작한다. 새 코어는 자기 DB(`dspilot.db`)에만 쓰고, 사이클 출처로 `dspFlowHistory` 를 읽기 전용으로 본다.
-- 그래서 **구 DB 삭제는 아직 꺼져 있다**(`Kpi:PurgeLegacyDatabases` 기본 false). 7단계에서 켠다.
-- 설치 직후에는 `cycle` 이 비어 있어 R 이 없다 → 모든 행이 `기준 없음`으로 제외되고, 완료 사이클 10건이 쌓이면 자동으로 판정이 시작된다.
-- DI 주의: `KpiDb` 의 public 생성자는 하나뿐이어야 한다(둘이면 DI 가 모호하다고 거부). 테스트는 `KpiDb.ForPath` 를 쓴다.
+### 함정 기록
+- `KpiDb` 의 public 생성자가 둘이면 DI 가 모호하다며 앱 전체가 기동하지 못한다. 하나만 두고 테스트는 `ForPath` 를 쓴다.
+- 설치 직후 표본 부족으로 기준선 없이 들어온 행은 그대로 두면 영구히 계산 밖에 남는다(실측 400건 전부).
+  표본이 쌓이면 뒤늦게 박제하는 경로가 반드시 필요하다.
+- 구 DB 삭제는 다른 DSPilot 인스턴스(설치본 윈도우 서비스)가 파일을 쥐고 있으면 실패한다. 실패해도 앱은 새 DB 로 동작한다.
