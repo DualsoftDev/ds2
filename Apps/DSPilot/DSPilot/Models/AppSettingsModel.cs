@@ -702,6 +702,16 @@ public class FlowBranchDef
     public string? EndCallSig { get; set; }
     public List<string?>? ExcludedCallSigs { get; set; }
 
+    /// <summary>
+    /// 경계 신호 직접 지정(2026-09-17) — <see cref="FlowCycleOverride.StartTagAddress"/> 와 같은 규약.
+    /// 값이 있으면 <see cref="StartCallName"/>/<see cref="EndCallName"/> 의 I/O 규칙 대신 이 주소·에지가 경계다.
+    /// 제외 call(<see cref="ExcludedCallNames"/>)은 판정 근거라 성격이 달라 Call 단위 그대로 둔다.
+    /// </summary>
+    public string? StartTagAddress { get; set; }
+    public string? StartTagEdge { get; set; }
+    public string? EndTagAddress { get; set; }
+    public string? EndTagEdge { get; set; }
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
@@ -719,6 +729,19 @@ public class FlowCycleOverride
     /// <summary>Head/Tail 의 배선 지문 — <see cref="FlowBranchDef.StartCallSig"/> 와 같은 규약.</summary>
     public string? StartCallSig { get; set; }
     public string? EndCallSig { get; set; }
+
+    /// <summary>
+    /// 경계 신호 직접 지정(2026-09-17) — 사용자가 간트에 존재하는 <b>PLC 주소</b>를 골라 시작/끝 경계로 쓴다.
+    /// null/빈값 = 종전 Call 기준(시작 = Call 전 쌍 OUT↑ OR, 끝 = 쌍별 IN↑ 없으면 OUT↓ AND) 그대로 —
+    /// 기존 저장분의 해석이 바뀌지 않는 하위호환 스위치다.
+    /// <para>Edge 는 "rising"(기본, 0→활성) | "falling"(활성→0). IN/OUT 구분은 보지 않는다 —
+    /// 주소 하나 + 방향 하나가 경계의 전부이며, 활성값 해석(ValueSpec)만 그 주소가 속한 ApiCall 에서 가져온다.</para>
+    /// 소비자: <see cref="Services.CycleBoundaryEdges"/>(재도출·미리보기 공용), <see cref="Services.FlowMetricsService"/>(라이브 래치).
+    /// </summary>
+    public string? StartTagAddress { get; set; }
+    public string? StartTagEdge { get; set; }
+    public string? EndTagAddress { get; set; }
+    public string? EndTagEdge { get; set; }
 
     /// <summary>
     /// 표준(ideal) 사이클 시간(ms). P5 OEE Performance = (idealCT × totalCount) / runtime 의 단일 소스.

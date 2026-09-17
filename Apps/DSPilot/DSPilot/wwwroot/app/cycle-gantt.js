@@ -11,7 +11,8 @@
  *
  * 슬라이스(s) 가 들고 있어야 하는 필드(렌더가 읽는 것):
  *   callLanes[], cycleBoundaries(Date[]), tailEdges(Date[]), chartStart(Date), chartEnd(Date),
- *   plotWidth, viewMode('bar'|'line'), headCallId, tailCallId, expandedCalls{}, showMaxGap,
+ *   plotWidth, showCall(Call 막대)/showIo(IN·OUT 파형) — 각각 토글, 기본 Call 만(구 viewMode 'bar'|'line' 도 읽음),
+ *   headCallId, tailCallId, expandedCalls{}, showMaxGap,
  *   topGaps[], selectedGapIndex, (선택) selectedRange{startMs,endMs}.
  *   _geo 는 buildSvg 가 세팅(드래그/스크롤 좌표 변환용).
  *
@@ -233,6 +234,110 @@
         return spans;
     }
     function apiSpans(lane) { return apiSpansOf(lane.outIntervals, lane.inIntervals); }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  Call 단위 실행 구간 — 막대그래프의 정본 (2026-09-17)
+    // ════════════════════════════════════════════════════════════════════════
+    /**
+     * 종전 막대는 lane.intervals(= OUT ON ∪ IN ON <b>합집합</b>)를 그렸다. 그래서 응답이 도달한 뒤의 IN 유지
+     * 구간까지 동작으로 보이고, IN 이 먼저 켜져 있으면 명령 전부터 막대가 시작했으며, 툴팁의 "OUT 명령 · 지속시간"
+     * 도 실제로는 합집합 길이여서 값 자체가 틀렸다. 이제 <b>Call 정의</b>대로 = 엔진 의미론 그대로 그린다:
+     * <ul>
+     *   <li>시작 = OUT↑ — 복수 I/O 쌍이면 <b>OR</b>(전 쌍 OUT 상승의 union, 서버 lane.outIntervals 가 이미 union)</li>
+     *   <li>완료 = IN↑ — 복수 쌍이면 <b>AND</b>(쌍마다 첫 응답을 찾고 그 최댓값 = 마지막 응답)</li>
+     *   <li>OUT 만 있는 Call = OUT↑ ~ OUT↓ (명령 ON 구간)</li>
+     *   <li>IN 만 있는 Call = IN↑ ~ IN↓</li>
+     *   <li>★IN 주소가 OUT 과 <b>같은</b> 결선(현장 실측: RUN_LAMP.on, DONE_105.report 가 P0002F/P00023 를 공유)은
+     *       IN↑ = OUT↑ 이라 길이 0 이 된다 → OUT-only 로 간주해 OUT↑~OUT↓ 로 그린다.</li>
+     *   <li>응답이 와야 하는데 다음 명령 전까지 오지 않으면 = <b>미완료</b>. OUT↓까지(그마저 없으면 다음 시작/창 끝)
+     *       빗금으로 그려 정상 완료와 눈으로 구분한다.</li>
+     * </ul>
+     * 완료 규칙은 <c>CycleCompletionResolver</c>/<c>CycleBoundaryEdges</c>(사이클 경계)와 같은 언어라
+     * 간트 막대와 CT 계산이 같은 의미를 본다.
+     * @returns [{s, e, kind}] — kind = 'done'(명령~응답) | 'cmd'(명령 ON) | 'resp'(응답 ON) | 'open'(응답 없음)
+     */
+    function sameAddr(a, b) { return !!a && !!b && String(a).toLowerCase() === String(b).toLowerCase(); }
+    function pairsOf(lane) {
+        return (lane.apiCalls && lane.apiCalls.length)
+            ? lane.apiCalls
+            : [{ outTag: lane.outTag, inTag: lane.inTag, outIntervals: lane.outIntervals, inIntervals: lane.inIntervals }];
+    }
+    function risesOf(ivs) {
+        return (ivs || []).map(function (iv) { return new Date(iv.start).getTime(); })
+                          .sort(function (a, b) { return a - b; });
+    }
+    /** arr 에서 s 이상 e 미만인 첫 값. 없으면 null. (arr 는 오름차순) */
+    function firstIn(arr, s, e) {
+        var lo = 0, hi = arr.length;
+        while (lo < hi) { var m = (lo + hi) >> 1; if (arr[m] < s) lo = m + 1; else hi = m; }
+        return (lo < arr.length && arr[lo] < e) ? arr[lo] : null;
+    }
+    function callSpansOf(lane, ce) {
+        var pairs = pairsOf(lane);
+        // 응답으로 쓸 수 있는 쌍 = IN 주소가 있고 그 쌍의 OUT 과 다른 주소인 것.
+        var respPairs = pairs.filter(function (p) { return p.inTag && !sameAddr(p.inTag, p.outTag); });
+        var hasOut = pairs.some(function (p) { return !!p.outTag; });
+
+        if (!hasOut) {
+            return (lane.inIntervals || []).map(function (iv) {
+                return { s: new Date(iv.start).getTime(), e: new Date(iv.end).getTime(), kind: 'resp' };
+            });
+        }
+
+        var outIvs = (lane.outIntervals || [])
+            .map(function (iv) { return { s: new Date(iv.start).getTime(), e: new Date(iv.end).getTime() }; })
+            .sort(function (a, b) { return a.s - b.s; });
+
+        if (!respPairs.length) {
+            return outIvs.map(function (iv) { return { s: iv.s, e: iv.e, kind: 'cmd' }; });
+        }
+
+        var rises = respPairs.map(function (p) { return risesOf(p.inIntervals); });
+        var spans = [];
+        for (var i = 0; i < outIvs.length; i++) {
+            var s0 = outIvs[i].s;
+            var next = (i + 1 < outIvs.length) ? outIvs[i + 1].s : Infinity;
+            var done = -1, all = true;
+            for (var k = 0; k < rises.length; k++) {
+                var t = firstIn(rises[k], s0, next);
+                if (t === null) { all = false; break; }
+                if (t > done) done = t;          // AND = 마지막 응답
+            }
+            if (all && done >= 0) {
+                spans.push({ s: s0, e: done, kind: 'done' });
+            } else {
+                var cap = (next === Infinity) ? ce : next;
+                spans.push({ s: s0, e: Math.min(outIvs[i].e, cap), kind: 'open' });
+            }
+        }
+        return spans;
+    }
+
+    // Call 막대 종류별 색/설명 — OUT(주황)·IN(파랑)과 겹치지 않는 계열로 골라 한 눈에 구분되게 한다.
+    var CALL_STYLE = {
+        done: { fill: '#00897b', stroke: '#00695c', label: 'Call 실행 (명령↑ ~ 응답↑)' },
+        cmd:  { fill: '#4db6ac', stroke: '#00695c', label: 'Call 실행 (명령 ON — 이 Call 은 응답 신호가 결선되지 않음)' },
+        resp: { fill: '#7e57c2', stroke: '#5e35b1', label: 'Call 실행 (응답 ON — 이 Call 은 명령 신호가 결선되지 않음)' },
+        open: { fill: 'url(#ctNoRespHatch)', stroke: '#e53935', label: '응답 없음 — 다음 명령 전까지 응답(IN↑)이 오지 않았습니다' },
+    };
+
+    /**
+     * 간트에 무엇을 그릴지(2026-09-17) — Call 막대와 IN/OUT 파형을 각각 켜고 끈다(둘 다 가능).
+     * 기본 = Call 만. 구 슬라이스(viewMode: 'bar'|'line')도 그대로 읽어 준다 — 'bar'=Call, 'line'=IN/OUT.
+     * 둘 다 꺼진 상태는 빈 간트라 의미가 없으므로 Call 로 되돌린다.
+     */
+    function viewFlags(s) {
+        var call, io;
+        if (s.showCall === undefined && s.showIo === undefined) {
+            call = s.viewMode !== 'line';
+            io = s.viewMode === 'line';
+        } else {
+            call = !!s.showCall;
+            io = !!s.showIo;
+        }
+        if (!call && !io) call = true;
+        return { call: call, io: io };
+    }
     // 쌍(ApiCall)별 실측(2026-09-02) — ac 자신의 인터벌 우선, 필드 부재(구버전 응답)만 lane 폴백.
     // 빈 배열은 "이 쌍 실측 0건"이라는 정직한 값 — 폴백하지 않는다.
     function apiMeasuredOf(lane, ac) {
@@ -416,7 +521,10 @@
         sb += '<svg class="ct-gantt" width="' + chartW + '" height="' + chartH + '" xmlns="http://www.w3.org/2000/svg">';
         // CT 중복(둘 이상의 분기가 같은 스팬을 정상 판별) 해치 패턴 — flow 합산 리본 전용.
         sb += '<defs><pattern id="ctDupHatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
-            + '<rect width="7" height="7" fill="rgba(229,57,53,0.14)"/><line x1="0" y1="0" x2="0" y2="7" stroke="#e53935" stroke-width="2.2"/></pattern></defs>';
+            + '<rect width="7" height="7" fill="rgba(229,57,53,0.14)"/><line x1="0" y1="0" x2="0" y2="7" stroke="#e53935" stroke-width="2.2"/></pattern>'
+            // Call 막대 '응답 없음'(명령은 났는데 다음 명령 전까지 IN↑ 이 없음) 빗금 — 정상 완료 막대와 눈으로 구분.
+            + '<pattern id="ctNoRespHatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
+            + '<rect width="6" height="6" fill="#eceff1"/><line x1="0" y1="0" x2="0" y2="6" stroke="#e53935" stroke-width="1.8"/></pattern></defs>';
         sb += '<rect width="100%" height="100%" fill="#ffffff"/>';
 
         if (ribbonH > 0) {
@@ -468,45 +576,31 @@
             }
             sb += '<line x1="0" y1="' + (laneY + LANE_HEIGHT) + '" x2="' + chartW + '" y2="' + (laneY + LANE_HEIGHT) + '" stroke="#e3e6ea" stroke-width="1"/>';
 
-            if (s.viewMode === 'bar') {
-                // OUTTAG/INTAG 기준 2색 분할(프로메이커 간트와 동일 색언어) — head/tail 역할색 대신
-                // 합집합 막대를 OUT(명령=주황) 베이스로 깔고 IN(응답=파랑) 구간을 덮는다.
-                // 보이는 주황 = OUT-only(union\IN) = 명령 후 응답 전 구간, 파랑 = IN(응답) 구간.
-                var barTopB = laneCY - BAR_HEIGHT / 2.0;
-                var ivArr = (lane.intervals || []);
-                for (var bi = 0; bi < ivArr.length; bi++) {
-                    var ivb = ivArr[bi];
-                    var sB = new Date(ivb.start), eB = new Date(ivb.end);
+            // Call 막대 + IN/OUT 파형은 각각 켜고 끈다(둘 다 켜면 겹쳐 그린다 — 2026-09-17).
+            var vf = viewFlags(s);
+            if (vf.call) {
+                // 둘 다 볼 때는 Call 을 파형 뒤의 배경 밴드로 깔아 "이 구간이 Call 1회 실행" 을 읽히게 한다.
+                var withIo = vf.io;
+                var barTopB = withIo ? (laneY + 4) : (laneCY - BAR_HEIGHT / 2.0);
+                var barHB = withIo ? (LANE_HEIGHT - 8) : BAR_HEIGHT;
+                var spansC = callSpansOf(lane, ce);
+                for (var bi = 0; bi < spansC.length; bi++) {
+                    var spC = spansC[bi];
+                    var stC = CALL_STYLE[spC.kind] || CALL_STYLE.done;
+                    var sB = new Date(spC.s), eB = new Date(spC.e);
                     var xB = LEFT_PAD + msOf(sB) * xScale;
-                    var wB = Math.max(2, (eB.getTime() - sB.getTime()) * xScale);
-                    var durMsB = eB.getTime() - sB.getTime();
-                    var tipB = lane.callName + ' · OUT 명령' + (lane.outTag ? ' (' + lane.outTag + ')' : '') + '  ' + hms(sB) + ' ~ ' + hms(eB) + '  (' + formatMs(durMsB) + ')';
+                    var wB = Math.max(2, (spC.e - spC.s) * xScale);
+                    var tipB = lane.callName + ' · ' + stC.label
+                        + (lane.outTag ? '\nOUT ' + lane.outTag : '') + (lane.inTag ? '\nIN ' + lane.inTag : '')
+                        + '\n' + hms(sB) + ' ~ ' + hms(eB) + '  (' + formatMs(spC.e - spC.s) + ')';
                     sb += '<g><title>' + esc(tipB) + '</title>';
-                    sb += '<rect x="' + f(xB) + '" y="' + f(barTopB) + '" width="' + f(wB) + '" height="' + BAR_HEIGHT + '" rx="2" fill="#fb8c00" stroke="#e65100" stroke-width="0.5"/>';
+                    sb += '<rect x="' + f(xB) + '" y="' + f(barTopB) + '" width="' + f(wB) + '" height="' + f(barHB) + '" rx="2"'
+                        + ' fill="' + stC.fill + '" stroke="' + stC.stroke + '" stroke-width="' + (spC.kind === 'open' ? 1 : 0.5) + '"'
+                        + (withIo ? ' opacity="0.3"' : '') + '/>';
                     sb += '</g>';
                 }
-                var inArr = (lane.inIntervals || []);
-                for (var iii = 0; iii < inArr.length; iii++) {
-                    var ivi = inArr[iii];
-                    var sI = new Date(ivi.start), eI = new Date(ivi.end);
-                    var xI = LEFT_PAD + msOf(sI) * xScale;
-                    var wI = Math.max(2, (eI.getTime() - sI.getTime()) * xScale);
-                    var durMsI = eI.getTime() - sI.getTime();
-                    var tipI = lane.callName + ' · IN 응답' + (lane.inTag ? ' (' + lane.inTag + ')' : '') + '  ' + hms(sI) + ' ~ ' + hms(eI) + '  (' + formatMs(durMsI) + ')';
-                    sb += '<g><title>' + esc(tipI) + '</title>';
-                    sb += '<rect x="' + f(xI) + '" y="' + f(barTopB) + '" width="' + f(wI) + '" height="' + BAR_HEIGHT + '" rx="2" fill="#1e88e5"/>';
-                    sb += '</g>';
-                }
-            } else {
-                var unionFill = isHead ? '#4caf50' : isTail ? '#ab47bc' : '#5b9bd5';
-                var ivArrL = (lane.intervals || []);
-                for (var ui = 0; ui < ivArrL.length; ui++) {
-                    var ivu = ivArrL[ui];
-                    var sU = new Date(ivu.start), eU = new Date(ivu.end);
-                    var xU = LEFT_PAD + msOf(sU) * xScale;
-                    var wU = Math.max(2, (eU.getTime() - sU.getTime()) * xScale);
-                    sb += '<rect x="' + f(xU) + '" y="' + f(laneY + 6) + '" width="' + f(wU) + '" height="' + (LANE_HEIGHT - 12) + '" rx="2" fill="' + unionFill + '" opacity="0.10"/>';
-                }
+            }
+            if (vf.io) {
                 sb += appendSignalTrace(lane.outIntervals, '#fb8c00', laneY + 20, laneY + 7, cs, xScale, plotRightX, lane.callName, lane.outTag, 'OUT 명령');
                 sb += appendSignalTrace(lane.inIntervals, '#1e88e5', laneY + 37, laneY + 24, cs, xScale, plotRightX, lane.callName, lane.inTag, 'IN 응답');
             }
@@ -921,9 +1015,41 @@
             var ins = (l.inIntervals || []).map(function (iv) { return new Date(iv.start).getTime(); });
             return (ins.length ? ins : (l.outIntervals || []).map(function (iv) { return new Date(iv.end).getTime(); })).sort(function (a, b) { return a - b; });
         };
+        // ── 경계 태그 직접 지정(2026-09-17) ──────────────────────────────────────────
+        // 분기가 시작/끝을 주소로 잡았으면 그 주소의 ON 구간에서 엣지를 뽑는다(상승=구간 시작, 하강=구간 끝).
+        // 주소 → 구간 색인은 ApiCall(쌍)별 파형을 그대로 쓴다 — 간트가 그리는 것과 같은 데이터라 화면 ↔ 판별이 어긋나지 않는다.
+        var ivsByAddr = {};
+        var putAddr = function (addr, ivs) {
+            if (!addr) return;
+            var k = String(addr).toLowerCase();
+            if (!ivsByAddr[k]) ivsByAddr[k] = ivs || [];
+        };
+        callLanes.forEach(function (l) {
+            (l.apiCalls || []).forEach(function (ac) {
+                putAddr(ac.outTag, ac.outIntervals);
+                putAddr(ac.inTag, ac.inIntervals);
+            });
+            putAddr(l.outTag, l.outIntervals);
+            putAddr(l.inTag, l.inIntervals);
+        });
+        var tagEdgesOf = function (addr, falling) {
+            var ivs = ivsByAddr[String(addr || '').toLowerCase()] || [];
+            return ivs.map(function (iv) { return new Date(falling ? iv.end : iv.start).getTime(); })
+                      .sort(function (a, b) { return a - b; });
+        };
+        var startEdgesOf = function (b) {
+            return b.startTagAddress
+                ? tagEdgesOf(b.startTagAddress, b.startTagEdge === 'falling')
+                : risesOf(b.startCallName);
+        };
+        var endEdgesOf = function (b) {
+            return b.endTagAddress
+                ? tagEdgesOf(b.endTagAddress, b.endTagEdge === 'falling')
+                : tailsOf(b.endCallName);
+        };
         var startMap = new Map();   // startMs → [분기 index...] (정의 순서)
         branches.forEach(function (b, bi) {
-            risesOf(b.startCallName).forEach(function (t) {
+            startEdgesOf(b).forEach(function (t) {
                 if (!startMap.has(t)) startMap.set(t, []);
                 var arr = startMap.get(t);
                 if (arr.indexOf(bi) === -1) arr.push(bi);
@@ -936,7 +1062,7 @@
                 .filter(function (n) { return n !== b.startCallName && n !== b.endCallName; })
                 .map(function (n) { return { name: n, edges: risesOf(n) }; });
         });
-        var tailsBy = branches.map(function (b) { return tailsOf(b.endCallName); });
+        var tailsBy = branches.map(function (b) { return endEdgesOf(b); });
         // 끝 call OutTag↓(동작 종료) — 반증 창 상한. 완료 마커(InTag↑)보다 0.4~0.5s 늦어 완료와 거의 동시에 움직이는
         // 차종별 call(공유 head/tail 분기의 유일한 구분 근거)이 스캔 순서로 창 밖에 밀리는 일을 막는다.
         var tailFallsBy = branches.map(function (b) {
@@ -1062,6 +1188,7 @@
         hasApiCalls: hasApiCalls, laneLayout: laneLayout, laneRows: laneRows,
         laneMatches: laneMatches, visibleLanes: visibleLanes,
         cycleSpansOf: cycleSpansOf, hasRibbon: hasRibbon, tailInsOf: tailInsOf,
+        callSpansOf: callSpansOf, viewFlags: viewFlags, CALL_STYLE: CALL_STYLE,
         laneRowClass: laneRowClass, rowClass: rowClass,
         apiSpans: apiSpans, apiMeasured: apiMeasured, apiMeasuredOf: apiMeasuredOf, buildDurationChange: buildDurationChange,
         canApplyApi: canApplyApi, collectAllDurationChanges: collectAllDurationChanges,

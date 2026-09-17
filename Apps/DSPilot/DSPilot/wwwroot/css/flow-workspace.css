@@ -296,6 +296,18 @@
         .ct-sw-going { background: #5b9bd5; }
         .ct-sw-out { background: #fb8c00; }
         .ct-sw-in { background: #1e88e5; }
+        /* 다중 토글 세그먼트(2026-09-17) — 택일이 아니라 각각 켜고 끈다. 네모 표식으로 체크박스처럼 읽히게 하고,
+           마지막 남은 하나는 끌 수 없어(빈 간트 방지) disabled 로 잠그되 켜진 모습은 그대로 둔다. */
+        .ct-seg.is-multi > button::before {
+            content: ''; width: 9px; height: 9px; flex: 0 0 auto;
+            border: 1.5px solid currentColor; border-radius: 3px; opacity: 0.55;
+        }
+        .ct-seg.is-multi > button.active::before { background: currentColor; opacity: 1; }
+        .ct-seg.is-multi > button:disabled { cursor: default; }
+        /* Call 단위 막대(2026-09-17) — OUT 주황·IN 파랑과 겹치지 않는 청록 계열. SVG 의 CALL_STYLE 과 같은 값. */
+        .ct-sw-call { background: #00897b; }
+        .ct-sw-call-cmd { background: #4db6ac; }
+        .ct-sw-call-open { background: repeating-linear-gradient(45deg, #eceff1 0 2px, #e53935 2px 3.5px); border: 1px solid #e53935; }
         .ct-sw-head { background: #4caf50; }
         .ct-sw-tail { background: #ab47bc; }
         .ct-sw-cycle-edge { background: transparent; border-left: 2px solid #ff9800; border-radius: 0; width: 6px; }
@@ -583,6 +595,92 @@
 .fg-tab-add { color: var(--color-primary); border-style: dashed; border-color: color-mix(in srgb, var(--color-primary) 40%, transparent); border-bottom-style: solid; border-bottom-color: var(--color-lines); }
 .fg-tab-add:disabled { opacity: 0.4; cursor: not-allowed; }
 .dark-theme .fg-tab.is-active { background: var(--color-surface); }
+
+/* ════ 단일 간트 탭 스트립(2026-09-17) — [전체(FLOW)] | [분기…] [+]. 간트를 두 개 쌓지 않고 한 번에 하나만 그린다.
+       분기가 생기면 '전체' 는 편집 대상이 아니라 분기 합산 읽기 뷰로 성격이 바뀌므로, 테두리를 실선으로 두르고
+       구분선을 세워 분기 탭과 **다른 종류**임을 눈으로 알린다(분기가 없으면 평범한 탭 하나). ════ */
+.fg-tab-flow.has-branches { border-color: var(--color-lines-strong); border-bottom-color: var(--color-lines);
+                            border-style: solid; background: color-mix(in srgb, var(--color-text-secondary) 6%, transparent); }
+.fg-tab-flow.has-branches.is-active { background: var(--color-surface); border-bottom-color: var(--color-surface);
+                                      box-shadow: inset 0 3px 0 var(--color-text-secondary); }
+.fg-tab-flow .fg-tab-kind { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.04em; color: var(--color-text-secondary);
+                            border: 1px solid var(--color-lines-strong); border-radius: 999px; padding: 1px 6px; line-height: 1.3; }
+.fg-tab-sep { width: 1px; align-self: stretch; margin: 6px 6px -1px; background: var(--color-lines-strong); flex: 0 0 auto; }
+
+/* ════ 경계 신호 카드(2026-09-17) — 시작/끝을 "간트에 있는 주소 + 에지" 로 지정 ════ */
+.fb-bd { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px 10px; padding: 9px 11px;
+         border: 1px solid var(--color-lines); border-radius: var(--radius-md); background: var(--color-surface); }
+.fb-bd.is-locked { opacity: 0.72; }
+.fb-bd-item { display: flex; align-items: center; gap: 7px; flex: 1 1 380px; min-width: 0; }
+.fb-bd-role { font-size: 0.72rem; font-weight: 800; color: #fff; border-radius: var(--radius-sm); padding: 3px 9px; white-space: nowrap; }
+.fb-bd-role.start { background: #1E9BE8; }
+.fb-bd-role.end { background: #37474f; }
+.fb-bd-pick { display: inline-flex; align-items: center; gap: 7px; min-width: 0; flex: 1 1 auto; text-align: left;
+              padding: 5px 8px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm);
+              background: var(--color-surface); font: inherit; cursor: pointer; }
+.fb-bd-pick:hover:not(:disabled) { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); }
+.fb-bd-pick:disabled { cursor: not-allowed; }
+.fb-bd-pick .material-icons { font-size: 17px; color: var(--color-text-secondary); flex: 0 0 auto; }
+.fb-bd-addr { font-family: var(--font-mono); font-size: 0.78rem; font-weight: 800; color: var(--color-text-primary);
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fb-bd-addr.is-call { font-family: inherit; font-weight: 700; color: var(--color-text-secondary); font-style: italic; }
+.fb-bd-ctx { font-size: 0.67rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fb-bd-ctx.is-missing { color: #c62828; font-weight: 700; }
+.fb-bd-edge { display: inline-flex; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); overflow: hidden; flex: 0 0 auto; }
+.fb-bd-edge button { border: none; background: transparent; font: inherit; font-size: 0.72rem; font-weight: 700;
+                     color: var(--color-text-secondary); padding: 5px 9px; cursor: pointer; white-space: nowrap; }
+.fb-bd-edge button + button { border-left: 1px solid var(--color-lines); }
+.fb-bd-edge button:hover:not(:disabled):not(.is-on) { background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
+.fb-bd-edge button.is-on { background: var(--color-primary); color: #fff; }
+.fb-bd-edge button:disabled { cursor: not-allowed; opacity: 0.55; }
+.fb-bd-x { border: none; background: transparent; cursor: pointer; color: var(--color-text-secondary); font-size: 0.78rem; padding: 2px 5px; line-height: 1; flex: 0 0 auto; }
+.fb-bd-x:hover { color: #c62828; }
+.fb-bd-note { flex-basis: 100%; font-size: 0.7rem; color: var(--color-text-secondary); }
+
+/* ── lane 행의 주소 칩(2026-09-17) — 종전 [시작][끝] Call 버튼을 대체. 칩 하나 = 주소 하나 + 그 주소를 경계로 쓰는 두 버튼 ── */
+.fb-lane-tags { gap: 3px; flex-wrap: wrap; justify-content: flex-end; }
+.fb-lane-tag { display: inline-flex; align-items: center; gap: 2px; padding: 1px 2px 1px 5px; border: 1px solid var(--color-lines); border-radius: 999px; background: var(--color-surface); max-width: 100%; }
+.fb-lane-tag > b { font-family: var(--font-mono); font-size: 0.62rem; font-weight: 800; color: var(--color-text-secondary);
+                   max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-lane-tag > b.io-out { color: #1565c0; }
+.fb-lane-tag > b.io-in { color: #2e7d32; }
+.fb-lane-tag > button { border: none; background: transparent; font: inherit; font-size: 0.6rem; font-weight: 800;
+                        color: var(--color-text-secondary); border-radius: 999px; padding: 2px 6px; cursor: pointer; white-space: nowrap; }
+.fb-lane-tag > button:hover:not(:disabled) { background: color-mix(in srgb, var(--color-primary) 14%, transparent); color: var(--color-text-primary); }
+.fb-lane-tag > button:disabled { opacity: 0.45; cursor: not-allowed; }
+.fb-lane-tag > button.active { background: var(--color-primary); color: #fff; }
+.fb-lane-tag.is-start { border-color: #1E9BE8; }
+.fb-lane-tag.is-end { border-color: #37474f; }
+.fb-lane-more { border: 1px dashed var(--color-lines-strong); background: transparent; font: inherit; font-size: 0.6rem; font-weight: 800;
+                color: var(--color-text-secondary); border-radius: 999px; padding: 2px 7px; cursor: pointer; }
+.fb-lane-more:hover { color: var(--color-primary); border-color: var(--color-primary); }
+.ct-lane-row.is-collapsed .fb-lane-tag > b { max-width: 60px; }
+
+/* ── 태그 선택기(모달) — 이 간트의 주소만, 검색 + 소속 Work/Call/IO + 이 창의 관측 횟수 ── */
+.fb-tp { width: min(720px, 94vw); max-height: 82vh; display: flex; flex-direction: column; }
+.fb-tp-search { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--color-lines-strong);
+                border-radius: var(--radius-md); background: var(--color-surface); margin-bottom: 10px; }
+.fb-tp-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 0.82rem; color: var(--color-text-primary); }
+.fb-tp-search .material-icons { font-size: 18px; color: var(--color-text-secondary); }
+.fb-tp-list { overflow: auto; border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
+.fb-tp-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px; border: none; border-bottom: 1px solid var(--color-lines);
+             background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.fb-tp-row:last-child { border-bottom: none; }
+.fb-tp-row:hover { background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
+.fb-tp-row.is-cur { background: color-mix(in srgb, var(--color-primary) 14%, transparent); }
+.fb-tp-io { font-size: 0.6rem; font-weight: 800; border-radius: 999px; padding: 2px 7px; flex: 0 0 auto; color: #fff; }
+.fb-tp-io.out { background: #1E9BE8; }
+.fb-tp-io.in { background: #2e7d32; }
+.fb-tp-addr { font-family: var(--font-mono); font-size: 0.8rem; font-weight: 800; color: var(--color-text-primary); flex: 0 0 auto; }
+.fb-tp-ctx { font-size: 0.7rem; color: var(--color-text-secondary); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-tp-n { font-size: 0.68rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-text-secondary); flex: 0 0 auto; }
+.fb-tp-n.is-zero { color: #c62828; }
+.fb-tp-empty { padding: 22px 12px; text-align: center; font-size: 0.78rem; color: var(--color-text-secondary); }
+.dark-theme .fb-tp-search, .dark-theme .fb-bd-pick { background: var(--color-surface-variant); }
+
+@media (max-width: 720px) {
+    .fb-bd-item { flex-basis: 100%; }
+}
 
 /* 분기 탭 헤더(이름·통계·우선순위·삭제) — 분기색 옅은 배경 */
 .fg-bhead { padding: 8px 10px; border: 1px solid var(--color-lines); border-radius: var(--radius-md); background: color-mix(in srgb, var(--fg-c, var(--color-primary)) 5%, var(--color-surface)); }

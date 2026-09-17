@@ -102,13 +102,25 @@ public class FlowController : ControllerBase
             ? null
             : effectiveEnd;
 
+        // 경계 태그 — 이 flow 간트에 존재하는 주소만 허용(사용자 요구 규칙을 서버가 최종 강제).
+        CycleBoundaryTagSpec? tagSpec = null;
+        if (req?.BoundarySpecified ?? false)
+        {
+            tagSpec = new CycleBoundaryTagSpec(
+                req!.StartTagAddress, req.StartTagEdge, req.EndTagAddress, req.EndTagEdge).Normalized();
+            var unknown = UnknownBoundaryTags(flow.Name, tagSpec.StartAddress, tagSpec.EndAddress);
+            if (unknown is not null)
+                return BadRequest(new { message = unknown });
+        }
+
         try
         {
             // 채터링 필터는 요청이 명시했을 때만 교체(구 클라이언트/벌크 편집기는 기존 값 보존). 저장 후 아래
             // 전체 이력 재계산이 새 필터 값으로 과거를 재도출하고, 라이브는 설정을 매 사이클 읽어 즉시 반영된다.
             _settings.SaveFlowCycleOverride(flow.Name, overrideStart, overrideEnd,
                 req?.ChatterFilterMs, req?.ChatterSpecified ?? false,
-                _project.GetFlowCallLookup(flow.Id));   // GUID 동봉(이중 키 — CallRefReconciler)
+                _project.GetFlowCallLookup(flow.Id),    // GUID 동봉(이중 키 — CallRefReconciler)
+                tagSpec, req?.BoundarySpecified ?? false);
             await _flowMetrics.ApplyCycleBoundaryOverrideAsync(flow.Name, effectiveStart, effectiveEnd);
         }
         catch (Exception ex)
@@ -175,7 +187,8 @@ public class FlowController : ControllerBase
             (set?.Branches ?? [])
                 .Select(b => new FlowBranchDefDto(
                     b.Name, b.StartCallName, b.EndCallName, b.ExcludedCallNames.ToArray(),
-                    lookup is null ? null : CallRefReconciler.UnknownNames(b, lookup).ToArray()))
+                    lookup is null ? null : CallRefReconciler.UnknownNames(b, lookup).ToArray(),
+                    b.StartTagAddress, b.StartTagEdge, b.EndTagAddress, b.EndTagEdge))
                 .ToArray(),
             unknownCalls,
             warning);
@@ -208,11 +221,24 @@ public class FlowController : ControllerBase
             // 재계산이 history 를 보존한 채 건너뛴다 — 정의 하나가 어긋났다고 무관한 수정까지 막을 이유가 없고, 지우지 않고 두면
             // 원래 AASX 로 되돌렸을 때(9/10 사례) 그대로 다시 유효해진다. 종전 400 은 "조용한 손실 방지" 가 목적이었는데,
             // 그 목적은 배지 + 응답 경고로 달성한다.
-            foreach (var (call, role) in new[] { (b.StartCallName, "start"), (b.EndCallName, "end") })
+            var brName = (b.Name ?? "").Trim();
+            // 경계를 태그로 직접 고른 쪽은 call 이름이 유령이어도 재계산이 막히지 않는다(주소가 경계의 정본) — 배지 대상에서 뺀다.
+            foreach (var (call, role, tag) in new[]
+                     { (b.StartCallName, "start", b.StartTagAddress), (b.EndCallName, "end", b.EndTagAddress) })
+            {
+                if (!string.IsNullOrWhiteSpace(tag)) continue;
                 if (string.IsNullOrWhiteSpace(call) || !optionSet.Contains(call.Trim()))
-                    unknownRefs.Add(new UnknownCallRefDto(b.Name, call ?? "", role));
+                    unknownRefs.Add(new UnknownCallRefDto(brName, call ?? "", role));
+            }
             foreach (var c in (b.ExcludedCallNames ?? []).Where(c => !string.IsNullOrWhiteSpace(c) && !optionSet.Contains(c.Trim())))
-                unknownRefs.Add(new UnknownCallRefDto(b.Name, c, "excluded"));
+                unknownRefs.Add(new UnknownCallRefDto(brName, c, "excluded"));
+
+            // 분기 경계 태그도 flow 간트 주소로 한정 — 위반 1건이면 저장 전체를 되돌린다(부분 저장 금지).
+            var brSpec = new CycleBoundaryTagSpec(
+                b.StartTagAddress, b.StartTagEdge, b.EndTagAddress, b.EndTagEdge).Normalized();
+            var badTag = UnknownBoundaryTags(flow.Name, brSpec.StartAddress, brSpec.EndAddress);
+            if (badTag is not null)
+                return BadRequest(new { message = $"분기 '{(b.Name ?? "").Trim()}': {badTag}" });
 
             var def = new Models.FlowBranchDef
             {
@@ -221,6 +247,10 @@ public class FlowController : ControllerBase
                 EndCallName = (b.EndCallName ?? "").Trim(),
                 ExcludedCallNames = (b.ExcludedCallNames ?? [])
                     .Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).ToList(),
+                StartTagAddress = brSpec.StartAddress,
+                StartTagEdge = brSpec.StartEdge,
+                EndTagAddress = brSpec.EndAddress,
+                EndTagEdge = brSpec.EndEdge,
             };
             CallRefReconciler.StampIds(def, lookup);   // 다중 키(GUID + 배선 지문) — 이후 AASX 재로드 때 이름·GUID 가 바뀌어도 추종
             // 모델에 없는 이름은 이전 저장분의 GUID·지문을 승계 — 되돌리기/배선 재매칭의 근거를 저장 한 번으로 잃지 않게.
@@ -233,7 +263,7 @@ public class FlowController : ControllerBase
             var headTail = unknownRefs.Count(u => u.Role != "excluded");
             warning = $"모델에 없는 call {unknownRefs.Count}건은 격리 보존됐습니다(분류에서 무시). "
                     + (headTail > 0
-                        ? $"시작/끝이 모델에 없는 분기 {headTail}건은 이력 재계산이 보류됩니다 — lane 의 시작/끝 버튼으로 다시 지정하세요."
+                        ? $"시작/끝이 모델에 없는 분기 {headTail}건은 이력 재계산이 보류됩니다 — 경계 신호 카드에서 다시 지정하세요."
                         : "분기 헤더의 '모델에 없는 call · 제외 정리' 로 정리할 수 있습니다.");
             _logger.LogWarning("[Flow] 분기 저장 — 모델에 없는 참조 {N}건 격리 보존: {Flow} ({First}{More})",
                 unknownRefs.Count, flow.Name, unknownRefs[0].CallName, unknownRefs.Count > 1 ? " …" : "");
@@ -281,6 +311,28 @@ public class FlowController : ControllerBase
     }
 
     // ── helpers ──
+
+    /// <summary>
+    /// 경계 태그가 이 flow 간트에 존재하는 주소인지 검증 — 위반 시 사람이 읽는 메시지, 정상이면 null.
+    /// "고를 수 있는 주소 = 이 flow 간트에 그려지는 주소" 규칙의 최종 관문이다(화면 선택기가 1차).
+    /// 매퍼가 아직 비었으면(모델 미로드 직후) 검증 근거가 없으므로 통과시킨다 — 저장을 막는 쪽이 더 나쁘다.
+    /// </summary>
+    private string? UnknownBoundaryTags(string flowName, params string?[] addresses)
+    {
+        if (!_mapper.IsInitialized) _mapper.Initialize();
+        var catalog = _mapper.GetFlowTagCatalog(flowName);
+        if (catalog.Count == 0) return null;
+
+        var known = new HashSet<string>(catalog.Select(t => t.Address), StringComparer.OrdinalIgnoreCase);
+        var bad = addresses
+            .Where(a => !string.IsNullOrWhiteSpace(a) && !known.Contains(a!.Trim()))
+            .Select(a => a!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return bad.Count == 0
+            ? null
+            : $"경계 태그 {string.Join(", ", bad)} 은(는) 이 설비의 간트에 없는 주소입니다. 간트에 있는 주소만 시작/끝으로 지정할 수 있습니다.";
+    }
 
     private ActionResult<FlowDetailDto> BuildDetail(string name)
     {
@@ -434,6 +486,13 @@ public record CycleOverrideRequestDto(
     // 신호 채터링 필터(ms). ChatterSpecified=true 일 때만 반영 — null=글로벌 상속, 0=이 flow 끔, >0=전용값.
     int? ChatterFilterMs = null,
     bool ChatterSpecified = false,
+    // 경계 신호 직접 지정(2026-09-17). BoundarySpecified=true 일 때만 반영 — 주소 빈값 = 그 쪽을 Call 기준으로 되돌림.
+    // 주소는 이 flow 간트에 존재하는 PLC 주소여야 한다(서버가 카탈로그로 검증). Edge = "rising"(기본) | "falling".
+    string? StartTagAddress = null,
+    string? StartTagEdge = null,
+    string? EndTagAddress = null,
+    string? EndTagEdge = null,
+    bool BoundarySpecified = false,
     // true = 저장만 하고 전체 이력 재계산은 띄우지 않음. 화면의 통합 적용(저장)이 경계/채터링과 분기를 연달아 저장할 때
     // 재계산 잡(flow 당 1개)을 마지막 분기 저장에서 한 번만 돌리기 위한 것(2026-09-08). 구 클라이언트는 기본 false.
     bool SkipRecompute = false);
@@ -451,7 +510,13 @@ public record FlowBranchDefDto(
     string? EndCallName,
     string[]? ExcludedCallNames,
     // 응답 전용(2026-09-08): 현재 모델에 없는 참조 이름(시작·끝·제외). null = 판단 근거 없음(모델 미로드).
-    string[]? UnknownCallNames = null);
+    string[]? UnknownCallNames = null,
+    // 경계 신호 직접 지정(2026-09-17) — null = 이 분기는 Call 기준. Start/EndCallName 은 태그를 골라도 함께 온다
+    // (그 주소가 속한 call — 제외 목록 자기방어·유령 참조 배지·CallRefReconciler 가 계속 이름을 읽는다).
+    string? StartTagAddress = null,
+    string? StartTagEdge = null,
+    string? EndTagAddress = null,
+    string? EndTagEdge = null);
 
 /// <summary>분기 저장 응답의 유령(격리 보존) 참조 1건 — Role = start | end | excluded.</summary>
 public record UnknownCallRefDto(string Branch, string CallName, string Role);

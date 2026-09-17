@@ -41,9 +41,11 @@
                 branchesSaved: '[]',     // 저장 스냅샷(JSON) — dirty 판정
                 branchSavedCount: 0,     // 저장된 분기 수(0 = 분기 미사용)
                 branchBusy: false,
-                // ── 2간트 구성(2026-09-06) — 상단 flow 간트는 항상, 하단 분기 간트는 분기가 있을 때만. 분기가 여럿이면
-                //    하단 간트를 탭(branchTab)으로 전환한다(최대 2개 간트). 각 간트는 SVG + 사이드바 행 + 요약을 따로 갖는다.
-                branchTab: 0,            // 하단 간트에 그릴 활성 분기 index
+                // ── 단일 간트 탭(2026-09-17) — 종전엔 flow 간트(상단) + 분기 간트(하단)를 동시에 쌓아 두 개를 스크롤해야
+                //    했다. 이제 탭 스트립 하나에 [전체(FLOW)] + 분기들을 나란히 두고 한 번에 하나만 그린다.
+                //    '전체' 탭은 분기가 생기면 성격이 달라지므로(합산 뷰) 테두리·구분선으로 분기 탭과 떼어 표시한다.
+                ganttTab: 'flow',        // 'flow' = 전체(FLOW) 간트 | 'branch' = branchTab 이 가리키는 분기 간트
+                branchTab: 0,            // 분기 탭에 그릴 활성 분기 index
                 flowSvg: '', brSvg: '',  // 각 간트 SVG (x-html)
                 flowRows: [], brRows: [],// 각 간트 사이드바 행(CycleGantt.laneRows)
                 // 템플릿용 요약(배지·버튼 활성·헤더 통계). 상세 슬라이스는 클로저 _flowAct/_brAct.
@@ -110,7 +112,11 @@
                 kpiSegs: [], kpiCounts: null, kpiOnlyIssues: false, kpiErr: null,
                 chartStartIso: '', chartEndIso: '',
                 cycleBoundariesIso: [], tailEdgesIso: [],
-                plotWidth: 1200, baseWidth: 1200, zoom: 1, viewMode: 'bar',
+                plotWidth: 1200, baseWidth: 1200, zoom: 1,
+                // 간트 표시(2026-09-17) — Call 막대와 IN/OUT 파형을 각각 켜고 끈다(둘 다 가능).
+                //   기본 = Call 만. 종전엔 막대/InOut 라인 택일 토글이라 Call 1회 실행과 원신호를 같이 못 봤다.
+                //   둘 다 끄면 빈 간트라 마지막 하나는 끌 수 없다(toggleView 가 막는다). localStorage 보존.
+                showCall: true, showIo: false,
                 headCallId: null, tailCallId: null,
                 projectHeadId: null, projectTailId: null,
                 userOverrodeHeadTail: false,
@@ -118,6 +124,18 @@
                 //   자동 확정이 아니라 입력 보조: 사용자가 Tail 을 직접 찍으면 즉시 해제되고 다시 덮지 않는다.
                 //   목적 = 격사이클 Tail 오지정 방지(실측 xgk103: head 978 vs tail 440 → 가동시간 2배 계상).
                 tailSuggested: false, tailSuggestReason: '',
+                // ── 경계 신호 직접 지정(2026-09-17) ──────────────────────────────────────
+                //   사이클의 시작/끝을 Call 이 아니라 **간트에 있는 PLC 주소 + 에지**로 잡는다(IN/OUT 무관).
+                //   주소 null = 이 flow 는 아직 Call 기준(기존 저장분) — 서버가 종전 규칙(시작 OUT↑ / 끝 IN↑·OUT↓)으로 해석.
+                //   edge: 'rising'(기본, 0→활성) | 'falling'(활성→0).
+                //   *Saved = 서버 저장값 스냅샷(dirty 판정). userOverrodeBoundary = 편집 후 미저장(미리보기 중).
+                startTagAddress: null, startTagEdge: 'rising',
+                endTagAddress: null, endTagEdge: 'rising',
+                savedBoundary: '',
+                userOverrodeBoundary: false,
+                _laneTagCache: {},   // callId → laneTagChoices() 결과. applyLoadResult 가 lane 을 새로 받을 때 비운다.
+                // 태그 선택기(모달) — role='start'|'end', target='flow'|분기 index.
+                tagPickerOpen: false, tagPickerRole: 'start', tagPickerTarget: 'flow', tagPickerQuery: '',
                 isOverride: false,
                 // 신호 채터링 필터(2026-09-07) — 입력칸은 문자열(''=글로벌 상속), 서버 응답으로 적용값/글로벌/flow 저장값 동기화.
                 //   userOverrodeChatter = 입력 변경 후 미저장(미리보기 중). Head/Tail 스테이징과 같은 dirty 규약.
@@ -173,6 +191,16 @@
                     try { this.sortMode = localStorage.getItem('dspilot-gantt-sort') === 'work' ? 'work' : 'signal'; } catch (_) { }
                     // 분기 간트 제외 call 접기 복원(기본 OFF)
                     try { this.hideExcl = localStorage.getItem('dspilot-gantt-hide-excl') === '1'; } catch (_) { }
+                    // 간트 표시 복원(기본 = Call 막대만). 저장값이 둘 다 꺼짐이면 Call 로 되돌린다.
+                    try {
+                        const sc = localStorage.getItem('dspilot-gantt-show-call');
+                        const si = localStorage.getItem('dspilot-gantt-show-io');
+                        if (sc !== null || si !== null) {
+                            this.showCall = sc === null ? true : sc === '1';
+                            this.showIo = si === '1';
+                            if (!this.showCall && !this.showIo) this.showCall = true;
+                        }
+                    } catch (_) { }
                     this.flowName = new URLSearchParams(location.search).get('name');
                     // 분기 스코프(&branch=) — flow 가 있을 때만 의미. 추이 집계에서 그 분기 행만 남긴다(reloadTrend).
                     this.branchParam = this.flowName ? (new URLSearchParams(location.search).get('branch') || '') : '';
@@ -881,10 +909,24 @@
                     this.baseWidth = Math.max(minW, Math.round(avail - LEFT_PAD - RIGHT_PAD - 4));
                     this.plotWidth = Math.max(minW, Math.round(this.baseWidth * this.zoom));
                 },
-                setView(mode) {
-                    if (this.viewMode === mode) return;
-                    this.viewMode = mode;
+                // Call 막대 / IN·OUT 파형 각각 토글. 마지막 하나는 끌 수 없다(빈 간트 방지).
+                toggleView(kind) {
+                    if (kind === 'call') {
+                        if (this.showCall && !this.showIo) return;
+                        this.showCall = !this.showCall;
+                    } else {
+                        if (this.showIo && !this.showCall) return;
+                        this.showIo = !this.showIo;
+                    }
+                    try {
+                        localStorage.setItem('dspilot-gantt-show-call', this.showCall ? '1' : '0');
+                        localStorage.setItem('dspilot-gantt-show-io', this.showIo ? '1' : '0');
+                    } catch (_) { }
                     this.render();
+                },
+                // 마지막 남은 하나인가 — 버튼 비활성/툴팁용.
+                viewLocked(kind) {
+                    return kind === 'call' ? (this.showCall && !this.showIo) : (this.showIo && !this.showCall);
                 },
                 // ── 간트 이동/확대 슬라이더 ────────────────────────────────────────────
                 // 확대 슬라이더는 로그 스케일(0=100%, 1000=MAX_ZOOM) — 선형이면 100~200% 구간이
@@ -1135,29 +1177,10 @@
                     return await this.setRecentMinutes(5);
                 },
 
-                // H/T 토글 — Head/Tail 은 무조건 존재(이동만, 해제 없음). 같은 Call 에 둘 다 허용
-                // (단일 신호 Call 1개를 자기 OutTag↑→완료(InTag↑/OutTag↓)로 MT 분해 — head==tail).
-                async toggleHead(callId) {
-                    if (this.branches.length) return;   // 분기 사용 중 = flow 경계 편집 잠김(분기 탭에서 정의)
-                    if (this.headCallId === callId) return;
-                    this.headCallId = callId;
-                    this.userOverrodeHeadTail = true;
-                    // Tail 이 비었거나 이전 제안값이면 새 Head 기준으로 다시 제안한다.
-                    //   사용자가 직접 찍은 Tail(tailSuggested=false)은 건드리지 않는다.
-                    if (!this.tailCallId || this.tailSuggested) await this.applyTailSuggestion();
-                    await this.resolveOverlays();
-                },
-                async toggleTail(callId) {
-                    if (this.branches.length) return;
-                    if (this.tailCallId === callId) return;
-                    this.tailCallId = callId;
-                    this.userOverrodeHeadTail = true;
-                    this.tailSuggested = false;          // 사용자 선택 우선 — 이후 Head 변경에도 유지
-                    this.tailSuggestReason = '';
-                    await this.resolveOverlays();
-                },
-                // 서버 제안(GET /api/flow/{name}/suggest-tail) → 레인에서 같은 이름을 찾아 Tail 로 지정.
-                //   제안이 없거나 레인에 없으면 조용히 아무것도 하지 않는다(사용자 흐름을 막지 않음).
+                // 끝(Tail) 1차 제안 — 시작을 고르면 서버(GET /api/flow/{name}/suggest-tail)가 끝 call 후보를 고르고,
+                //   여기서 그 call 의 **대표 주소**로 옮겨 적는다(IN 이 있으면 IN 상승, 없으면 OUT 하강 = 종전 Call 규칙과 같은 신호).
+                //   자동 확정이 아니라 입력 보조: 사용자가 끝을 직접 고르면(tailSuggested=false) 다시 덮지 않는다.
+                //   목적 = 격사이클 끝 오지정 방지(실측 xgk103: 시작 978회 vs 끝 440회 → 가동시간 2배 계상).
                 async applyTailSuggestion() {
                     const head = this.headName;
                     if (!this.selectedFlow || !head) return;
@@ -1168,10 +1191,254 @@
                         const lane = this.callLanes.find(x => x.callName === r.tailCallName);
                         if (!lane) { this.tailSuggested = false; this.tailSuggestReason = ''; return; }
                         this.tailCallId = lane.callId;
+                        const choices = this.laneTagChoices(lane);
+                        const pick = choices.find(c => c.io === 'in') || choices[0];
+                        if (pick) {
+                            this.endTagAddress = pick.address;
+                            this.endTagEdge = pick.io === 'in' ? 'rising' : 'falling';
+                        }
                         this.tailSuggested = true;
                         this.tailSuggestReason = r.reason || '';
                     } catch { this.tailSuggested = false; this.tailSuggestReason = ''; }
                 },
+                // ═══ 경계 신호(태그 + 에지) — 2026-09-17 ═══════════════════════════════════
+                //   "시작/끝은 Call 이 아니라 주소로 잡는다". 고를 수 있는 주소 = 이 간트에 그려지는 주소뿐이라
+                //   후보 목록(tagCatalog)은 서버가 내려준 lane/ApiCall 에서 그대로 만든다(별도 API 없음 = 항상 일치).
+
+                /// 이 flow 간트의 전 주소 — 중복 제거, 등장 순. edges = 이 조회 창에서 관측된 ON 구간 수(고를 때의 근거).
+                get tagCatalog() {
+                    const out = [], seen = new Set();
+                    (this.callLanesRaw || []).forEach(l => {
+                        const acs = (l.apiCalls && l.apiCalls.length)
+                            ? l.apiCalls
+                            : [{ name: '', inTag: l.inTag, outTag: l.outTag, outIntervals: l.outIntervals, inIntervals: l.inIntervals }];
+                        acs.forEach(ac => {
+                            [['out', ac.outTag, ac.outIntervals], ['in', ac.inTag, ac.inIntervals]].forEach(([io, addr, ivs]) => {
+                                if (!addr) return;
+                                const key = String(addr).toLowerCase();
+                                if (seen.has(key)) return;
+                                seen.add(key);
+                                out.push({
+                                    address: addr, io,
+                                    callId: l.callId, callName: l.callName,
+                                    workName: l.workName || '(Work 없음)',
+                                    apiName: ac.name || '',
+                                    edges: (ivs || []).length,
+                                });
+                            });
+                        });
+                    });
+                    return out;
+                },
+                /// 주소 → 카탈로그 항목(소속 call·IO 표시용). 없으면 null(모델에서 사라진 주소 = 경고 표시).
+                tagInfo(address) {
+                    if (!address) return null;
+                    const k = String(address).toLowerCase();
+                    return this.tagCatalog.find(t => t.address.toLowerCase() === k) || null;
+                },
+                /// 검색 필터 — 주소/call/work/ApiCall 이름을 공백 AND 로. 비면 전체.
+                get tagPickerList() {
+                    const q = (this.tagPickerQuery || '').trim().toLowerCase();
+                    const all = this.tagCatalog;
+                    if (!q) return all;
+                    const terms = q.split(/\s+/);
+                    return all.filter(t => {
+                        const hay = (t.address + ' ' + t.callName + ' ' + t.workName + ' ' + t.apiName).toLowerCase();
+                        return terms.every(w => hay.indexOf(w) !== -1);
+                    });
+                },
+                /// 현재 편집 대상(전체 탭이면 flow, 분기 탭이면 그 분기)의 경계 1개를 읽고/쓴다.
+                boundaryOf(role, target) {
+                    const t = (target === undefined) ? this.boundaryTarget : target;
+                    if (t === 'flow') {
+                        return role === 'start'
+                            ? { address: this.startTagAddress, edge: this.startTagEdge, callName: this.headName }
+                            : { address: this.endTagAddress, edge: this.endTagEdge, callName: this.tailName };
+                    }
+                    const b = this.branches[t];
+                    if (!b) return { address: null, edge: 'rising', callName: null };
+                    return role === 'start'
+                        ? { address: b.startTagAddress || null, edge: b.startTagEdge || 'rising', callName: b.startCallName }
+                        : { address: b.endTagAddress || null, edge: b.endTagEdge || 'rising', callName: b.endCallName };
+                },
+                /// 지금 경계 카드가 편집하는 대상 — 활성 간트 탭을 따른다.
+                get boundaryTarget() { return this.ganttTab === 'branch' ? this.branchTab : 'flow'; },
+                /// 경계 카드를 쓸 수 있는가 — 분기 탭은 항상, 전체 탭은 분기가 없을 때만(분기가 있으면 경계는 분기 정의가 정본).
+                get boundaryEditable() { return this.ganttTab === 'branch' || this.branches.length === 0; },
+
+                /// lane 행에서 바로 고를 수 있는 주소들(이 Call 의 ApiCall OUT/IN, 중복 제거).
+                /// 사이드바가 좁으므로 템플릿은 앞의 둘만 칩으로 그리고 나머지는 '+N'(그 call 로 검색된 선택기)으로 넘긴다.
+                /// 템플릿이 행마다 여러 번 부르므로 callId 로 메모한다 — 캐시는 lane 재적재(applySort) 때 비운다.
+                laneTagChoices(lane) {
+                    if (!lane) return [];
+                    const hit = this._laneTagCache[lane.callId];
+                    if (hit) return hit;
+                    const out = [], seen = new Set();
+                    const acs = (lane.apiCalls && lane.apiCalls.length)
+                        ? lane.apiCalls : [{ inTag: lane.inTag, outTag: lane.outTag }];
+                    acs.forEach(ac => {
+                        [['out', ac.outTag], ['in', ac.inTag]].forEach(([io, addr]) => {
+                            if (!addr) return;
+                            const k = String(addr).toLowerCase();
+                            if (seen.has(k)) return;
+                            seen.add(k);
+                            out.push({
+                                address: addr, io, callId: lane.callId, callName: lane.callName,
+                                workName: lane.workName || '(Work 없음)', apiName: ac.name || '',
+                            });
+                        });
+                    });
+                    this._laneTagCache[lane.callId] = out;
+                    return out;
+                },
+                /// 이 주소가 지금 그 역할(시작/끝)의 경계인가 — 칩 활성 표시.
+                isBoundaryTag(role, address) {
+                    const a = this.boundaryAddrOf(role);
+                    return !!a && !!address && a.toLowerCase() === String(address).toLowerCase();
+                },
+                /// lane 칩 클릭 = 그 주소를 경계로. 에지는 지금 설정된 방향을 유지한다(주소만 바꾸는 흔한 조작).
+                async setBoundaryFromLane(role, t) {
+                    if (!this.boundaryEditable) return;
+                    this.tagPickerRole = role;
+                    this.tagPickerTarget = this.boundaryTarget;
+                    await this.pickTag(t);
+                },
+                /// 주소가 셋 이상인 Call — 선택기를 그 call 이름으로 미리 걸러 연다.
+                openTagPickerFor(role, lane) {
+                    this.openTagPicker(role);
+                    this.tagPickerQuery = (lane && lane.callName) || '';
+                },
+
+                openTagPicker(role) {
+                    if (!this.boundaryEditable) return;
+                    this.tagPickerRole = role;
+                    this.tagPickerTarget = this.boundaryTarget;
+                    this.tagPickerQuery = '';
+                    this.tagPickerOpen = true;
+                },
+                closeTagPicker() { this.tagPickerOpen = false; },
+
+                /// 태그 선택 확정 — 주소와 함께 **그 주소가 속한 call 이름**도 같이 심는다.
+                /// 경계의 정본은 주소지만, call 이름은 lane 강조·제외 목록 자기방어·모델 재해석(CallRefReconciler)이 계속 읽는다.
+                async pickTag(t) {
+                    const role = this.tagPickerRole, target = this.tagPickerTarget;
+                    this.tagPickerOpen = false;
+                    if (target === 'flow') {
+                        if (role === 'start') {
+                            this.startTagAddress = t.address;
+                            if (!this.startTagEdge) this.startTagEdge = 'rising';
+                            this.headCallId = t.callId;      // lane 강조·정렬이 소속 call 을 따라간다
+                            // 끝이 비었거나 이전 제안값이면 새 시작 기준으로 다시 제안(직접 고른 끝은 건드리지 않음).
+                            if (!this.endTagAddress || this.tailSuggested) await this.applyTailSuggestion();
+                        } else {
+                            this.endTagAddress = t.address;
+                            if (!this.endTagEdge) this.endTagEdge = 'rising';
+                            this.tailCallId = t.callId;
+                            this.tailSuggested = false; this.tailSuggestReason = '';
+                        }
+                        this.userOverrodeBoundary = true;
+                        this.userOverrodeHeadTail = true;   // 소속 call 도 함께 저장되도록 기존 dirty 도 세운다
+                        await this.resolveOverlays();
+                        return;
+                    }
+                    const b = this.branches[target];
+                    if (!b) return;
+                    if (role === 'start') {
+                        b.startTagAddress = t.address;
+                        b.startTagEdge = b.startTagEdge || 'rising';
+                        b.startCallName = t.callName;
+                        b.excludedCallNames = (b.excludedCallNames || []).filter(c => c !== t.callName);
+                    } else {
+                        b.endTagAddress = t.address;
+                        b.endTagEdge = b.endTagEdge || 'rising';
+                        b.endCallName = t.callName;
+                        b.excludedCallNames = (b.excludedCallNames || []).filter(c => c !== t.callName);
+                    }
+                    this._brRefresh();
+                },
+
+                /// 에지 전환(상승/하강). 기본은 상승 — 종전 동작과 같은 쪽이 기본값이어야 바꾼 적 없는 설비가 흔들리지 않는다.
+                async setBoundaryEdge(role, edge) {
+                    if (!this.boundaryEditable) return;
+                    const target = this.boundaryTarget;
+                    if (target === 'flow') {
+                        if (role === 'start') {
+                            if (this.startTagEdge === edge) return;
+                            this.startTagEdge = edge;
+                        } else {
+                            if (this.endTagEdge === edge) return;
+                            this.endTagEdge = edge;
+                        }
+                        this.userOverrodeBoundary = true;
+                        await this.resolveOverlays();
+                        return;
+                    }
+                    const b = this.branches[target];
+                    if (!b) return;
+                    if (role === 'start') b.startTagEdge = edge; else b.endTagEdge = edge;
+                    this._brRefresh();
+                },
+
+                /// Call 기준으로 되돌리기 — 주소를 비우면 서버가 종전 규칙(시작 OUT↑ / 끝 IN↑·없으면 OUT↓)으로 해석한다.
+                async clearBoundaryTag(role) {
+                    if (!this.boundaryEditable) return;
+                    const target = this.boundaryTarget;
+                    if (target === 'flow') {
+                        if (role === 'start') { if (!this.startTagAddress) return; this.startTagAddress = null; }
+                        else { if (!this.endTagAddress) return; this.endTagAddress = null; }
+                        this.userOverrodeBoundary = true;
+                        await this.resolveOverlays();
+                        return;
+                    }
+                    const b = this.branches[target];
+                    if (!b) return;
+                    if (role === 'start') b.startTagAddress = null; else b.endTagAddress = null;
+                    this._brRefresh();
+                },
+
+                /// 저장 요청에 실어 보내는 flow 경계 지정. 주소 null = 그 쪽은 Call 기준.
+                boundaryPayload() {
+                    return {
+                        startTagAddress: this.startTagAddress || null,
+                        startTagEdge: this.startTagAddress ? (this.startTagEdge || 'rising') : null,
+                        endTagAddress: this.endTagAddress || null,
+                        endTagEdge: this.endTagAddress ? (this.endTagEdge || 'rising') : null,
+                        boundarySpecified: true,
+                    };
+                },
+                _boundarySnapshot() {
+                    return JSON.stringify([this.startTagAddress || null, this.startTagAddress ? this.startTagEdge : null,
+                                           this.endTagAddress || null, this.endTagAddress ? this.endTagEdge : null]);
+                },
+                /// 저장 대상인가 — 손댄 뒤 다시 원래 값으로 돌려놓았으면 dirty 가 아니다(채터링 입력과 같은 규약).
+                get boundaryDirty() {
+                    return this.userOverrodeBoundary && this._boundarySnapshot() !== this.savedBoundary;
+                },
+                /// 사람이 읽는 경계 설명 — 카드 부제와 툴팁에 그대로 쓴다.
+                boundaryText(role) {
+                    const b = this.boundaryOf(role);
+                    if (!b.address) {
+                        return role === 'start'
+                            ? 'Call 기준 — ' + (b.callName || '미지정') + ' 의 OUT(명령) 상승'
+                            : 'Call 기준 — ' + (b.callName || '미지정') + ' 의 IN(응답) 상승, IN 이 없으면 OUT 하강';
+                    }
+                    const info = this.tagInfo(b.address);
+                    const dir = b.edge === 'falling' ? '하강(활성→0)' : '상승(0→활성)';
+                    return b.address + ' ' + dir + (info ? ' · ' + info.workName + ' ▸ ' + info.callName + ' ▸ ' + (info.io === 'in' ? 'IN' : 'OUT') : ' · 모델에 없는 주소');
+                },
+                boundaryEdgeOf(role) { return this.boundaryOf(role).edge || 'rising'; },
+                boundaryAddrOf(role) { return this.boundaryOf(role).address || null; },
+                /// 카드 우측의 짧은 맥락 — 태그면 'Work ▸ Call ▸ IO', Call 기준이면 어떤 규칙으로 읽히는지.
+                boundaryCtx(role) {
+                    const b = this.boundaryOf(role);
+                    if (!b.address) {
+                        return (b.callName || '미지정') + ' · ' + (role === 'start' ? 'OUT 상승' : 'IN 상승 (없으면 OUT 하강)');
+                    }
+                    const info = this.tagInfo(b.address);
+                    if (!info) return '모델에 없는 주소 — 다시 지정하세요';
+                    return info.workName + ' ▸ ' + info.callName + ' ▸ ' + (info.io === 'in' ? 'IN(응답)' : 'OUT(명령)');
+                },
+
                 // ── 신호 채터링 필터 ──
                 chatterValueOrNull() {
                     const s = String(this.chatterInput ?? '').replace(/[^\d]/g, '');
@@ -1212,9 +1479,12 @@
                     try {
                         await this.apiPost('/api/flow/' + encodeURIComponent(this.selectedFlow) + '/cycle-override',
                             { startCallName: headName, endCallName: tailName,
-                              chatterFilterMs: this.chatterValueOrNull(), chatterSpecified: true, skipRecompute: skip });
+                              chatterFilterMs: this.chatterValueOrNull(), chatterSpecified: true, skipRecompute: skip,
+                              ...this.boundaryPayload() });
                         this.userOverrodeHeadTail = false;
                         this.userOverrodeChatter = false;
+                        this.userOverrodeBoundary = false;
+                        this.savedBoundary = this._boundarySnapshot();
                         this.tailSuggested = false; this.tailSuggestReason = '';   // 저장 완료 = 확정값
                         if (skip) return;
                         await this.pollRecomputeStatus();
@@ -1235,7 +1505,7 @@
                 //     · 분기 없음: 종전 적용(저장) 그대로(dirty 아니어도 재저장 = 재계산 강제).
                 //     · 분기 있음: 채터링 dirty 면 cycle-override(재계산 생략) → 분기 저장(재계산). 분기만 dirty 면 분기 저장만.
                 //       분기를 전부 지운 상태(저장본은 있음) = 분기 해제 경로. 분기 해제 버튼(별도, 파괴적)은 그대로 둔다.
-                get anyDirty() { return this.userOverrodeHeadTail || this.userOverrodeChatter || this.branchesDirty; },
+                get anyDirty() { return this.userOverrodeHeadTail || this.userOverrodeChatter || this.boundaryDirty || this.branchesDirty; },
                 get applyBusy() { return this.overlayBusy || this.recomputeBusy || this.branchBusy || this.isLoading; },
                 get applyDisabled() {
                     if (this.applyBusy || !this.selectedFlow) return true;
@@ -1246,7 +1516,7 @@
                 // 버튼 옆/툴팁 요약 — 무엇이 저장될지 미리 알린다.
                 get applySummary() {
                     const parts = [];
-                    if (this.userOverrodeHeadTail) parts.push('시작/끝 경계');
+                    if (this.userOverrodeHeadTail || this.boundaryDirty) parts.push('시작/끝 경계');
                     if (this.userOverrodeChatter) parts.push('채터링 필터');
                     if (this.branchesDirty) parts.push(this.branches.length === 0 && this.branchSavedCount > 0 ? '분기 해제' : '분기 ' + this.branches.length + '개');
                     return parts.join(' · ');
@@ -1262,7 +1532,8 @@
                     const names = new Set();
                     for (let i = 0; i < this.branches.length; i++) {
                         const b = this.branches[i], label = b.name || ('분기' + (i + 1));
-                        if (!b.startCallName || !b.endCallName) return '분기 ‘' + label + '’ 의 시작/끝 call 을 lane 의 시작/끝 버튼으로 지정하세요.';
+                        if (!(b.startCallName || b.startTagAddress) || !(b.endCallName || b.endTagAddress))
+                            return '분기 ‘' + label + '’ 의 시작/끝 경계를 위 경계 신호 카드에서 지정하세요.';
                         const key = (b.name || '').trim().toLowerCase();
                         if (!key) return (i + 1) + '번째 분기의 이름을 입력하세요.';
                         if (names.has(key)) return '분기 이름 ‘' + b.name + '’ 이 중복됩니다.';
@@ -1272,7 +1543,7 @@
                 },
                 async applyAll() {
                     if (this.applyDisabled) return;
-                    const wantBoundary = this.userOverrodeHeadTail || this.userOverrodeChatter;
+                    const wantBoundary = this.userOverrodeHeadTail || this.userOverrodeChatter || this.boundaryDirty;
                     const branchMode = this.branches.length > 0 || this.branchSavedCount > 0;
                     // 분기 없는 flow = 종전 적용(저장) 그대로.
                     if (!branchMode) { await this.applyHeadTail(); return; }
@@ -1284,7 +1555,7 @@
                     }
                     const wantBranches = this.branchesDirty || !wantBoundary;  // 분기만 있고 dirty 없음 = 재저장(재계산 강제)
                     const lines = [];
-                    if (wantBoundary) lines.push('· 채터링 필터' + (this.userOverrodeHeadTail ? '·시작/끝 경계' : ''));
+                    if (wantBoundary) lines.push('· 채터링 필터' + ((this.userOverrodeHeadTail || this.boundaryDirty) ? '·시작/끝 경계' : ''));
                     if (wantBranches) lines.push(disable
                         ? '· 분기 해제 → 단일 시작/끝 분석으로 복귀(과거 이력의 분기 라벨 제거)'
                         : '· 분기 ' + this.branches.length + '개 → 설비효율 현황에 "' + this.flowName + '_분기이름" 단위로 표시');
@@ -1306,16 +1577,6 @@
                 // 편집 변경 → 활성 탭 간트 즉시 재빌드(수동 — svgMarkup/ganttRows 는 반응형이 아님).
                 _brRefresh() {
                     if (this.callLanes.length) this.render();
-                },
-                brSetHead(b, callName) {
-                    b.startCallName = callName;
-                    b.excludedCallNames = b.excludedCallNames.filter(c => c !== callName);
-                    this._brRefresh();
-                },
-                brSetTail(b, callName) {
-                    b.endCallName = callName;
-                    b.excludedCallNames = b.excludedCallNames.filter(c => c !== callName);
-                    this._brRefresh();
                 },
                 brToggleExclByName(b, callName) {
                     if (callName === b.startCallName || callName === b.endCallName) return;
@@ -1434,9 +1695,19 @@
                 // 상단 flow 간트는 항상, 하단 분기 간트는 분기가 있을 때만(활성 분기 = branchTab). 두 간트가 "같은 슬라이스
                 // 규약"으로 CycleGantt 에 위임돼 막대/InOut·정렬·검색·확대/이동·드래그 구간통계가 양쪽 동일 적용.
                 setBranchTab(i) {
+                    if (!this.branches.length) { this.setFlowTab(); return; }
                     if (!this.branches[i]) i = Math.max(0, this.branches.length - 1);
                     this.branchTab = i;
+                    this.ganttTab = 'branch';                // 간트 탭 스트립의 활성 탭 = 이 분기
                     this.selClear(); this.selMsg = '';       // 선택은 분기 단위 — 탭 바꾸면 비움
+                    if (this.selectedRange && this.selectedRange.gantt === 'branch') this.selectedRange = null;
+                    this.render();
+                    this.syncPanSoon();
+                },
+                /// 전체(FLOW) 탭으로 — 분기가 있으면 이 탭은 '분기 합산' 읽기 뷰다(경계 편집은 분기 탭에서).
+                setFlowTab() {
+                    this.ganttTab = 'flow';
+                    this.selClear(); this.selMsg = '';
                     if (this.selectedRange && this.selectedRange.gantt === 'branch') this.selectedRange = null;
                     this.render();
                     this.syncPanSoon();
@@ -1457,7 +1728,7 @@
                 _sliceBase() {
                     return {
                         chartStart: this.chartStart, chartEnd: this.chartEnd, plotWidth: this.plotWidth,
-                        viewMode: this.viewMode, expandedCalls: this.expandedCalls,
+                        showCall: this.showCall, showIo: this.showIo, expandedCalls: this.expandedCalls,
                         topGaps: this.topGaps, showMaxGap: this.showMaxGap, selectedGapIndex: this.selectedGapIndex,
                         unmeasuredRegions: this.unmeasuredRegions || [],
                         laneFilter: this.laneFilter, noWorkRows: this.sortMode !== 'work',
@@ -1576,6 +1847,7 @@
                         return;
                     }
                     if (this.branchTab >= this.branches.length) this.branchTab = Math.max(0, this.branches.length - 1);
+                    if (!this.branches.length) this.ganttTab = 'flow';   // 분기가 없으면 탭은 전체 하나뿐
                     const fs = this.flowSlice();
                     this.flowSvg = CG.buildSvg(fs); this.flowRows = CG.laneRows(fs);
                     _flowAct = fs; this._flowGeo = fs._geo; this.flowAct = this._summaryOf(fs, this.flowRows);
@@ -1614,6 +1886,9 @@
                             excludedCallNames: (b.excludedCallNames || []).slice(),
                             // 서버 판정 유령(모델에 없는 참조) — lane 이 아직 없을 때의 폴백. lane 로드 후엔 brUnknown 이 lane 집합으로 재판정.
                             unknown: (b.unknownCallNames || []).slice(),
+                            // 경계 신호 직접 지정 — null = 이 분기는 Call 기준.
+                            startTagAddress: b.startTagAddress || null, startTagEdge: b.startTagEdge || 'rising',
+                            endTagAddress: b.endTagAddress || null, endTagEdge: b.endTagEdge || 'rising',
                         }));
                         this.branchesSaved = JSON.stringify(this.branches);
                         this.branchSavedCount = this.branches.length;
@@ -1664,7 +1939,7 @@
                     });
                     this._brRefresh();
                     this.branchError = '';
-                    this.branchMsg = '모델에 없는 제외 call ' + removed + '개 제거(미저장)' + (headTail ? ' — 시작/끝이 없는 분기 ' + headTail + '개는 lane 의 시작/끝 버튼으로 다시 지정하세요' : ' — 적용(저장)을 눌러 반영');
+                    this.branchMsg = '모델에 없는 제외 call ' + removed + '개 제거(미저장)' + (headTail ? ' — 시작/끝이 없는 분기 ' + headTail + '개는 경계 신호 카드에서 다시 지정하세요' : ' — 적용(저장)을 눌러 반영');
                 },
                 brAdd() {
                     if (this.branches.length >= 8) return;
@@ -1674,6 +1949,9 @@
                         startCallName: this.callNameOf(this.headCallId) || '',
                         endCallName: this.callNameOf(this.tailCallId) || '',
                         excludedCallNames: [], unknown: [],
+                        // 경계 신호도 flow 것을 물려받는다 — 분기 간트에서 태그/에지를 바꾸면 그때 갈라진다.
+                        startTagAddress: this.startTagAddress || null, startTagEdge: this.startTagEdge || 'rising',
+                        endTagAddress: this.endTagAddress || null, endTagEdge: this.endTagEdge || 'rising',
                     });
                     this.setBranchTab(this.branches.length - 1);   // 새 분기를 하단 간트 활성 탭으로
                 },
@@ -1681,9 +1959,10 @@
                     if (!window.confirm('분기 "' + (this.branches[i].name || ('분기' + (i + 1))) + '" 을(를) 삭제합니다. (저장 전까지는 서버에 반영되지 않습니다)')) return;
                     this.branches.splice(i, 1);
                     this.selClear(); this.selMsg = '';
-                    // 활성 탭 보정 — 지운 탭이거나 그 뒤면 한 칸 앞으로(하한 0). 분기 0개면 하단 간트 자체가 사라진다.
+                    // 활성 탭 보정 — 지운 탭이거나 그 뒤면 한 칸 앞으로(하한 0). 분기 0개면 전체(FLOW) 탭으로 돌아간다.
                     if (this.branchTab >= i && this.branchTab > 0) this.branchTab -= 1;
                     if (this.branchTab >= this.branches.length) this.branchTab = Math.max(0, this.branches.length - 1);
+                    if (!this.branches.length) this.ganttTab = 'flow';
                     this._brRefresh();
                 },
                 brMove(i, d) {
@@ -1746,6 +2025,10 @@
                         startCallName: b.startCallName,
                         endCallName: b.endCallName,
                         excludedCallNames: b.excludedCallNames,
+                        startTagAddress: b.startTagAddress || null,
+                        startTagEdge: b.startTagAddress ? (b.startTagEdge || 'rising') : null,
+                        endTagAddress: b.endTagAddress || null,
+                        endTagEdge: b.endTagAddress ? (b.endTagEdge || 'rising') : null,
                     }));
                     this.branchBusy = true; this.branchError = '';
                     this.branchMsg = disable ? '분기 해제 중…' : '분기 저장 중…';
@@ -1825,7 +2108,7 @@
                     return {
                         flowName: this.selectedFlow,
                         chartStart: this.chartStartIso, chartEnd: this.chartEndIso,
-                        viewMode: this.viewMode,
+                        showCall: this.showCall, showIo: this.showIo,
                         headCallId: this.headCallId, tailCallId: this.tailCallId,
                         headName: this.headName, tailName: this.tailName,
                         avgCycleMs: this.avgCycleMs, avgActiveMs: this.avgActiveMs,
@@ -1883,10 +2166,12 @@
                     this.headCallId = null; this.tailCallId = null;
                     this.userOverrodeHeadTail = false;
                     this.userOverrodeChatter = false;   // 채터링 필터 입력도 서버 저장값으로 복귀
+                    this.userOverrodeBoundary = false;  // 경계 태그·에지도 서버 저장값으로 복귀
                     // 분기 정의도 저장 스냅샷으로 복귀(통합 적용(저장)의 되돌리기 = 세 dirty 전부, 2026-09-08)
                     if (this.branchesDirty) {
                         try { this.branches = JSON.parse(this.branchesSaved || '[]'); } catch (_) { this.branches = []; }
                         if (this.branchTab >= this.branches.length) this.branchTab = Math.max(0, this.branches.length - 1);
+                        if (!this.branches.length) this.ganttTab = 'flow';
                         this.selClear(); this.selMsg = ''; this.branchMsg = ''; this.branchError = '';
                     }
                     this.errorMessage = null; this.recomputeMsg = ''; this.recomputeError = false;
@@ -1909,7 +2194,9 @@
                             headCallId: this.headCallId, tailCallId: this.tailCallId,
                             headSpecified: this.userOverrodeHeadTail, tailSpecified: this.userOverrodeHeadTail,
                             chatterFilterMs: this.userOverrodeChatter ? this.chatterValueOrNull() : null,
-                            chatterSpecified: this.userOverrodeChatter
+                            chatterSpecified: this.userOverrodeChatter,
+                            // 경계 태그 — 편집 중이면 그 값으로 미리보기, 아니면 서버 저장값을 그대로 돌려받는다.
+                            ...(this.userOverrodeBoundary ? this.boundaryPayload() : { boundarySpecified: false }),
                         };
                         const d = await this.apiPost('/api/call-test/load', body);
                         this.applyLoadResult(d);
@@ -1922,6 +2209,7 @@
                 },
                 applyLoadResult(d) {
                     this.callLanesRaw = d.lanes || [];
+                    this._laneTagCache = {};   // lane 이 바뀌면 주소 칩 메모도 버린다
                     this.chartStart = new Date(d.chartStart);
                     this.chartEnd = new Date(d.chartEnd);
                     this.chartStartIso = d.chartStart; this.chartEndIso = d.chartEnd;
@@ -1939,6 +2227,18 @@
                     this.avgCycleMs = d.avgCycleMs ?? null;
                     this.avgActiveMs = d.avgActiveMs ?? null;
                     this.isOverride = !!d.isOverride;
+                    // 경계 태그 — 편집 중(미저장)이 아니면 서버가 내려준 유효값으로 동기화. 저장 스냅샷은 항상 갱신해
+                    // "저장하면 무엇이 바뀌는가"(anyDirty)를 서버 기준으로 판정한다.
+                    if (!this.userOverrodeBoundary) {
+                        this.startTagAddress = d.startTagAddress || null;
+                        this.startTagEdge = d.startTagEdge || 'rising';
+                        this.endTagAddress = d.endTagAddress || null;
+                        this.endTagEdge = d.endTagEdge || 'rising';
+                        this.savedBoundary = this._boundarySnapshot();
+                    } else if (!this.savedBoundary) {
+                        this.savedBoundary = JSON.stringify([d.startTagAddress || null, d.startTagEdge || null,
+                                                             d.endTagAddress || null, d.endTagEdge || null]);
+                    }
                     // 채터링 필터 — 적용값/글로벌/flow 저장값 동기화. 편집 중(미저장)이면 입력칸은 사용자 값 유지.
                     this.chatterAppliedMs = d.chatterFilterMs | 0;
                     this.chatterGlobalMs = d.globalChatterFilterMs | 0;
@@ -2316,7 +2616,8 @@
                             tailFinishTag: tailLane ? tailLane.inTag : null,
                             tailOutTag: tailLane ? tailLane.outTag : null,
                             chatterFilterMs: this.userOverrodeChatter ? this.chatterValueOrNull() : null,
-                            chatterSpecified: this.userOverrodeChatter
+                            chatterSpecified: this.userOverrodeChatter,
+                            ...(this.userOverrodeBoundary ? this.boundaryPayload() : { boundarySpecified: false }),
                         };
                         const d = await this.apiPost('/api/call-test/resolve-overlays', body);
                         this.cycleBoundaries = (d.cycleBoundaries || []).map(s => new Date(s));

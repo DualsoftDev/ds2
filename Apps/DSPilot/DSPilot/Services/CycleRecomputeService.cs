@@ -219,17 +219,22 @@ public sealed class CycleRecomputeService
         if (branchSet is not null && branchSet.Branches.Count > 0)
             return await RederiveBranchesAndReplaceAsync(flowName, branchSet, fromLocal, toLocal);
 
-        // ★복수 I/O 쌍(ApiCall) 대응 (2026-09-02): 시작 = OR(전 쌍 OUT 활성 진입 union),
-        //   완료 = AND(쌍별 마커 전부 도달, 마지막 응답 시각) — 엔진(canCompleteCall forall)·라이브 기록과 정렬.
-        //   단일 쌍이면 종전 Head OutTag↑ / Tail InTag↑(없으면 OutTag↓) 규칙과 결과가 동일하다.
-        var headPairs = ResolvePairs(flowName, headCallName);
-        var tailPairs = ResolvePairs(flowName, tailCallName);
-        if (!headPairs.Any(p => !string.IsNullOrWhiteSpace(p.OutTag)))
+        // 경계 신호 해석은 CycleBoundaryEdges 한 곳 (2026-09-17):
+        //   · 사용자가 경계 태그를 고른 flow = 그 주소·에지 하나가 시작/끝(IN/OUT 무관).
+        //   · 고르지 않았으면 종전 Call 기준 — 시작 = OR(전 쌍 OUT 활성 진입 union),
+        //     완료 = AND(쌍별 마커 전부 도달) — 엔진(canCompleteCall forall)·라이브 기록과 정렬.
+        if (!_mapper.IsInitialized) _mapper.Initialize();
+        var ov = _settings.GetFlowCycleOverride(flowName);
+        var startSignals = CycleBoundaryEdges.StartSignals(
+            _mapper, flowName, headCallName, ov?.StartTagAddress, ov?.StartTagEdge);
+        var (endSignals, _) = CycleBoundaryEdges.EndSignals(
+            _mapper, flowName, tailCallName, ov?.EndTagAddress, ov?.EndTagEdge);
+        if (startSignals.Count == 0)
         {
-            // 시작 경계 태그를 못 찾으면 재도출 불가 — 기존 history 를 지우지 않고 안전하게 건너뛴다.
+            // 시작 경계 신호를 못 찾으면 재도출 불가 — 기존 history 를 지우지 않고 안전하게 건너뛴다.
             _logger.LogWarning(
-                "[CycleRecompute] '{Flow}' Head '{Head}' OutTag 주소 미해석 — 재계산 건너뜀 (history 보존)",
-                flowName, headCallName);
+                "[CycleRecompute] '{Flow}' 시작 경계 미해석 (태그 '{Tag}' / Head '{Head}') — 재계산 건너뜀 (history 보존)",
+                flowName, ov?.StartTagAddress ?? "-", headCallName);
             return RecomputeOutcome.Skipped;
         }
 
@@ -241,7 +246,7 @@ public sealed class CycleRecomputeService
         // 채터링 필터(글로벌 ▸ flow override) — 화면(CallTestController)과 같은 값이라 미리보기=재도출.
         var chatterMs = _settings.GetEffectiveChatterFilterMs(flowName);
 
-        var starts = await CycleBoundaryEdges.HeadStartsAsync(_plc, headPairs, fromLocal, toLocal, systemId, chatterMs);
+        var starts = await CycleBoundaryEdges.StartEdgesAsync(_plc, startSignals, fromLocal, toLocal, systemId, chatterMs);
 
         // 시작 엣지가 0건이면(태그는 해석됐으나 구간에 데이터 없음 / 오매핑 / 부분기록 공백) 파괴적 삭제를 피하고
         // 기존 history 를 보존한다 — re-derive 가 충실해야만 "파생 캐시" 전제가 성립하므로.
@@ -250,12 +255,12 @@ public sealed class CycleRecomputeService
             // 태그는 해석됐으나 새 경계 사이클 0건(헤드가 구간 내 미작동/오선택). 파괴적 삭제 없이 history 보존.
             // TagResolved=true 로 반환해 상위가 "해석 실패"가 아닌 "0건"으로 정상 처리(평균은 새 경계 매칭 0 → 비움).
             _logger.LogInformation(
-                "[CycleRecompute] '{Flow}' [{From:o},{To:o}) Head OutTag rising edge 0건 — 삭제 없이 건너뜀 (history 보존)",
+                "[CycleRecompute] '{Flow}' [{From:o},{To:o}) 시작 경계 엣지 0건 — 삭제 없이 건너뜀 (history 보존)",
                 flowName, fromLocal, toLocal);
             return new RecomputeOutcome(true, 0, 0, 0);
         }
 
-        var (tailStreams, _) = await CycleBoundaryEdges.TailStreamsAsync(_plc, tailPairs, fromLocal, toLocal, systemId, chatterMs);
+        var tailStreams = await CycleBoundaryEdges.EndStreamsAsync(_plc, endSignals, fromLocal, toLocal, systemId, chatterMs);
 
         var cycles = CycleDerivation.BuildCycles(starts, tailStreams, toLocal);
 
@@ -400,16 +405,20 @@ public sealed class CycleRecomputeService
             return merged.ToList();
         }
 
-        async Task<List<List<DateTime>>> TailStreamsCachedAsync(IReadOnlyList<CallTagPair> callPairs)
+        // 경계 신호(주소+에지) 단위 — 태그 지정 분기와 Call 기준 분기가 같은 캐시를 탄다.
+        async Task<List<DateTime>> SignalUnionAsync(IReadOnlyList<BoundarySignal> signals)
         {
-            var streams = new List<List<DateTime>>(callPairs.Count);
-            foreach (var p in callPairs)
-            {
-                if (!string.IsNullOrWhiteSpace(p.InTag))
-                    streams.Add(await EdgesAsync(p.InTag!, p.InActiveValue, falling: false));
-                else if (!string.IsNullOrWhiteSpace(p.OutTag))
-                    streams.Add(await EdgesAsync(p.OutTag!, p.OutActiveValue, falling: true));
-            }
+            var merged = new SortedSet<DateTime>();
+            foreach (var s in signals)
+                foreach (var t in await EdgesAsync(s.Address, s.ActiveValue, s.Falling)) merged.Add(t);
+            return merged.ToList();
+        }
+
+        async Task<List<List<DateTime>>> SignalStreamsAsync(IReadOnlyList<BoundarySignal> signals)
+        {
+            var streams = new List<List<DateTime>>(signals.Count);
+            foreach (var s in signals)
+                streams.Add(await EdgesAsync(s.Address, s.ActiveValue, s.Falling));
             return streams;
         }
 
@@ -418,13 +427,14 @@ public sealed class CycleRecomputeService
         var resolved = new List<BranchRuntime>(set.Branches.Count);
         foreach (var def in set.Branches)
         {
-            var headPairs = ResolvePairs(flowName, def.StartCallName);
-            if (!headPairs.Any(p => !string.IsNullOrWhiteSpace(p.OutTag)))
+            var startSignals = CycleBoundaryEdges.StartSignals(
+                _mapper, flowName, def.StartCallName, def.StartTagAddress, def.StartTagEdge);
+            if (startSignals.Count == 0)
             {
                 // 시작 경계 미해석 분기가 하나라도 있으면 병합 스트림 자체가 불완전 — 파괴적 덮어쓰기를 피한다.
                 _logger.LogWarning(
-                    "[CycleRecompute] '{Flow}' 분기 '{Branch}' Head '{Head}' OutTag 미해석 — 재계산 건너뜀 (history 보존)",
-                    flowName, def.Name, def.StartCallName);
+                    "[CycleRecompute] '{Flow}' 분기 '{Branch}' 시작 경계 미해석 (태그 '{Tag}' / Head '{Head}') — 재계산 건너뜀 (history 보존)",
+                    flowName, def.Name, def.StartTagAddress ?? "-", def.StartCallName);
                 return RecomputeOutcome.Skipped;
             }
 
@@ -447,10 +457,14 @@ public sealed class CycleRecomputeService
                 exclEdges.Add(await UnionOutEdgesAsync(exclPairs));
             }
 
-            var starts = await UnionOutEdgesAsync(headPairs);
-            var tailPairs = ResolvePairs(flowName, def.EndCallName);
-            var tailStreams = await TailStreamsCachedAsync(tailPairs);
-            var tailFalls = await UnionOutFallsAsync(tailPairs);
+            var starts = await SignalUnionAsync(startSignals);
+            var (endSignals, _) = CycleBoundaryEdges.EndSignals(
+                _mapper, flowName, def.EndCallName, def.EndTagAddress, def.EndTagEdge);
+            var tailStreams = await SignalStreamsAsync(endSignals);
+            // 반증 창 상한 = 끝 call 의 동작 종료(OutTag↓). 끝을 태그로 직접 고른 분기는 "그 call 의 동작 종료" 라는
+            // 개념이 없으므로(주소 하나가 곧 완료), 끝 call 이름이 남아 있으면 그것으로, 없으면 빈 목록 →
+            // 반증 창이 병합 스팬 전체가 된다(2026-09-07 이전의 보수적 동작).
+            var tailFalls = await UnionOutFallsAsync(ResolvePairs(flowName, def.EndCallName));
             resolved.Add(new BranchRuntime(def, starts, tailStreams, tailFalls, exclEdges));
         }
 

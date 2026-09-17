@@ -210,12 +210,14 @@
                                     </div>
                                 </div>
                             </div>
-                            <!-- 간트 표시 방식 (막대 / InOut 라인) — 시스템 개요와 같은 자리(기간 선택 오른쪽). 모든 탭(flow 전체·분기)이 한 간트를 공유하므로 탭을 바꿔도 유지. -->
-                            <div class="ct-seg" title="간트 표시 방식">
-                                <button :class="viewMode === 'bar' ? 'active' : ''" @click="setView('bar')"
-                                        title="실행(InTag ∪ OutTag 합집합) 막대그래프">막대</button>
-                                <button :class="viewMode === 'line' ? 'active' : ''" @click="setView('line')"
-                                        title="OutTag(명령=시작)·InTag(응답=완료) 신호 라인 그래프">InOut 라인</button>
+                            <!-- 간트 표시 (2026-09-17) — Call 막대와 IN/OUT 파형을 각각 켜고 끈다(둘 다 가능, 기본 Call).
+                                 종전엔 막대/InOut 라인 택일이라 "Call 1회 실행"과 원신호를 같이 볼 수 없었다.
+                                 모든 탭(전체·분기)이 한 간트를 공유하므로 탭을 바꿔도 유지. -->
+                            <div class="ct-seg is-multi" title="간트 표시 — 각각 켜고 끌 수 있습니다(둘 다 가능)">
+                                <button :class="showCall ? 'active' : ''" @click="toggleView('call')" :disabled="viewLocked('call')"
+                                        :title="viewLocked('call') ? '최소 하나는 켜 두어야 합니다 — 먼저 IN/OUT 파형을 켜세요' : 'Call 단위 실행 막대 — 명령(OUT)↑ ~ 응답(IN)↑. 응답 신호가 없는 Call 은 OUT↑~OUT↓, 응답이 안 온 구간은 빗금'">Call 막대</button>
+                                <button :class="showIo ? 'active' : ''" @click="toggleView('io')" :disabled="viewLocked('io')"
+                                        :title="viewLocked('io') ? '최소 하나는 켜 두어야 합니다 — 먼저 Call 막대를 켜세요' : 'OUT(명령)·IN(응답) 원신호 파형 — Call 막대와 같이 켜면 막대가 배경으로 깔립니다'">IN/OUT 파형</button>
                             </div>
                             <!-- CALL 정렬 — '시작·끝 정렬'(시작 맨 위·끝 맨 아래·사이는 첫 신호 시각 순, Work 헤더 없음)
                                  | 'Work 그룹'(Work 별 고정 순서 = 모델 순, 시작/끝을 바꿔도 행이 움직이지 않음). 종전엔 둘이 섞여
@@ -331,13 +333,89 @@
                             <template x-if="callLanes.length > 0">
                                 <div style="display:flex; flex-direction:column; gap:12px;">
 
-                                    <!-- ══════════ 상단 = 원본 flow 간트 (항상 표시) ══════════
-                                         분기 없음 = 시작/끝 편집 가능(제외 없음). 분기 있음 = 편집 잠김 + 리본이 분기별 CT 합산
-                                         (어느 분기의 CT / CT 중복(빨간 해치) / 정상 CT 없음(회색)). 제외 버튼은 원본 flow 에 없음. -->
-                                    <div class="fg-gantt-head">
-                                        <span class="fg-gantt-name" x-text="(flow ? flow.flowName : (flowName || 'Flow')) + (branches.length ? ' · 원본(분기 합산)' : '')"></span>
-                                        <span class="fg-gantt-tag" x-show="branches.length" x-cloak title="분기 사용 중 — flow 자체 시작/끝 편집은 잠깁니다(분기 간트에서 정의)">편집 잠김</span>
+                                    <!-- ══════════ 간트 탭 스트립 (2026-09-17: 간트 하나) ══════════
+                                         [전체(FLOW)] | [분기1] [분기2] … [+ 분기 추가]. 종전엔 flow 간트와 분기 간트를 위아래로
+                                         쌓아 두 개를 동시에 스크롤해야 했다 — 이제 한 번에 하나만 그린다.
+                                         '전체' 탭은 분기가 생기면 편집 대상이 아니라 분기 합산 읽기 뷰가 되므로 테두리 + 구분선으로
+                                         분기 탭과 다른 종류임을 표시한다(분기가 없으면 탭이 하나뿐이라 평범한 탭). -->
+                                    <div class="fg-tabs" role="tablist">
+                                        <button class="fg-tab fg-tab-flow" role="tab" :class="(ganttTab === 'flow' ? 'is-active ' : '') + (branches.length ? 'has-branches' : '')"
+                                                @click="setFlowTab()"
+                                                :title="branches.length ? '전체(FLOW) — 이 설비의 원본 간트. 분기 사용 중이라 리본은 분기별 CT 합산이고 경계 편집은 각 분기 탭에서 합니다' : '이 설비의 간트 — 여기서 시작/끝 경계를 지정합니다'">
+                                            <span class="material-icons">account_tree</span>
+                                            <span x-text="flow ? flow.flowName : (flowName || 'Flow')"></span>
+                                            <span class="fg-tab-kind" x-show="branches.length" x-cloak title="분기 사용 중 — 이 탭은 분기 합산 읽기 뷰입니다">전체 · 합산</span>
+                                        </button>
+                                        <span class="fg-tab-sep" x-show="branches.length" x-cloak></span>
+                                        <template x-for="(b, bi) in branches" :key="'tab' + bi">
+                                            <button class="fg-tab is-branch" role="tab" :class="(ganttTab === 'branch' && branchTab === bi) ? 'is-active' : ''"
+                                                    :style="'--fg-c:' + brColor(bi)" @click="setBranchTab(bi)"
+                                                    :title="'분기 ' + (bi + 1) + ' (정의 순서 = 분류 우선순위) — 이 탭에서 시작/끝 경계와 제외 call 을 지정'">
+                                                <i class="fg-dot"></i>
+                                                <span x-text="brName(bi)"></span>
+                                                <span class="fg-tab-sub" x-text="(branchPreview.stats[bi] ? branchPreview.stats[bi].count : 0) + '회'"></span>
+                                                <span class="fg-tab-dup" x-show="branchPreview.stats[bi] && branchPreview.stats[bi].dup > 0" x-cloak
+                                                      :title="'CT 중복 ' + (branchPreview.stats[bi] ? branchPreview.stats[bi].dup : 0) + '회'"
+                                                      x-text="'중복 ' + (branchPreview.stats[bi] ? branchPreview.stats[bi].dup : 0)"></span>
+                                                <span class="fg-tab-mv" x-show="branchPreview.stats[bi] && branchPreview.stats[bi].minViol > 0" x-cloak
+                                                      :title="'최소 위반 판별 ' + (branchPreview.stats[bi] ? branchPreview.stats[bi].minViol : 0) + '회 — 제외 call 에 걸렸지만 다른 분기보다 덜 걸려 이 분기로 판별'"
+                                                      x-text="'최소위반 ' + (branchPreview.stats[bi] ? branchPreview.stats[bi].minViol : 0)"></span>
+                                            </button>
+                                        </template>
+                                        <button class="fg-tab fg-tab-add" @click="brAdd()" :disabled="branches.length >= 8"
+                                                :title="branches.length ? '분기 추가 (최대 8개) — 저장하면 설비효율 현황이 flow이름_분기이름 단위로 표시됩니다(생산효율 합산)' : '사이클 분기 추가 — 사이클마다 다른 call 조합이 도는 공정을 분기별 시작/끝 + 제외 call 로 나눕니다'">
+                                            <span class="material-icons">add</span> 분기 추가
+                                        </button>
+                                        <span class="fb-chip fb-ghost" style="margin-left:auto;" x-show="brUnknownTotal() > 0" x-cloak
+                                              title="현재 모델(AASX)에 없는 call 참조가 남은 분기가 있습니다 — 해당 분기 탭의 경고 칩에서 정리"
+                                              x-text="'모델에 없는 call ' + brUnknownTotal() + '개'"></span>
+                                        <span class="fb-chip" :style="brUnknownTotal() > 0 ? '' : 'margin-left:auto;'" x-show="branchSavedCount > 0" x-cloak
+                                              :title="'서버에 저장된 분기 ' + branchSavedCount + '개'" x-text="'저장된 분기 ' + branchSavedCount + '개'"></span>
                                     </div>
+
+                                    <!-- ══════════ 경계 신호 — 시작/끝을 "간트에 있는 주소 + 에지" 로 지정 (2026-09-17) ══════════
+                                         종전엔 Call 을 고르면 서버가 그 Call 의 OUT↑(시작)/IN↑·OUT↓(끝)로 고정 해석했다.
+                                         이제 주소를 직접 고르고(IN/OUT 무관) 방향도 상승/하강 중에 고른다. 기본은 상승.
+                                         대상은 활성 탭 — 전체 탭이면 flow 경계, 분기 탭이면 그 분기 경계. -->
+                                    <div class="fb-bd" :class="boundaryEditable ? '' : 'is-locked'">
+                                        <template x-for="role in ['start', 'end']" :key="'bd' + role">
+                                            <div class="fb-bd-item">
+                                                <span class="fb-bd-role" :class="role" x-text="role === 'start' ? '시작' : '끝'"></span>
+                                                <button type="button" class="fb-bd-pick" @click="openTagPicker(role)"
+                                                        :disabled="!boundaryEditable || overlayBusy || !callLanes.length"
+                                                        :title="boundaryEditable ? (role === 'start' ? '시작 경계 태그 선택 — 이 간트에 있는 주소만 고를 수 있습니다' : '끝 경계 태그 선택 — 이 간트에 있는 주소만 고를 수 있습니다') + '\n현재: ' + boundaryText(role) : '분기 사용 중 — 경계는 각 분기 탭에서 지정합니다'">
+                                                    <span class="material-icons">sell</span>
+                                                    <span class="fb-bd-addr" :class="boundaryAddrOf(role) ? '' : 'is-call'"
+                                                          x-text="boundaryAddrOf(role) || 'Call 기준(태그 미지정)'"></span>
+                                                    <span class="fb-bd-ctx" :class="boundaryAddrOf(role) && !tagInfo(boundaryAddrOf(role)) ? 'is-missing' : ''"
+                                                          x-text="boundaryCtx(role)"></span>
+                                                    <span class="material-icons" style="margin-left:auto;">arrow_drop_down</span>
+                                                </button>
+                                                <div class="fb-bd-edge">
+                                                    <button type="button" :class="boundaryEdgeOf(role) === 'rising' ? 'is-on' : ''"
+                                                            :disabled="!boundaryEditable || overlayBusy" @click="setBoundaryEdge(role, 'rising')"
+                                                            title="상승 — 신호가 0에서 활성으로 바뀌는 순간을 경계로 씁니다(기본값)">상승 ↑</button>
+                                                    <button type="button" :class="boundaryEdgeOf(role) === 'falling' ? 'is-on' : ''"
+                                                            :disabled="!boundaryEditable || overlayBusy" @click="setBoundaryEdge(role, 'falling')"
+                                                            title="하강 — 신호가 활성에서 0으로 바뀌는 순간을 경계로 씁니다">하강 ↓</button>
+                                                </div>
+                                                <button type="button" class="fb-bd-x" x-show="boundaryAddrOf(role)" x-cloak
+                                                        :disabled="!boundaryEditable || overlayBusy" @click="clearBoundaryTag(role)"
+                                                        title="태그 지정을 지우고 Call 기준으로 되돌리기 (시작=OUT 상승 / 끝=IN 상승, IN 이 없으면 OUT 하강)">✕</button>
+                                            </div>
+                                        </template>
+                                        <span class="fb-bd-note" x-show="!boundaryEditable" x-cloak>
+                                            분기 사용 중 — 전체(FLOW) 경계는 쓰이지 않습니다. 경계는 각 <b>분기 탭</b>에서 지정하세요.
+                                        </span>
+                                        <span class="fb-bd-note" x-show="boundaryEditable" x-cloak>
+                                            고를 수 있는 주소 = <b>이 간트에 그려지는 주소</b>뿐입니다. 바꾸면 즉시 미리보기, <b>적용(저장)</b> 시 과거 이력 전체가 새 경계로 재계산됩니다.
+                                        </span>
+                                    </div>
+
+                                    <!-- ══════════ 전체(FLOW) 탭 본문 ══════════
+                                         x-if 가 아니라 x-show 로 감춘다 — 간트의 x-ref/스크롤 관찰자(observePan)와 SVG 는
+                                         마운트를 유지해야 탭을 오갈 때 폭 계산·이동 슬라이더가 깨지지 않는다. -->
+                                    <div x-show="ganttTab === 'flow'" style="display:flex; flex-direction:column; gap:12px;">
 
                                     <!-- ════ 사이클 판정(시간 기반 코어 v68 · /api/kpi/timeline) ════
                                          이 구간의 CT 가 몇 개이고 각각 어떤 상태였는지. 리본 위에 같은 색으로 덧칠되며
@@ -478,17 +556,26 @@
                                                             </template>
                                                         </div>
                                                     </template>
-                                                    <!-- 분기 사용 중(flowAct.editable=false)이면 시작/끝 버튼 자체를 숨긴다 — 경계는 아래 분기 간트에서 정의 -->
+                                                    <!-- 주소 단위 경계 지정(2026-09-17) — Call 을 고르는 게 아니라 이 Call 이 가진 **주소**를 고른다.
+                                                         칩 하나 = 주소 하나(OUT/IN 무관). 방향(상승/하강)은 위 경계 카드에서 바꾼다.
+                                                         분기 사용 중(flowAct.editable=false)이면 숨긴다 — 경계는 분기 탭에서 정의. -->
                                                     <template x-if="row.kind === 'call' && flowAct.editable">
-                                                        <div class="ct-lane-tags">
-                                                            <button :class="'ct-tag-btn head ' + (flowAct.headCallId === row.lane.callId ? 'active' : '')"
-                                                                    @click="toggleHead(row.lane.callId)"
-                                                                    :disabled="overlayBusy || !flowAct.editable"
-                                                                    :title="!flowAct.editable ? '분기 사용 중 — flow 자체 시작은 잠김(아래 분기 간트에서 정의)' : '시작으로 지정: 이 Call 의 OutTag↑(PLC 명령) 가 가동 시작 경계가 됩니다'">시작</button>
-                                                            <button :class="'ct-tag-btn tail ' + (flowAct.tailCallId === row.lane.callId ? 'active' : '')"
-                                                                    @click="toggleTail(row.lane.callId)"
-                                                                    :disabled="overlayBusy || !flowAct.editable"
-                                                                    :title="!flowAct.editable ? '분기 사용 중 — flow 자체 끝은 잠김(아래 분기 간트에서 정의)' : '끝으로 지정: 이 Call 의 InTag↑(PLC 응답) 가 가동 완료 마커가 됩니다'">끝</button>
+                                                        <div class="ct-lane-tags fb-lane-tags">
+                                                            <template x-for="t in laneTagChoices(row.lane).slice(0, 2)" :key="'ft' + row.lane.callId + t.address">
+                                                                <span class="fb-lane-tag" :class="(isBoundaryTag('start', t.address) ? 'is-start ' : '') + (isBoundaryTag('end', t.address) ? 'is-end' : '')">
+                                                                    <b :class="'io-' + t.io" x-text="t.address" :title="(t.io === 'in' ? 'IN(응답) ' : 'OUT(명령) ') + t.address"></b>
+                                                                    <button type="button" :class="isBoundaryTag('start', t.address) ? 'active' : ''"
+                                                                            :disabled="overlayBusy" @click="setBoundaryFromLane('start', t)"
+                                                                            :title="'가동 시작을 이 주소로: ' + t.address + ' 의 ' + (boundaryEdgeOf('start') === 'falling' ? '하강' : '상승')">시작</button>
+                                                                    <button type="button" :class="isBoundaryTag('end', t.address) ? 'active' : ''"
+                                                                            :disabled="overlayBusy" @click="setBoundaryFromLane('end', t)"
+                                                                            :title="'가동 완료를 이 주소로: ' + t.address + ' 의 ' + (boundaryEdgeOf('end') === 'falling' ? '하강' : '상승')">끝</button>
+                                                                </span>
+                                                            </template>
+                                                            <button type="button" class="fb-lane-more" x-show="laneTagChoices(row.lane).length > 2" x-cloak
+                                                                    @click="openTagPickerFor('start', row.lane)"
+                                                                    :title="'이 Call 의 주소 ' + laneTagChoices(row.lane).length + '개 — 선택기에서 전체 보기'"
+                                                                    x-text="'+' + (laneTagChoices(row.lane).length - 2)"></button>
                                                         </div>
                                                     </template>
                                                     <template x-if="row.kind === 'api'">
@@ -559,8 +646,21 @@
                                     </div>
 
                                     <div class="ct-legend">
-                                        <span><i class="ct-sw ct-sw-out"></i> OutTag 시작</span>
-                                        <span><i class="ct-sw ct-sw-in"></i> InTag 완료</span>
+                                        <template x-if="showCall">
+                                            <span title="Call 1회 실행 — 명령(OUT)↑ 부터 응답(IN)↑ 까지"><i class="ct-sw ct-sw-call"></i> Call 실행</span>
+                                        </template>
+                                        <template x-if="showCall">
+                                            <span title="응답 신호가 결선되지 않은 Call — 명령 ON 구간(OUT↑~OUT↓)으로 그립니다"><i class="ct-sw ct-sw-call-cmd"></i> 명령 ON</span>
+                                        </template>
+                                        <template x-if="showCall">
+                                            <span title="명령은 났는데 다음 명령 전까지 응답(IN↑)이 오지 않은 구간"><i class="ct-sw ct-sw-call-open"></i> 응답 없음</span>
+                                        </template>
+                                        <template x-if="showIo">
+                                            <span><i class="ct-sw ct-sw-out"></i> OUT 명령</span>
+                                        </template>
+                                        <template x-if="showIo">
+                                            <span><i class="ct-sw ct-sw-in"></i> IN 응답</span>
+                                        </template>
                                         <template x-if="flowAct.unionMode">
                                             <template x-for="(st, sti) in branchPreview.stats" :key="'lg' + sti">
                                                 <span><i class="ct-sw" :style="'background:' + st.color"></i> <span x-text="st.name + ' CT'"></span></span>
@@ -573,47 +673,16 @@
                                         <template x-if="selectedRange && selectedRange.gantt === 'flow'"><span><i class="ct-sw ct-sw-range"></i> 선택 구간</span></template>
                                     </div>
 
-                                    <!-- 분기 없을 때: 분기 사용 시작 버튼 -->
+                                    <!-- 분기 없을 때: 분기 사용 안내(추가 버튼은 탭 스트립의 '분기 추가') -->
                                     <div x-show="branches.length === 0" x-cloak style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                                        <button class="btn btn-sm btn-outlined color-default" @click="brAdd()"
-                                                title="사이클 분기 추가 — 사이클마다 다른 call 조합이 도는 공정의 패턴을 분기별 시작/끝 + 제외 call 로 나눕니다. 아래에 분기 간트가 새로 생깁니다.">
-                                            <span class="material-icons" style="font-size:16px;">call_split</span> 분기 사용하기
-                                        </button>
-                                        <span class="fb-hint">사이클마다 다른 call 조합이 도는 공정이면 분기로 나눠 설비효율을 <b x-text="(flowName || 'flow') + '_분기이름'"></b> 단위로 볼 수 있습니다(생산효율은 합산).</span>
+                                        <span class="fb-hint">사이클마다 다른 call 조합이 도는 공정이면 위의 <b>분기 추가</b> 로 나눠 설비효율을 <b x-text="(flowName || 'flow') + '_분기이름'"></b> 단위로 볼 수 있습니다(생산효율은 합산).</span>
                                     </div>
 
-                                    <!-- ══════════ 하단 = 분기 간트 (분기가 있을 때만, 탭으로 활성 분기 전환) ══════════ -->
-                                    <template x-if="branches.length > 0">
-                                        <div class="fg-branch-section">
-                                            <div class="fg-divider"><span>사이클 분기</span></div>
+                                    </div><!-- /전체(FLOW) 탭 본문 -->
 
-                                            <!-- 분기 탭 바 -->
-                                            <div class="fg-tabs" role="tablist">
-                                                <template x-for="(b, bi) in branches" :key="'tab' + bi">
-                                                    <button class="fg-tab is-branch" role="tab" :class="branchTab === bi ? 'is-active' : ''"
-                                                            :style="'--fg-c:' + brColor(bi)" @click="setBranchTab(bi)"
-                                                            :title="'분기 ' + (bi + 1) + ' (정의 순서 = 분류 우선순위) — 이 간트의 lane 에서 시작/끝/제외 지정'">
-                                                        <i class="fg-dot"></i>
-                                                        <span x-text="brName(bi)"></span>
-                                                        <span class="fg-tab-sub" x-text="(branchPreview.stats[bi] ? branchPreview.stats[bi].count : 0) + '회'"></span>
-                                                        <span class="fg-tab-dup" x-show="branchPreview.stats[bi] && branchPreview.stats[bi].dup > 0" x-cloak
-                                                              :title="'CT 중복 ' + (branchPreview.stats[bi] ? branchPreview.stats[bi].dup : 0) + '회'"
-                                                              x-text="'중복 ' + (branchPreview.stats[bi] ? branchPreview.stats[bi].dup : 0)"></span>
-                                                        <span class="fg-tab-mv" x-show="branchPreview.stats[bi] && branchPreview.stats[bi].minViol > 0" x-cloak
-                                                              :title="'최소 위반 판별 ' + (branchPreview.stats[bi] ? branchPreview.stats[bi].minViol : 0) + '회 — 제외 call 에 걸렸지만 다른 분기보다 덜 걸려 이 분기로 판별'"
-                                                              x-text="'최소위반 ' + (branchPreview.stats[bi] ? branchPreview.stats[bi].minViol : 0)"></span>
-                                                    </button>
-                                                </template>
-                                                <button class="fg-tab fg-tab-add" @click="brAdd()" :disabled="branches.length >= 8"
-                                                        title="분기 추가 (최대 8개) — 저장하면 설비효율 현황이 flow이름_분기이름 단위로 표시됩니다(생산효율 합산)">
-                                                    <span class="material-icons">add</span> 분기 추가
-                                                </button>
-                                                <span class="fb-chip fb-ghost" style="margin-left:auto;" x-show="brUnknownTotal() > 0" x-cloak
-                                                      title="현재 모델(AASX)에 없는 call 참조가 남은 분기가 있습니다 — 해당 분기 탭의 경고 칩에서 정리"
-                                                      x-text="'모델에 없는 call ' + brUnknownTotal() + '개'"></span>
-                                                <span class="fb-chip" :style="brUnknownTotal() > 0 ? '' : 'margin-left:auto;'" x-show="branchSavedCount > 0" x-cloak
-                                                      :title="'서버에 저장된 분기 ' + branchSavedCount + '개'" x-text="'저장된 분기 ' + branchSavedCount + '개'"></span>
-                                            </div>
+                                    <!-- ══════════ 분기 탭 본문 (분기가 있을 때만 마운트, 활성 탭일 때만 표시) ══════════ -->
+                                    <template x-if="branches.length > 0">
+                                        <div class="fg-branch-section" x-show="ganttTab === 'branch'">
 
                                             <!-- 활성 분기 헤더: 이름·통계·우선순위·복수선택·삭제 -->
                                             <template x-if="curBranch">
@@ -630,7 +699,7 @@
                                                             @click="brDropUnknown()" :title="brUnknownTitle(branchTab)">
                                                         ⚠ 모델에 없는 call <b x-text="brUnknown(branchTab).length"></b> · 제외 정리
                                                     </button>
-                                                    <span class="fb-hint fg-bhint">lane 의 <b>시작 / 끝 / 제외</b> 클릭으로 정의 · <b>Work 그룹</b> 정렬에서 Work 헤더 클릭 = 그 Work 통째 · 리본 상단 색 바 = 이 분기 분류(회색=다른 분기/제외, 빨강=중복)</span>
+                                                    <span class="fb-hint fg-bhint">경계는 위 <b>경계 신호</b> 카드(주소 + 방향), 제외는 lane 의 <b>제외</b> 클릭 · <b>Work 그룹</b> 정렬에서 Work 헤더 클릭 = 그 Work 통째 · 리본 상단 색 바 = 이 분기 분류(회색=다른 분기/제외, 빨강=중복)</span>
                                                     <span style="flex:1;"></span>
                                                     <button class="btn btn-sm fg-hide-excl" :class="hideExcl ? 'btn-filled' : 'btn-outlined color-default'" @click="toggleHideExcl()"
                                                             :disabled="!hideExcl && !brAct.excluded.length"
@@ -743,13 +812,22 @@
                                                                 </div>
                                                             </template>
                                                             <template x-if="row.kind === 'call'">
-                                                                <div class="ct-lane-tags">
-                                                                    <button :class="'ct-tag-btn head ' + (brAct.headCallId === row.lane.callId ? 'active' : '')"
-                                                                            @click="brSetHead(curBranch, row.lane.callName)"
-                                                                            title="이 분기의 시작: 이 Call 의 OutTag↑ 가 이 분기 사이클의 시작 경계가 됩니다">시작</button>
-                                                                    <button :class="'ct-tag-btn tail ' + (brAct.tailCallId === row.lane.callId ? 'active' : '')"
-                                                                            @click="brSetTail(curBranch, row.lane.callName)"
-                                                                            title="이 분기의 끝: 이 Call 의 InTag↑ 가 이 분기 사이클의 완료 마커가 됩니다">끝</button>
+                                                                <div class="ct-lane-tags fb-lane-tags">
+                                                                    <template x-for="t in laneTagChoices(row.lane).slice(0, 2)" :key="'bt' + row.lane.callId + t.address">
+                                                                        <span class="fb-lane-tag" :class="(isBoundaryTag('start', t.address) ? 'is-start ' : '') + (isBoundaryTag('end', t.address) ? 'is-end' : '')">
+                                                                            <b :class="'io-' + t.io" x-text="t.address" :title="(t.io === 'in' ? 'IN(응답) ' : 'OUT(명령) ') + t.address"></b>
+                                                                            <button type="button" :class="isBoundaryTag('start', t.address) ? 'active' : ''"
+                                                                                    @click="setBoundaryFromLane('start', t)"
+                                                                                    :title="'이 분기의 시작을 이 주소로: ' + t.address + ' 의 ' + (boundaryEdgeOf('start') === 'falling' ? '하강' : '상승')">시작</button>
+                                                                            <button type="button" :class="isBoundaryTag('end', t.address) ? 'active' : ''"
+                                                                                    @click="setBoundaryFromLane('end', t)"
+                                                                                    :title="'이 분기의 끝을 이 주소로: ' + t.address + ' 의 ' + (boundaryEdgeOf('end') === 'falling' ? '하강' : '상승')">끝</button>
+                                                                        </span>
+                                                                    </template>
+                                                                    <button type="button" class="fb-lane-more" x-show="laneTagChoices(row.lane).length > 2" x-cloak
+                                                                            @click="openTagPickerFor('start', row.lane)"
+                                                                            :title="'이 Call 의 주소 ' + laneTagChoices(row.lane).length + '개 — 선택기에서 전체 보기'"
+                                                                            x-text="'+' + (laneTagChoices(row.lane).length - 2)"></button>
                                                                     <button class="ct-tag-btn fb-excl-btn"
                                                                             :class="isExcludedRow(row) ? 'active' : ''"
                                                                             :disabled="isBoundRow(row)"
@@ -830,8 +908,21 @@
                                             </div>
 
                                             <div class="ct-legend">
-                                                <span><i class="ct-sw ct-sw-out"></i> OutTag 시작</span>
-                                                <span><i class="ct-sw ct-sw-in"></i> InTag 완료</span>
+                                                <template x-if="showCall">
+                                                    <span title="Call 1회 실행 — 명령(OUT)↑ 부터 응답(IN)↑ 까지"><i class="ct-sw ct-sw-call"></i> Call 실행</span>
+                                                </template>
+                                                <template x-if="showCall">
+                                                    <span title="응답 신호가 결선되지 않은 Call — 명령 ON 구간(OUT↑~OUT↓)으로 그립니다"><i class="ct-sw ct-sw-call-cmd"></i> 명령 ON</span>
+                                                </template>
+                                                <template x-if="showCall">
+                                                    <span title="명령은 났는데 다음 명령 전까지 응답(IN↑)이 오지 않은 구간"><i class="ct-sw ct-sw-call-open"></i> 응답 없음</span>
+                                                </template>
+                                                <template x-if="showIo">
+                                                    <span><i class="ct-sw ct-sw-out"></i> OUT 명령</span>
+                                                </template>
+                                                <template x-if="showIo">
+                                                    <span><i class="ct-sw ct-sw-in"></i> IN 응답</span>
+                                                </template>
                                                 <span><i class="ct-sw" :style="'background:' + brColor(branchTab)"></i> 이 분기 사이클(리본 상단 바)</span>
                                                 <span><i class="ct-sw" style="background:#d7dde3;"></i> 다른 분기 / 제외 발화</span>
                                                 <span><i class="ct-sw" style="background:#e53935;"></i> 중복 판별</span>
@@ -856,6 +947,55 @@
                     </section>
                 </div>
             </template>
+            <!-- ── 경계 태그 선택기(2026-09-17) ──────────────────────────────────────────
+                 고를 수 있는 주소 = 이 간트에 그려지는 주소 전부(서버가 내려준 lane/ApiCall 그대로 = 화면과 항상 일치).
+                 검색은 주소·Call·Work·ApiCall 이름을 공백 AND 로 훑고, 각 행은 이 조회 창의 관측 횟수를 같이 보여
+                 "신호가 실제로 도는 주소"를 눈으로 고르게 한다(0회 = 이 창에 변화 없음 → 빨간 숫자). -->
+            <div class="modal-overlay" x-show="tagPickerOpen" x-cloak style="z-index:2100;" @click="closeTagPicker()">
+                <div class="modal-content shift-modal fb-tp" @click.stop @keydown.escape.window="closeTagPicker()">
+                    <div class="sm-head">
+                        <span class="sm-title">
+                            <span x-text="tagPickerRole === 'start' ? '🚦 시작 경계 태그' : '🏁 끝 경계 태그'"></span>
+                            ·
+                            <span x-text="tagPickerTarget === 'flow' ? (flowName || 'Flow') : brName(tagPickerTarget)"></span>
+                        </span>
+                        <button class="btn-icon" @click="closeTagPicker()" title="닫기">
+                            <span class="material-icons">close</span>
+                        </button>
+                    </div>
+                    <div class="sm-body" style="display:flex; flex-direction:column; min-height:0;">
+                        <p class="fb-hint" style="margin:0 0 8px;">
+                            이 설비 간트에 있는 주소만 고를 수 있습니다. IN/OUT 은 구분하지 않으며, 방향(상승/하강)은 선택 후 경계 카드에서 바꿉니다.
+                        </p>
+                        <div class="fb-tp-search">
+                            <span class="material-icons">search</span>
+                            <input type="text" x-model="tagPickerQuery" placeholder="주소 · Call · Work · ApiCall 이름으로 검색 (공백 = AND)"
+                                   x-effect="if (tagPickerOpen) $nextTick(() => $el.focus())" />
+                            <button class="ct-search-x" x-show="tagPickerQuery" x-cloak @click="tagPickerQuery = ''" title="검색어 지우기">✕</button>
+                            <span class="ct-search-n" x-text="tagPickerList.length + ' / ' + tagCatalog.length"></span>
+                        </div>
+                        <div class="fb-tp-list">
+                            <template x-for="t in tagPickerList" :key="'tp' + t.address">
+                                <button type="button" class="fb-tp-row"
+                                        :class="isBoundaryTag(tagPickerRole, t.address) ? 'is-cur' : ''"
+                                        @click="pickTag(t)">
+                                    <span class="fb-tp-io" :class="t.io" x-text="t.io === 'in' ? 'IN' : 'OUT'"></span>
+                                    <span class="fb-tp-addr" x-text="t.address"></span>
+                                    <span class="fb-tp-ctx" x-text="t.workName + ' ▸ ' + t.callName + (t.apiName ? ' ▸ ' + t.apiName : '')"></span>
+                                    <span class="fb-tp-n" :class="t.edges ? '' : 'is-zero'"
+                                          :title="t.edges ? '이 조회 구간에서 관측된 ON 구간 수' : '이 조회 구간에 신호 변화가 없습니다 — 기간을 넓혀 확인하세요'"
+                                          x-text="t.edges + '회'"></span>
+                                </button>
+                            </template>
+                            <div class="fb-tp-empty" x-show="tagPickerList.length === 0" x-cloak>
+                                <span x-show="tagCatalog.length === 0">간트에 주소가 없습니다 — 먼저 기간을 조회하세요.</span>
+                                <span x-show="tagCatalog.length > 0">'<b x-text="tagPickerQuery"></b>' 에 맞는 주소가 없습니다.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- ── 이상치 제외 범위 팝업 (이 Flow 의 최소·최대 CT) ── -->
             <div class="modal-overlay" x-show="rangeModalOpen" x-cloak style="z-index:2000;" @click="closeRangeModal()">
                 <div class="modal-content shift-modal" @click.stop>
@@ -1062,12 +1202,12 @@
                             </div>
                         </div>
                     </div>
-                    <!-- 카드 간트 표시 방식 (단일 페이지 간트 툴바의 막대/InOut 라인과 동일 의미, 모든 카드 일괄 · 브라우저 기억) -->
-                    <div class="ct-seg" title="카드 간트 표시 방식 — 모든 Flow 카드에 일괄 적용">
-                        <button :class="viewMode === 'bar' ? 'active' : ''" @click="setView('bar')"
-                                title="실행(InTag ∪ OutTag 합집합) 막대그래프">막대</button>
-                        <button :class="viewMode === 'line' ? 'active' : ''" @click="setView('line')"
-                                title="OutTag(명령=시작)·InTag(응답=완료) 신호 라인 그래프">InOut 라인</button>
+                    <!-- 카드 간트 표시 (단일 페이지 간트 툴바와 동일 의미, 모든 카드 일괄 · 브라우저 기억) -->
+                    <div class="ct-seg is-multi" title="카드 간트 표시 — 각각 켜고 끌 수 있습니다(모든 Flow 카드 일괄)">
+                        <button :class="showCall ? 'active' : ''" @click="toggleView('call')" :disabled="viewLocked('call')"
+                                :title="viewLocked('call') ? '최소 하나는 켜 두어야 합니다' : 'Call 단위 실행 막대 — 명령(OUT)↑ ~ 응답(IN)↑'">Call 막대</button>
+                        <button :class="showIo ? 'active' : ''" @click="toggleView('io')" :disabled="viewLocked('io')"
+                                :title="viewLocked('io') ? '최소 하나는 켜 두어야 합니다' : 'OUT(명령)·IN(응답) 원신호 파형'">IN/OUT 파형</button>
                     </div>
                     <span class="ct-anchor-hint" x-show="dataAnchorHint" x-cloak x-text="dataAnchorHint"
                           title="프리셋 기간의 끝점 = 신호가 마지막으로 들어온 시각. 공백 구간을 보려면 '기간'으로 직접 지정하세요."></span>
@@ -1087,8 +1227,21 @@
                     <div class="ct-legend" style="padding:6px 10px; border:none; background:transparent;">
                         <span><i class="ct-sw" style="background:#ffa726;"></i> 동작</span>
                         <span><i class="ct-sw" style="background:#AEB9C6;"></i> 대기</span>
-                        <span><i class="ct-sw ct-sw-out"></i> OutTag 시작</span>
-                        <span><i class="ct-sw ct-sw-in"></i> InTag 완료</span>
+                        <template x-if="showCall">
+                            <span title="Call 1회 실행 — 명령(OUT)↑ 부터 응답(IN)↑ 까지"><i class="ct-sw ct-sw-call"></i> Call 실행</span>
+                        </template>
+                        <template x-if="showCall">
+                            <span title="응답 신호가 결선되지 않은 Call — 명령 ON 구간(OUT↑~OUT↓)으로 그립니다"><i class="ct-sw ct-sw-call-cmd"></i> 명령 ON</span>
+                        </template>
+                        <template x-if="showCall">
+                            <span title="명령은 났는데 다음 명령 전까지 응답(IN↑)이 오지 않은 구간"><i class="ct-sw ct-sw-call-open"></i> 응답 없음</span>
+                        </template>
+                        <template x-if="showIo">
+                            <span><i class="ct-sw ct-sw-out"></i> OUT 명령</span>
+                        </template>
+                        <template x-if="showIo">
+                            <span><i class="ct-sw ct-sw-in"></i> IN 응답</span>
+                        </template>
                         <span title="분기 Flow: 리본 색 = 판별된 분기"><i class="ct-sw" style="background:linear-gradient(90deg,#2e7d32,#7b1fa2,#0277bd);"></i> 해당 분기</span>
                         <span title="둘 이상의 분기가 같은 가동을 정상 판별"><i class="ct-sw ct-sw-hatch"></i> CT 중복</span>
                         <span title="어느 분기로도 판별되지 않은 가동(미분류)"><i class="ct-sw ct-sw-none"></i> 정상 CT 없음</span>

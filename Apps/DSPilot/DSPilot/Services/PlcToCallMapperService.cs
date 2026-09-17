@@ -299,6 +299,44 @@ public class PlcToCallMapperService
     }
 
     /// <summary>
+    /// 이 flow 의 간트에 존재하는 전 PLC 주소 목록 — 사이클 경계 태그 선택의 <b>후보 정본</b>(2026-09-17).
+    /// 사용자가 고를 수 있는 주소는 "이 flow 간트에 그려지는 주소" 뿐이라는 규칙을 서버가 이 한 곳으로 강제한다
+    /// (화면의 선택기도, 저장 검증도 같은 목록을 본다). 같은 주소가 여러 쌍에 걸쳐 있으면 첫 등장만 남긴다 —
+    /// 엣지 조회는 주소 단위라 중복 항목은 선택지만 늘리고 의미가 없다.
+    /// </summary>
+    public IReadOnlyList<FlowTagRef> GetFlowTagCatalog(string flowName)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<FlowTagRef>();
+        foreach (var kvp in _callInfoById)
+        {
+            if (!string.Equals(kvp.Value.FlowName, flowName, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!_callIdToPairs.TryGetValue(kvp.Key, out var pairs)) continue;
+            foreach (var p in pairs)
+            {
+                if (!string.IsNullOrWhiteSpace(p.OutTag) && seen.Add(p.OutTag!))
+                    result.Add(new FlowTagRef(p.OutTag!, false, kvp.Key, kvp.Value.CallName, kvp.Value.WorkName, p.ApiCallId, p.OutActiveValue));
+                if (!string.IsNullOrWhiteSpace(p.InTag) && seen.Add(p.InTag!))
+                    result.Add(new FlowTagRef(p.InTag!, true, kvp.Key, kvp.Value.CallName, kvp.Value.WorkName, p.ApiCallId, p.InActiveValue));
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// 이 flow 안에서 주소의 활성 판정값(ValueSpec) — 엣지 조회(<c>FindActiveEdgesAsync</c>)에 그대로 넘긴다.
+    /// 미등록 주소면 null = bool 관용('1'/'true'/'on'), 즉 종전 rising/falling 과 동일 해석.
+    /// </summary>
+    public string? GetActiveValueForAddress(string flowName, string address)
+    {
+        if (string.IsNullOrWhiteSpace(address)) return null;
+        foreach (var t in GetFlowTagCatalog(flowName))
+            if (string.Equals(t.Address, address, StringComparison.OrdinalIgnoreCase))
+                return t.ActiveValue;
+        return null;
+    }
+
+    /// <summary>
     /// 모든 Call의 태그 쌍 정보를 반환 (Heatmap 필터 등 단일 태그 소비자용 — 대표(첫) 쌍).
     /// 종전 _tagMappings 순회(복수 쌍에서 last-wins 비결정)를 Call.Id 기준 dict 로 교체 — 항상 첫 쌍.
     /// </summary>
@@ -337,3 +375,16 @@ public sealed record CallTagPair(
     string? OutTag,
     string? InActiveValue,
     string? OutActiveValue);
+
+/// <summary>
+/// 사이클 경계로 고를 수 있는 주소 1개 — <see cref="PlcToCallMapperService.GetFlowTagCatalog"/> 의 항목.
+/// <paramref name="IsIn"/> 은 화면 표시(IN/OUT 칩)와 기본 에지 제안에만 쓰인다 — 경계 해석 자체는 I/O 를 보지 않는다.
+/// </summary>
+public sealed record FlowTagRef(
+    string Address,
+    bool IsIn,
+    Guid CallId,
+    string CallName,
+    string WorkName,
+    Guid ApiCallId,
+    string? ActiveValue);

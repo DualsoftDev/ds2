@@ -239,6 +239,17 @@ public class AppSettingsService
     public void SaveFlowCycleOverride(
         string flowName, string? startCallName, string? endCallName, int? chatterFilterMs, bool chatterSpecified,
         FlowCallLookup? lookup)
+        => SaveFlowCycleOverride(flowName, startCallName, endCallName, chatterFilterMs, chatterSpecified,
+            lookup, tagSpec: null, tagSpecified: false);
+
+    /// <summary>
+    /// <paramref name="tagSpecified"/>=true 면 경계 태그 지정(주소·에지)을 <paramref name="tagSpec"/> 값으로 교체한다
+    /// (주소 null/빈값 = 그 쪽 경계를 Call 기준으로 되돌림). false 면 기존 저장값을 보존 — 구 클라이언트·벌크 편집기가
+    /// Head/Tail 만 저장해도 사용자가 고른 경계 태그가 조용히 날아가지 않게.
+    /// </summary>
+    public void SaveFlowCycleOverride(
+        string flowName, string? startCallName, string? endCallName, int? chatterFilterMs, bool chatterSpecified,
+        FlowCallLookup? lookup, CycleBoundaryTagSpec? tagSpec, bool tagSpecified)
     {
         if (string.IsNullOrWhiteSpace(flowName))
         {
@@ -261,9 +272,21 @@ public class AppSettingsService
         string? SigOf(string? name) =>
             lookup is not null && lookup.TryGetId(name, out var id) ? lookup.SigOf(id) : null;
 
+        // 경계 태그 지정 — 명시했을 때만 교체. 주소가 비면 에지도 함께 비워 "Call 기준" 상태를 한 가지로 유지한다
+        // (주소 없이 에지만 남으면 나중에 주소를 고를 때 예전 방향이 조용히 따라붙는다).
+        var startAddr = tagSpecified ? NormalizeOptional(tagSpec?.StartAddress) : existing?.StartTagAddress;
+        var endAddr = tagSpecified ? NormalizeOptional(tagSpec?.EndAddress) : existing?.EndTagAddress;
+        var startEdge = startAddr is null
+            ? null
+            : CycleBoundaryEdges.NormalizeEdge(tagSpecified ? tagSpec?.StartEdge : existing?.StartTagEdge);
+        var endEdge = endAddr is null
+            ? null
+            : CycleBoundaryEdges.NormalizeEdge(tagSpecified ? tagSpec?.EndEdge : existing?.EndTagEdge);
+
         if (existing is null)
         {
-            if (!string.IsNullOrWhiteSpace(normalizedStart) || !string.IsNullOrWhiteSpace(normalizedEnd) || normalizedChatter is not null)
+            if (!string.IsNullOrWhiteSpace(normalizedStart) || !string.IsNullOrWhiteSpace(normalizedEnd)
+                || normalizedChatter is not null || startAddr is not null || endAddr is not null)
             {
                 overrides.Add(new FlowCycleOverride
                 {
@@ -274,6 +297,10 @@ public class AppSettingsService
                     EndCallId = IdOf(normalizedEnd),
                     StartCallSig = SigOf(normalizedStart),
                     EndCallSig = SigOf(normalizedEnd),
+                    StartTagAddress = startAddr,
+                    StartTagEdge = startEdge,
+                    EndTagAddress = endAddr,
+                    EndTagEdge = endEdge,
                     ChatterFilterMs = normalizedChatter,
                 });
             }
@@ -286,11 +313,17 @@ public class AppSettingsService
             existing.EndCallId = IdOf(normalizedEnd);
             existing.StartCallSig = SigOf(normalizedStart);
             existing.EndCallSig = SigOf(normalizedEnd);
+            existing.StartTagAddress = startAddr;
+            existing.StartTagEdge = startEdge;
+            existing.EndTagAddress = endAddr;
+            existing.EndTagEdge = endEdge;
             existing.ChatterFilterMs = normalizedChatter;
             // 종전엔 Head/Tail 이 기본값으로 돌아가면 항목을 통째로 지워 IdealCycleTimeMs 까지 유실됐다 —
             // 이제 모든 override 필드가 비었을 때만 제거(SaveFlowIdealCycleTime 과 동일 원칙).
             if (string.IsNullOrWhiteSpace(existing.StartCallName)
                 && string.IsNullOrWhiteSpace(existing.EndCallName)
+                && existing.StartTagAddress is null
+                && existing.EndTagAddress is null
                 && existing.IdealCycleTimeMs is null
                 && existing.ChatterFilterMs is null)
             {
@@ -507,16 +540,19 @@ public class AppSettingsService
                 throw new ArgumentException("이름이 비어 있는 분기가 있습니다.");
             if (!seen.Add(name))
                 throw new ArgumentException($"분기 이름이 중복됩니다: {name}");
-            if (string.IsNullOrWhiteSpace(b.StartCallName) || string.IsNullOrWhiteSpace(b.EndCallName))
-                throw new ArgumentException($"분기 '{name}' 의 시작/끝(Head/Tail) call 이 지정되지 않았습니다.");
+            // 경계는 Call 기준 또는 태그 지정 중 하나로 정해져야 한다. 화면은 태그를 고를 때 그 주소가 속한 call 이름도
+            // 함께 실어 보내므로(제외 목록 자기방어·유령 참조 배지·CallRefReconciler 가 계속 이름을 읽는다) 보통 둘 다 찬다.
+            if ((string.IsNullOrWhiteSpace(b.StartCallName) && string.IsNullOrWhiteSpace(b.StartTagAddress))
+                || (string.IsNullOrWhiteSpace(b.EndCallName) && string.IsNullOrWhiteSpace(b.EndTagAddress)))
+                throw new ArgumentException($"분기 '{name}' 의 시작/끝 경계가 지정되지 않았습니다.");
             var excludedNames = (b.ExcludedCallNames ?? [])
                 .Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             cleaned.Add(new FlowBranchDef
             {
                 Name = name,
-                StartCallName = b.StartCallName!.Trim(),
-                EndCallName = b.EndCallName!.Trim(),
+                StartCallName = (b.StartCallName ?? "").Trim(),
+                EndCallName = (b.EndCallName ?? "").Trim(),
                 ExcludedCallNames = excludedNames,
                 // GUID(이중 키) — 호출측(FlowController)이 CallRefReconciler.StampIds 로 채운 값. 정리로 제외 목록
                 // 개수가 달라졌으면 병렬 리스트가 어긋나므로 버린다(다음 재해석이 이름으로 다시 채움).
@@ -530,6 +566,13 @@ public class AppSettingsService
                 ExcludedCallSigs = b.ExcludedCallSigs is { } sigs
                     && sigs.Count == (b.ExcludedCallNames?.Count ?? 0)
                     && excludedNames.Count == sigs.Count ? sigs : null,
+                // 경계 태그 지정(주소·에지) — 주소가 비면 에지도 비워 "Call 기준" 을 한 가지 상태로 유지.
+                StartTagAddress = NormalizeOptional(b.StartTagAddress),
+                StartTagEdge = NormalizeOptional(b.StartTagAddress) is null
+                    ? null : CycleBoundaryEdges.NormalizeEdge(b.StartTagEdge),
+                EndTagAddress = NormalizeOptional(b.EndTagAddress),
+                EndTagEdge = NormalizeOptional(b.EndTagAddress) is null
+                    ? null : CycleBoundaryEdges.NormalizeEdge(b.EndTagEdge),
                 // 미지의 확장 필드 보존(2026-09-11) — 구버전/신버전 혼재 시 다른 쪽이 기록한 필드가 이 저장으로 사라지지 않게.
                 // 다른 설정 모델은 [JsonExtensionData] 로 자동 보존되지만 이 경로만 새 객체를 만들어 예외였다.
                 ExtensionData = b.ExtensionData,
@@ -626,6 +669,8 @@ public class AppSettingsService
             if (normalized is null
                 && string.IsNullOrWhiteSpace(existing.StartCallName)
                 && string.IsNullOrWhiteSpace(existing.EndCallName)
+                && existing.StartTagAddress is null
+                && existing.EndTagAddress is null
                 && existing.ChatterFilterMs is null)
             {
                 overrides.Remove(existing);
@@ -736,9 +781,14 @@ public class AppSettingsService
 
         bool RemoveIfEmpty(FlowCycleOverride ov)
         {
+            // 경계 태그·채터링도 "남아 있는 override" 로 센다 — 표준CT 일괄 해제가 사용자가 고른 경계 신호를
+            // 항목째 지우면 안 된다(SaveFlowCycleOverride 의 빈 항목 정리와 같은 기준).
             if (ov.IdealCycleTimeMs is null or <= 0
                 && string.IsNullOrWhiteSpace(ov.StartCallName)
-                && string.IsNullOrWhiteSpace(ov.EndCallName))
+                && string.IsNullOrWhiteSpace(ov.EndCallName)
+                && ov.StartTagAddress is null
+                && ov.EndTagAddress is null
+                && ov.ChatterFilterMs is null)
             {
                 overrides.Remove(ov);
                 return true;

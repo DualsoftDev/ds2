@@ -20,6 +20,7 @@ public class FlowMetricsService : IFlowMetricsService
     private readonly DsProjectService _projectService;
     private readonly AppSettingsService _appSettingsService;
     private readonly Adapters.DspRepositoryAdapter _dspRepository;
+    private readonly PlcToCallMapperService _mapper;
     private readonly ILogger<FlowMetricsService> _logger;
 
     // Flow별 분석 결과 캐시
@@ -40,11 +41,13 @@ public class FlowMetricsService : IFlowMetricsService
         DsProjectService projectService,
         AppSettingsService appSettingsService,
         Adapters.DspRepositoryAdapter dspRepository,
+        PlcToCallMapperService mapper,
         ILogger<FlowMetricsService> logger)
     {
         _projectService = projectService;
         _appSettingsService = appSettingsService;
         _dspRepository = dspRepository;
+        _mapper = mapper;
         _logger = logger;
     }
 
@@ -343,8 +346,9 @@ public class FlowMetricsService : IFlowMetricsService
                 return; // 초기화되지 않은 Flow는 무시
             }
 
-            // Head Call이 Going 시작한 경우
-            if (state.HeadCallName == callName)
+            // Head Call 이 Going 시작한 경우. 단, 시작을 태그로 직접 고른 flow 는 Call 을 경계로 쓰지 않는다 —
+            // 그 경우 head Call 도 그냥 "발화한 call"(분기 근거)일 뿐이라 아래 else 로 간다.
+            if (state.HeadCallName == callName && state.StartTagSignal is null)
             {
                 // 라이브 채터링 필터 — head OUT 이 방금(필터 ms 미만 전) 꺼졌다 다시 켜진 재상승이면 새 사이클 시작이
                 // 아니다(재도출 SignalDebounce 와 같은 정의). 진행 중 래치·MT 소비·FiredCalls 전부 그대로 둔다.
@@ -362,50 +366,8 @@ public class FlowMetricsService : IFlowMetricsService
                     }
                 }
 
-                // 래치 필드(PreviousCycleFinish)는 워치독/교차검증과 공유 — 락으로 캡처.
-                // 완료 1회 = 기록 1회(consume-once, 2026-08-19): CurrentMT 는 캡처 즉시 비운다. 종전엔 tail 을
-                // 놓친 채 다음 head 가 오면 직전 완료의 stale MT + 정지 전체를 머금은 WT 로 오염 행이 나갔고
-                // (다중 Call flow '오염 2행'의 1행째), abandon 해제 후 재시작 사이클도 같은 경로로 오염됐다.
-                // 소비 후엔 다음 tail 완료가 CurrentMT 를 다시 채울 때까지 head start 가 아무 행도 쓰지 않는다.
-                DateTime? prevFinish;
-                int? prevCompletedMT;
-                List<string>? firedInPrevCycle;
-                lock (state.LatchLock)
-                {
-                    prevFinish = state.PreviousCycleFinish;
-                    prevCompletedMT = state.CurrentMT;
-                    state.CurrentMT = null;
-                    // 직전 사이클의 발화 call 스냅샷(분기 라이브 분류용) — 새 사이클 집합은 이번 head 로 시작.
-                    firedInPrevCycle = state.FiredCalls.Count > 0 ? state.FiredCalls.ToList() : null;
-                    state.FiredCalls.Clear();
-                    state.FiredCalls.Add(callName);
-                    state.FiredCallsFrozen = false;
-                }
-
-                // 이전 사이클이 완료되었고 MT가 계산된 경우 WT/CT 계산 및 DB 업데이트.
-                // (단일/다중 Call Flow 공통 — 기존 로직과 동일. 락 밖에서 수행: 설정 디스크 읽기/누산기 갱신 포함.)
-                if (prevFinish.HasValue && prevCompletedMT.HasValue)
-                {
-                    var prevMT = prevCompletedMT.Value;
-                    var wt = (int)(timestamp - prevFinish.Value).TotalMilliseconds;
-                    var ct = prevMT + wt;
-
-                    state.CurrentWT = wt;
-                    state.CurrentCT = ct;
-
-                    // 평균 계산 및 DB 갱신
-                    _ = UpdateFlowMetricsWithAveragesAsync(state, flowName, prevMT, wt, ct, firedInPrevCycle);
-                }
-
-                // 사이클 시작: 단일 Call Flow 는 항상, 다중 Call Flow 는 진행 중 사이클이 없을 때만(파이프라인 방어).
-                lock (state.LatchLock)
-                {
-                    if (state.IsSingleCallFlow || !state.IsCycleActive)
-                    {
-                        state.CurrentCycleStart = timestamp;
-                        state.IsCycleActive = true;
-                    }
-                }
+                // 직전 사이클 마감(consume-once) + 새 사이클 래치 — 경계 태그 경로와 같은 코드(BeginCycle).
+                BeginCycle(flowName, state, timestamp, callName);
             }
             else
             {
@@ -429,16 +391,48 @@ public class FlowMetricsService : IFlowMetricsService
     {
         if (string.IsNullOrEmpty(address) || _flowCycleStates.IsEmpty) return;
         bool? active = NormalizeBoolOrNull(value);
-        if (active is null) return; // 값형 OUT(Int/Float 등)은 라이브 채터 판정 대상 아님(재도출만 적용)
+
         foreach (var kv in _flowCycleStates)
         {
             var state = kv.Value;
-            if (state.HeadOutAddresses.Count == 0 || !state.HeadOutAddresses.Contains(address)) continue;
-            lock (state.LatchLock)
+
+            // (1) 라이브 채터 근거 — head Call OUT 의 활성 이탈 시각(Call 기준 경로 전용).
+            //     값형 OUT(Int/Float 등)은 bool 판정이 안 되므로 건너뛴다(재도출만 적용).
+            if (active is not null && state.HeadOutAddresses.Count > 0 && state.HeadOutAddresses.Contains(address))
             {
-                if (state.HeadOutLastActive == true && active == false)
-                    state.HeadOutLastFallAt = timestamp;
-                state.HeadOutLastActive = active;
+                lock (state.LatchLock)
+                {
+                    if (state.HeadOutLastActive == true && active == false)
+                        state.HeadOutLastFallAt = timestamp;
+                    state.HeadOutLastActive = active;
+                }
+            }
+
+            // (2) 경계 태그(2026-09-17) — 사용자가 고른 주소의 엣지가 곧 사이클 시작/완료.
+            //     끝을 먼저 본다: 같은 주소를 시작·끝이 공유하면 "닫고 다시 연다" 가 맞는 순서다.
+            try
+            {
+                if (state.EndTagSignal is { } endSig
+                    && string.Equals(endSig.Address, address, StringComparison.OrdinalIgnoreCase)
+                    && TrackBoundaryEdge(kv.Key, state, isStart: false, endSig, value, timestamp)
+                    && CompleteCycle(state, timestamp, out var mt))
+                {
+                    _logger.LogDebug(
+                        "Flow '{FlowName}' cycle finished by boundary tag {Addr}{Dir}: MT={MT}ms",
+                        kv.Key, endSig.Address, endSig.Falling ? "↓" : "↑", mt);
+                }
+
+                if (state.StartTagSignal is { } startSig
+                    && string.Equals(startSig.Address, address, StringComparison.OrdinalIgnoreCase)
+                    && TrackBoundaryEdge(kv.Key, state, isStart: true, startSig, value, timestamp))
+                {
+                    // 태그 경로는 "발화한 call" 근거가 없다 — 분기 라이브 분류는 이후 call Going 발화로만 쌓인다.
+                    BeginCycle(kv.Key, state, timestamp, firstFiredCall: null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Flow '{FlowName}' 경계 태그 처리 실패 ({Addr}={Val})", kv.Key, address, value);
             }
         }
     }
@@ -453,6 +447,141 @@ public class FlowMetricsService : IFlowMetricsService
             "0" or "false" or "off" or "" or null => false,
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// 이 flow 의 경계 태그 지정 → 라이브 신호(주소·방향·활성값). 지정 없으면 (null, null) = Call 기준 유지.
+    /// 활성값은 매퍼에서 가져오되, 매퍼가 아직 안 섰으면 bool 관용으로 떨어진다(다음 재적용에서 정확해진다).
+    /// </summary>
+    private (BoundarySignal? Start, BoundarySignal? End) ResolveBoundaryTagSignals(string flowName)
+    {
+        try
+        {
+            var ov = _appSettingsService.GetFlowCycleOverride(flowName);
+            if (ov is null) return (null, null);
+            if (!CycleBoundaryEdges.HasTagSpec(ov.StartTagAddress) && !CycleBoundaryEdges.HasTagSpec(ov.EndTagAddress))
+                return (null, null);
+            if (!_mapper.IsInitialized) _mapper.Initialize();
+            return (
+                CycleBoundaryEdges.HasTagSpec(ov.StartTagAddress)
+                    ? CycleBoundaryEdges.TagSignal(_mapper, flowName, ov.StartTagAddress!, ov.StartTagEdge) : null,
+                CycleBoundaryEdges.HasTagSpec(ov.EndTagAddress)
+                    ? CycleBoundaryEdges.TagSignal(_mapper, flowName, ov.EndTagAddress!, ov.EndTagEdge) : null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Flow '{FlowName}' 경계 태그 해석 실패 — Call 기준으로 동작", flowName);
+            return (null, null);
+        }
+    }
+
+    /// <summary>
+    /// 사이클 열기 — 직전 사이클을 마감(WT/CT 산출 + history 기록)하고 새 사이클 래치를 건다.
+    /// head Call 의 Going 시작(Call 기준)과 경계 태그 엣지(태그 지정)가 같은 이 경로로 들어온다.
+    /// <paramref name="firstFiredCall"/> = 새 사이클의 첫 발화 call(분기 라이브 분류 근거). 태그 경로는 null.
+    /// </summary>
+    private void BeginCycle(string flowName, FlowCycleState state, DateTime timestamp, string? firstFiredCall)
+    {
+        // 완료 1회 = 기록 1회(consume-once, 2026-08-19): CurrentMT 는 캡처 즉시 비운다. 종전엔 tail 을
+        // 놓친 채 다음 시작이 오면 직전 완료의 stale MT + 정지 전체를 머금은 WT 로 오염 행이 나갔다.
+        DateTime? prevFinish;
+        int? prevCompletedMT;
+        List<string>? firedInPrevCycle;
+        lock (state.LatchLock)
+        {
+            prevFinish = state.PreviousCycleFinish;
+            prevCompletedMT = state.CurrentMT;
+            state.CurrentMT = null;
+            firedInPrevCycle = state.FiredCalls.Count > 0 ? state.FiredCalls.ToList() : null;
+            state.FiredCalls.Clear();
+            if (firstFiredCall is not null) state.FiredCalls.Add(firstFiredCall);
+            state.FiredCallsFrozen = false;
+        }
+
+        // 이전 사이클이 완료되었고 MT 가 계산된 경우에만 WT/CT 기록(락 밖 — 설정 읽기/누산기 갱신 포함).
+        if (prevFinish.HasValue && prevCompletedMT.HasValue)
+        {
+            var prevMT = prevCompletedMT.Value;
+            var wt = (int)(timestamp - prevFinish.Value).TotalMilliseconds;
+            var ct = prevMT + wt;
+
+            state.CurrentWT = wt;
+            state.CurrentCT = ct;
+            _ = UpdateFlowMetricsWithAveragesAsync(state, flowName, prevMT, wt, ct, firedInPrevCycle);
+        }
+
+        // 사이클 시작: 단일 Call Flow 는 항상, 다중 Call Flow 는 진행 중 사이클이 없을 때만(파이프라인 방어).
+        lock (state.LatchLock)
+        {
+            if (state.IsSingleCallFlow || !state.IsCycleActive)
+            {
+                state.CurrentCycleStart = timestamp;
+                state.IsCycleActive = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 사이클 완료 — MT 확정 + 분기 근거 동결. tail Call 의 Finish(Call 기준)와 경계 태그 엣지(태그 지정) 공용.
+    /// 진행 중 사이클이 없으면(시작을 못 본 완료) 아무것도 기록하지 않는다.
+    /// </summary>
+    private bool CompleteCycle(FlowCycleState state, DateTime timestamp, out int mt)
+    {
+        mt = 0;
+        lock (state.LatchLock)
+        {
+            if (!state.CurrentCycleStart.HasValue) return false;
+            mt = (int)(timestamp - state.CurrentCycleStart.Value).TotalMilliseconds;
+            state.CurrentMT = mt;
+            state.PreviousCycleFinish = timestamp;
+            state.IsCycleActive = false;
+            state.FiredCallsFrozen = true; // MT 확정 — 이후 WT 발화는 분기 분류 근거에서 제외
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 경계 태그 1개의 상태 변화를 흡수하고, 지정 방향의 <b>안정</b> 전이면 true.
+    /// 안정 = 직전 상태를 채터링 필터(ms) 이상 유지 — 짧은 글리치 뒤 복귀는 경계로 세지 않는다.
+    /// 첫 관측(직전 상태 없음)은 기준선만 잡고 발화하지 않는다(재시작 직후 현재값이 사이클을 만들지 않게).
+    /// </summary>
+    private bool TrackBoundaryEdge(
+        string flowName, FlowCycleState state, bool isStart, BoundarySignal sig, string value, DateTime timestamp)
+    {
+        var active = IsActiveValue(value, sig.ActiveValue);
+        if (active is null) return false; // 해석 불가(값형 등) — 라이브는 판단하지 않는다(재도출이 정본)
+
+        var chatterMs = _appSettingsService.GetEffectiveChatterFilterMs(flowName);
+        lock (state.LatchLock)
+        {
+            var prev = isStart ? state.StartTagLastActive : state.EndTagLastActive;
+            var lastChange = isStart ? state.StartTagLastChangeAt : state.EndTagLastChangeAt;
+            if (prev == active) return false;
+
+            bool fired = prev is not null
+                && (sig.Falling ? active == false : active == true)
+                && (chatterMs <= 0 || lastChange is null
+                    || (timestamp - lastChange.Value).TotalMilliseconds >= chatterMs);
+
+            if (isStart) { state.StartTagLastActive = active; state.StartTagLastChangeAt = timestamp; }
+            else { state.EndTagLastActive = active; state.EndTagLastChangeAt = timestamp; }
+            return fired;
+        }
+    }
+
+    /// <summary>
+    /// 로그 값 → 활성 여부. activeValue null = bool 관용, "false" = 반전 bool(활성=false), 그 외 = 값 일치.
+    /// <see cref="Repositories.IPlcRepository.FindActiveEdgesAsync"/> 의 활성 판정과 같은 규약이라 라이브 ↔ 재도출이 어긋나지 않는다.
+    /// </summary>
+    private static bool? IsActiveValue(string? value, string? activeValue)
+    {
+        if (activeValue is null) return NormalizeBoolOrNull(value);
+        if (string.Equals(activeValue, "false", StringComparison.OrdinalIgnoreCase))
+        {
+            var b = NormalizeBoolOrNull(value);
+            return b is null ? null : !b.Value;
+        }
+        return string.Equals(value?.Trim(), activeValue.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>head Call 의 OUT 주소 집합(복수 ApiCall 전 쌍). 미로드/미해석이면 빈 집합 = 라이브 채터 필터 비활성.</summary>
@@ -492,25 +621,11 @@ public class FlowMetricsService : IFlowMetricsService
                 return;
             }
 
-            // Tail Call이 완료된 경우 — 사이클 기록 조건은 기존과 동일(CurrentCycleStart.HasValue).
-            // 래치 3-필드를 락으로 감싸 워치독/교차검증과의 교차 스레드 접근을 보호한다.
-            if (state.TailCallName == callName)
+            // Tail Call 이 완료된 경우 — 사이클 기록 조건은 기존과 동일(CurrentCycleStart.HasValue).
+            // 끝을 태그로 직접 고른 flow 는 Call 완료를 경계로 쓰지 않는다(그 주소의 엣지가 완료).
+            if (state.TailCallName == callName && state.EndTagSignal is null)
             {
-                int mt = 0;
-                bool recorded = false;
-                lock (state.LatchLock)
-                {
-                    if (state.CurrentCycleStart.HasValue)
-                    {
-                        // MT 계산 (Going 시작 → Finish 완료까지의 시간)
-                        mt = (int)(timestamp - state.CurrentCycleStart.Value).TotalMilliseconds;
-                        state.CurrentMT = mt;
-                        state.PreviousCycleFinish = timestamp;
-                        state.IsCycleActive = false;
-                        state.FiredCallsFrozen = true; // MT 확정 — 이후 WT 발화는 분기 분류 근거에서 제외
-                        recorded = true;
-                    }
-                }
+                bool recorded = CompleteCycle(state, timestamp, out var mt);
 
                 if (recorded)
                 {
@@ -766,6 +881,11 @@ public class FlowMetricsService : IFlowMetricsService
             CurrentCT = null,
             HeadOutAddresses = ResolveHeadOutAddresses(flowName, startCallName),
         };
+
+        // 경계 태그 지정이 있으면 라이브 사이클도 그 주소의 엣지로 연다/닫는다(재도출과 같은 정의).
+        var (startTag, endTag) = ResolveBoundaryTagSignals(flowName);
+        state.StartTagSignal = startTag;
+        state.EndTagSignal = endTag;
 
         // DB 히스토리에서 마지막 사이클 데이터로 부트스트래핑
         // → 재시작 후 첫 번째 사이클 시작 시 바로 WT/CT 계산 가능
@@ -1050,6 +1170,19 @@ public class FlowCycleState
     internal HashSet<string> HeadOutAddresses { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public bool? HeadOutLastActive { get; set; }
     public DateTime? HeadOutLastFallAt { get; set; }
+
+    /// <summary>
+    /// 경계 태그 지정(2026-09-17) — 사용자가 주소·에지를 직접 고른 flow 는 Call 상태(Going 진입/완료) 대신
+    /// 이 주소의 엣지가 사이클을 열고 닫는다. null = 그 쪽은 종전 Call 기준.
+    /// <c>*LastActive</c>/<c>*LastChangeAt</c> 은 라이브 엣지 검출 + 채터링 판정용 관측 상태(<see cref="LatchLock"/> 보호):
+    /// 직전 상태를 채터링 필터 ms 이상 유지했을 때만 전이를 경계로 인정한다(재도출 <see cref="SignalDebounce"/> 의 라이브 근사).
+    /// </summary>
+    internal BoundarySignal? StartTagSignal { get; set; }
+    internal BoundarySignal? EndTagSignal { get; set; }
+    public bool? StartTagLastActive { get; set; }
+    public DateTime? StartTagLastChangeAt { get; set; }
+    public bool? EndTagLastActive { get; set; }
+    public DateTime? EndTagLastChangeAt { get; set; }
 
     /// <summary>
     /// 마지막 워치독 abandon 의 (사이클 시작, abandon 시각) — 자세(midCycle) 판정용 증거 메모(2026-08-30).

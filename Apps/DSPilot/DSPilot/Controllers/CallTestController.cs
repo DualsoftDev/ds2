@@ -138,8 +138,12 @@ public class CallTestController : ControllerBase
         Guid? tailId = ResolveRequestedId(req.TailCallId, effTailId, req.TailSpecified);
         // head==tail 허용 — 단일 신호 Call 1개를 자기 OutTag↑→완료(InTag↑/OutTag↓)로 분해(MT). null 강제 안 함.
 
+        // 경계 태그 지정(2026-09-17) — 편집 중이면 요청 값으로 미리보기, 아니면 저장된 유효값.
+        var tagSpec = ResolveTagSpec(req.FlowName, req.BoundarySpecified,
+            req.StartTagAddress, req.StartTagEdge, req.EndTagAddress, req.EndTagEdge);
+
         var (cycleBoundaries, tailStreams, tailCompletionSource) =
-            await ResolveBoundariesAsync(req.FlowName, start, end, headId, tailId, chatterMs);
+            await ResolveBoundariesAsync(req.FlowName, start, end, headId, tailId, chatterMs, tagSpec);
 
         // 표시용 tail 마커 = 전 쌍의 도달 신호 union. 통계(AND 완료)는 스트림별로 계산 — 복수 쌍이면
         // "마지막 응답"이 완료라 표시 틱 일부는 완료보다 이른 개별 응답이다(정보성 표시).
@@ -185,7 +189,12 @@ public class CallTestController : ControllerBase
             unmeasuredRegions,
             chatterMs,
             flowChatterMs,
-            globalChatterMs);
+            globalChatterMs,
+            // 이 응답의 경계 정의 — 화면의 경계 카드/선택기가 이 값을 그대로 되비춘다. 주소가 null 이면 Call 기준.
+            tagSpec.StartAddress,
+            tagSpec.StartAddress is null ? null : CycleBoundaryEdges.NormalizeEdge(tagSpec.StartEdge),
+            tagSpec.EndAddress,
+            tagSpec.EndAddress is null ? null : CycleBoundaryEdges.NormalizeEdge(tagSpec.EndEdge));
     }
 
     /// <summary>
@@ -236,13 +245,24 @@ public class CallTestController : ControllerBase
             ? Math.Max(0, req.ChatterFilterMs ?? Math.Max(0, _settings.LoadSettings().FlowCycle.ChatterFilterMs))
             : _settings.GetEffectiveChatterFilterMs(req.FlowName);
 
+        // 경계 태그 지정(2026-09-17) — 있으면 주소·에지 하나가 시작/끝. 없으면 아래 종전 Call 기준 경로.
+        var tagSpec = ResolveTagSpec(req.FlowName, req.BoundarySpecified,
+            req.StartTagAddress, req.StartTagEdge, req.EndTagAddress, req.EndTagEdge);
+
         // Head 경계(시작) — 복수 I/O 쌍이면 전 쌍 OUT 활성 진입 union(OR). 매퍼 미해석 Call 은
         // 클라가 보낸 단일 태그(레거시) 폴백.
         List<DateTime> cycleBoundaries;
         var headPairs = headId.HasValue
             ? _callMapper.GetCallTagPairsByCallId(headId.Value)
             : Array.Empty<CallTagPair>();
-        if (headPairs.Any(p => !string.IsNullOrWhiteSpace(p.OutTag)))
+        if (CycleBoundaryEdges.HasTagSpec(tagSpec.StartAddress))
+        {
+            cycleBoundaries = await CycleBoundaryEdges.StartEdgesAsync(
+                _plcRepository,
+                [CycleBoundaryEdges.TagSignal(_callMapper, req.FlowName, tagSpec.StartAddress!, tagSpec.StartEdge)],
+                start, end, systemId, chatterMs);
+        }
+        else if (headPairs.Any(p => !string.IsNullOrWhiteSpace(p.OutTag)))
         {
             cycleBoundaries = await CycleBoundaryEdges.HeadStartsAsync(
                 _plcRepository, headPairs, start, end, systemId, chatterMs);
@@ -265,7 +285,15 @@ public class CallTestController : ControllerBase
         var tailPairs = tailId.HasValue
             ? _callMapper.GetCallTagPairsByCallId(tailId.Value)
             : Array.Empty<CallTagPair>();
-        if (tailPairs.Count > 0)
+        if (CycleBoundaryEdges.HasTagSpec(tagSpec.EndAddress))
+        {
+            tailStreams = await CycleBoundaryEdges.EndStreamsAsync(
+                _plcRepository,
+                [CycleBoundaryEdges.TagSignal(_callMapper, req.FlowName, tagSpec.EndAddress!, tagSpec.EndEdge)],
+                start, end, systemId, chatterMs);
+            tailSourceLabel = "Tag";
+        }
+        else if (tailPairs.Count > 0)
         {
             (tailStreams, tailSourceLabel) = await CycleBoundaryEdges.TailStreamsAsync(
                 _plcRepository, tailPairs, start, end, systemId, chatterMs);
@@ -410,28 +438,50 @@ public class CallTestController : ControllerBase
     }
 
     private async Task<(List<DateTime> cycleBoundaries, List<List<DateTime>> tailStreams, string? tailCompletionSource)> ResolveBoundariesAsync(
-        string flowName, DateTime start, DateTime end, Guid? headId, Guid? tailId, int chatterMs)
+        string flowName, DateTime start, DateTime end, Guid? headId, Guid? tailId, int chatterMs,
+        CycleBoundaryTagSpec spec)
     {
-        // 진영 B (PLC 기준) + 복수 I/O 쌍(2026-09-02):
-        //   시작 = 전 쌍 OUT 활성 진입 union(OR — 엔진 Going 규칙), 완료 = 쌍별 마커 스트림(AND 합성은 CycleDerivation).
-        //   쌍별 마커 = InTag 활성 진입(있으면) else OutTag 활성 이탈(OutOnly 추정) — CycleCompletionResolver 규칙.
+        // 경계 해석은 CycleBoundaryEdges 단일 지점 (2026-09-17):
+        //   · 태그 지정(spec) = 사용자가 고른 주소 1개 + 에지(IN/OUT 무관).
+        //   · 미지정 = 종전 Call 기준 — 시작 = 전 쌍 OUT 활성 진입 union(OR, 엔진 Going 규칙),
+        //     완료 = 쌍별 마커 스트림(IN↑ 없으면 OUT↓; AND 합성은 CycleDerivation).
         // 멀티 PLC: 이 Flow 의 PLC 로 엣지 조회를 한정 (다른 PLC 의 같은 주소가 섞이지 않게).
         var systemId = _project.TryGetSystemIdByFlowName(flowName);
 
         var headPairs = headId.HasValue
             ? _callMapper.GetCallTagPairsByCallId(headId.Value)
             : Array.Empty<CallTagPair>();
-        var starts = headPairs.Any(p => !string.IsNullOrWhiteSpace(p.OutTag))
-            ? await CycleBoundaryEdges.HeadStartsAsync(_plcRepository, headPairs, start, end, systemId, chatterMs)
+        var startSignals = CycleBoundaryEdges.HasTagSpec(spec.StartAddress)
+            ? new[] { CycleBoundaryEdges.TagSignal(_callMapper, flowName, spec.StartAddress!, spec.StartEdge) }
+            : CycleBoundaryEdges.StartSignalsFromPairs(headPairs);
+        var starts = startSignals.Count > 0
+            ? await CycleBoundaryEdges.StartEdgesAsync(_plcRepository, startSignals, start, end, systemId, chatterMs)
             : (await _cycleAnalysis.GetCycleBoundaryTimesAsync(flowName, start, end)).OrderBy(t => t).ToList();
 
         var tailPairs = tailId.HasValue
             ? _callMapper.GetCallTagPairsByCallId(tailId.Value)
             : Array.Empty<CallTagPair>();
-        var (tailStreams, tailSourceLabel) = await CycleBoundaryEdges.TailStreamsAsync(
-            _plcRepository, tailPairs, start, end, systemId, chatterMs);
+        var (endSignals, tailSourceLabel) = CycleBoundaryEdges.HasTagSpec(spec.EndAddress)
+            ? ((IReadOnlyList<BoundarySignal>)[CycleBoundaryEdges.TagSignal(_callMapper, flowName, spec.EndAddress!, spec.EndEdge)], "Tag")
+            : CycleBoundaryEdges.EndSignalsFromPairs(tailPairs);
+        var tailStreams = await CycleBoundaryEdges.EndStreamsAsync(
+            _plcRepository, endSignals, start, end, systemId, chatterMs);
 
         return (starts, tailStreams, tailSourceLabel);
+    }
+
+    /// <summary>
+    /// 이 요청에 적용할 경계 태그 지정 — <c>boundarySpecified</c>=true 면 요청 값(편집 중 미리보기),
+    /// 아니면 저장된 유효값. 채터링 필터의 <c>chatterSpecified</c> 와 같은 규약이다.
+    /// </summary>
+    private CycleBoundaryTagSpec ResolveTagSpec(
+        string flowName, bool specified, string? startAddr, string? startEdge, string? endAddr, string? endEdge)
+    {
+        if (specified) return new CycleBoundaryTagSpec(startAddr, startEdge, endAddr, endEdge).Normalized();
+        var ov = _settings.GetFlowCycleOverride(flowName);
+        return ov is null
+            ? CycleBoundaryTagSpec.None
+            : new CycleBoundaryTagSpec(ov.StartTagAddress, ov.StartTagEdge, ov.EndTagAddress, ov.EndTagEdge).Normalized();
     }
 
     /// <summary>
@@ -484,7 +534,14 @@ public record CtLoadRequest(
     // 신호 채터링 필터 미리보기 — ChatterSpecified=true 면 ChatterFilterMs(null=글로벌 상속)로 계산,
     // false(구 클라이언트/벌크)면 저장된 유효값(글로벌 > flow override).
     int? ChatterFilterMs = null,
-    bool ChatterSpecified = false);
+    bool ChatterSpecified = false,
+    // 경계 태그 미리보기(2026-09-17) — BoundarySpecified=true 면 아래 4개로 계산(주소 빈값 = 그 쪽은 Call 기준),
+    // false 면 저장된 유효값. Edge = "rising"(기본) | "falling".
+    string? StartTagAddress = null,
+    string? StartTagEdge = null,
+    string? EndTagAddress = null,
+    string? EndTagEdge = null,
+    bool BoundarySpecified = false);
 
 public record CtOverlayRequest(
     string FlowName,
@@ -499,7 +556,13 @@ public record CtOverlayRequest(
     string? TailOutTag,
     // 신호 채터링 필터 미리보기(CtLoadRequest 와 동일 규칙).
     int? ChatterFilterMs = null,
-    bool ChatterSpecified = false);
+    bool ChatterSpecified = false,
+    // 경계 태그 미리보기(CtLoadRequest 와 동일 규칙).
+    string? StartTagAddress = null,
+    string? StartTagEdge = null,
+    string? EndTagAddress = null,
+    string? EndTagEdge = null,
+    bool BoundarySpecified = false);
 
 public record CtCycleBoundaryRequest(string FlowName, DateTime Start, DateTime End);
 
@@ -569,7 +632,12 @@ public record CtLoadDto(
     // 신호 채터링 필터(2026-09-07): 이 응답(파형·경계)에 적용된 값 / 이 flow 에 저장된 override(null=글로벌 상속) / 글로벌 기본.
     int ChatterFilterMs = 0,
     int? FlowChatterFilterMs = null,
-    int GlobalChatterFilterMs = 0);
+    int GlobalChatterFilterMs = 0,
+    // 이 응답에 적용된 경계 정의(2026-09-17). 주소 null = 그 쪽은 Call 기준(종전 해석). Edge = "rising" | "falling".
+    string? StartTagAddress = null,
+    string? StartTagEdge = null,
+    string? EndTagAddress = null,
+    string? EndTagEdge = null);
 
 /// <summary>
 /// 미계측(수신 공백) 구간 1개 — 로컬 ISO. Cause: "plc"(PLC 통신 단절) | "agent"(수집 서비스/Hub 단절)
