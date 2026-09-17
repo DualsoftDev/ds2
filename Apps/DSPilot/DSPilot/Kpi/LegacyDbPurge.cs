@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Infrastructure;
@@ -50,6 +50,7 @@ public sealed class LegacyDbPurge
         SqliteConnection.ClearAllPools();
 
         int deleted = 0;
+        bool blocked = false;
         foreach (var dir in dirs)
         {
             if (!Directory.Exists(dir)) continue;
@@ -67,7 +68,10 @@ public sealed class LegacyDbPurge
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "[LegacyDbPurge] delete failed — {Path}", path);
+                        // 가장 흔한 원인은 다른 DSPilot 인스턴스(설치본 Windows 서비스)가 파일을 쥐고 있는 것이다.
+                        // 실패해도 앱은 새 DB 로 정상 동작한다 — 구 파일만 디스크에 남는다.
+                        blocked = true;
+                        _logger.LogWarning("[LegacyDbPurge] delete failed — {Path} ({Reason})", path, ex.Message);
                     }
                 }
             }
@@ -75,6 +79,10 @@ public sealed class LegacyDbPurge
 
         if (deleted > 0)
             _logger.LogInformation("[LegacyDbPurge] {Count} legacy database file(s) removed", deleted);
+        if (blocked)
+            _logger.LogWarning(
+                "[LegacyDbPurge] 구 DB 를 지우지 못했다 — 다른 DSPilot 인스턴스(설치본 서비스)가 파일을 쥐고 있는지 확인하라. "
+                + "앱은 새 DB 로 정상 동작하며, 구 파일은 디스크만 차지한다.");
         return deleted;
     }
 

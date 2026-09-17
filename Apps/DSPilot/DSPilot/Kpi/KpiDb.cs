@@ -21,8 +21,13 @@ namespace DSPilot.Kpi;
 /// </summary>
 public sealed class KpiDb
 {
-    /// <summary>스키마 버전 — PRAGMA user_version 에 기록된다.</summary>
-    public const int SchemaVersion = 1;
+    /// <summary>
+    /// 스키마 버전 — PRAGMA user_version 에 기록된다.
+    /// v2(2026-09-17): 단일 DB 전환. 원시 신호·모델·알람 표를 여기서 만들지 않는다 —
+    /// 같은 파일 안에 기존 표(plcTagLog · plcTag · plc · dspFlow · dspCall · userTagAlertLog)가
+    /// 이미 그 역할을 하고 있어 나란히 만들면 같은 데이터가 두 벌이 된다.
+    /// </summary>
+    public const int SchemaVersion = 2;
 
     /// <summary>판정 규칙 버전 — 사이클 행에 박제해 어떤 규칙으로 만들어진 행인지 남긴다.</summary>
     public const string SpecVersion = "v68.1";
@@ -94,7 +99,7 @@ public sealed class KpiDb
             {
                 await using (var tx = await conn.BeginTransactionAsync(ct))
                 {
-                    foreach (var sql in SchemaV1)
+                    foreach (var sql in SchemaV2)
                     {
                         await using var cmd = conn.CreateCommand();
                         cmd.Transaction = (SqliteTransaction)tx;
@@ -108,10 +113,30 @@ public sealed class KpiDb
             }
             else if (version != SchemaVersion)
             {
-                _logger.LogError(
-                    "[KpiDb] schema version mismatch: file={File}, expected={Expected}. 마이그레이션이 필요하다.",
+                // 이 표들은 전부 <b>파생</b>이다 — 원시 신호에서 다시 만들 수 있다. 그래서 구조가 바뀌면
+                // ALTER 체인을 쌓는 대신 버리고 다시 만든다(doc/30 §9 의 "ALTER 체인 금지"의 실제 운용).
+                _logger.LogWarning(
+                    "[KpiDb] schema v{Old} → v{New} — 파생 표를 버리고 다시 만든다(원시 신호에서 재적재됨).",
                     version, SchemaVersion);
-                return false;
+                await using (var tx = await conn.BeginTransactionAsync(ct))
+                {
+                    foreach (var name in DerivedTables)
+                    {
+                        await using var cmd = conn.CreateCommand();
+                        cmd.Transaction = (SqliteTransaction)tx;
+                        cmd.CommandText = $"DROP TABLE IF EXISTS {name}";
+                        await cmd.ExecuteNonQueryAsync(ct);
+                    }
+                    foreach (var sql in SchemaV2)
+                    {
+                        await using var cmd = conn.CreateCommand();
+                        cmd.Transaction = (SqliteTransaction)tx;
+                        cmd.CommandText = sql;
+                        await cmd.ExecuteNonQueryAsync(ct);
+                    }
+                    await tx.CommitAsync(ct);
+                }
+                await ExecAsync(conn, $"PRAGMA user_version={SchemaVersion};", ct);
             }
             return true;
         }
@@ -153,14 +178,25 @@ public sealed class KpiDb
         return v is null || v is DBNull ? 0 : Convert.ToInt32(v);
     }
 
-    /// <summary>스키마 v1 — doc/30 §9 표와 1:1.</summary>
-    private static readonly string[] SchemaV1 =
+    /// <summary>
+    /// 이 코어가 소유하는 표 — 버전이 바뀌면 통째로 버리고 다시 만드는 대상.
+    /// 같은 파일의 다른 표(원시 신호·모델·알람·구 OEE)는 여기서 건드리지 않는다.
+    /// </summary>
+    private static readonly string[] DerivedTables =
     [
-        // ── 판정 결과 ──────────────────────────────────────────────────────────
+        "cycleWork", "cycle", "baseline", "linkEvent",
+        // v1 이 만들었던 표 — 같은 파일의 기존 표와 이름이 겹치거나 역할이 중복되어 폐기했다.
+        "signalLog", "tag", "alertLog",
+    ];
+
+    /// <summary>스키마 v2 — doc/30 §9. 판정 결과와 보조 관측만 소유한다.</summary>
+    private static readonly string[] SchemaV2 =
+    [
         // 사이클 행. 상태 컬럼은 없다 — 상태는 조회 시 현재 κ 로 도출한다(doc/30 §5).
         // rUsedMs · worstRatio 가 완료 시점에 박제되므로 기준선이 움직여도 과거는 변하지 않는다.
+        // 시각은 전부 정수 epoch ms — 텍스트 날짜(약 28바이트)보다 짧고 파싱 함정이 없다.
         """
-        CREATE TABLE cycle (
+        CREATE TABLE IF NOT EXISTS cycle (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             flow          TEXT    NOT NULL,
             branch        TEXT,
@@ -176,13 +212,12 @@ public sealed class KpiDb
             specVersion   TEXT    NOT NULL
         )
         """,
-        "CREATE UNIQUE INDEX uq_cycle_flow_start ON cycle(flow, startMs)",
-        "CREATE INDEX idx_cycle_start ON cycle(startMs)",
-        "CREATE INDEX idx_cycle_flow_start_end ON cycle(flow, startMs, endMs)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_cycle_flow_start ON cycle(flow, startMs)",
+        "CREATE INDEX IF NOT EXISTS idx_cycle_start ON cycle(startMs)",
 
         // 사이클별 work 지속시간. 비가동 판정의 근거이자 화면의 "초과 work" 표시 소스.
         """
-        CREATE TABLE cycleWork (
+        CREATE TABLE IF NOT EXISTS cycleWork (
             cycleId    INTEGER NOT NULL REFERENCES cycle(id) ON DELETE CASCADE,
             work       TEXT    NOT NULL,
             durationMs INTEGER NOT NULL,
@@ -193,7 +228,7 @@ public sealed class KpiDb
 
         // 기준선 일별 스냅샷. scope='R' 이면 work='' (flow·분기 기준), scope='W' 면 work 별.
         """
-        CREATE TABLE baseline (
+        CREATE TABLE IF NOT EXISTS baseline (
             scope       TEXT    NOT NULL,
             flow        TEXT    NOT NULL,
             branch      TEXT    NOT NULL DEFAULT '',
@@ -205,11 +240,10 @@ public sealed class KpiDb
         ) WITHOUT ROWID
         """,
 
-        // ── 보조 관측 ──────────────────────────────────────────────────────────
         // 시스템(PLC 연결)별 접속 전이와 심박 공백. 계산 인자가 아니라 대조용이다(doc/30 §7).
         // 1초 심박 자체는 쌓지 않는다 — 전이와 공백만 남긴다.
         """
-        CREATE TABLE linkEvent (
+        CREATE TABLE IF NOT EXISTS linkEvent (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             system      TEXT    NOT NULL,
             atMs        INTEGER NOT NULL,
@@ -220,85 +254,6 @@ public sealed class KpiDb
             source      TEXT
         )
         """,
-        "CREATE INDEX idx_linkEvent_system_at ON linkEvent(system, atMs)",
-        "CREATE INDEX idx_linkEvent_at ON linkEvent(atMs)",
-
-        // ── 원시 신호(롤링 보존) ───────────────────────────────────────────────
-        """
-        CREATE TABLE signalLog (
-            id    INTEGER PRIMARY KEY AUTOINCREMENT,
-            tagId INTEGER NOT NULL,
-            atMs  INTEGER NOT NULL,
-            value TEXT    NOT NULL
-        )
-        """,
-        "CREATE INDEX idx_signalLog_tag_at ON signalLog(tagId, atMs)",
-        "CREATE INDEX idx_signalLog_at ON signalLog(atMs)",
-
-        // ── 모델 현재값(AASX 로드 시 갱신) ─────────────────────────────────────
-        """
-        CREATE TABLE plc (
-            id       INTEGER PRIMARY KEY AUTOINCREMENT,
-            name     TEXT NOT NULL UNIQUE,
-            systemId TEXT,
-            vendor   TEXT,
-            endpoint TEXT
-        )
-        """,
-        "CREATE UNIQUE INDEX uq_plc_systemId ON plc(systemId) WHERE systemId IS NOT NULL",
-        """
-        CREATE TABLE tag (
-            id       INTEGER PRIMARY KEY AUTOINCREMENT,
-            plcId    INTEGER NOT NULL DEFAULT 1,
-            name     TEXT NOT NULL,
-            address  TEXT NOT NULL,
-            dataType TEXT NOT NULL DEFAULT 'BOOL',
-            UNIQUE (plcId, address)
-        )
-        """,
-        "CREATE INDEX idx_tag_address ON tag(address)",
-        """
-        CREATE TABLE flow (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            name       TEXT NOT NULL UNIQUE,
-            flowGuid   TEXT,
-            systemName TEXT,
-            headCall   TEXT,
-            tailCall   TEXT
-        )
-        """,
-        """
-        CREATE TABLE call (
-            id       INTEGER PRIMARY KEY AUTOINCREMENT,
-            callGuid TEXT,
-            name     TEXT NOT NULL,
-            apiCall  TEXT,
-            workName TEXT,
-            flowName TEXT NOT NULL,
-            device   TEXT,
-            UNIQUE (name, flowName, workName)
-        )
-        """,
-        "CREATE INDEX idx_call_flow_work ON call(flowName, workName)",
-
-        // ── 이상·알람(롤링 보존) ───────────────────────────────────────────────
-        """
-        CREATE TABLE alertLog (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            occurredMs  INTEGER NOT NULL,
-            clearedMs   INTEGER,
-            systemId    TEXT,
-            systemName  TEXT,
-            name        TEXT NOT NULL,
-            logLevel    TEXT NOT NULL,
-            tagAddress  TEXT,
-            valueType   TEXT,
-            matchOp     TEXT,
-            matchValue  TEXT,
-            actualValue TEXT
-        )
-        """,
-        "CREATE INDEX idx_alertLog_occurred ON alertLog(occurredMs)",
-        "CREATE INDEX idx_alertLog_level_time ON alertLog(logLevel, occurredMs)",
+        "CREATE INDEX IF NOT EXISTS idx_linkEvent_system_at ON linkEvent(system, atMs)",
     ];
 }

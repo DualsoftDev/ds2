@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Dapper;
@@ -102,8 +102,8 @@ public sealed class HistoryMirrorService : IHostedService, IDisposable
     }
 
     private string PlcDbPath => _pathResolver.GetSharedDbPath();
-    /// <summary>oee.db 경로 — OeeRepositoryAdapter 등과 동일 규칙(공유 DB 디렉토리 + oee.db).</summary>
-    public string OeeDbPath => Path.Combine(Path.GetDirectoryName(PlcDbPath) ?? ".", "oee.db");
+    /// <summary>OEE 표의 파일 — 2026-09-17 단일 DB 전환 이후 공유 DB 와 같은 파일이다.</summary>
+    public string OeeDbPath => PlcDbPath;
 
     // ── 읽기 라우팅 ─────────────────────────────────────────────────────────
 

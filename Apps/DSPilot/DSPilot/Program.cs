@@ -303,28 +303,29 @@ builder.Services.AddHttpClient<DSPilot.Services.CloudAuth.IProvisioningAuthClien
 
 var app = builder.Build();
 
-// H1 fix: HostedService 시작 전에 plc.db 스키마를 보장 — Hub 신호가 빨리 들어와도
-// BootstrapPlcTags 가 plcTag 없는 상태에서 INSERT 실패하지 않도록.
+// ── DB 부팅 (2026-09-17 단일 DB 전환, doc/30 §9) ──────────────────────────────
+//  순서가 규약이다.
+//   ① 구 DB(plc.db/oee.db) 삭제 — 새 DSPilot 은 처음부터 수집한다. 두 파일은 더 이상 열리지 않는다.
+//   ② 새 DB 스키마 — auto_vacuum 은 <b>파일이 비어 있을 때만</b> 설정되므로 어떤 표보다 먼저 와야 한다.
+//   ③ 나머지 표(원시 신호·모델·알람·OEE) — 같은 파일 안에 만든다.
+{
+    var purged = app.Services.GetRequiredService<DSPilot.Kpi.LegacyDbPurge>().Purge();
+    if (purged > 0) app.Logger.LogInformation("[Startup] 구 DB 파일 {N}개 삭제 (plc.db / oee.db)", purged);
+
+    var kpiDb = app.Services.GetRequiredService<DSPilot.Kpi.KpiDb>();
+    var kpiOk = await kpiDb.EnsureSchemaAsync();
+    app.Logger.LogInformation("[Startup] KPI schema v{Ver}: {Ok} — {Path}",
+        DSPilot.Kpi.KpiDb.SchemaVersion, kpiOk, kpiDb.Path);
+}
+
+// HostedService 시작 전에 표를 보장 — Hub 신호가 빨리 들어와도 plcTag 없는 상태에서 INSERT 실패하지 않도록.
 {
     var dspRepoEarly = app.Services.GetRequiredService<DspRepositoryAdapter>();
     var schemaOk = await dspRepoEarly.CreateSchemaAsync();
     app.Logger.LogInformation("[Startup] Eager schema creation: {Ok}", schemaOk);
 }
 
-// 시간 기반 코어 DB(dspilot.db) 스키마 v1 — doc/30 §9. 한 파일에 사이클·work·기준선·접속이력·원시신호.
-{
-    var kpiDb = app.Services.GetRequiredService<DSPilot.Kpi.KpiDb>();
-    var kpiOk = await kpiDb.EnsureSchemaAsync();
-    app.Logger.LogInformation("[Startup] KPI schema creation: {Ok} — {Path}", kpiOk, kpiDb.Path);
-
-    // 구 DB(plc.db/oee.db) 삭제 — 설치본은 처음부터 수집한다(doc/30 §9).
-    // ★ 구 파이프라인이 아직 plc.db 를 SSOT 로 쓰는 전환 기간에는 기본값이 꺼짐이다.
-    //   교체 완료(doc/30 §13 7단계) 시 이 기본값을 true 로 바꾼다.
-    if (app.Configuration.GetValue("Kpi:PurgeLegacyDatabases", false))
-        app.Services.GetRequiredService<DSPilot.Kpi.LegacyDbPurge>().Purge();
-}
-
-// OEE 전용 oee.db 스키마 1회 생성 (별도 파일이라 plc.db CreateSchemaAsync 가 만들지 않음). repo 가 scoped 라 scope 필요.
+// OEE 표 — 종전엔 별도 oee.db 였고 지금은 같은 파일이다. repo 가 scoped 라 scope 필요.
 {
     using var oeeScope = app.Services.CreateScope();
     var oeeRepo = oeeScope.ServiceProvider.GetRequiredService<IOeeRepository>();

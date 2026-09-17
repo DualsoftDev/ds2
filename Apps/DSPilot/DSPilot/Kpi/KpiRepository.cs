@@ -341,14 +341,28 @@ public sealed class KpiRepository
             r.source as string)).ToList();
     }
 
-    /// <summary>롤링 보존 — 원시 신호와 알람에서 기준 시각 이전 행을 지운다.</summary>
+    /// <summary>
+    /// 롤링 보존 — 원시 신호와 알람에서 기준 시각 이전 행을 지운다.
+    /// 원시 표는 아직 기존 이름(plcTagLog · userTagAlertLog)이고 시각이 텍스트라 문자열 경계로 비교한다.
+    /// 7단계에서 표를 정수 epoch 로 바꾸면 이 비교도 정수로 바뀐다.
+    /// </summary>
     public async Task<int> PruneRawBeforeAsync(long beforeMs, CancellationToken ct = default)
     {
+        var boundary = KpiTime.ToUtc(beforeMs).ToString("yyyy-MM-dd HH:mm:ss.fffffff") + "Z";
         await using var conn = _db.Open();
-        int n = await conn.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM signalLog WHERE atMs < @beforeMs", new { beforeMs }, cancellationToken: ct));
-        n += await conn.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM alertLog WHERE occurredMs < @beforeMs", new { beforeMs }, cancellationToken: ct));
+        int n = 0;
+        foreach (var (table, column) in new[] { ("plcTagLog", "dateTime"), ("userTagAlertLog", "occurredAt") })
+        {
+            try
+            {
+                n += await conn.ExecuteAsync(new CommandDefinition(
+                    $"DELETE FROM {table} WHERE {column} < @boundary", new { boundary }, cancellationToken: ct));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Kpi] prune skipped — {Table}", table);
+            }
+        }
         return n;
     }
 }

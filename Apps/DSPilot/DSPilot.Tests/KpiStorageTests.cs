@@ -201,11 +201,18 @@ public sealed class KpiStorageTests : IDisposable
     [Fact]
     public async Task 보존_삭제는_기준시각_이전만_지운다()
     {
+        // 원시 신호 표는 아직 기존 이름·텍스트 시각이다(7단계에서 정수 epoch 로 교체).
+        static string Iso(long ms) => KpiTime.ToUtc(ms).ToString("yyyy-MM-dd HH:mm:ss.fffffff") + "Z";
         await using (var conn = _db.Open())
         {
             await Dapper.SqlMapper.ExecuteAsync(conn,
-                "INSERT INTO signalLog (tagId, atMs, value) VALUES (1, @a, 'true'), (1, @b, 'false')",
-                new { a = T0 - 10_000, b = T0 + 10_000 });
+                """
+                CREATE TABLE plcTagLog (id INTEGER PRIMARY KEY AUTOINCREMENT, plcTagId INTEGER NOT NULL,
+                                        dateTime DATETIME NOT NULL, value TEXT NOT NULL)
+                """);
+            await Dapper.SqlMapper.ExecuteAsync(conn,
+                "INSERT INTO plcTagLog (plcTagId, dateTime, value) VALUES (1, @a, 'true'), (1, @b, 'false')",
+                new { a = Iso(T0 - 10_000), b = Iso(T0 + 10_000) });
         }
         Assert.Equal(1, await _repo.PruneRawBeforeAsync(T0));
     }

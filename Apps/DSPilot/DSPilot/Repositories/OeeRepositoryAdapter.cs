@@ -47,13 +47,11 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         return " AND (flowName IS NULL OR flowName IN @ModelFlows) ";
     }
 
-    /// <summary>plc.db 와 같은 디렉터리의 oee.db 경로.</summary>
-    private string OeeDbPath()
-    {
-        var shared = _pathResolver.GetSharedDbPath();
-        var dir = Path.GetDirectoryName(shared);
-        return string.IsNullOrEmpty(dir) ? "oee.db" : Path.Combine(dir, "oee.db");
-    }
+    /// <summary>
+    /// OEE 표가 사는 파일 = 공유 DB 그 자체(dspilot.db). 2026-09-17 단일 DB 전환으로 별도 oee.db 는 사라졌다 —
+    /// "plc.db 재초기화에도 살아남게" 라는 분리 근거가 없어졌기 때문이다(재초기화는 이제 전체 초기화다).
+    /// </summary>
+    private string OeeDbPath() => _pathResolver.GetSharedDbPath();
 
     private async Task<SqliteConnection> OpenAsync()
     {

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Dapper;
@@ -82,12 +82,8 @@ public sealed class OeeCommHealthService : BackgroundService
         _logger = logger;
     }
 
-    private string OeeDbPath()
-    {
-        var shared = _pathResolver.GetSharedDbPath();
-        var dir = System.IO.Path.GetDirectoryName(shared);
-        return string.IsNullOrEmpty(dir) ? "oee.db" : System.IO.Path.Combine(dir, "oee.db");
-    }
+    /// <summary>심박 표가 사는 파일 = 공유 DB 그 자체(dspilot.db). 2026-09-17 단일 DB 전환.</summary>
+    private string OeeDbPath() => _pathResolver.GetSharedDbPath();
 
     private static string Iso(DateTime utc) => SqliteDateTimeHelpers.ToSqliteUtcString(utc);
     private static string IsoMs(double ms) => Iso(EpochUtc.AddMilliseconds(ms));

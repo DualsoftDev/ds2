@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Adapters;
@@ -30,6 +30,8 @@ public sealed class DatabaseLifecycleService
     private readonly ILogger<DatabaseLifecycleService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    private readonly Kpi.KpiDb _kpiDb;
+
     public DatabaseLifecycleService(
         SimulationEngineService engineService,
         DspDbService dspDbService,
@@ -44,8 +46,10 @@ public sealed class DatabaseLifecycleService
         IServiceScopeFactory scopeFactory,
         HistoryMirrorService mirror,
         PlcConnectionStatusTracker plcStatus,
+        Kpi.KpiDb kpiDb,
         ILogger<DatabaseLifecycleService> logger)
     {
+        _kpiDb = kpiDb;
         _mirror = mirror;
         _plcStatus = plcStatus;
         _engineService = engineService;
@@ -166,27 +170,17 @@ public sealed class DatabaseLifecycleService
                 //      비운다. 삭제가 미러의 열린 핸들에 막히지 않게 하는 순서 규약.
                 await _mirror.SuspendAsync();
 
-                // 3. plc.db 파일 삭제 (connection pool clear 포함)
+                // 3. DB 파일 삭제 (connection pool clear 포함).
+                //    2026-09-17 단일 DB 전환 이후 이 한 번이 전체 초기화다 — 종전처럼 정지 로그만 따로
+                //    비우거나 불량·시프트를 남겨 두는 분리 보존은 없다(파일이 하나라 같이 사라진다).
                 var dbPath = _pathResolver.GetSharedDbPath();
                 _settingsService.DeleteDatabase(dbPath);
-
-                // 3-b. oee.db 정지 이벤트도 동반 초기화 — plc.db 를 비웠는데 정지 로그(특히 '진행중' 박제)가
-                //      남는 문제 해소. 정지 이벤트(oeeDowntimeEvent) 만 비우고, 작업자가 입력한 불량/생산
-                //      (oeeProductionCount)·시프트 예외(oeeShiftException)는 보존한다(doc/21 §1 의도 유지).
-                //      IOeeRepository 는 scoped 라 scope 를 직접 연다(상태머신과 동일 패턴).
                 int downtimeCleared = 0;
-                try
-                {
-                    using var oeeScope = _scopeFactory.CreateScope();
-                    var oeeRepo = oeeScope.ServiceProvider.GetRequiredService<IOeeRepository>();
-                    downtimeCleared = await oeeRepo.ClearDowntimeEventsAsync();
-                    _logger.LogInformation("[DBLifecycle] oeeDowntimeEvent {N}건 초기화 (불량/시프트 보존)", downtimeCleared);
-                }
-                catch (Exception ex)
-                {
-                    // 정지 로그 초기화 실패는 plc.db 재구축을 막지 않는다(비핵심).
-                    _logger.LogWarning(ex, "[DBLifecycle] oeeDowntimeEvent 초기화 실패 (plc.db 재구축은 계속)");
-                }
+
+                // 3-b. 새 파일에 시간 기반 코어 스키마부터 만든다 — auto_vacuum 은 빈 파일에서만 설정되므로
+                //      다른 표보다 먼저 와야 한다(부팅 경로와 같은 순서 규약).
+                if (!await _kpiDb.EnsureSchemaAsync())
+                    _logger.LogWarning("[DBLifecycle] KPI 스키마 재생성 실패 — 사이클 적재가 멈출 수 있다");
 
                 // 4. 스키마 + 현재 in-memory AASX → dspFlow/dspCall 재적재
                 var ok = await _bootstrap.BootstrapAsync();
