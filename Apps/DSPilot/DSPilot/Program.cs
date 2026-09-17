@@ -268,8 +268,9 @@ builder.Services.AddSingleton<PlcPingService>();
 builder.Services.AddSingleton<DSPilot.Kpi.KpiDb>();
 builder.Services.AddSingleton<DSPilot.Kpi.LegacyDbPurge>();
 builder.Services.AddSingleton<DSPilot.Kpi.KpiRepository>();
-// 태그 모니터링 — UserTag 값·추이 조회(알람은 Bit 만, 나머지는 여기서 본다).
+// 태그 모니터링 — UserTag 값·추이 조회. 값은 저장소(DB), 종류(이상알람/모니터링)는 서비스가 AASX 에서 얹는다.
 builder.Services.AddSingleton<DSPilot.Kpi.TagMonitorRepository>();
+builder.Services.AddSingleton<TagMonitorService>();
 builder.Services.AddSingleton<DSPilot.Kpi.BaselineService>();
 builder.Services.AddSingleton<DSPilot.Kpi.CycleIngestService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DSPilot.Kpi.CycleIngestService>());
@@ -502,6 +503,8 @@ var canonicalStaticRoutes = new Dictionary<string, string>(StringComparer.Ordina
     ["/uptime-oee"] = "uptime-oee.html",
     ["/uptime-teep"] = "uptime-teep.html",
     ["/uptime-alarm"] = "uptime-alarm.html",
+    // 태그 모니터링 — UserTag 의 값·추이(signal 표). 이상·알람(alert 표)과 축이 다른 형제 페이지다.
+    ["/tag-monitor"] = "tag-monitor.html",
     // 구 통합 /uptime, /oee 는 아래 legacyRedirects 에서 /uptime-oee 로 302(쿼리 보존).
     //   구 ?section=teep 딥링크는 uptime-workspace.js init 이 /uptime-teep 로 클라이언트 리다이렉트.
     ["/cctv"] = "cctv.html",

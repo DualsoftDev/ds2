@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>태그 모니터링 — DSPilot</title>
+
+    <!--
+      DSPilot 정적 호스팅 — 태그 모니터링.
+      서버/모델 = C#(/api/tag-monitor/*), 뷰 = 정적 HTML/CSS/JS(Alpine + Chart.js). 디자인 시스템 = /css/ds.css.
+
+      무엇을 보는 페이지인가: UserTag 의 <b>값</b>이다. 이상·알람 페이지가 "조건에 걸려 발화한 사건"(alert 표)을
+      보는 곳이라면 여기는 "값이 어떻게 움직였나"(signal 표)를 본다. 둘은 표가 다르고 축이 다르다.
+
+      종류(로그 레벨)는 기본 선택만 가른다 — 모니터링TAG(Info)가 기본이고, 이상알람TAG(Error)도 값이 쌓이므로
+      필터를 풀면 그 추이도 그대로 보인다. 등록·편집은 설정▸모니터링·정합의 사용자 태그 편집기에서 한다.
+
+      값 타입마다 그림이 다르다:
+        · 수치(Word·Real·Int…) = 계단 선 차트(Chart.js). 신호는 변할 때만 기록되므로 선형 보간은 거짓이다.
+        · Bit = 상태 띠(HTML 세그먼트). 0/1 두 값을 선으로 그리면 읽기 어렵다.
+        · String = 변화 이벤트 목록.
+      ★ 구간 직전 마지막 값을 서버가 startValue 로 함께 준다(doc/30 §9.4-2). 그것이 계단의 시작점이라,
+        없으면 "값이 안 변한 구간"과 "데이터가 없는 구간"이 똑같아 보인다.
+    -->
+    <link href="/css/fonts.css" rel="stylesheet" />
+    <link href="/css/ds.css" rel="stylesheet" />
+
+    <style>
+        [x-cloak] { display: none !important; }
+
+        /* ── 독립 셸 (shell.js 미동작 시 fallback, shell.js 가 .dsp-appbar 를 제거한다) ── */
+        .dsp-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-family); }
+        .dsp-appbar { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--color-appbar-bg); color: var(--color-appbar-text); border-bottom: 1px solid var(--color-lines-strong); position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+        .dsp-appbar .dsp-title { font-size: 18px; font-weight: 700; }
+        .dsp-appbar .spacer { flex: 1; }
+        .dsp-main { flex: 1; min-height: 0; padding: 16px 20px 20px; max-width: 1600px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; }
+        html.dsp-wide .dsp-main { max-width: none; }
+
+        /* ── 2단 레이아웃: 좌 태그 목록 · 우 본문 ── */
+        .tm-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 14px; align-items: start; }
+        @media (max-width: 1100px) { .tm-layout { grid-template-columns: 1fr; } }
+
+        .tm-side .card-content { padding: 10px 12px 12px; }
+        .tm-side-tools { display: flex; flex-direction: column; gap: 7px; margin-bottom: 8px; }
+        .tm-search { position: relative; }
+        .tm-search .material-icons { position: absolute; left: 7px; top: 50%; transform: translateY(-50%); font-size: 17px; color: var(--color-text-disabled); }
+        .tm-search input { width: 100%; padding-left: 28px; }
+        .tm-list { max-height: 560px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+        .tm-item { display: flex; align-items: center; gap: 8px; padding: 6px 7px; border-radius: var(--radius-sm); cursor: pointer; border: 1px solid transparent; }
+        .tm-item:hover { background: var(--color-surface-variant); }
+        .tm-item.is-on { border-color: color-mix(in srgb, var(--color-primary) 45%, transparent); background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
+        .tm-item input { flex: 0 0 auto; }
+        .tm-item-body { min-width: 0; flex: 1; }
+        .tm-item-name { font-size: 0.8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tm-item-sub { font-size: 0.66rem; color: var(--color-text-secondary); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tm-item-val { flex: 0 0 auto; font-family: var(--font-mono); font-size: 0.76rem; font-weight: 700; }
+        .tm-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+
+        /* ── 현재값 타일 ── */
+        .tm-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .tm-tile { border: 1px solid var(--color-lines); border-radius: var(--radius-md); padding: 11px 13px; background: var(--color-surface); border-left-width: 3px; }
+        .tm-tile .tm-tile-name { font-size: 0.72rem; color: var(--color-text-secondary); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tm-tile .tm-tile-val { font-family: var(--font-mono); font-size: 1.5rem; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; margin-top: 3px; }
+        .tm-tile .tm-tile-unit { font-size: 0.8rem; font-weight: 600; color: var(--color-text-secondary); margin-left: 3px; }
+        .tm-tile .tm-tile-at { font-size: 0.64rem; color: var(--color-text-disabled); font-family: var(--font-mono); margin-top: 3px; }
+
+        /* ── Bit 상태 띠 ── */
+        .tm-bits { display: flex; flex-direction: column; gap: 9px; }
+        .tm-bit-row { display: grid; grid-template-columns: 160px minmax(0, 1fr) 84px; gap: 10px; align-items: center; }
+        .tm-bit-name { font-size: 0.76rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tm-bit-track { position: relative; height: 20px; border-radius: 3px; background: var(--color-surface-variant); border: 1px solid var(--color-lines); overflow: hidden; }
+        .tm-bit-seg { position: absolute; top: 0; bottom: 0; background: var(--color-primary); }
+        .tm-bit-seg.is-unknown { background: repeating-linear-gradient(45deg, var(--color-lines) 0 4px, transparent 4px 8px); }
+        .tm-bit-ratio { font-family: var(--font-mono); font-size: 0.72rem; text-align: right; color: var(--color-text-secondary); }
+
+        /* ── 차트 ── */
+        .tm-chart-wrap { position: relative; height: 320px; }
+        .tm-axis-note { font-size: 0.68rem; color: var(--color-text-secondary); margin-top: 6px; }
+
+        /* ── 표 ── */
+        .tm-table-scroll { max-height: 420px; overflow: auto; }
+        .tm-num { font-family: var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; }
+        .tm-trunc { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: var(--color-warning); margin-top: 6px; }
+        .tm-trunc .material-icons { font-size: 15px; }
+
+        .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 11px 18px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); color: var(--color-surface); background: var(--color-text-primary); font-size: 0.82rem; font-weight: 600; box-shadow: var(--shadow-4); }
+        .dsp-toast.error { border-left: 3px solid var(--color-error); }
+    </style>
+</head>
+
+<body>
+    <div class="dsp-page" :class="{ 'dark-theme': dark }" x-data="tagMonitorApp()" x-cloak>
+
+        <!-- fallback 슬림 헤더 (shell.js 가 제거) -->
+        <header class="dsp-appbar">
+            <span class="dsp-title">태그 모니터링</span>
+            <span class="dsp-badge">정적</span>
+            <div class="spacer"></div>
+        </header>
+
+        <main class="dsp-main">
+
+            <div class="ds-topbar">
+                <div class="ds-topbar-titles">
+                    <h2>태그 모니터링</h2>
+                    <div class="ds-breadcrumb" x-text="rangeLabel"></div>
+                </div>
+                <div class="ds-topbar-actions">
+                    <div class="segmented" role="group" aria-label="조회 기간">
+                        <button type="button" :class="{ active: period === 'today' }" @click="setPeriod('today')">오늘</button>
+                        <button type="button" :class="{ active: period === '24h' }" @click="setPeriod('24h')">24시간</button>
+                        <button type="button" :class="{ active: period === '7d' }" @click="setPeriod('7d')">7일</button>
+                        <button type="button" :class="{ active: period === '30d' }" @click="setPeriod('30d')">30일</button>
+                        <button type="button" :class="{ active: period === 'custom' }" @click="rangeOpen = !rangeOpen"
+                                title="시작·종료 시각을 직접 지정">
+                            <span class="material-icons">calendar_today</span>기간
+                        </button>
+                    </div>
+                    <button class="btn btn-sm btn-outlined color-default" @click="reload()" :disabled="busy" title="목록과 추이를 다시 읽습니다">
+                        <span class="material-icons">refresh</span> 새로고침
+                    </button>
+                </div>
+            </div>
+
+            <!-- 사용자 지정 기간 -->
+            <div class="card" x-show="rangeOpen" x-transition style="margin-bottom:12px;">
+                <div class="card-content" style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;">
+                    <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:700; color:var(--color-text-secondary); margin-bottom:4px;">시작</label>
+                        <input type="datetime-local" class="form-field" x-model="customFrom" />
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:700; color:var(--color-text-secondary); margin-bottom:4px;">종료</label>
+                        <input type="datetime-local" class="form-field" x-model="customTo" />
+                    </div>
+                    <button class="btn btn-sm btn-filled" @click="applyCustom()">적용</button>
+                    <button class="btn btn-sm btn-outlined color-default" @click="rangeOpen = false">닫기</button>
+                </div>
+            </div>
+
+            <div x-show="error" class="alert alert-error" style="margin-bottom:12px;">
+                <span class="material-icons">error</span><span x-text="error"></span>
+            </div>
+            <div x-show="loaded && !projectLoaded" class="alert alert-warning" style="margin-bottom:12px;">
+                <span class="material-icons">warning</span><span>AASX 모델이 로드되지 않아 태그 정의를 읽을 수 없습니다.</span>
+            </div>
+
+            <div class="tm-layout">
+                <!-- ── 좌: 태그 목록 ────────────────────────────────────────────── -->
+                <aside class="card tm-side">
+                    <div class="card-header">
+                        <span class="material-icons">sell</span>
+                        <span>태그</span>
+                        <span class="chip" x-text="filteredTags.length + '개'"></span>
+                    </div>
+                    <div class="card-content">
+                        <div class="tm-side-tools">
+                            <div class="tm-search">
+                                <span class="material-icons">search</span>
+                                <input type="text" class="form-field" placeholder="이름·주소 검색" x-model="q" />
+                            </div>
+                            <select class="form-field" x-model="sysFilter">
+                                <option value="">모든 System</option>
+                                <template x-for="s in systems" :key="s"><option :value="s" x-text="s"></option></template>
+                            </select>
+                            <!-- 종류는 기본 선택만 가른다 — 이상알람TAG 의 값 추이도 볼 수 있어야 한다. -->
+                            <div class="segmented" role="group" aria-label="태그 종류 필터">
+                                <button type="button" :class="{ active: kind === 'Info' }" @click="kind = 'Info'">모니터링</button>
+                                <button type="button" :class="{ active: kind === 'Error' }" @click="kind = 'Error'">이상알람</button>
+                                <button type="button" :class="{ active: kind === 'all' }" @click="kind = 'all'">전체</button>
+                            </div>
+                            <div style="display:flex; gap:6px;">
+                                <button class="btn btn-sm btn-outlined color-default" style="flex:1;" @click="selectVisible()">보이는 것 선택</button>
+                                <button class="btn btn-sm btn-outlined color-default" style="flex:1;" @click="clearSelection()">해제</button>
+                            </div>
+                        </div>
+
+                        <div class="tm-list">
+                            <template x-for="t in filteredTags" :key="t.key">
+                                <label class="tm-item" :class="{ 'is-on': isSelected(t) }">
+                                    <input type="checkbox" :checked="isSelected(t)" @change="toggle(t)" :disabled="!t.tagId" />
+                                    <span class="tm-dot" :style="'background:' + colorOf(t)"></span>
+                                    <span class="tm-item-body">
+                                        <span class="tm-item-name" x-text="t.name"></span>
+                                        <span class="tm-item-sub">
+                                            <span x-text="t.address"></span> · <span x-text="t.valueType"></span>
+                                            <span x-show="t.level === 'Error'" title="이상알람TAG — 조건에 걸리면 알람도 발화합니다">· 알람</span>
+                                            <span x-show="!t.inModel" title="지금 모델에 없는 주소입니다 — 과거 이력만 남아 있습니다">· 모델 없음</span>
+                                        </span>
+                                    </span>
+                                    <span class="tm-item-val" x-text="t.tagId ? fmtValue(t.lastValue, t.valueType) : '—'"
+                                          :title="t.tagId ? (t.lastAtMs ? fmtTime(t.lastAtMs) : '기록 없음') : '아직 수집되지 않았습니다'"></span>
+                                </label>
+                            </template>
+                            <div x-show="loaded && filteredTags.length === 0" class="ds-empty" style="padding:18px; text-align:center; font-size:0.78rem;">
+                                <span x-show="tags.length === 0">등록된 UserTag 가 없습니다. 설정 ▸ 모니터링·정합에서 모니터링TAG 를 추가하세요.</span>
+                                <span x-show="tags.length > 0">조건에 맞는 태그가 없습니다.</span>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- ── 우: 본문 ─────────────────────────────────────────────────── -->
+                <section>
+                    <div x-show="selected.length === 0" class="card">
+                        <div class="card-content ds-empty" style="text-align:center; padding:40px 16px;">
+                            <span class="material-icons" style="font-size:36px; opacity:0.45;">show_chart</span>
+                            <div style="margin-top:8px; font-size:0.85rem;">왼쪽에서 태그를 선택하면 현재값과 추이가 나타납니다.</div>
+                        </div>
+                    </div>
+
+                    <template x-if="selected.length > 0">
+                        <div>
+                            <!-- 현재값 타일 -->
+                            <div class="tm-tiles">
+                                <template x-for="t in selectedTags" :key="t.key">
+                                    <div class="tm-tile" :style="'border-left-color:' + colorOf(t)">
+                                        <div class="tm-tile-name" x-text="t.name" :title="t.systemName + ' · ' + t.address"></div>
+                                        <div class="tm-tile-val">
+                                            <span x-text="fmtValue(t.lastValue, t.valueType)"></span>
+                                            <span class="tm-tile-unit" x-show="t.unit" x-text="t.unit"></span>
+                                        </div>
+                                        <div class="tm-tile-at" x-text="t.lastAtMs ? fmtTime(t.lastAtMs) : '기록 없음'"></div>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <!-- 수치 추이 -->
+                            <div class="card" x-show="numericSeries.length > 0" style="margin-bottom:14px;">
+                                <div class="card-header">
+                                    <span class="material-icons">timeline</span><span>값 추이</span>
+                                    <span class="chip" x-text="numericSeries.length + '개 태그'"></span>
+                                </div>
+                                <div class="card-content">
+                                    <div class="tm-chart-wrap"><canvas x-ref="numChart"></canvas></div>
+                                    <div class="tm-axis-note">
+                                        값이 바뀐 시점만 기록되므로 계단으로 잇습니다. 구간 시작값은 구간 직전 마지막 기록에서 가져옵니다.
+                                        단위가 둘이면 오른쪽에 두 번째 축을 세웁니다.
+                                        <span x-show="unitsMixed" style="color:var(--color-warning);">— 단위가 셋 이상이라 일부는 왼쪽 축에 함께 그려집니다. 나눠 보세요.</span>
+                                    </div>
+                                    <div class="tm-trunc" x-show="anyTruncated">
+                                        <span class="material-icons">warning</span>
+                                        <span>포인트가 많아 일부를 솎아 그렸습니다 — 통계는 전체 기록으로 계산됩니다. 정확한 파형은 기간을 좁혀 보세요.</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Bit 상태 띠 -->
+                            <div class="card" x-show="bitSeries.length > 0" style="margin-bottom:14px;">
+                                <div class="card-header">
+                                    <span class="material-icons">toggle_on</span><span>상태(Bit)</span>
+                                </div>
+                                <div class="card-content">
+                                    <div class="tm-bits">
+                                        <template x-for="s in bitSeries" :key="s.tagId">
+                                            <div class="tm-bit-row">
+                                                <div class="tm-bit-name" x-text="s.name" :title="s.address"></div>
+                                                <div class="tm-bit-track">
+                                                    <template x-for="(seg, i) in bitSegments(s)" :key="i">
+                                                        <div class="tm-bit-seg" :class="{ 'is-unknown': seg.unknown }"
+                                                             :style="'left:' + seg.left + '%; width:' + seg.width + '%;' + (seg.unknown ? '' : 'background:' + colorOfSeries(s))"
+                                                             :title="seg.title"></div>
+                                                    </template>
+                                                </div>
+                                                <div class="tm-bit-ratio" x-text="s.stats.onRatio == null ? '—' : (s.stats.onRatio.toFixed(1) + '% ON')"></div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 통계 -->
+                            <div class="card" style="margin-bottom:14px;">
+                                <div class="card-header"><span class="material-icons">functions</span><span>구간 통계</span></div>
+                                <div class="card-content" style="padding:0;">
+                                    <table class="ds-table">
+                                        <thead><tr>
+                                            <th>태그</th><th>타입</th><th class="tm-num">변화</th>
+                                            <th class="tm-num">최소</th><th class="tm-num">최대</th><th class="tm-num">평균</th>
+                                            <th class="tm-num">ON 시간</th><th>마지막 값</th>
+                                        </tr></thead>
+                                        <tbody>
+                                            <template x-for="s in series" :key="s.tagId">
+                                                <tr>
+                                                    <td data-label="태그"><span x-text="s.name"></span>
+                                                        <span style="color:var(--color-text-disabled); font-family:var(--font-mono); font-size:0.7rem;" x-text="' ' + s.address"></span></td>
+                                                    <td data-label="타입" x-text="s.valueType"></td>
+                                                    <td data-label="변화" class="tm-num" x-text="s.stats.changes"></td>
+                                                    <td data-label="최소" class="tm-num" x-text="fmtNum(s.stats.min)"></td>
+                                                    <td data-label="최대" class="tm-num" x-text="fmtNum(s.stats.max)"></td>
+                                                    <td data-label="평균" class="tm-num" x-text="fmtNum(s.stats.avg)"></td>
+                                                    <td data-label="ON 시간" class="tm-num" x-text="s.stats.onMs == null ? '—' : fmtDur(s.stats.onMs)"></td>
+                                                    <td data-label="마지막 값" x-text="s.stats.last == null ? '—' : s.stats.last"></td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- 변화 이력 -->
+                            <div class="card">
+                                <div class="card-header">
+                                    <span class="material-icons">history</span><span>변화 이력</span>
+                                    <span class="chip" x-text="events.length + '건'"></span>
+                                    <div style="margin-left:auto; display:flex; align-items:center; gap:6px;">
+                                        <button class="btn btn-sm btn-outlined color-default" @click="evtPage = Math.max(0, evtPage - 1)" :disabled="evtPage === 0">이전</button>
+                                        <span style="font-size:0.74rem; color:var(--color-text-secondary);">
+                                            <span x-text="evtPage + 1"></span> / <span x-text="evtMaxPage"></span>
+                                        </span>
+                                        <button class="btn btn-sm btn-outlined color-default" @click="evtPage = Math.min(evtMaxPage - 1, evtPage + 1)" :disabled="evtPage + 1 >= evtMaxPage">다음</button>
+                                    </div>
+                                </div>
+                                <div class="card-content" style="padding:0;">
+                                    <div class="tm-table-scroll">
+                                        <table class="ds-table">
+                                            <thead><tr><th style="width:190px;">시각</th><th>태그</th><th>값</th></tr></thead>
+                                            <tbody>
+                                                <template x-for="e in pagedEvents" :key="e.key">
+                                                    <tr>
+                                                        <td data-label="시각" style="font-family:var(--font-mono); font-size:0.76rem;" x-text="fmtTime(e.atMs)"></td>
+                                                        <td data-label="태그">
+                                                            <span class="tm-dot" style="display:inline-block; margin-right:6px;" :style="'background:' + e.color"></span>
+                                                            <span x-text="e.name"></span>
+                                                        </td>
+                                                        <td data-label="값" style="font-family:var(--font-mono); font-weight:600;" x-text="e.display"></td>
+                                                    </tr>
+                                                </template>
+                                                <tr x-show="events.length === 0">
+                                                    <td colspan="3" style="text-align:center; padding:18px; color:var(--color-text-secondary);">이 구간에 값 변화가 없습니다.</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </section>
+            </div>
+        </main>
+
+        <div class="dsp-toast error" x-show="toast" x-transition x-text="toast" style="display:none;"></div>
+    </div>
+
+    <script src="/lib/chart.umd.min.js"></script>
+    <script src="/lib/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="/app/tag-monitor.js"></script>
+    <script src="/app/shell.js" defer></script>
+    <script defer src="/lib/alpine.min.js"></script>
+</body>
+
+</html>

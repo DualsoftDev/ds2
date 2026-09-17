@@ -7,9 +7,8 @@ namespace DSPilot.Kpi;
 
 /// <summary>태그 모니터링이 목록에 보여 주는 한 줄. 정의는 AASX 에서 오고 값은 신호 표에서 온다.</summary>
 /// <param name="DataType">Bit · Byte · Word · DWord · Int16 · Int32 · Real · String.</param>
-/// <param name="IsAlarmSource">
-/// 알람(에러) 대상 여부. DSPilot 규칙상 <b>Bit UserTag 만</b> 알람이 된다.
-/// 나머지 종류는 정보용이라 여기 모니터링에서 값과 추이로만 본다.
+/// <param name="SystemGuid">
+/// 귀속 System 의 키(<c>system.guid</c>). 주소는 PLC 가 둘이면 겹칠 수 있어, AASX 정의와 맞출 때 이것이 정본 키다.
 /// </param>
 public sealed record TagInfo(
     long Id,
@@ -19,8 +18,8 @@ public sealed record TagInfo(
     string DataType,
     string? Unit,
     bool IsUserTag,
-    bool IsAlarmSource,
     string? SystemName,
+    string? SystemGuid,
     long? LastAtMs,
     string? LastValue);
 
@@ -30,15 +29,15 @@ public sealed record TagPoint(long AtMs, double? Num, string? Text);
 /// <summary>
 /// 태그 모니터링 조회. doc/30 §9.4.
 /// <para>
-/// UserTag 는 두 갈래로 쓰인다. 값 종류가 Bit 인 것은 알람(에러)이 되고, 나머지(Word·Real·String 등)는
-/// 정보용이라 이 기능이 값과 추이를 보여 준다. 두 갈래 모두 값 변화는 같은 신호 표에 쌓인다.
+/// UserTag 는 두 종류로 쓰인다 — <b>로그 레벨</b>이 그 축이다(2026-09-17). Error = 이상알람TAG(조건에 걸리면
+/// 발화), Info = 모니터링TAG(값 변화만 기록). 값 종류(Bit·Word·Real·String…)는 종류와 무관하게 여덟 가지
+/// 모두 양쪽에 열려 있다. 레벨은 AASX 에만 있으므로 이 저장소는 값만 다루고, 종류 구분은
+/// <see cref="Services.TagMonitorService"/> 가 AASX 정의를 얹어 정한다.
 /// </para>
+/// <para>두 종류 모두 값 변화는 같은 신호 표에 쌓이므로, 이상알람TAG 의 추이도 여기서 그대로 읽힌다.</para>
 /// </summary>
 public sealed class TagMonitorRepository
 {
-    /// <summary>알람이 될 수 있는 유일한 값 종류. 나머지는 모니터링 전용이다.</summary>
-    public const string AlarmValueType = "Bit";
-
     private readonly KpiDb _db;
     private readonly ILogger<TagMonitorRepository> _logger;
 
@@ -52,15 +51,13 @@ public sealed class TagMonitorRepository
     /// 태그 목록. 마지막 값과 그 시각을 함께 준다 — 목록만으로 현재 상태가 보이게.
     /// </summary>
     /// <param name="userTagsOnly">true 면 UserTag 만. 화면 기본값.</param>
-    /// <param name="excludeBit">true 면 Bit 를 뺀다 — 정보용 UserTag 만 보고 싶을 때.</param>
-    public async Task<List<TagInfo>> ListAsync(
-        bool userTagsOnly = true, bool excludeBit = false, CancellationToken ct = default)
+    public async Task<List<TagInfo>> ListAsync(bool userTagsOnly = true, CancellationToken ct = default)
     {
         await using var conn = _db.OpenRead();
         var sql = """
             SELECT t.id AS Id, t.address AS Address, t.name AS Name, t.label AS Label,
                    t.dataType AS DataType, t.unit AS Unit, t.isUserTag AS IsUserTag,
-                   s.name AS SystemName,
+                   s.name AS SystemName, s.guid AS SystemGuid,
                    (SELECT g.atMs FROM signal g WHERE g.tagId = t.id ORDER BY g.atMs DESC LIMIT 1) AS LastAtMs,
                    (SELECT CAST(g.value AS TEXT) FROM signal g WHERE g.tagId = t.id ORDER BY g.atMs DESC LIMIT 1) AS LastValue
             FROM tag t
@@ -68,14 +65,13 @@ public sealed class TagMonitorRepository
             WHERE 1=1
             """;
         if (userTagsOnly) sql += " AND t.isUserTag = 1";
-        if (excludeBit) sql += " AND t.dataType <> 'Bit'";
         sql += " ORDER BY t.isUserTag DESC, t.address";
 
         var rows = await conn.QueryAsync(new CommandDefinition(sql, cancellationToken: ct));
         var list = new List<TagInfo>();
         foreach (var r in rows)
         {
-            var dataType = (r.DataType as string) ?? AlarmValueType;
+            var dataType = (r.DataType as string) ?? "Bit";
             bool isUser = Convert.ToInt64(r.IsUserTag) != 0;
             list.Add(new TagInfo(
                 Convert.ToInt64(r.Id),
@@ -85,8 +81,8 @@ public sealed class TagMonitorRepository
                 dataType,
                 r.Unit as string,
                 isUser,
-                isUser && string.Equals(dataType, AlarmValueType, StringComparison.Ordinal),
                 r.SystemName as string,
+                r.SystemGuid as string,
                 r.LastAtMs is null ? null : Convert.ToInt64(r.LastAtMs),
                 r.LastValue as string));
         }

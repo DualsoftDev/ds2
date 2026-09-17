@@ -459,6 +459,10 @@ window.dspBranch = {
             //   FLOW 행 = 자동감지만(UserTag 는 Flow 소속이 아님 — uptime-workspace utQs 주석). badge = 최근 10분 Error 수.
             { label: '이상·알람',    href: '/uptime-alarm', icon: 'warning_amber', match: 'all', lineScope: true, badge: true,
               tree: { flowParam: 'flow', sysTitle: '이 시스템의 이상·알람(자동감지 + 이상알람TAG)', flowTitle: '이 설비의 자동감지 알람만' } },
+            // 태그 모니터링: 이상·알람의 형제 — 저기는 "발화한 사건"(alert), 여기는 "값이 어떻게 움직였나"(signal).
+            //   UserTag 은 flow 에 속하지 않으므로 트리는 시스템 행까지만이다(sysOnly).
+            { label: '태그 모니터링', href: '/tag-monitor', icon: 'show_chart', match: 'all', lineScope: true,
+              tree: { flowParam: 'system', sysOnly: true, sysTitle: '이 시스템의 태그 값·추이' } },
             // OEE 메뉴 숨김 — 페이지(/oee)는 URL 로 접근 가능, 네비에서만 제외. 복구는 이 줄 주석 해제.
             // { label: 'OEE',         href: '/oee',                 icon: 'precision_manufacturing', match: 'prefix', legacy: '/app/oee.html' },
             // CCTV 메뉴 숨김 — 실시간 시청은 대시보드 레이아웃 카드의 'CCTV' 토글에서 사용. /cctv 는 설정(카메라·오버레이 편집) 페이지로 URL/[설정] 버튼 접근. 복구는 이 줄 주석 해제.
@@ -715,7 +719,9 @@ window.dspBranch = {
                 var base = item.href;
 
                 systems.forEach(function (sys) {
-                    var flows = sys.flows || [];
+                    // sysOnly = FLOW 자식 행을 두지 않는 기능(태그 모니터링) — UserTag 은 flow 소속이 아니라
+                    //   설비로 쪼개면 빈 행만 늘어난다. 시스템 행 하나가 곧 leaf 다.
+                    var flows = t.sysOnly ? [] : (sys.flows || []);
                     var fbr = sys.flowBranches || {};
                     var sysName = sys.name || '';
 
@@ -811,6 +817,8 @@ window.dspBranch = {
                     });
 
                     var open = flowInSys || sysCur;
+                    // 펼칠 자식이 없으면(sysOnly, 또는 flow 가 없는 시스템) chevron 은 아무 일도 못 하므로 감춘다.
+                    if (flows.length === 0) chev.style.display = 'none';
                     function applyOpen() {
                         list.style.display = open ? '' : 'none';
                         chev.style.transform = open ? 'rotate(90deg)' : '';
