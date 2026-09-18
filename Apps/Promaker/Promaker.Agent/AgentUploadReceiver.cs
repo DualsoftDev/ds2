@@ -42,7 +42,7 @@ public sealed class AgentUploadReceiver : BackgroundService
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    private readonly HttpListener _listener = new();
+    private HttpListener? _listener;
     private readonly SemaphoreSlim _requestSlots = new(4, 4);
     private readonly ConcurrentDictionary<string, RequestWindow> _requestWindows = new(StringComparer.Ordinal);
     private readonly int _requestsPerMinute = ReadIntEnvironment(
@@ -58,26 +58,21 @@ public sealed class AgentUploadReceiver : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var prefix = $"http://*:{Port}/";
-        _listener.Prefixes.Add(prefix);
-        try
-        {
-            _listener.Start();
-        }
-        catch (Exception ex)
-        {
-            Log.Error($"모델 업로드 수신구 시작 실패 (포트 {Port}) — 네트워크 업로드 비활성, 로컬/파일 경로는 정상.", ex);
-            throw;
-        }
+        // 수신구 시작 실패는 치명이 아니다 — 모니터링(5051)과 로컬/파일 경로 업로드는 이 포트와 무관하다.
+        // 여기서 예외를 밖으로 던지면 BackgroundService.StartAsync 가 실패 → Host "Hosting failed to start"
+        // → Agent 전체가 내려간다(9/18: 비관리자 콘솔 실행에서 URL ACL 거부(오류 5) 하나로 Agent 기동 실패).
+        var listener = TryStartListener(out var prefix);
+        if (listener is null) return;
+        _listener = listener;
         Log.Info($"모델 업로드 수신구 listen: {prefix}upload maxUpload={_maxUploadBytes}");
-        stoppingToken.Register(() => { try { _listener.Stop(); } catch { /* 종료 중 */ } });
+        stoppingToken.Register(() => { try { listener.Stop(); } catch { /* 종료 중 */ } });
 
         while (!stoppingToken.IsCancellationRequested)
         {
             HttpListenerContext ctx;
             try
             {
-                ctx = await _listener.GetContextAsync().ConfigureAwait(false);
+                ctx = await listener.GetContextAsync().ConfigureAwait(false);
             }
             catch when (stoppingToken.IsCancellationRequested)
             {
@@ -107,6 +102,55 @@ public sealed class AgentUploadReceiver : BackgroundService
             }, CancellationToken.None);
         }
     }
+
+    /// <summary>
+    /// 1차 http://*:PORT/ (원격 수신) → 실패 시 2차 http://localhost:PORT/ (같은 머신 한정) → 둘 다 실패면 null.
+    /// Windows 비관리자 프로세스는 와일드카드 prefix 를 URL ACL 없이 등록할 수 없고(오류 5), 다른 프로세스
+    /// (설치된 PromakerAgentService 등)가 이미 포트를 쥐고 있으면 localhost 라도 공유 위반(오류 32)이다.
+    /// Start() 가 실패한 HttpListener 는 Closed 상태가 되어 재사용 불가 — 시도마다 새로 만든다.
+    /// </summary>
+    private static HttpListener? TryStartListener(out string prefix)
+    {
+        var candidates = new[] { $"http://*:{Port}/", $"http://localhost:{Port}/" };
+        var failures = new List<(string Prefix, Exception Error)>();
+        foreach (var candidate in candidates)
+        {
+            var listener = new HttpListener();
+            listener.Prefixes.Add(candidate);
+            try
+            {
+                listener.Start();
+                if (failures.Count > 0)
+                    Log.Warn($"모델 업로드 수신구가 {candidate} 로만 열림 — 같은 머신의 Promaker 만 네트워크 업로드/다운로드 가능. "
+                             + DescribeStartFailures(failures));
+                prefix = candidate;
+                return listener;
+            }
+            catch (Exception ex)
+            {
+                failures.Add((candidate, ex));
+                try { listener.Close(); } catch { /* 이미 Closed */ }
+            }
+        }
+        Log.Error($"모델 업로드 수신구 시작 실패 (포트 {Port}) — 네트워크 업로드 비활성, 모니터링·로컬/파일 경로는 정상. "
+                  + DescribeStartFailures(failures), failures[0].Error);
+        prefix = string.Empty;
+        return null;
+    }
+
+    private static string DescribeStartFailures(IEnumerable<(string Prefix, Exception Error)> failures) =>
+        string.Join(" / ", failures.Select(f => $"[{f.Prefix}] {DescribeStartFailure(f.Error)}"));
+
+    private static string DescribeStartFailure(Exception ex) => ex switch
+    {
+        HttpListenerException { ErrorCode: 5 } =>
+            "비관리자 실행 + URL 예약 없음(오류 5): 서비스(LocalSystem)로 실행하거나 관리자 cmd 에서 "
+            + $"`netsh http add urlacl url=http://*:{Port}/ user=Everyone` 등록.",
+        HttpListenerException { ErrorCode: 32 or 183 } busy =>
+            $"다른 프로세스가 포트 {Port} 점유(오류 {busy.ErrorCode}): 설치된 PromakerAgentService 가 실행 중이면 "
+            + "콘솔 Agent 와 동시 실행 불가 — `sc stop PromakerAgentService` 후 재시도.",
+        _ => $"{ex.GetType().Name}: {ex.Message}",
+    };
 
     private async Task HandleAsync(HttpListenerContext ctx, CancellationToken cancellationToken)
     {
