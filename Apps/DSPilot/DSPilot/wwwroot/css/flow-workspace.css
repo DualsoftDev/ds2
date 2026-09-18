@@ -285,7 +285,6 @@
         /* Call 단위 막대(2026-09-17) — OUT 주황·IN 파랑과 겹치지 않는 청록 계열. SVG 의 CALL_STYLE 과 같은 값. */
         .ct-sw-call { background: #00897b; }
         .ct-sw-call-cmd { background: #4db6ac; }
-        .ct-sw-call-open { background: repeating-linear-gradient(45deg, #eceff1 0 2px, #e53935 2px 3.5px); border: 1px solid #e53935; }
         .ct-sw-head { background: #4caf50; }
         .ct-sw-tail { background: #ab47bc; }
         .ct-sw-cycle-edge { background: transparent; border-left: 2px solid #ff9800; border-radius: 0; width: 6px; }

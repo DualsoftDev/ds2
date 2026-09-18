@@ -259,12 +259,17 @@
      *   <li>IN 만 있는 Call = IN↑ ~ IN↓</li>
      *   <li>★IN 주소가 OUT 과 <b>같은</b> 결선(현장 실측: RUN_LAMP.on, DONE_105.report 가 P0002F/P00023 를 공유)은
      *       IN↑ = OUT↑ 이라 길이 0 이 된다 → OUT-only 로 간주해 OUT↑~OUT↓ 로 그린다.</li>
-     *   <li>응답이 와야 하는데 다음 명령 전까지 오지 않으면 = <b>미완료</b>. OUT↓까지(그마저 없으면 다음 시작/창 끝)
-     *       빗금으로 그려 정상 완료와 눈으로 구분한다.</li>
+     *   <li>★응답이 오지 않은 명령은 <b>그리지 않는다</b>. 어느 쪽으로 그릴지는 call 하나씩이 아니라
+     *       <b>lane 다수결</b>(<see cref="OUT_IN_MATCH_RATE"/>)로 정한다 — work 구간(workSpansOf)·서버
+     *       WorkSpanMath 가 쓰는 바로 그 규칙이다. 절반 이상이 응답을 받으면 o~i 모드라 응답이 온 명령만
+     *       그리고(응답이 없는 명령은 판정에서도 구간이 없다), 아니면 o~o 모드라 전부 명령 ON 구간으로 그린다.
+     *       — 종전에는 call 하나씩 따로 보고 응답이 없으면 빨간 빗금('open')을 그렸는데, (1) 판정은 그 구간을
+     *       아예 안 만들어 화면과 판정이 다른 그림이었고 (2) 데이터가 [start,end] 로 잘려 오는 탓에 창 끝의
+     *       진행 중 call 이 매번 '응답 없음'으로 찍혔다(2026-09-18 폐기).</li>
      * </ul>
      * 완료 규칙은 <c>CycleCompletionResolver</c>/<c>CycleBoundaryEdges</c>(사이클 경계)와 같은 언어라
      * 간트 막대와 CT 계산이 같은 의미를 본다.
-     * @returns [{s, e, kind}] — kind = 'done'(명령~응답) | 'cmd'(명령 ON) | 'resp'(응답 ON) | 'open'(응답 없음)
+     * @returns [{s, e, kind}] — kind = 'done'(명령~응답) | 'cmd'(명령 ON·응답 미결선) | 'cmdw'(명령 ON·lane 다수결 o~o) | 'resp'(응답 ON)
      */
     function sameAddr(a, b) { return !!a && !!b && String(a).toLowerCase() === String(b).toLowerCase(); }
     function pairsOf(lane) {
@@ -282,7 +287,10 @@
         while (lo < hi) { var m = (lo + hi) >> 1; if (arr[m] < s) lo = m + 1; else hi = m; }
         return (lo < arr.length && arr[lo] < e) ? arr[lo] : null;
     }
-    function callSpansOf(lane, ce) {
+    // 명령↔응답 페어링 채택 기준 — call 하나씩이 아니라 lane 단위 다수결. work 구간(workSpansOf)·
+    // 서버 WorkSpanMath 와 같은 값이어야 한다(화면과 판정이 같은 구간을 봐야 하므로).
+    var OUT_IN_MATCH_RATE = 0.5;
+    function callSpansOf(lane) {
         var pairs = pairsOf(lane);
         // 응답으로 쓸 수 있는 쌍 = IN 주소가 있고 그 쌍의 OUT 과 다른 주소인 것.
         var respPairs = pairs.filter(function (p) { return p.inTag && !sameAddr(p.inTag, p.outTag); });
@@ -302,9 +310,10 @@
             return outIvs.map(function (iv) { return { s: iv.s, e: iv.e, kind: 'cmd' }; });
         }
 
+        // 1) 명령마다 응답 도착 시각을 찾아둔다(복수 쌍이면 AND = 마지막 응답). 안 왔으면 null.
         var rises = respPairs.map(function (p) { return risesOf(p.inIntervals); });
-        var spans = [];
-        for (var i = 0; i < outIvs.length; i++) {
+        var matched = [], hit = 0, i;
+        for (i = 0; i < outIvs.length; i++) {
             var s0 = outIvs[i].s;
             var next = (i + 1 < outIvs.length) ? outIvs[i + 1].s : Infinity;
             var done = -1, all = true;
@@ -313,12 +322,21 @@
                 if (t === null) { all = false; break; }
                 if (t > done) done = t;          // AND = 마지막 응답
             }
-            if (all && done >= 0) {
-                spans.push({ s: s0, e: done, kind: 'done' });
-            } else {
-                var cap = (next === Infinity) ? ce : next;
-                spans.push({ s: s0, e: Math.min(outIvs[i].e, cap), kind: 'open' });
-            }
+            var ok = all && done >= 0;
+            matched.push(ok ? done : null);
+            if (ok) hit++;
+        }
+
+        // 2) lane 다수결로 모드 결정 — workSpansOf 와 같은 기준.
+        //    o~o 모드: 응답이 명령마다 오지는 않는 결선이라 명령 ON 구간 자체를 동작으로 본다.
+        if (hit < outIvs.length * OUT_IN_MATCH_RATE) {
+            return outIvs.map(function (iv) { return { s: iv.s, e: iv.e, kind: 'cmdw' }; });
+        }
+        //    o~i 모드: 응답이 온 명령만. 응답이 없는 명령은 판정에서도 구간이 없으므로 그리지 않는다.
+        var spans = [];
+        for (i = 0; i < outIvs.length; i++) {
+            if (matched[i] === null) continue;
+            spans.push({ s: outIvs[i].s, e: matched[i], kind: 'done' });
         }
         return spans;
     }
@@ -327,8 +345,8 @@
     var CALL_STYLE = {
         done: { fill: '#00897b', stroke: '#00695c', label: 'Call 실행 (명령↑ ~ 응답↑)' },
         cmd:  { fill: '#4db6ac', stroke: '#00695c', label: 'Call 실행 (명령 ON — 이 Call 은 응답 신호가 결선되지 않음)' },
+        cmdw: { fill: '#4db6ac', stroke: '#00695c', label: 'Call 실행 (명령 ON — 응답(IN↑)이 명령마다 오지는 않아 명령 구간으로 그립니다)' },
         resp: { fill: '#7e57c2', stroke: '#5e35b1', label: 'Call 실행 (응답 ON — 이 Call 은 명령 신호가 결선되지 않음)' },
-        open: { fill: 'url(#ctNoRespHatch)', stroke: '#e53935', label: '응답 없음 — 다음 명령 전까지 응답(IN↑)이 오지 않았습니다' },
     };
 
     // ════════════════════════════════════════════════════════════════════════
@@ -340,7 +358,6 @@
     //   · work 구간: 그 work 에 속한 call 구간들의 최소 시작~최대 끝(봉투). 더하지 않는다.
     //   · MT 끝: 사이클 안에서 시작한 call 구간들의 최대 끝(사이클 끝에서 자름). WT = 그 뒤 ~ 다음 시작.
     //   · 스냅: 시작이 다음 경계 직전 _snapMs 안이면 다음 사이클 것.
-    var OUT_IN_MATCH_RATE = 0.5;
     function workSpansOf(lane) {
         var outIvs = (lane.outIntervals || [])
             .map(function (iv) { return { s: new Date(iv.start).getTime(), e: new Date(iv.end).getTime() }; })
@@ -621,9 +638,7 @@
         // CT 중복(둘 이상의 분기가 같은 스팬을 정상 판별) 해치 패턴 — flow 합산 리본 전용.
         sb += '<defs><pattern id="ctDupHatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
             + '<rect width="7" height="7" fill="rgba(229,57,53,0.14)"/><line x1="0" y1="0" x2="0" y2="7" stroke="#e53935" stroke-width="2.2"/></pattern>'
-            // Call 막대 '응답 없음'(명령은 났는데 다음 명령 전까지 IN↑ 이 없음) 빗금 — 정상 완료 막대와 눈으로 구분.
-            + '<pattern id="ctNoRespHatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
-            + '<rect width="6" height="6" fill="#eceff1"/><line x1="0" y1="0" x2="0" y2="6" stroke="#e53935" stroke-width="1.8"/></pattern></defs>';
+            + '</defs>';
         sb += '<rect width="100%" height="100%" fill="#ffffff"/>';
 
         if (ribbonH > 0) {
@@ -684,7 +699,7 @@
                 var withIo = vf.io;
                 var barTopB = withIo ? (laneY + 4) : (laneCY - BAR_HEIGHT / 2.0);
                 var barHB = withIo ? (LANE_HEIGHT - 8) : BAR_HEIGHT;
-                var spansC = callSpansOf(lane, ce);
+                var spansC = callSpansOf(lane);
                 for (var bi = 0; bi < spansC.length; bi++) {
                     var spC = spansC[bi];
                     var stC = CALL_STYLE[spC.kind] || CALL_STYLE.done;
@@ -696,7 +711,7 @@
                         + '\n' + hms(sB) + ' ~ ' + hms(eB) + '  (' + formatMs(spC.e - spC.s) + ')';
                     sb += '<g><title>' + esc(tipB) + '</title>';
                     sb += '<rect x="' + f(xB) + '" y="' + f(barTopB) + '" width="' + f(wB) + '" height="' + f(barHB) + '" rx="2"'
-                        + ' fill="' + stC.fill + '" stroke="' + stC.stroke + '" stroke-width="' + (spC.kind === 'open' ? 1 : 0.5) + '"'
+                        + ' fill="' + stC.fill + '" stroke="' + stC.stroke + '" stroke-width="0.5"'
                         + (withIo ? ' opacity="0.3"' : '') + '/>';
                     sb += '</g>';
                 }
