@@ -20,13 +20,20 @@ namespace DSPilot.Services;
 public sealed class ErrorTagReliabilityService
 {
     /// <summary>
-    /// 재가동 확인 창 = 박제 R × 이 배수. 사이클 두 바퀴 안에 안 돌면 안 고쳐진 것으로 본다.
-    /// 후보 flow 가 여럿이면 <b>가장 긴 R</b> 을 쓴다 — 짧은 쪽에 맞추면 느린 설비가 전부 '미확인' 이 된다.
+    /// 재가동 확인 창 = 박제 R × 이 배수. 후보 flow 가 여럿이면 <b>가장 긴 R</b> 을 쓴다 —
+    /// 짧은 쪽에 맞추면 느린 설비가 전부 '미확인' 이 된다.
     /// </summary>
     public const double RestartWindowRMultiple = 2.0;
 
-    /// <summary>R 을 못 구했을 때(표본 부족·신규 설치) 쓰는 창. 무한 대기와 즉시 미확인 사이의 절충.</summary>
-    public const long RestartWindowFallbackMs = 30 * 60 * 1000;
+    /// <summary>
+    /// 창의 하한 — R 을 못 구했을 때의 폴백이자 사이클이 빠른 설비의 바닥값이다.
+    /// <para>
+    /// R 은 사이클 주기(흔히 분 단위)라 사람이 고치고 다시 돌리는 리듬과 자릿수가 다르다. R×2 를 그대로
+    /// 쓰면 CT 2분짜리 설비의 창이 4분이 되어, 정상 수리 건이 줄줄이 '재가동 미확인' 으로 떨어진다.
+    /// 잘못 경고하는 쪽이 조금 길게 재는 쪽보다 나쁘다.
+    /// </para>
+    /// </summary>
+    public const long RestartWindowFloorMs = 30 * 60 * 1000;
 
     private readonly IUserTagAlertRepository _alerts;
     private readonly KpiRepository _kpi;
@@ -46,7 +53,7 @@ public sealed class ErrorTagReliabilityService
     }
 
     /// <summary>알람 1건의 판정 결과 — 목록 표시용.</summary>
-    /// <param name="RepairMs">발생 → 재가동, 비생산 차감. 복구 완료일 때만.</param>
+    /// <param name="RepairMs">발생 → 재가동 그대로(차감 없음). 복구 완료일 때만.</param>
     public sealed record AlertVerdict(
         DateTime OccurredAtUtc,
         DateTime? ClearedAtUtc,
@@ -171,9 +178,9 @@ public sealed class ErrorTagReliabilityService
                 {
                     resolvedAll.Add((ToInput(rec, windowMs), rv));
                     if (rv is { State: RecoveryState.Recovered, RestartMs: { } restartMs })
-                        verdicts.Add(Verdict(rec, device, rv, restartMs, nonProd, flows, flowFacts));
+                        verdicts.Add(Verdict(rec, device, rv, restartMs, flows, flowFacts));
                     else
-                        verdicts.Add(Verdict(rec, device, rv, null, nonProd, flows, flowFacts));
+                        verdicts.Add(Verdict(rec, device, rv, null, flows, flowFacts));
                 }
             }
         }
@@ -192,10 +199,11 @@ public sealed class ErrorTagReliabilityService
 
     private AlertVerdict Verdict(
         UserTagAlertRecord r, string device, Recovery rv, long? restartMs,
-        IReadOnlyList<Span> nonProd, IReadOnlyList<string> flows, Dictionary<string, FlowFacts> facts)
+        IReadOnlyList<string> flows, Dictionary<string, FlowFacts> facts)
     {
         var occurredMs = KpiTime.ToMs(r.OccurredAt);
-        long? repair = restartMs is { } rm ? ElapsedExcludingNonProduction(occurredMs, rm, nonProd) : null;
+        // 발생 → 재가동 그대로. 비생산을 빼지 않는다(그 구간이 곧 정지다 — ErrorTagReliability 주석).
+        long? repair = restartMs is { } rm && rm > occurredMs ? rm - occurredMs : null;
         return new AlertVerdict(
             OccurredAtUtc: r.OccurredAt,
             ClearedAtUtc: r.ClearedAt,
@@ -229,14 +237,14 @@ public sealed class ErrorTagReliabilityService
         return all;
     }
 
-    /// <summary>후보 flow 중 가장 긴 R 의 배수. R 이 없으면 폴백.</summary>
+    /// <summary>후보 flow 중 가장 긴 R 의 배수, 하한 적용. 이 창이 주말·야간을 걸러 내는 유일한 장치다.</summary>
     private static long RestartWindowFor(IReadOnlyList<string> flows, Dictionary<string, FlowFacts> facts)
     {
         double maxR = 0;
         foreach (var flow in flows)
             if (facts.TryGetValue(flow, out var f) && f.MedianRMs > maxR)
                 maxR = f.MedianRMs;
-        return maxR > 0 ? (long)(maxR * RestartWindowRMultiple) : RestartWindowFallbackMs;
+        return Math.Max((long)(maxR * RestartWindowRMultiple), RestartWindowFloorMs);
     }
 
     /// <summary>flow 1개에서 뽑은 재료 — 재가동 후보, 비생산 구간, 박제 R 대표값.</summary>

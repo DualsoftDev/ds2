@@ -97,21 +97,27 @@ public class ErrorTagReliabilityTests
     // ── 비생산 차감 ────────────────────────────────────────────────────────
 
     [Fact]
-    public void 주말이_수리_시간에_들어가지_않는다()
+    public void 비생산_차감을_수리_시간에_쓰면_수리_시간까지_지워진다()
     {
-        // ★금요일 19시에 고치고 월요일 08시에 라인이 돌면 차감 없이 61시간이 찍힌다.
-        long occurred = 0;
-        long repairedAndCleared = 1 * Hour;     // 1시간 만에 고침
-        long restart = 61 * Hour;               // 라인은 월요일 아침에야 돈다
-        var weekend = new List<Span> { new(2 * Hour, 60 * Hour) };  // 58시간 비생산
+        // ★이 축의 설계 결정 근거. 비생산 사이클은 '그 정지 행' 자체라, 수리는 그 안에서 일어난다.
+        // 금요일 18:50 마지막 head → 월요일 08:00 다음 head 한 행이 통째로 비생산으로 잡히고,
+        // 그 행이 [발생, 재가동) 을 완전히 덮으므로 차감하면 0 이 된다. 그래서 eMTTR 은 차감하지 않는다.
+        long lastHead = 0;                       // 금 18:50
+        long occurred = 10 * Min;                // 금 19:00 발생
+        long restart = 61 * Hour;                // 월 08:00 다음 head = 재가동
+        var stopRow = new List<Span> { new(lastHead, restart) };
 
-        var gross = ElapsedExcludingNonProduction(occurred, restart, []);
-        var net = ElapsedExcludingNonProduction(occurred, restart, weekend);
+        Assert.Equal(0, ElapsedExcludingNonProduction(occurred, restart, stopRow));
+        Assert.True(restart - occurred > 60 * Hour);
+    }
 
-        Assert.Equal(61 * Hour, gross);
-        Assert.Equal(3 * Hour, net);            // 61 − 58
-        Assert.True(net < gross / 10);
-        _ = repairedAndCleared;
+    [Fact]
+    public void 주말을_타고_넘는_건은_확인_창이_걸러_낸다()
+    {
+        // 차감이 아니라 창이 주말을 막는다. 금요일에 해소만 하고 월요일에야 돌면 '재가동 미확인' 이라
+        // eMTTR 분모에 애초에 들어가지 않는다.
+        var r = Resolve(A(0, 30 * Min, window: 1 * Hour), [61 * Hour], nowMs: 70 * Hour);
+        Assert.Equal(RecoveryState.RestartUnconfirmed, r.State);
     }
 
     [Fact]
@@ -299,11 +305,26 @@ public class ErrorTagReliabilityTests
     }
 
     [Fact]
-    public void 집계도_비생산을_차감한다()
+    public void eMTTR_은_비생산을_차감하지_않는다()
     {
-        // 발생 0 → 재가동 10시간이지만 그중 9시간이 비생산이면 수리 시간은 1시간이다.
-        var s = Aggregate([Done(0, 30 * Min, 10 * Hour)], [new Span(1 * Hour, 10 * Hour)], minSample: 1);
-        Assert.Equal(1 * Hour, s.EMttrMs);
+        // 발생 → 재가동 구간이 곧 정지다. 비생산 사이클이 그 정지 행이라 빼면 수리 시간이 사라진다.
+        var s = Aggregate([Done(0, 30 * Min, 10 * Hour)], [new Span(0, 10 * Hour)], minSample: 1);
+        Assert.Equal(10 * Hour, s.EMttrMs);
+    }
+
+    [Fact]
+    public void eMTBF_는_비생산을_차감한다()
+    {
+        // 반대로 고장 사이 구간은 "설비가 돌던 시간" 이라 안 돌던 시간을 빼는 것이 정의에 맞다.
+        // 복구 1시간 → 다음 발생 11시간 사이(10시간) 중 9시간이 비생산이면 가동은 1시간이다.
+        var s = Aggregate(
+        [
+            Done(0, 30 * Min, 1 * Hour),
+            Done(11 * Hour, 0, 11 * Hour + 10 * Min),
+        ], [new Span(2 * Hour, 11 * Hour)], minSample: 1);
+
+        Assert.Equal(1, s.MtbfIntervalCount);
+        Assert.Equal(1 * Hour, s.EMtbfMs);
     }
 
     [Fact]

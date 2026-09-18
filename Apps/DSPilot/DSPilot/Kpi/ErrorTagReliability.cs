@@ -114,9 +114,14 @@ public static class ErrorTagReliability
     }
 
     /// <summary>
-    /// 비생산 구간을 뺀 경과 시간.
-    /// 금요일 19시에 고치고 월요일 08시에 라인이 돌면 차감 없이 eMTTR 61시간이 찍힌다 — 수리 시간이 아니라
-    /// 주말이다(doc/31 §4). <paramref name="nonProdSpans"/> 는 겹치지 않는 오름차순 구간이어야 한다.
+    /// 비생산 구간을 뺀 경과 시간. <b>eMTBF 전용이다 — eMTTR 에 쓰면 안 된다.</b>
+    /// <para>
+    /// eMTBF 는 "고장 사이에 설비가 돌던 시간"이라 안 돌던 구간을 빼는 것이 정의에 맞다.
+    /// 반면 eMTTR 구간(발생→재가동)은 <b>정지 그 자체</b>이고, v68 의 비생산 사이클이 바로 그 정지 행이다.
+    /// 빼면 수리 시간까지 통째로 지워진다 — 실측 확인: 금요일 고장 건이 60.83시간 → <b>0.00시간</b>.
+    /// 주말을 타고 넘는 건은 차감이 아니라 <b>재가동 확인 창</b>이 걸러 낸다(창을 넘기면 '재가동 미확인').
+    /// </para>
+    /// <paramref name="nonProdSpans"/> 는 겹치지 않는 오름차순 구간이어야 한다.
     /// </summary>
     public static long ElapsedExcludingNonProduction(long fromMs, long toMs, IReadOnlyList<Span> nonProdSpans)
     {
@@ -169,8 +174,8 @@ public static class ErrorTagReliability
     /// </summary>
     /// <param name="FaultCount">발생 건수(재발화 병합 후). eMTBF 의 분모.</param>
     /// <param name="RecoveredCount">복구 완료 건수. eMTTR 의 분모.</param>
-    /// <param name="EMttrMs">복구 완료 건의 (재가동 − 발생) 평균, 비생산 차감. 표본 미달이면 null.</param>
-    /// <param name="EMtbfMs">복구 → 다음 발생 간격 평균, 비생산 차감. 표본 미달이면 null.</param>
+    /// <param name="EMttrMs">복구 완료 건의 (재가동 − 발생) 평균. <b>차감 없음</b> — 그 구간이 곧 정지다.</param>
+    /// <param name="EMtbfMs">복구 → 다음 발생 간격 평균, <b>비생산 차감</b>. 고장 사이의 가동 시간이므로 안 돌던 시간은 뺀다.</param>
     public readonly record struct Summary(
         int FaultCount,
         int RecoveredCount,
@@ -219,7 +224,9 @@ public static class ErrorTagReliability
 
             if (recovery is { State: RecoveryState.Recovered, RestartMs: { } restart })
             {
-                repairs.Add(ElapsedExcludingNonProduction(alert.OccurredMs, restart, nonProdSpans));
+                // ★비생산을 빼지 않는다. 이 구간이 곧 정지이고 비생산 사이클이 바로 그 정지 행이라,
+                // 빼면 수리 시간까지 지워진다(실측 60.83h → 0.00h). 주말 건은 확인 창이 걸러 낸다.
+                repairs.Add(restart - alert.OccurredMs);
                 prevRestart = restart;
             }
         }
