@@ -471,6 +471,18 @@
                                             </span>
                                         </small>
                                     </div>
+                                    <!-- 이름 기반 추천 — 이름에 디바이스 별칭이 든 태그를 한 번에 채운다.
+                                         적용해도 '수정' 대기 상태라 표에서 확인하고 행마다 되돌릴 수 있다. -->
+                                    <div class="settings-note" x-show="ut.tab === 'Error' && utSuggestions.length > 0"
+                                         style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                        <span class="material-icons" style="font-size:18px;color:var(--color-primary);">auto_fix_high</span>
+                                        <small style="flex:1;">
+                                            태그 이름에서 디바이스를 알아낼 수 있는 항목이 <b x-text="utSuggestions.length + '건'"></b> 있습니다
+                                            <span style="color:var(--color-text-secondary);">(예: <span x-text="utSuggestions[0].row.name"></span> → <b x-text="utSuggestions[0].device"></b>)</span>
+                                        </small>
+                                        <button class="btn btn-sm" @click="utApplySuggestions()">이름으로 채우기</button>
+                                    </div>
+
                                     <!-- 일괄 지정 — 검색으로 좁힌 뒤 한 번에. 태그를 하나씩 열지 않고 끝내는 경로다.
                                          체크박스 선택 UI 를 새로 만들지 않고 이미 있는 검색 필터를 그대로 재사용한다. -->
                                     <div class="settings-note" x-show="ut.tab === 'Error' && utBulkTargets.length > 1"
@@ -2122,6 +2134,43 @@
                         if (same) d.orig = null;
                     }
                 },
+                // ── 이름 기반 추천 ──
+                // 태그 이름에 디바이스 별칭이 들어 있으면 그 디바이스로 본다. 현장 명명이 대개 그렇다
+                // ("Conveyor1_과부하", "#131 모터에러"). 구분자·대소문자는 무시하고 비교한다.
+                // ★확신이 없으면 제안하지 않는다 — 틀린 귀속은 지표를 조용히 망치므로 놓치는 쪽이 낫다.
+                UT_ALIAS_MIN: 2,
+                utNormMatch(s) { return (s || '').toString().toLowerCase().replace(/[\s_\-.#/\\]+/g, ''); },
+                utSuggestDevice(name, devices) {
+                    const hay = this.utNormMatch(name);
+                    if (!hay) return null;
+                    let best = null, bestLen = 0, tie = false;
+                    for (const dev of devices || []) {
+                        const needle = this.utNormMatch(dev);
+                        // 한두 글자 별칭은 아무 이름에나 걸린다 — 노이즈를 만들 바엔 제안하지 않는다.
+                        if (needle.length < this.UT_ALIAS_MIN || !hay.includes(needle)) continue;
+                        // 긴 쪽이 이긴다 — "Conveyor12" 가 "Conveyor1" 을 눌러야 한다.
+                        if (needle.length > bestLen) { best = dev; bestLen = needle.length; tie = false; }
+                        else if (needle.length === bestLen) tie = true;   // 같은 길이로 둘 이상 = 판단 불가
+                    }
+                    return tie ? null : best;
+                },
+                // 아직 안 묶인 이상알람TAG 중 이름으로 확정할 수 있는 것들.
+                get utSuggestions() {
+                    const out = [];
+                    for (const d of (this.ut.items || [])) {
+                        if (d.level !== 'Error' || d.state === 'del' || d.device) continue;
+                        const dev = this.utSuggestDevice(d.name, this.ut.devices);
+                        if (dev) out.push({ row: d, device: dev });
+                    }
+                    return out;
+                },
+                utApplySuggestions() {
+                    const list = this.utSuggestions;
+                    if (list.length === 0) return;
+                    for (const s of list) this.utSetDevice(s.row, s.device);
+                    this.showToast(`이름으로 ${list.length}건 지정 — 표에서 확인하고 적용하세요(행마다 되돌릴 수 있습니다).`, 'info');
+                },
+
                 // 검색으로 좁힌 뒤 한 번에 지정 — 체크박스 선택 UI 를 새로 만들지 않고 기존 필터를 그대로 쓴다.
                 // 대상은 지금 목록에 보이는 이상알람TAG 중 삭제 예약이 아닌 행 전부다.
                 get utBulkTargets() {
