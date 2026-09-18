@@ -10,7 +10,9 @@ using Microsoft.AspNetCore.Mvc;
 namespace DSPilot.Controllers;
 
 /// <summary>
-/// OEE 정지(다운타임) — GET/분류/마감/일괄 처리.
+/// OEE 정지(다운타임) — 조회 전용(doc/30 §11.1).
+/// <para>수동 분류·전환·마감·되돌리기는 2026-09-18 전면 폐기했다. 상태는 규칙에서만 나온다 —
+/// 사람이 행에 원인을 찍는 경로는 v68 의 "원인 어휘 금지" 와 κ 변경 시 자동 재라벨(§12-⑨)과 양립하지 않는다.</para>
 /// </summary>
 [ApiController]
 [Route("api/oee")]
@@ -29,17 +31,16 @@ public class OeeDowntimeController : OeeControllerBase
         ILogger<OeeDowntimeController> logger)
         : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, mirror, logger) { }
 
-    // ── GET /api/oee/downtime?from&to&status&reason&flow[&system][&minDurationMs][&todFrom&todTo][&needsReview] ──
+    // ── GET /api/oee/downtime?from&to&status&reason&flow[&system][&minDurationMs][&todFrom&todTo] ──
     // system = 시스템 스코프(그 시스템 flow 의 정지만, flow 미상 라인 귀속 행은 보존). flow 지정이 우선.
-    // 전환 UX 필터(doc/28 §2.8): minDurationMs = 최소 길이(사건 전체 DurationMs), todFrom/todTo = 시작 시각의 로컬 분(0~1439,
-    // todFrom > todTo 면 자정 넘김 예 18:00~08:00), needsReview=true = '확인 필요' 행만. 전환 객체는 행 — 사용자는 필터 결과에서 행을
-    // 골라(전체 선택 포함) 일괄 전환한다. 시간 범위는 필터일 뿐이다.
+    // 열람 필터: minDurationMs = 최소 길이(사건 전체 DurationMs), todFrom/todTo = 시작 시각의 로컬 분(0~1439,
+    // todFrom > todTo 면 자정 넘김 예 18:00~08:00). 필터는 보는 도구일 뿐 — 판정을 바꾸지 않는다.
     [HttpGet("downtime")]
     public async Task<ActionResult<List<OeeDowntimeDto>>> Downtime(
         [FromQuery] DateTime? from, [FromQuery] DateTime? to,
         [FromQuery] string? status, [FromQuery] string? reason, [FromQuery] string? flow,
         [FromQuery] string? system, [FromQuery] long? minDurationMs, [FromQuery] int? todFrom, [FromQuery] int? todTo,
-        [FromQuery] bool? needsReview, CancellationToken ct)
+        CancellationToken ct)
     {
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var flowName = string.IsNullOrWhiteSpace(flow) ? null : flow.Trim();
@@ -47,10 +48,9 @@ public class OeeDowntimeController : OeeControllerBase
         var rows = await _repo.QueryDowntimeAsync(fromUtc, toUtc, status, reason, flowName, ct);
         // 구 무가동 상태머신(detectSource='nocycle') 자동 행은 정본이 아니다(2026-09-08, doc/26) — 정지 시간은 완료 사이클
         //   행(판정 기준 초과 사이클)에 이미 들어 있고, 부팅 시 정리(OeeRepositoryAdapter)되지만 미러/경합 잔존에 대비해
-        //   읽기에서도 걸러낸다. 사용자가 손으로 확정한 것(classifySource='manual')은 사용자 의도라 보존.
+        //   읽기에서도 걸러낸다. 종전의 '수동 확정 행은 보존' 예외는 수동 라벨 폐기(2026-09-18)로 사라졌다.
         static bool IsLegacyAutoNocycle(OeeDowntimeDto d)
-            => string.Equals(d.DetectSource, "nocycle", StringComparison.OrdinalIgnoreCase)
-               && !string.Equals(d.ClassifySource, "manual", StringComparison.OrdinalIgnoreCase);
+            => string.Equals(d.DetectSource, "nocycle", StringComparison.OrdinalIgnoreCase);
         var merged = (flowSet is null
             ? rows
             : rows.Where(d => d.FlowName is null || flowSet.Contains(d.FlowName)))
@@ -71,10 +71,10 @@ public class OeeDowntimeController : OeeControllerBase
             else if (string.Equals(status, "recovered", StringComparison.OrdinalIgnoreCase))
                 overCycles = overCycles.Where(d => !string.Equals(d.Status, "open", StringComparison.OrdinalIgnoreCase)).ToList();
             nonProdScoped = npScoped;
-            // 재분류로 materialize 된 over-cycle 이벤트 행과 겹치는 합성 행 dedup — 같은 사이클이 두 줄로 보이지 않게.
+            // 과거 수동 라벨로 materialize 됐던 over-cycle 이벤트 행과 겹치는 합성 행 dedup — 같은 사이클이 두 줄로 보이지 않게.
             static bool NearSameStart(DateTime a, DateTime b) => Math.Abs((a - b).TotalSeconds) < 2.0;
             // 같은 정지 이중 표시 흡수(2026-07-16, 사용자 확인) — 하나의 정지가 무가동 이벤트(DB)와 ct 폭주 사이클
-            // (합성) 두 소스에 다 잡히면 목록엔 DB 행 하나만 남긴다(체크·재분류 가능한 쪽). KPI 는 집계에서 이미
+            // (합성) 두 소스에 다 잡히면 목록엔 DB 행 하나만 남긴다(감지 이력이 있는 쪽). KPI 는 집계에서 이미
             // 행 단위 라벨 조인으로 처리되므로 표시 전용 정리. 흡수된 DB 행은 감지 칩에 '+이상치초과' 병기(정보 유실 방지).
             static double OverlapRatioOfSynthetic(OeeDowntimeDto db, OeeDowntimeDto sc, DateTime nowL)
             {
@@ -120,18 +120,14 @@ public class OeeDowntimeController : OeeControllerBase
             merged = merged.OrderByDescending(d => d.StartAt).ThenByDescending(d => d.Id).ToList();
         }
 
-        // DB 이벤트 행 구분 판정: 수동 라벨이 있으면 그것이 정답(non_production=비생산, 그 외=고장/유지보수),
-        // 아니면 KPI 비생산 구간과의 <b>과반</b> 겹침(OeeMath.IsMajorityCovered)으로 자동 판정 — 반드시 **그 행의 flow 구간만** 본다.
-        // (구 '대기' 구분은 doc/28 두 규칙 모델로 폐기.)
+        // DB 이벤트 행 구분 판정: KPI 비생산 구간과의 <b>과반</b> 겹침(OeeMath.IsMajorityCovered)으로만 정한다 —
+        // 반드시 **그 행의 flow 구간만** 본다. (구 '대기' 구분·수동 라벨 우선 분기는 폐기.)
         var nowLocal = DateTime.Now;
         for (var i = 0; i < merged.Count; i++)
         {
             var d = merged[i];
             if (d.Id <= 0) continue;   // 합성 행은 이미 IsNonProd 세팅됨
             bool isNp;
-            if (string.Equals(d.ClassifySource, "manual", StringComparison.OrdinalIgnoreCase))
-                isNp = string.Equals(d.ReasonCode, OeeMath.NonProductionReasonCode, StringComparison.OrdinalIgnoreCase);
-            else
             {
                 var sMs = new DateTimeOffset(DateTime.SpecifyKind(d.StartAt, DateTimeKind.Local)).ToUnixTimeMilliseconds();
                 var eMs = new DateTimeOffset(DateTime.SpecifyKind(d.EndAt ?? nowLocal, DateTimeKind.Local)).ToUnixTimeMilliseconds();
@@ -151,15 +147,13 @@ public class OeeDowntimeController : OeeControllerBase
         var classified = await AttachCluesAsync(merged, fromUtc, toUtc, ct);
         LogClassifyTransitions(classified);   // 판정 전이 로그 — 프로세스 수명 내 구분 변화 계측
 
-        // 전환 UX 필터(doc/28 §2.8) — 서버에서 걸러 목록·전체 선택이 같은 집합을 본다.
+        // 열람 필터 — 서버에서 걸러 목록과 건수가 같은 집합을 본다.
         IEnumerable<OeeDowntimeDto> filtered = classified;
         var nowMsL = ToMs(DateTime.UtcNow);
         if (minDurationMs is long md && md > 0)
             filtered = filtered.Where(d => (d.DurationMs ?? (long)Math.Max(0, nowMsL - ToMs(DateTime.SpecifyKind(d.StartAt, DateTimeKind.Local)))) >= md);
         if (todFrom is int tf && todTo is int tt && tf != tt)
             filtered = filtered.Where(d => InTimeOfDay(d.StartAt, tf, tt));
-        if (needsReview == true)
-            filtered = filtered.Where(d => d.NeedsReview);
 
         // 기간 내 클립 지속시간(2026-08-27) — 목록 필터가 '구간 겹침'이 되며 기간 경계를 걸친 정지가 들어온다.
         //   표시는 InRangeMs(기간과 겹친 몫)로 하고 사건 전체 길이(DurationMs)는 병기 — 합계가 KPI(정지시간)와 맞도록.
@@ -203,165 +197,5 @@ public class OeeDowntimeController : OeeControllerBase
             s_lastClassify[key] = cur;
             if (s_lastClassify.Count > 4096) s_lastClassify.Clear();   // 진단 캐시 폭주 방지(정확성 무관)
         }
-    }
-
-    // ── POST /api/oee/downtime/reclassify — 비생산↔비가동 보내기 ───────────
-    // 자동 판정(당일 10×CT)이 어긋났을 때 사용자가 구간 단위로 확정한다(classifySource='manual' → KPI 오버라이드).
-    //   Id>0  : 기존 이벤트 행 분류 변경.
-    //   합성행: Flow/StartAt/EndAt 로 over-cycle 이벤트 행을 materialize 한 뒤 분류(이후 오버라이드로 작동).
-    // 비가동으로 보내면 이전 분류 복원(유지보수→비생산→비가동 왕복 시 유지보수 유지, prev* 스태시) — 스태시 없으면 기본 '고장'.
-    [HttpPost("downtime/reclassify")]
-    public async Task<ActionResult<object>> Reclassify([FromBody] ReclassifyDowntimeRequest req, CancellationToken ct)
-    {
-        long id = req.Id ?? 0;
-        if (id <= 0)
-        {
-            if (string.IsNullOrWhiteSpace(req.Flow) || req.StartAt is null || req.EndAt is null)
-                return BadRequest(new { error = "synthetic row requires flow, startAt, endAt" });
-            var startUtc = ToUtc(req.StartAt.Value);
-            var endUtc = ToUtc(req.EndAt.Value);
-            if (endUtc <= startUtc) return BadRequest(new { error = "endAt must be after startAt" });
-            id = await _repo.InsertDowntimeAsync(new OeeDowntimeEvent
-            {
-                SystemName = "",
-                FlowName = req.Flow.Trim(),
-                StartAt = startUtc,
-                EndAt = endUtc,
-                DurationMs = (long)(endUtc - startUtc).TotalMilliseconds,
-                DetectSource = "over-cycle",
-                Note = "사용자 재분류로 확정(계산 유래 사이클)",
-            }, ct);
-            if (id <= 0) return StatusCode(500, new { error = "materialize failed" });
-        }
-
-        // 스태시/복원 방식(repo) — 유지보수였던 정지를 비생산으로 보냈다가 되돌리면 유지보수로 복원된다(고장 강등 없음).
-        var n = await _repo.ReclassifyDowntimeAsync(id, req.ToNonProd, ct);
-        if (n == 0) return NotFound(new { error = "downtime event not found", id });
-
-        // 비가동 확정 시: 그 구간과 겹치는 자동 비생산 감지 로그를 청소 — actual/추이 표시에 stale 비생산이 남지 않게.
-        if (!req.ToNonProd && req.StartAt is not null && req.EndAt is not null)
-        {
-            try { await _repo.DeleteNonProdDetectionsOverlappingAsync(ToUtc(req.StartAt.Value), ToUtc(req.EndAt.Value), ct); }
-            catch (Exception ex) { _logger.LogWarning(ex, "[OEE] 재분류 감지로그 청소 실패(표시만 영향)"); }
-        }
-        OeeChangeSignal.NotifyInvalidate();
-        return new { ok = true, id, toNonProd = req.ToNonProd };
-    }
-
-    // ── POST /api/oee/downtime/{id}/classify ──────────────────────────────
-    [HttpPost("downtime/{id:long}/classify")]
-    public async Task<ActionResult<object>> Classify(long id, [FromBody] ClassifyRequest req, CancellationToken ct)
-    {
-        var category = string.IsNullOrWhiteSpace(req.Category) ? null : req.Category.Trim().ToLowerInvariant();
-        var reasonCode = string.IsNullOrWhiteSpace(req.ReasonCode) ? null : req.ReasonCode.Trim();
-        var isFailure = OeeMath.IsFailureReason(reasonCode);
-
-        var n = await _repo.ClassifyDowntimeAsync(id, reasonCode, category, isFailure, classifySource: "manual", ct);
-        if (n == 0) return NotFound(new { error = "downtime event not found", id });
-        return new { ok = true, id, reasonCode, category, isFailure };
-    }
-
-    // ── POST /api/oee/downtime/{id}/set-fault ─────────────────────────────
-    // id ≤ 0 = 합성 행(이상치 초과 사이클) — reclassify 와 동일하게 실제 이벤트 행을 materialize 한 뒤 분류
-    // (2026-07-16, doc/25): 의도된 정지(유지보수 등)가 이상치로 잡혔을 때도 고장 체크 해제가 가능해야 한다.
-    [HttpPost("downtime/{id:long}/set-fault")]
-    public async Task<ActionResult<object>> SetFault(long id, [FromBody] SetFaultRequest req, CancellationToken ct)
-    {
-        if (id <= 0)
-        {
-            if (string.IsNullOrWhiteSpace(req.Flow) || req.StartAt is null || req.EndAt is null)
-                return BadRequest(new { error = "synthetic row requires flow, startAt, endAt" });
-            var startUtc = ToUtc(req.StartAt.Value);
-            var endUtc = ToUtc(req.EndAt.Value);
-            if (endUtc <= startUtc) return BadRequest(new { error = "endAt must be after startAt" });
-            id = await _repo.InsertDowntimeAsync(new OeeDowntimeEvent
-            {
-                SystemName = "",
-                FlowName = req.Flow.Trim(),
-                StartAt = startUtc,
-                EndAt = endUtc,
-                DurationMs = (long)(endUtc - startUtc).TotalMilliseconds,
-                DetectSource = "over-cycle",
-                Note = "사용자 분류로 확정(계산 유래 사이클)",
-            }, ct);
-            if (id <= 0) return StatusCode(500, new { error = "materialize failed" });
-        }
-        var (reasonCode, category, isFailure) = req.IsFault
-            ? ("equipment_fault", "unplanned", true)
-            : ("planned_maint", "planned", false);
-        var n = await _repo.ClassifyDowntimeAsync(id, reasonCode, category, isFailure, classifySource: "manual", ct);
-        if (n == 0) return NotFound(new { error = "downtime event not found", id });
-        OeeChangeSignal.NotifyInvalidate();
-        return new { ok = true, id, isFault = req.IsFault };
-    }
-
-    // ── POST /api/oee/downtime/bulk-set-fault ─────────────────────────────
-    [HttpPost("downtime/bulk-set-fault")]
-    public async Task<ActionResult<object>> BulkSetFault([FromBody] BulkSetFaultRequest req, CancellationToken ct)
-    {
-        if (req.Ids == null || req.Ids.Count == 0) return BadRequest(new { error = "ids is required" });
-        if (req.Ids.Count > 500) return BadRequest(new { error = "too many ids (max 500)" });
-        var (reasonCode, category, isFailure) = req.IsFault
-            ? ("equipment_fault", "unplanned", true)
-            : ("planned_maint", "planned", false);
-        var n = await _repo.BulkClassifyDowntimeAsync(req.Ids, reasonCode, category, isFailure, classifySource: "manual", ct);
-        OeeChangeSignal.NotifyInvalidate();
-        return new { ok = true, count = n, isFault = req.IsFault };
-    }
-
-    // ── POST /api/oee/downtime/{id}/close ────────────────────────────────
-    [HttpPost("downtime/{id:long}/close")]
-    public async Task<ActionResult<object>> Close(long id, [FromBody] CloseRequest? req, CancellationToken ct)
-    {
-        var endAtUtc = (req?.EndAt) is DateTime e ? ToUtc(e) : DateTime.UtcNow;
-        var n = await _repo.CloseDowntimeAsync(id, endAtUtc, ct);
-        if (n == 0) return NotFound(new { error = "open downtime event not found", id });
-        return new { ok = true, id, endAt = endAtUtc };
-    }
-
-    // ── POST /api/oee/downtime/bulk-classify ──────────────────────────────
-    [HttpPost("downtime/bulk-classify")]
-    public async Task<ActionResult<object>> BulkClassify([FromBody] BulkClassifyRequest req, CancellationToken ct)
-    {
-        if (req.Ids == null || req.Ids.Count == 0)
-            return BadRequest(new { error = "ids is required" });
-        if (req.Ids.Count > 500)
-            return BadRequest(new { error = "too many ids (max 500)" });
-
-        var category = string.IsNullOrWhiteSpace(req.Category) ? null : req.Category.Trim().ToLowerInvariant();
-        var reasonCode = string.IsNullOrWhiteSpace(req.ReasonCode) ? null : req.ReasonCode.Trim();
-        var isFailure = OeeMath.IsFailureReason(reasonCode);
-
-        var n = await _repo.BulkClassifyDowntimeAsync(req.Ids, reasonCode, category, isFailure, classifySource: "manual", ct);
-        OeeChangeSignal.NotifyInvalidate();
-        return new { ok = true, count = n, reasonCode, category, isFailure };
-    }
-
-    // ── POST /api/oee/downtime/bulk-close ─────────────────────────────────
-    [HttpPost("downtime/bulk-close")]
-    public async Task<ActionResult<object>> BulkClose([FromBody] BulkCloseRequest req, CancellationToken ct)
-    {
-        if (req.Ids == null || req.Ids.Count == 0)
-            return BadRequest(new { error = "ids is required" });
-        if (req.Ids.Count > 500)
-            return BadRequest(new { error = "too many ids (max 500)" });
-
-        var endAtUtc = req.EndAt is DateTime e ? ToUtc(e) : DateTime.UtcNow;
-        var n = await _repo.BulkCloseDowntimeAsync(req.Ids, endAtUtc, ct);
-        return new { ok = true, count = n, endAt = endAtUtc };
-    }
-
-    // ── 되돌리기(doc/28 §2.8) — 사용자 라벨을 지워 자동 판정으로 복귀. ─────────────────────────────
-    // 계산 유래 행(detectSource='over-cycle' — 재분류/고장 확정 때 materialize 된 행)은 행 자체를 삭제하고(합성 행이 다시 뜬다),
-    // 그 외(라이브 감지·수동 입력 행)는 분류만 비운다. 합성 행(id ≤ 0)엔 라벨이 없다.
-    [HttpDelete("downtime/manual/{id:long}")]
-    [HttpPost("downtime/{id:long}/revert-manual")]
-    public async Task<ActionResult<object>> RevertManual(long id, CancellationToken ct)
-    {
-        if (id <= 0) return BadRequest(new { error = "synthetic rows have no manual label" });
-        var (n, deleted) = await _repo.RevertManualLabelAsync(id, ct);
-        if (n == 0) return NotFound(new { error = "downtime event not found or not manually labeled", id });
-        OeeChangeSignal.NotifyInvalidate();
-        return new { ok = true, id, deleted };
     }
 }

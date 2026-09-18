@@ -47,23 +47,18 @@ public sealed class BriefingHtmlRenderer
   <div style=""font-size:22px;font-weight:800;color:#ffffff;margin-top:4px;"">{d.Day:yyyy년 M월 d일 (ddd)} 생산·이상 요약</div>
 </td></tr>");
 
-        // ── ⓪ 확인 필요 장기 정지 (doc/28 §2.8) — 메일은 전환 전 숫자로 나가므로 맨 위에서 알린다. ──
-        //    확인 필요 = 길이가 비생산 기준 이상인 고장(끄고 간 정지 후보). 하루 경계를 넘는 고장 행·진행 중도 특이사항으로.
-        if (d.ReviewStops.Count > 0 || d.ReviewPendingCount > 0)
+        // ── ⓪ 하루를 넘긴 장기 정지 — 하루 몫만 보면 길이를 오해하므로 맨 위에서 실제 길이를 알린다. ──
+        if (d.NoteworthyStops.Count > 0)
         {
-            var reviewCount = d.ReviewPendingCount > 0 ? d.ReviewPendingCount : d.ReviewStops.Count(r => r.NeedsReview);
-            var reviewDur = d.ReviewPendingMs > 0 ? " · " + FmtDuration(d.ReviewPendingMs) : "";
             sb.Append($@"<tr><td style=""padding:18px 28px 0;"">
 <div style=""padding:14px 16px;background:#fffbeb;border:1px solid #f59e0b;border-radius:10px;"">
-  <div style=""font-size:14px;font-weight:800;color:#b45309;"">⚠ 확인 필요 장기 정지 {reviewCount}건{reviewDur}</div>
-  <div style=""font-size:12px;color:#92400e;margin-top:4px;line-height:1.5;"">길이만 보면 비생산 기준을 넘는 고장입니다 — 설비를 끄고 간 정지가 아닌지 확인하세요. 아래 수치는 이 정지를 <b>고장</b>으로 계산한 값이며, DSPilot 정지 로그에서 <b>비생산으로 전환</b>하면 가용성·고장 건수가 다시 계산됩니다.</div>");
-            if (d.ReviewStops.Count > 0)
+  <div style=""font-size:14px;font-weight:800;color:#b45309;"">⚠ 하루를 넘긴 장기 정지 {d.NoteworthyStops.Count}건</div>
+  <div style=""font-size:12px;color:#92400e;margin-top:4px;line-height:1.5;"">전일부터 이어졌거나 다음 날로 이어지는(또는 아직 진행 중인) 정지입니다 — 아래 수치는 <b>이날 몫</b>이고, 괄호가 사건 전체 길이입니다.</div>");
             {
                 sb.Append($@"<table role=""presentation"" width=""100%"" cellpadding=""0"" cellspacing=""0"" style=""border-collapse:collapse;font-size:12px;margin-top:8px;"">");
-                foreach (var r in d.ReviewStops.Take(8))
+                foreach (var r in d.NoteworthyStops.Take(8))
                 {
                     var flags = new List<string>();
-                    if (r.NeedsReview) flags.Add("확인 필요");
                     if (r.CrossesStart) flags.Add("전일부터 이어짐");
                     if (r.Open) flags.Add("계속 진행 중");
                     else if (r.CrossesEnd) flags.Add("다음 날로 이어짐");
@@ -78,8 +73,8 @@ public sealed class BriefingHtmlRenderer
   <td align=""right"" style=""padding:5px 8px;border-top:1px solid #fde68a;color:#b45309;font-weight:700;"">{Enc(string.Join(" · ", flags))}</td>
 </tr>");
                 }
-                if (d.ReviewStops.Count > 8)
-                    sb.Append($@"<tr><td colspan=""4"" style=""padding:5px 8px;border-top:1px solid #fde68a;color:{Muted};"">외 {d.ReviewStops.Count - 8}건 — DSPilot 정지 로그에서 확인</td></tr>");
+                if (d.NoteworthyStops.Count > 8)
+                    sb.Append($@"<tr><td colspan=""4"" style=""padding:5px 8px;border-top:1px solid #fde68a;color:{Muted};"">외 {d.NoteworthyStops.Count - 8}건 — DSPilot 정지 로그에서 확인</td></tr>");
                 sb.Append("</table>");
             }
             sb.Append("</div></td></tr>");

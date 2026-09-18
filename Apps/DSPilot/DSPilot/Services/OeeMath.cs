@@ -94,25 +94,25 @@ public static class OeeMath
     /// <summary>
     /// 비생산 경계(CT) — 불인정 행(mt NULL) 전용 = max(중앙 CT × 비생산배수, 중앙 CT × 하한 배수). 중앙 CT ≤0 이면 0.
     /// tail 미정의 flow(mt·wt 항상 NULL)의 유일한 판정 경계이기도 하다(고장 판별 불가, 비생산만).
-    /// 완료 행에서도 쓴다(2026-09-14): ①-a 를 넘긴 고장 후보라도 <b>행 길이</b>가 이 경계 이상이면 비생산(확인 필요)으로 강등 —
-    /// <see cref="IsReviewPending"/> 이 그 임계 판정이다.
+    /// 완료 행에서도 쓴다(2026-09-14): ①-a 를 넘긴 고장 후보라도 <b>행 길이</b>가 이 경계 이상이면 비생산으로 강등 —
+    /// <see cref="IsNonProductionByLength"/> 이 그 임계 판정이다.
     /// </summary>
     public static double ResolveCtNonProdBoundaryMs(double medianCtMs, double nonProdMultiplier)
         => medianCtMs <= 0 ? 0
             : Math.Max(medianCtMs * nonProdMultiplier, medianCtMs * WtNonProdFloorCtMultiples);
 
     /// <summary>
-    /// '확인 필요'(needsReview, doc/28 §2.8 — 2026-09-14 방향 반전) — 고장 규칙을 넘긴 행의 길이(ct)가 비생산 경계(CT)
-    /// 이상인가. 이제는 <b>표시 플래그가 아니라 판정 임계</b>다: 참이면 그 행은 고장이 아니라 비생산(확인 필요)으로 간다
-    /// (<see cref="CycleClass.NonProductionReview"/>). 뜻: "동작 중 멈춘 채 길게 늘어짐 = 끄고 간 정지로 보되 물어본다".
-    /// 해소 = '고장으로' 전환 또는 '비생산으로' 확정(둘 다 수동 라벨 → 호출측이 플래그를 내린다).
+    /// 길이에 의한 비생산 강등 임계 — 고장 규칙을 넘긴 행이라도 길이(ct)가 비생산 경계(CT) 이상이면 비생산이다
+    /// (<see cref="CycleClass.NonProductionByLength"/>). 뜻: "동작 중 멈춘 채 길게 늘어짐 = 끄고 간 정지".
+    /// <para>doc/30 §12-⑧ <b>비생산·비가동 동시 성립 시 비생산 우선</b> 이 이 규칙의 정본이다. 종전의 '확인 필요' 대기열
+    /// (사람에게 물어 고장으로 되돌리던 경로)은 2026-09-18 폐기 — 상태는 규칙에서만 나온다.</para>
     /// </summary>
-    public static bool IsReviewPending(double ctMs, double ctNonProdBoundaryMs)
+    public static bool IsNonProductionByLength(double ctMs, double ctNonProdBoundaryMs)
         => ctNonProdBoundaryMs > 0 && ctMs >= ctNonProdBoundaryMs;
 
     /// <summary>
-    /// 사용자/자동 분류에서 "비생산"을 뜻하는 reasonCode — 정지 이벤트를 비생산으로 보내면 이 코드가 찍히고
-    /// KPI 는 그 행을 생산가능시간(A 분모) 밖으로 뺀다. isFailure=0, MTBF 미반영. oeeShiftException 의 kind 'non_production' 과 같은 어휘.
+    /// 자동 분류에서 "비생산"을 뜻하는 reasonCode — KPI 는 그 행을 생산가능시간(A 분모) 밖으로 뺀다.
+    /// isFailure=0, MTBF 미반영. oeeShiftException 의 kind 'non_production' 과 같은 어휘.
     /// </summary>
     public const string NonProductionReasonCode = "non_production";
 
@@ -243,7 +243,7 @@ public static class OeeMath
         => string.Equals(reasonCode?.Trim(), "equipment_fault", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// 행이 어떤 구간(수동 라벨·유지보수 이벤트)에 <b>과반</b> 덮였는가 — 행↔구간 조인의 단일 규칙
+    /// 행이 어떤 구간(유지보수 이벤트 등)에 <b>과반</b> 덮였는가 — 행↔구간 조인의 단일 규칙
     /// (<see cref="MajorityCoverRatio"/>). '조금이라도 겹치면'은 경계 1~2초 스침으로 이웃 행을 오분류하고,
     /// '전부 덮이면'은 재도출로 경계가 1초만 어긋나도 라벨이 떨어진다. 과반이 두 오류를 모두 피한다.
     /// </summary>
@@ -272,19 +272,19 @@ public static class OeeMath
         Normal,
         /// <summary>고장 — 행 전체가 A 손실(비가동), 고장 건수·MTBF 반영. 길이 무관 비생산으로 승격하지 않는다.</summary>
         Fault,
-        /// <summary>비생산 — 행 전체가 분모 밖(생산가능시간 아님). 건수·MTBF 미반영. 근거가 확실한 쪽(tail 찍고 대기·사용자 라벨·지정 시각대).</summary>
+        /// <summary>비생산 — 행 전체가 분모 밖(생산가능시간 아님). 건수·MTBF 미반영. 근거가 확실한 쪽(tail 찍고 대기·지정 시각대).</summary>
         NonProduction,
         /// <summary>
-        /// 비생산(확인 필요) — 고장 규칙(①)을 넘겼지만 <b>행 전체 길이가 비생산 경계 이상</b>이라 비생산으로 보낸 행 (2026-09-14).
-        /// 뜻: "동작 중(Going) 멈춘 채 길게 늘어진 정지" = 끄고 간 정지일 가능성이 크지만 근거는 약하다.
-        /// 처분은 <see cref="NonProduction"/> 과 같고(분모 밖·MTBF 미반영), 사용자에게 '확인 필요'로 물어 <b>고장 전환</b>을 받는다.
+        /// 비생산(길이 강등) — 고장 규칙(①)을 넘겼지만 <b>행 전체 길이가 비생산 경계 이상</b>이라 비생산으로 보낸 행 (2026-09-14).
+        /// 뜻: "동작 중(Going) 멈춘 채 길게 늘어진 정지" = 끄고 간 정지. 처분은 <see cref="NonProduction"/> 과 같고
+        /// (분모 밖·MTBF 미반영), 축(axis)만 MT 로 남겨 판정 근거를 보인다. doc/30 §12-⑧ 비생산 우선.
         /// </summary>
-        NonProductionReview,
+        NonProductionByLength,
     }
 
-    /// <summary>비생산 계열(분모 밖) — 근거 확실한 <see cref="CycleClass.NonProduction"/> 과 <see cref="CycleClass.NonProductionReview"/> 둘 다.</summary>
+    /// <summary>비생산 계열(분모 밖) — 근거 확실한 <see cref="CycleClass.NonProduction"/> 과 <see cref="CycleClass.NonProductionByLength"/> 둘 다.</summary>
     public static bool IsNonProductionClass(CycleClass cls)
-        => cls is CycleClass.NonProduction or CycleClass.NonProductionReview;
+        => cls is CycleClass.NonProduction or CycleClass.NonProductionByLength;
 
     /// <summary>
     /// 한 사이클 행을 정상/고장/비생산으로 분류 (doc/28 §1 SSOT — dtCond SQL 과 같은 규칙, 한쪽만 바꾸지 말 것).
@@ -294,14 +294,12 @@ public static class OeeMath
     ///   <item>불인정 행(mt NULL): ①-b <c>ct &gt; ctFaultMs</c> → 고장 / ②-b <c>ct ≥ ctNonProdMs</c> → 비생산 / 나머지 정상.</item>
     /// </list>
     /// <para><b>길이에 의한 비생산 강등(2026-09-14)</b> — ① 을 넘긴 행이라도 <b>행 전체 길이가 비생산 경계 이상</b>
-    /// (<see cref="IsReviewPending"/> 과 같은 임계)이면 고장이 아니라 <see cref="CycleClass.NonProductionReview"/> 다.
+    /// (<see cref="IsNonProductionByLength"/> 과 같은 임계)이면 고장이 아니라 <see cref="CycleClass.NonProductionByLength"/> 다.
     /// 현장 실측(3000, 7일)에서 이 밴드는 45건 307h 가 전부 "Going 인 채로 퇴근" 이었고 진짜 고장은 25건 20.8h 뿐이었다 —
-    /// 고장으로 세면 매일 전 설비에 장시간 고장이 쌓여 A·MTBF 가 못 쓰게 된다. 기본값을 뒤집고 사용자가 '고장으로' 전환한다.
-    /// 불인정 행(mt NULL)은 동작 시간 자체를 모르므로 ②-b 비생산도 전부 '확인 필요' 다.
-    /// 반면 ②-a(tail 을 찍고 기다린 대기 초과)는 근거가 확실하므로 묻지 않는다.</para>
+    /// 고장으로 세면 매일 전 설비에 장시간 고장이 쌓여 A·MTBF 가 못 쓰게 된다. doc/30 §12-⑧ 비생산 우선이 이 결론이다.</para>
     /// 경계 ≤ 0 은 그 절이 비활성(예: MT 기준선 미보유 flow 는 mtFaultMs=ctFaultMs=0 — 고장 판별 불가).
     /// <paramref name="sampleCount"/> &lt; <see cref="MinBaselineSamples"/> 면 표본 게이트 — 전부 정상.
-    /// 사용자 라벨(고장으로/비생산으로)·비생산 지정 시각대는 이 함수 밖에서 호출측이 우선 적용한다(§2.6).
+    /// 비생산 지정 시각대는 이 함수 밖에서 호출측이 우선 적용한다(§2.6).
     /// </summary>
     public static CycleClass ClassifyCycle(
         int? mt, int? ct, int? wt,
@@ -312,14 +310,14 @@ public static class OeeMath
         if (mt is int m)
         {
             if (mtFaultMs > 0 && m > mtFaultMs)                                                // ①-a
-                return IsReviewPending(c, ctNonProdMs) ? CycleClass.NonProductionReview : CycleClass.Fault;
+                return IsNonProductionByLength(c, ctNonProdMs) ? CycleClass.NonProductionByLength : CycleClass.Fault;
             var w = wt is int w0 && w0 >= 0 ? w0 : Math.Max(0, c - m);
             if (wtNonProdMs > 0 && w >= wtNonProdMs) return CycleClass.NonProduction;         // ②-a (tail 후 대기 = 근거 확실)
             return CycleClass.Normal;
         }
         if (ctFaultMs > 0 && c > ctFaultMs)                                                    // ①-b
-            return IsReviewPending(c, ctNonProdMs) ? CycleClass.NonProductionReview : CycleClass.Fault;
-        if (ctNonProdMs > 0 && c >= ctNonProdMs) return CycleClass.NonProductionReview;       // ②-b (동작 시간 미상 = 근거 약함)
+            return IsNonProductionByLength(c, ctNonProdMs) ? CycleClass.NonProductionByLength : CycleClass.Fault;
+        if (ctNonProdMs > 0 && c >= ctNonProdMs) return CycleClass.NonProductionByLength;       // ②-b (동작 시간 미상 = 근거 약함)
         return CycleClass.Normal;
     }
 

@@ -15,9 +15,8 @@ namespace DSPilot.Models.Oee;
 // ─────────────────────────────────────────────────────────────────────────
 
 /// <summary>
-/// oeeDowntimeEvent — 정지/다운타임 라이프사이클 (open → recovered).
-/// 자동 onset(detectSource='nocycle')은 category/reasonCode NULL, isFailure 1(고장 기본값)으로 시작.
-/// 사용자가 '유지보수'로 해제(isFailure=0, reasonCode='planned_maint')하거나 수동 마감으로만 사람이 채운다.
+/// oeeDowntimeEvent — 정지/다운타임 라이프사이클 (open → recovered). <b>쓰기 주체는 자동 감지뿐</b>이다
+/// (UserTag 고장비트 poller). 수동 분류·전환·마감은 2026-09-18 폐기(doc/30 §11.1) — 상태는 규칙에서만 나온다.
 /// </summary>
 public sealed class OeeDowntimeEvent
 {
@@ -50,13 +49,13 @@ public sealed class OeeDowntimeEvent
     /// <summary>기본 0. 분류 확정 시에만 1 (MTBF/MTTR 분모 오염 방지).</summary>
     public int IsFailure { get; set; }
 
-    /// <summary>'nocycle' / 'usertag' / 'manual'. (정지 구간을 만든 "감지" 출처 — 의미 고정.)</summary>
+    /// <summary>'nocycle' / 'usertag'. (정지 구간을 만든 "감지" 출처 — 의미 고정.)</summary>
     public string DetectSource { get; set; } = "nocycle";
 
     /// <summary>
     /// 원인 "분류"가 어떻게 정해졌는지 (detectSource=감지 출처와 의미 구분):
-    /// NULL=미분류 / 'manual'(작업자 분류) / 'auto-bit'(CauseBit 자동분류) / 'auto-heuristic'(5분/8h 휴리스틱).
-    /// 'manual' 은 자동 휴리스틱이 덮지 않는다(수동 우선). doc/21 §12 개정.
+    /// NULL=미분류 / 'auto-bit'(CauseBit 자동분류) / 'auto-heuristic'(5분/8h 휴리스틱).
+    /// 'manual'(작업자 분류)은 2026-09-18 폐기 — 기동 시 남은 값을 비운다(OeeRepositoryAdapter).
     /// </summary>
     public string? ClassifySource { get; set; }
 
@@ -298,8 +297,6 @@ public sealed record OeeSummaryDto(
     //   가동·비가동·비생산 어느 쪽도 아니다(분모 밖, 미계측과 같은 자리). 과거 창엔 0. 다음 사이클 완료 시 확정된다.
     double InProgressWallMs = 0,
     // ── doc/28 (2026-09-11 두 규칙 · 사이클 단위) ──
-    int ReviewPendingCount = 0,       // '확인 필요' 고장 행 수 — 길이(ct)가 비생산 경계(CT) 이상인데 수동 라벨이 없는 고장(끄고 간 정지 후보)
-    double ReviewPendingMs = 0,       // 그 행들의 계측 길이 합(기간 클립)
     double UnattributedWallMs = 0,    // 미귀속 = 비가동 − 유지보수 − 고장. 행이 연속이라 0 이어야 정상 — 0 이 아니면 데이터 결함(계측 품질에도 노출)
     // ── 판정 불가(표본 게이트, 2026-09-14) — 14일 완료 사이클 < 10 인 flow 의 생산가능 시간. A·P 분모·분자 밖(미계측·진행 중과 같은 자리).
     //   종전 "전부 정상"은 긴 정지까지 가동으로 세어 라인 분모를 부풀렸다. 뺀 만큼은 반드시 화면에 보고한다(커버리지) — 그게 채택 조건.
@@ -376,7 +373,6 @@ public sealed record CtMultipliersPreviewSideDto(
     int FaultCtCount = 0,         // 고장 중 불인정 행(ct 초과)
     int NonProdWtCount = 0,       // 비생산 중 완료 행(wt 초과)
     int NonProdCtCount = 0,       // 비생산 중 불인정 행(ct 초과)
-    int ReviewPendingCount = 0,   // '확인 필요' 비생산 행 수(길이로 강등 — 사용자의 '고장으로' 전환 후보, 2026-09-14)
     int NonProdMtCount = 0);      // 비생산 중 동작 늘어짐 강등분(Going 인 채 장시간 정지)
 
 /// <summary>
@@ -422,14 +418,13 @@ public sealed record OeeDowntimeDto(
     long? SourceLogId,
     string? Note,
     string Status,                    // "open" | "recovered"
-    string? ClassifySource = null,    // 분류 출처: manual / auto-bit / auto-heuristic / auto-longstop / pending(진행 중 — 완료 후 분류) / null(미분류)
+    string? ClassifySource = null,    // 분류 출처: auto-bit / auto-cycle / auto-longstop / auto-planned / pending(진행 중 — 완료 후 분류) / null(미분류)
     OeeDowntimeClue? Clue = null,     // abnormal/usertag 시간겹침 단서(표시 전용 — 건수·MTBF 미반영, doc/21 §4)
-    bool IsNonProd = false,           // 구분=비생산(A 분모 밖). 수동 라벨(reasonCode='non_production') 또는 자동 판정(대기/불인정 행 길이)
+    bool IsNonProd = false,           // 구분=비생산(A 분모 밖) — 자동 판정(대기 초과·행 길이)
     long? InRangeMs = null,           // 조회 기간([from,to], open 은 now 로 캡)과 겹친 몫만 클립한 지속시간(2026-08-27).
                                       // 기간 경계를 걸친 정지는 DurationMs(사건 전체) > InRangeMs(기간 내). 목록 표시는
                                       // InRangeMs 를 쓰고 전체 길이는 병기 — KPI(정지시간 합산)와 눈으로 맞도록.
     // ── doc/28 (2026-09-11) ──
-    bool NeedsReview = false,         // '확인 필요' — 고장 행인데 길이(ct)가 비생산 경계(CT) 이상, 수동 라벨 없음(끄고 간 정지 후보)
     string? Axis = null);             // 판정 축: "mt"(완료 행 동작 초과) / "wt"(완료 행 대기 초과) / "ct"(불인정 행 길이) / null(DB 이벤트 행)
 
 /// <summary>
