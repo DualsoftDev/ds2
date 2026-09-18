@@ -88,7 +88,9 @@
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
                 // stale 응답 가드 — 폴링/기간변경/페이지이동 응답이 뒤늦게 도착해 최신 상태를 덮어쓰는 경합 방지
-                _utSeq: 0, _oeeSeq: 0, _anpSeq: 0,
+                _utSeq: 0, _oeeSeq: 0, _anpSeq: 0, _relSeq: 0,
+                // 등록 에러 태그 기반 신뢰성(doc/31). null = 아직 못 읽음 — 카드를 감춘다.
+                rel: null, relState: '',
                 // 사용자 로드(기간변경·페이지·정렬 등 비무음) 진행 중 카운트 — >0 이면 폴링/SignalR 무음 재로드를 건너뜀.
                 // 무음 로드가 seq 를 선점하면 사용자 로드 응답이 stale 폐기되어, 로딩 인디케이터가 끝나고도
                 // (뒤늦은 무음 응답 도착까지) 화면이 안 채워지는 가로채기가 생긴다. OEE 요약처럼 느린 조회일수록 잦음.
@@ -796,9 +798,39 @@
                             if (seq === this._utSeq) this.error = '이상발생 데이터를 불러오지 못했습니다: ' + e.message;
                         } finally { this.loading = false; }
 
+                        // 등록 에러 태그 기반 신뢰성(eMTBF·eMTTR) — 스냅샷과 독립이라 실패해도 목록은 그대로 뜬다.
+                        this.loadReliability(silent);
+
                         // 신규 OEE 데이터 — 위에서 이미 dispatch 됨(스냅샷과 병렬). 완료만 대기.
                         await oeePromise;
                     } finally { if (!silent) this._userBusy--; }
+                },
+
+                // 등록 에러 태그 기반 신뢰성 — doc/31. OEE 의 MTBF/MTTR(비가동 기준)과 별개 축이라
+                // 값이 다른 것이 정상이다(느린 사이클 ⊃ 등록된 고장). 실패는 조용히 접는다 — 옵션 기능이고
+                // 이 카드가 비어도 알람 목록은 제 몫을 한다.
+                async loadReliability(silent) {
+                    const seq = ++this._relSeq;
+                    try {
+                        const r = this.rangeForPeriod();
+                        const qs = new URLSearchParams({ from: r.from, to: r.to });
+                        if (this.curSystem) qs.set('system', this.curSystem);
+                        const dto = await this.apiGet('/api/user-tags/reliability?' + qs.toString());
+                        if (seq === this._relSeq) this.rel = dto;   // stale 응답 폐기(기간 변경 경합)
+                    } catch (e) {
+                        if (seq === this._relSeq && !silent) this.rel = null;
+                    }
+                },
+                // 상태 칩 클릭 = 그 상태만 보기(같은 칩 다시 누르면 해제).
+                setRelState(s) { this.relState = this.relState === s ? '' : s; },
+                get relRows() {
+                    const rows = this.rel?.alerts || [];
+                    return this.relState ? rows.filter(a => a.state === this.relState) : rows;
+                },
+                // 표본 미달이면 숫자 대신 근거를 보인다 — 0 이나 '—' 로 두면 "고장이 없다" 로 읽힌다.
+                relValue(ms, n) {
+                    if (ms == null) return `표본 부족 (n=${n})`;
+                    return window.dspFmt.dur(ms);
                 },
 
                 // 피드에서 at 으로 진입했을 때 해당 알람 행(data-at=occurredAtLocal 초단위)을 찾아 스크롤 + 잠깐 하이라이트.
