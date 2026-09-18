@@ -22,27 +22,14 @@ public interface IOeeRepository
     /// <summary>정지 onset INSERT. id 반환. usertag 는 (detectSource, sourceLogId) 부분 유니크로 멱등.</summary>
     Task<long> InsertDowntimeAsync(OeeDowntimeEvent evt, CancellationToken ct = default);
 
-    /// <summary>open 이벤트 마감 — endAt + durationMs 채움. 영향 행 수 반환.</summary>
+    /// <summary>open 이벤트 자동 마감(고장비트 falling) — endAt + durationMs 채움. 영향 행 수 반환.</summary>
     Task<int> CloseDowntimeAsync(long id, DateTime endAtUtc, CancellationToken ct = default);
 
     /// <summary>
     /// 분류 PATCH — reasonCode/category, isFailure(category=unplanned 일 때 1), classifySource(출처).
-    /// 수동 분류는 'manual'(기본), CauseBit 자동분류는 'auto-bit'. 무조건 UPDATE(수동·비트는 권위적).
+    /// 호출자는 CauseBit 자동분류('auto-bit') 하나다 — 수동 분류·재분류·일괄 라벨은 2026-09-18 폐기(doc/30 §11.1).
     /// </summary>
-    Task<int> ClassifyDowntimeAsync(long id, string? reasonCode, string? category, bool isFailure, string? classifySource = "manual", CancellationToken ct = default);
-
-    /// <summary>
-    /// 비생산↔비가동 재분류(2026-07-08). toNonProd=true 는 현재 비가동 분류를 prev* 에 스태시한 뒤 비생산으로,
-    /// false 는 스태시가 있으면 원래 분류(유지보수 등) 복원(없으면 기본 고장) — 왕복해도 유지보수 상태가 보존된다.
-    /// 항상 classifySource='manual'(KPI 오버라이드). 영향 행 수 반환.
-    /// </summary>
-    Task<int> ReclassifyDowntimeAsync(long id, bool toNonProd, CancellationToken ct = default);
-
-    /// <summary>일괄 분류 — 복수 id 에 동일 reasonCode/category/classifySource 적용. 영향 행 수 반환.</summary>
-    Task<int> BulkClassifyDowntimeAsync(IReadOnlyList<long> ids, string? reasonCode, string? category, bool isFailure, string? classifySource = "manual", CancellationToken ct = default);
-
-    /// <summary>일괄 수동 마감 — open 상태인 항목만 endAt/durationMs 채움. 영향 행 수 반환.</summary>
-    Task<int> BulkCloseDowntimeAsync(IReadOnlyList<long> ids, DateTime endAtUtc, CancellationToken ct = default);
+    Task<int> ClassifyDowntimeAsync(long id, string? reasonCode, string? category, bool isFailure, string? classifySource = "auto-bit", CancellationToken ct = default);
 
     /// <summary>
     /// oeeDowntimeEvent 전체 삭제 — plc.db 재구축 시 정지 이벤트도 동반 초기화하는 용도. 삭제 행 수 반환.
@@ -153,29 +140,6 @@ public interface IOeeRepository
     /// <summary>기간 내 자동 비생산 감지 구간(UTC epoch ms)을 로그에서 조회. flow 지정=그 flow, null=전체(라인 — union 은 호출측). open 은 min(now,to) 캡.</summary>
     Task<IReadOnlyList<(double S, double E)>> GetNonProdIntervalsFromLogAsync(
         DateTime fromUtc, DateTime toUtc, string? flowName, CancellationToken ct = default);
-
-    /// <summary>
-    /// [fromUtc, toUtc] 와 겹치는 자동 비생산 감지 로그 행을 invalidatedAt 마킹 — 사용자가 그 구간을 '비가동으로
-    /// 보내기' 확정했을 때 stale 감지가 actual/추이 표시에 되살아나지 않게 한다(2026-07-08, doc/25 §4.1 부터
-    /// 삭제 대신 마킹 — 감사 행 보존). 마킹 행 수 반환.
-    /// </summary>
-    Task<int> DeleteNonProdDetectionsOverlappingAsync(
-        DateTime fromUtc, DateTime toUtc, CancellationToken ct = default);
-
-    /// <summary>
-    /// 기간과 겹치는 <b>수동 분류</b>(classifySource='manual') 정지 이벤트 구간(UTC epoch ms) — 당일 비생산 판정의
-    /// 사용자 오버라이드 소스(2026-07-08). ToNonProd=true(reasonCode='non_production') → 그 구간을 비생산으로 강제,
-    /// false(고장/유지보수 등) → 자동 10×CT 승격을 억제(비가동 유지). open(endAt NULL)은 min(now,to) 캡.
-    /// </summary>
-    Task<IReadOnlyList<(string? FlowName, double S, double E, bool ToNonProd)>> GetManualReclassIntervalsAsync(
-        DateTime fromUtc, DateTime toUtc, CancellationToken ct = default);
-
-    /// <summary>
-    /// 사용자 라벨 되돌리기(doc/28 §2.8) — classifySource='manual' 인 행만. 계산 유래 행(detectSource='over-cycle')은 행 삭제
-    /// (Deleted=true — 합성 행이 다시 뜬다), 그 외는 분류(reasonCode/category/isFailure/classifySource·prev* 스태시)만 비운다.
-    /// 반환 Count=0 이면 없거나 수동 라벨이 아님.
-    /// </summary>
-    Task<(int Count, bool Deleted)> RevertManualLabelAsync(long id, CancellationToken ct = default);
 
     Task<long> InsertShiftExceptionAsync(OeeShiftException row, CancellationToken ct = default);
     Task<IReadOnlyList<OeeShiftException>> QueryShiftExceptionsAsync(

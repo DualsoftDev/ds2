@@ -11,9 +11,9 @@ using Microsoft.Data.Sqlite;
 namespace DSPilot.Repositories;
 
 /// <summary>
-/// OEE / 정지 저장소 Dapper 구현 — 별도 oee.db.
-/// 경로 = GetSharedDbPath() 의 디렉터리 + "oee.db" (plc.db 와 동일 Shared 폴더, 별도 파일).
-/// raw 재구축 대상인 plc.db 와 분리 — 작업자가 입력한 분류/불량 수량을 보존하기 위함(doc/21 §1).
+/// OEE / 정지 저장소 Dapper 구현 — 표는 공유 DB(dspilot.db) 안에 있다.
+/// 쓰기 주체는 자동 감지(UserTag 고장비트 poller)와 생산량 입력뿐 —
+/// 정지 행의 수동 분류·전환·마감은 2026-09-18 폐기(doc/30 §11.1).
 /// 모든 시간은 ISO8601 UTC 문자열 (SqliteDateTimeHelpers). 읽을 때 로컬 변환.
 /// </summary>
 public sealed class OeeRepositoryAdapter : IOeeRepository
@@ -198,12 +198,6 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             await EnsureColumnAsync(conn, "oeeNonProdDetectionLog", "lastConfirmedAt", "TEXT");
             await EnsureColumnAsync(conn, "oeeNonProdDetectionLog", "invalidatedAt", "TEXT");
 
-            // prev*(2026-07-08) — 비생산으로 보내기 전의 비가동 분류 스태시. 비생산→비가동 왕복 시 유지보수 등
-            // 원래 분류를 복원하기 위함(prevIsFailure IS NOT NULL = 스태시 있음 마커).
-            await EnsureColumnAsync(conn, "oeeDowntimeEvent", "prevReasonCode", "TEXT");
-            await EnsureColumnAsync(conn, "oeeDowntimeEvent", "prevCategory", "TEXT");
-            await EnsureColumnAsync(conn, "oeeDowntimeEvent", "prevIsFailure", "INTEGER");
-
             // 2026-06-15: MTBF '고장' 정의를 설비고장(reasonCode='equipment_fault')만으로 변경(OeeMath.IsFailureReason).
             // 기존 분류 이벤트(reasonCode 있는)의 isFailure 를 새 규칙에 재정렬 — 자재대기·작업자대기 등 비-설비고장을 MTBF에서 제외.
             // 미분류(reasonCode NULL) / 고장비트 onset(reasonCode NULL, 감지기반 isFailure=1)은 보존. 멱등(불일치 행만 갱신).
@@ -216,7 +210,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
                 _logger.LogInformation("[OEE] isFailure 재정렬(설비고장만): {N}건 — 비-설비고장 분류는 MTBF 고장에서 제외", realigned);
 
             // 2026-06-23: 비가동 기본값 = 고장(isFailure=1). 기존 nocycle 미분류(reasonCode NULL, isFailure=0)를 고장으로 업그레이드.
-            // 고장비트 onset은 이미 1이므로 영향 없음. 사용자가 '유지보수'로 해제한 것(reasonCode='planned_maint')은 IS NOT NULL 가드로 보존.
+            // 고장비트 onset은 이미 1이므로 영향 없음. 자동 분류(CauseBit)가 찍은 reasonCode 는 IS NOT NULL 가드로 보존.
             var upgraded = await conn.ExecuteAsync(@"
                 UPDATE oeeDowntimeEvent
                 SET isFailure = 1
@@ -224,13 +218,30 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             if (upgraded > 0)
                 _logger.LogInformation("[OEE] isFailure 기본값 업그레이드(고장): {N}건 — nocycle 미분류 → isFailure=1", upgraded);
 
+            // 2026-09-18 (doc/30 §11.1): 수동 라벨 폐기 — 사람이 행에 찍었던 분류는 더 이상 읽히지 않는다.
+            //   ① 라벨을 붙이려고 materialize 했던 계산 유래 행(detectSource='over-cycle')은 존재 이유가 사라졌다 → 삭제
+            //      (같은 사이클은 합성 행으로 자동 판정돼 다시 뜬다).
+            //   ② 그 외 라이브 감지 행에 남은 라벨은 비워 자동 기본값(미분류·고장)으로 되돌린다 — 남겨 두면 stale
+            //      '유지보수' 라벨이 고장 귀속을 계속 깎는다. 멱등(다음 부팅부터 0건).
+            var purgedManualRows = await conn.ExecuteAsync(
+                "DELETE FROM oeeDowntimeEvent WHERE classifySource = 'manual' AND detectSource = 'over-cycle'");
+            var clearedManual = await conn.ExecuteAsync(@"
+                UPDATE oeeDowntimeEvent
+                SET reasonCode = NULL, category = NULL, isFailure = 1, classifySource = NULL
+                WHERE classifySource = 'manual'");
+            if (purgedManualRows > 0 || clearedManual > 0)
+            {
+                _logger.LogInformation("[OEE] 수동 라벨 정리 — materialize 행 {D}건 삭제 · 라벨 {U}건 해제(자동 판정 복귀, doc/30 §11.1)",
+                    purgedManualRows, clearedManual);
+                try { await _mirror.ReplicateOeeAsync("oeeDowntimeEvent", "classifySource = 'manual'"); }
+                catch (Exception ex) { _logger.LogDebug(ex, "[OEE] 수동 라벨 정리 미러 반영 실패(다음 스냅샷이 따라잡음)"); }
+            }
+
             // 2026-09-08 (doc/26): 구 무가동 상태머신(detectSource='nocycle')의 자동 행 정리 — OEE 는 완료 사이클 행의
             //   집합으로만 계산하므로 이 행들은 어디에서도 읽히지 않는 죽은 데이터다(정지 시간은 이상치 초과 사이클 행에
-            //   이미 들어 있음). 사용자가 손으로 확정한 행(classifySource='manual' — 비생산/유지보수 지정)은 구간
-            //   오버라이드로 계속 읽히므로 보존. 멱등(매 부팅 0건).
-            var purgedNocycle = await conn.ExecuteAsync(@"
-                DELETE FROM oeeDowntimeEvent
-                WHERE detectSource = 'nocycle' AND COALESCE(classifySource, '') <> 'manual'");
+            //   이미 들어 있음). 멱등(매 부팅 0건).
+            var purgedNocycle = await conn.ExecuteAsync(
+                "DELETE FROM oeeDowntimeEvent WHERE detectSource = 'nocycle'");
             if (purgedNocycle > 0)
             {
                 _logger.LogInformation("[OEE] 구 무가동(nocycle) 자동 이벤트 {N}건 정리 — 정지는 완료 사이클 행에서 재도출(doc/26)", purgedNocycle);
@@ -337,7 +348,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         return n;
     }
 
-    public async Task<int> ClassifyDowntimeAsync(long id, string? reasonCode, string? category, bool isFailure, string? classifySource = "manual", CancellationToken ct = default)
+    public async Task<int> ClassifyDowntimeAsync(long id, string? reasonCode, string? category, bool isFailure, string? classifySource = "auto-bit", CancellationToken ct = default)
     {
         await using var conn = await OpenAsync();
         const string sql = @"
@@ -356,78 +367,6 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
             ClassifySource = classifySource,
         });
         await MirrorDowntimeAsync(id);
-        return n;
-    }
-
-    public async Task<int> ReclassifyDowntimeAsync(long id, bool toNonProd, CancellationToken ct = default)
-    {
-        await using var conn = await OpenAsync();
-        if (toNonProd)
-        {
-            // 비생산으로 — 현재 비가동 분류(고장/유지보수/미분류)를 prev* 에 스태시(이미 비생산이면 스태시 보존).
-            var sql = $@"
-                UPDATE oeeDowntimeEvent
-                SET prevReasonCode = CASE WHEN COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' THEN reasonCode ELSE prevReasonCode END,
-                    prevCategory   = CASE WHEN COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' THEN category   ELSE prevCategory   END,
-                    prevIsFailure  = CASE WHEN COALESCE(reasonCode,'') <> '{OeeMath.NonProductionReasonCode}' THEN isFailure  ELSE prevIsFailure  END,
-                    reasonCode     = '{OeeMath.NonProductionReasonCode}',
-                    category       = 'nonproduction',
-                    isFailure      = 0,
-                    classifySource = 'manual'
-                WHERE id = @Id";
-            var n1 = await conn.ExecuteAsync(sql, new { Id = id });
-            await MirrorDowntimeAsync(id);
-            return n1;
-        }
-        // 비가동으로 — 스태시가 있으면 원래 분류(유지보수 등) 복원, 없으면 기본 고장. 복원 후 스태시 클리어.
-        // prevIsFailure IS NOT NULL 이 스태시 마커(스태시된 reasonCode 자체가 NULL[미분류]일 수 있어 별도 마커 필요).
-        const string restore = @"
-            UPDATE oeeDowntimeEvent
-            SET reasonCode     = CASE WHEN prevIsFailure IS NOT NULL THEN prevReasonCode ELSE 'equipment_fault' END,
-                category       = CASE WHEN prevIsFailure IS NOT NULL THEN prevCategory   ELSE 'unplanned' END,
-                isFailure      = COALESCE(prevIsFailure, 1),
-                prevReasonCode = NULL, prevCategory = NULL, prevIsFailure = NULL,
-                classifySource = 'manual'
-            WHERE id = @Id";
-        var n2 = await conn.ExecuteAsync(restore, new { Id = id });
-        await MirrorDowntimeAsync(id);
-        return n2;
-    }
-
-    public async Task<int> BulkClassifyDowntimeAsync(IReadOnlyList<long> ids, string? reasonCode, string? category, bool isFailure, string? classifySource = "manual", CancellationToken ct = default)
-    {
-        if (ids.Count == 0) return 0;
-        await using var conn = await OpenAsync();
-        const string sql = @"
-            UPDATE oeeDowntimeEvent
-            SET reasonCode     = @ReasonCode,
-                category       = @Category,
-                isFailure      = @IsFailure,
-                classifySource = @ClassifySource
-            WHERE id IN @Ids";
-        var n = await conn.ExecuteAsync(sql, new
-        {
-            Ids = ids,
-            ReasonCode = reasonCode,
-            Category = category,
-            IsFailure = isFailure ? 1 : 0,
-            ClassifySource = classifySource,
-        });
-        await MirrorDowntimeAsync(ids);
-        return n;
-    }
-
-    public async Task<int> BulkCloseDowntimeAsync(IReadOnlyList<long> ids, DateTime endAtUtc, CancellationToken ct = default)
-    {
-        if (ids.Count == 0) return 0;
-        await using var conn = await OpenAsync();
-        const string sql = @"
-            UPDATE oeeDowntimeEvent
-            SET endAt = @EndAt,
-                durationMs = CAST((julianday(@EndAt) - julianday(startAt)) * 86400000 AS INTEGER)
-            WHERE id IN @Ids AND endAt IS NULL";
-        var n = await conn.ExecuteAsync(sql, new { Ids = ids, EndAt = Iso(endAtUtc) });
-        await MirrorDowntimeAsync(ids);
         return n;
     }
 
@@ -815,9 +754,8 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
         // open(endAt NULL) 은 @Cap(min(now,to)) 로 마감. 기간과 겹치는 이벤트 전부 포함(startAt < to AND effEnd > from)
         //   → 시작일 몰빵 대신 컨트롤러가 실제 겹친 슬롯마다 분배(다일·장시간 정지 정확 표현).
         // Kind(상호배타): 0=계획정비 / 1=고장 / 2=기타 비계획 / 3=미분류.
-        // IsAuto: detectSource='nocycle' 이고 사용자 분류(classifySource='manual')가 아닌 것 — 자동 파생 무사이클
-        //   정지(사이클 모델의 비생산과 동일 유휴)라 추이에서 비생산 카빙에 흡수될 수 있다. 사용자가 직접 분류한
-        //   정지는 nocycle 감지라도 '확정된 진짜 정지'이므로 비자동 승격 → 추이에서 비생산에 가려지지 않는다.
+        // IsAuto: detectSource='nocycle' — 자동 파생 무사이클 정지(사이클 모델의 비생산과 동일 유휴)라
+        //   추이에서 비생산 카빙에 흡수될 수 있다.
         const string startMs = "CAST((julianday(startAt) - 2440587.5) * 86400000 AS INTEGER)";
         const string endMs = "CAST((julianday(COALESCE(endAt, @Cap)) - 2440587.5) * 86400000 AS INTEGER)";
         var sql = $@"
@@ -830,7 +768,7 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
                 WHEN isFailure = 1 THEN 1
                 ELSE 2
               END AS Kind,
-              CASE WHEN detectSource = 'nocycle' AND COALESCE(classifySource,'') <> 'manual' THEN 1 ELSE 0 END AS IsAuto,
+              CASE WHEN detectSource = 'nocycle' THEN 1 ELSE 0 END AS IsAuto,
               flowName AS FlowName
             FROM oeeDowntimeEvent
             WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From
@@ -952,89 +890,6 @@ public sealed class OeeRepositoryAdapter : IOeeRepository
     }
 
     private sealed class IntervalMsRow { public long S { get; set; } public long E { get; set; } }
-
-    public async Task<int> DeleteNonProdDetectionsOverlappingAsync(
-        DateTime fromUtc, DateTime toUtc, CancellationToken ct = default)
-    {
-        await using var conn = await OpenAsync();
-        // open(clearAt NULL) 감지는 now 로 캡해 겹침 판정 — '비가동으로 보내기' 확정 구간의 stale 감지 청소.
-        // doc/25 §4.1 부터 삭제 대신 invalidatedAt 마킹(감사 행 보존). 이후 자동 재감지가 UPSERT 로 부활시켜도
-        // 수동 오버라이드(toDownIv)가 집계에서 승격을 억제하므로 KPI 는 안전 — 마킹은 표시 정합용.
-        const string sql = @"
-            UPDATE oeeNonProdDetectionLog
-            SET invalidatedAt = @Now
-            WHERE invalidatedAt IS NULL
-              AND onsetAt < @To AND COALESCE(clearAt, @Now) > @From";
-        return await conn.ExecuteAsync(sql, new { From = Iso(fromUtc), To = Iso(toUtc), Now = Iso(DateTime.UtcNow) });
-    }
-
-    public async Task<IReadOnlyList<(string? FlowName, double S, double E, bool ToNonProd)>> GetManualReclassIntervalsAsync(
-        DateTime fromUtc, DateTime toUtc, CancellationToken ct = default)
-    {
-        await using var conn = await _mirror.TryOpenOeeReadAsync(fromUtc) ?? await OpenAsync();
-        var capUtc = DateTime.UtcNow < toUtc ? DateTime.UtcNow : toUtc;
-        // 사용자 확정 분류(classifySource='manual')만 — 당일 자동(10×CT) 판정의 오버라이드 소스.
-        //   reasonCode='non_production' → 비생산 강제(ToNonProd=true), 그 외(고장/유지보수 등) → 자동 승격 억제.
-        // 기간과 '겹치는' 이벤트 전부(GetDowntimeIntervalsAsync 와 동일 경계) — 다일 정지 오버라이드 정확 반영.
-        var p = new DynamicParameters();
-        p.Add("From", Iso(fromUtc));
-        p.Add("To", Iso(toUtc));
-        p.Add("Cap", Iso(capUtc));
-        var sql = $@"
-            SELECT flowName AS FlowName,
-              CAST((julianday(startAt) - 2440587.5) * 86400000 AS INTEGER) AS S,
-              CAST((julianday(COALESCE(endAt, @Cap)) - 2440587.5) * 86400000 AS INTEGER) AS E,
-              CASE WHEN reasonCode = '{OeeMath.NonProductionReasonCode}' THEN 1 ELSE 0 END AS ToNonProd
-            FROM oeeDowntimeEvent
-            WHERE startAt <= @To AND COALESCE(endAt, @Cap) >= @From
-              AND classifySource = 'manual' {ModelFlowClause(p)}";
-        var rows = await conn.QueryAsync<ReclassRow>(sql, p);
-        return rows.Where(r => r.E > r.S)
-            .Select(r => (r.FlowName, (double)r.S, (double)r.E, r.ToNonProd != 0)).ToList();
-    }
-
-    private sealed class ReclassRow
-    {
-        public string? FlowName { get; set; }
-        public long S { get; set; }
-        public long E { get; set; }
-        public int ToNonProd { get; set; }
-    }
-
-    public async Task<(int Count, bool Deleted)> RevertManualLabelAsync(long id, CancellationToken ct = default)
-    {
-        await using var conn = await OpenAsync();
-        var head = await conn.QueryFirstOrDefaultAsync<RevertHeadRow>(
-            "SELECT detectSource AS DetectSource, classifySource AS ClassifySource FROM oeeDowntimeEvent WHERE id = @Id",
-            new { Id = id });
-        if (head is null || !string.Equals(head.ClassifySource, "manual", StringComparison.OrdinalIgnoreCase))
-            return (0, false);
-        int n; bool deleted;
-        if (string.Equals(head.DetectSource, "over-cycle", StringComparison.OrdinalIgnoreCase))
-        {
-            // 재분류/고장 확정 때 materialize 된 계산 유래 행 — 라벨을 지우면 존재 이유가 없다(합성 행이 자동 판정으로 다시 뜬다).
-            n = await conn.ExecuteAsync("DELETE FROM oeeDowntimeEvent WHERE id = @Id", new { Id = id });
-            deleted = true;
-        }
-        else
-        {
-            // 라이브 감지·수동 입력 행 — 분류만 비워 자동 판정(구분은 KPI 비생산 구간 과반 겹침)으로 복귀.
-            n = await conn.ExecuteAsync(@"
-                UPDATE oeeDowntimeEvent
-                SET reasonCode = NULL, category = NULL, isFailure = 1, classifySource = NULL,
-                    prevReasonCode = NULL, prevCategory = NULL, prevIsFailure = NULL
-                WHERE id = @Id", new { Id = id });
-            deleted = false;
-        }
-        await MirrorDowntimeAsync(id);
-        return (n, deleted);
-    }
-
-    private sealed class RevertHeadRow
-    {
-        public string? DetectSource { get; set; }
-        public string? ClassifySource { get; set; }
-    }
 
     // ── 시프트 예외 ───────────────────────────────────────────────────────
 

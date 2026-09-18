@@ -128,14 +128,11 @@
                 // A/P/Q 에 섞지 않고 페이지 맨 아래 독립 카드로만 보고한다. mqOpen=설비별 상세 펼침.
                 mq: null, mqOpen: false, _mqSeq: 0,
                 downtime: [], ranking: [],
-                dtTab: 'down', // 정지 로그 구분 탭: 'down'(비가동=고장/유지보수) | 'nonprod'(비생산) — 보내기 후 대상 탭 자동 이동
+                dtTab: 'down', // 정지 로그 구분 탭: 'down'(비가동=고장/유지보수) | 'nonprod'(비생산)
                 dtFilterStatus: 'all', dtFilterFault: 'all', // 'all'|'fault'|'maintenance' (비가동 탭 전용 하위 필터)
-                dtMsg: '', _dtMsgTimer: null, _prodMsgTimer: null, _ctMsgTimer: null,
-                dtReclassBusy: false, // 고장↔비생산 전환 진행 중(이중 클릭 가드)
-                // 전환 UX 필터(doc/28 §2.8) — 확인 필요만 / 최소 길이(ms, 사건 전체) / 시작 시간대. 전환 객체는 행: 필터는 고르는 도구일 뿐.
-                dtFilterReview: false, dtMinDurMs: 0, dtTod: 'all',
-                // 일괄 선택 상태 — bulkProgress: 순차 처리(합성 행 확정/일괄 이동) 진행 표시("이동 중 3/12")
-                selectedIds: {}, bulkBusy: false, bulkProgress: '',
+                _prodMsgTimer: null, _ctMsgTimer: null,
+                // 열람 필터 — 최소 길이(ms, 사건 전체) / 시작 시간대. 판정은 바꾸지 않는다(정지 로그 = 조회 전용, doc/30 §11.1).
+                dtMinDurMs: 0, dtTod: 'all',
                 // 일자 기본값은 로컬 날짜 — toISOString() 은 UTC 라 KST 오전 9시 전엔 어제로 채워짐
                 // 품질(양품률) 직접 입력 다이얼로그 — 전반 품질% 를 직접 설정(POST /api/oee/quality, 전역). 품질 Q 카드 클릭으로 염.
                 qDialog: { show: false, qualityPct: 100, busy: false, msg: '', err: '' },
@@ -154,7 +151,7 @@
                 cm: { nonProd: 30, fault: 5, origNonProd: 30, origFault: 5, flows: [], busy: false, msg: '', err: '', preview: null, previewBusy: false,
                       nonProdFloor: 10, faultFloorMs: 1000, minSamples: 10 },
                 _cmSeq: 0, _cmPrevTimer: null, _cmMultMsgTimer: null,
-                // 정지 이벤트 로그 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기 및 설정] 버튼으로 토글
+                // 정지 이벤트 로그(조회 전용) 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기] 버튼으로 토글
                 showDowntimeLog: false,
                 // 날짜별 비가동 패턴 (드릴다운, 2026-07-13) — 가용성 누적 정산의 빨간(비가동) 부분·정지 구성
                 // 도넛/범례(고장·유지보수) 클릭으로 열림. '날짜별 비생산 패턴'(생산효율)과 같은 up-npd 골격을
@@ -2092,8 +2089,7 @@
 
                 // ── 정지 필터 ── 상위 = 탭(고장·유지보수/비생산, isNonProd), 하위 = 고장/유지보수(고장 탭 전용) + 전환 필터(doc/28 §2.8).
                 //    전환 필터는 클라에서 건다(이미 기간 전체를 받아 두었으므로 재조회 없이 즉시 반응) — 서버 /api/oee/downtime 도 같은 파라미터를 지원한다.
-                dtPassesConvertFilters(d) {
-                    if (this.dtFilterReview && !d.needsReview) return false;
+                dtPassesViewFilters(d) {
                     if (this.dtMinDurMs > 0) {
                         const dur = d.durationMs != null ? d.durationMs : Math.max(0, Date.now() - new Date(d.startAt).getTime());
                         if (dur < this.dtMinDurMs) return false;
@@ -2111,29 +2107,13 @@
                 get filteredDowntime() {
                     return this.downtime.filter(d => {
                         if (this.dtFilterStatus !== 'all' && d.status !== this.dtFilterStatus) return false;
-                        if (!this.dtPassesConvertFilters(d)) return false;
+                        if (!this.dtPassesViewFilters(d)) return false;
                         if (this.dtTab === 'nonprod') return !!d.isNonProd;
                         if (d.isNonProd) return false;
                         if (this.dtFilterFault === 'fault' && !d.isFailure) return false;
                         if (this.dtFilterFault === 'maintenance' && d.isFailure) return false;
                         return true;
                     });
-                },
-                // '확인 필요' 행 수(상태 필터만 반영) — 전환 필터 칩·상단 KPI 칩 표기.
-                get dtReviewCount() {
-                    // 2026-09-14 방향 반전 — '확인 필요'는 이제 <b>비생산</b> 행에 붙는다(길이로 강등된 행).
-                    //   종전의 `&& !d.isNonProd` 를 남기면 항상 0 건이 된다.
-                    //   '진행 중'(열린 사이클) 행도 review 를 달지만 아직 분류 대상이 아니라 제외한다 —
-                    //   서버 KPI(reviewPendingCount)도 분류된 행만 세므로 칩 숫자와 목록이 어긋나지 않는다.
-                    return this.downtime.filter(d => d.needsReview && !this.isInProgressDt(d)
-                        && (this.dtFilterStatus === 'all' || d.status === this.dtFilterStatus)).length;
-                },
-                // 상단 '확인 필요 n건' 칩 클릭 → 정지 로그를 확인 필요 필터로 연다(주말 전환의 진입점).
-                //   확인 필요 행은 비생산이라 'nonprod' 탭에서만 보인다(down 탭은 isNonProd 를 걸러낸다).
-                openReviewLog() {
-                    this.dtTab = 'nonprod'; this.dtFilterStatus = 'all'; this.dtFilterFault = 'all';
-                    this.dtFilterReview = true; this.dtMinDurMs = 0; this.dtTod = 'all';
-                    this.showDowntimeLog = true;
                 },
                 // 판정 축 라벨(doc/28) — "mt" 완료 행 동작 초과 / "wt" 완료 행 대기 초과 / "ct" 완료 신호 없는 사이클 길이.
                 axisLabel(a) { return a === 'mt' ? '동작' : a === 'wt' ? '대기' : a === 'ct' ? '미완료' : a === 'gap' ? '공백' : ''; },
@@ -2154,48 +2134,18 @@
                         && (this.dtFilterStatus === 'all' || d.status === this.dtFilterStatus)).length;
                 },
 
-                // ── 일괄 선택 computed ──
-                // 선택/일괄 작업 범위 = 현재 필터에 보이는 행만. 필터 변경으로 화면에서 사라진 행의
-                // 체크 상태는 메모리에 남지만 카운트/일괄 처리 대상에서 제외 — "N건 선택됨"이 항상 화면과 일치.
-                get selectedVisibleRows() { return this.filteredDowntime.filter(d => this.selectedIds[d.id]); },
-                get selectedVisibleIds() { return this.selectedVisibleRows.map(d => d.id); },
-                get selectedCount() { return this.selectedVisibleRows.length; },
-                // 고장/유지보수 일괄 지정 대상 = 선택 행 중 비가동 실정지만.
-                // 대기(공백)·비생산 행은 '고장/유지보수' 개념 자체가 없어(건수·MTBF 미반영) 대상에서 뺀다 —
-                // 버튼에 이 수를 병기해 "6건 선택했는데 4건만 바뀜"이 사후 놀람이 되지 않게 한다.
-                get bulkFaultTargets() { return this.selectedVisibleRows.filter(d => !d.isNonProd && !this.isInProgressDt(d)); },
-                get allFilteredSelected() {
-                    const fd = this.filteredDowntime;
-                    return fd.length > 0 && fd.every(d => this.selectedIds[d.id]);
-                },
-                get someFilteredSelected() { return this.filteredDowntime.some(d => this.selectedIds[d.id]); },
-                get anySelectedOpen() {
-                    // 진행 중 합성 행(id<0)은 DB 이벤트가 아니라 마감 대상이 아니다 — 다음 사이클 시작이 곧 마감.
-                    return this.filteredDowntime.some(d => this.selectedIds[d.id] && d.status === 'open' && d.id > 0);
-                },
-                toggleSel(id, checked) {
-                    this.selectedIds = { ...this.selectedIds, [id]: checked };
-                },
-                toggleAll(checked) {
-                    const patch = {};
-                    for (const d of this.filteredDowntime) patch[d.id] = checked;
-                    this.selectedIds = { ...this.selectedIds, ...patch };
-                },
-                clearSel() { this.selectedIds = {}; },
 
                 // ── P5 이식: 칩/단서/파이프라인/계획시간 체인/히스토그램 ──
                 esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); },
                 // 감지 출처 칩 (정지 구간 소스)
                 detectChipHtml(s) {
-                    const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'manual': '수동', 'over-cycle': '사이클 판정', 'in-progress': '진행 중', 'gap': '기록 공백' };
+                    const m = { 'nocycle': '무가동', 'fault-bit': '고장비트', 'usertag': '고장비트', 'over-cycle': '사이클 판정', 'in-progress': '진행 중', 'gap': '기록 공백' };
                     if (typeof s === 'string' && s.includes('+'))   // 같은 정지 이중 감지 병합(무가동+이상치초과, doc/25)
                         return `<span class="src-chip detect" title="무가동 이벤트와 판정 기준 초과 사이클이 같은 정지를 동시 감지 — 한 줄로 병합">${s.split('+').map(x => m[x] || this.esc(x)).join('+')}</span>`;
                     return `<span class="src-chip detect">${m[s] || this.esc(s) || '—'}</span>`;
                 },
-                // 합성(사이클 유래) 행 = DB 이벤트가 아니라 분류/마감 불가. id 음수로 표식.
-                isSyntheticDt(d) { return !d || d.id <= 0 || d.detectSource === 'over-cycle'; },
-                // 진행 중(열린 사이클, doc/26) — 마지막 완료 사이클 이후 다음 head 가 없는 구간. 구분·마감·재분류 대상이 아니다
-                // (다음 사이클 시작 시 완료 행으로 바뀌어 그때 분류). 집계 미반영(분모 밖).
+                // 진행 중(열린 사이클, doc/26) — 마지막 완료 사이클 이후 다음 head 가 없는 구간.
+                // (다음 사이클 시작 시 완료 행으로 바뀌어 그때 분류.) 집계 미반영(분모 밖).
                 isInProgressDt(d) { return !!d && d.detectSource === 'in-progress'; },
                 // 단서 칩 (abnormal/usertag 시간겹침 — 표시 전용)
                 clueHtml(c) {
@@ -2271,7 +2221,7 @@
                 // 계획시간 폴백 체인 UI(planChainSteps/histBars/planChainFoot)는 2026-08-21 제거 —
                 // A 가 CT축 단일모델이 되며 시프트·자동추정·달력 폴백 자체가 없어졌고, 소비하는 마크업도 0건이었다.
 
-                // ── 정지 이벤트 로그 (도넛 [로그 보기 및 설정]) — 팝업 다이얼로그(showDowntimeLog) ──
+                // ── 정지 이벤트 로그 (도넛 [로그 보기]) — 팝업 다이얼로그(showDowntimeLog), 조회 전용 ──
                 // 버튼에서 직접 show=true; 로 여는 것이 정본이나 하위호환용 토글 유지.
                 toggleDowntimeLog() {
                     this.showDowntimeLog = !this.showDowntimeLog;
@@ -2315,79 +2265,6 @@
                         d.qualityPct = (this.oee && this.oee.quality != null) ? +(this.oee.quality * 100).toFixed(1) : 100;
                     } catch (ex) { d.err = '해제 실패: ' + ex.message; }
                     finally { d.busy = false; }
-                },
-                // 분류/마감 성공 피드백 — 잠깐 표시 후 자동 소거 (실패는 기존 oeeError 경로)
-                flashDtMsg(msg) {
-                    this.dtMsg = msg;
-                    clearTimeout(this._dtMsgTimer);
-                    this._dtMsgTimer = setTimeout(() => { this.dtMsg = ''; }, 4000);
-                },
-                // 고장/유지보수 일괄 지정 — 실 이벤트 행은 서버 벌크 엔드포인트 1회, 합성 행(id<0, 이상치 초과
-                // 사이클)은 벌크가 id 만 받아 처리 못 하므로 단건 set-fault 로 materialize 하며 순차 처리(doc/25).
-                async bulkSetFault(isFault) {
-                    const rows = this.bulkFaultTargets;
-                    if (!rows.length || this.bulkBusy) return;
-                    const ids = rows.filter(d => d.id > 0).map(d => d.id);
-                    const synth = rows.filter(d => d.id <= 0);
-                    this.bulkBusy = true; this.bulkProgress = '';
-                    try {
-                        if (ids.length) await this.apiPost('/api/oee/downtime/bulk-set-fault', { ids, isFault });
-                        for (let i = 0; i < synth.length; i++) {
-                            const d = synth[i];
-                            this.bulkProgress = `확정 중 ${ids.length + i + 1}/${rows.length}`;
-                            await this.apiPost('/api/oee/downtime/' + d.id + '/set-fault', {
-                                isFault, flow: d.flowName || null, startAt: d.startAt || null, endAt: d.endAt || null,
-                            });
-                        }
-                        this.clearSel();
-                        await this.loadOee();
-                        this.flashDtMsg(`${rows.length}건 → ${isFault ? '고장' : '유지보수'} 일괄 적용`);
-                    } catch (e) {
-                        this.oeeError = '일괄 변경 실패: ' + e.message;
-                        await this.loadOee();   // 부분 적용분이 화면에 반영되도록 재조회
-                    } finally { this.bulkBusy = false; this.bulkProgress = ''; }
-                },
-                // 고장↔비생산 일괄 전환 — 단건 reclassify 를 순차 호출(합성 행 materialize·감지로그 청소·
-                // 이전 분류 복원 semantics 를 서버 단건 경로와 100% 동일하게 유지하려고 벌크 엔드포인트를 두지 않음).
-                async bulkReclassify(toNonProd) {
-                    const rows = this.selectedVisibleRows;
-                    if (!rows.length || this.bulkBusy) return;
-                    this.bulkBusy = true; this.bulkProgress = '';
-                    let done = 0;
-                    try {
-                        for (const d of rows) {
-                            this.bulkProgress = `이동 중 ${done + 1}/${rows.length}`;
-                            await this.apiPost('/api/oee/downtime/reclassify', {
-                                id: d.id > 0 ? d.id : null,
-                                flow: d.flowName || null,
-                                startAt: d.startAt || null,
-                                endAt: d.endAt || null,
-                                toNonProd,
-                            });
-                            done++;
-                        }
-                        this.clearSel();
-                        await this.loadOee();
-                        this.dtTab = toNonProd ? 'nonprod' : 'down';
-                        this.flashDtMsg(`${done}건 → ${toNonProd ? '비생산으로 전환 (A 분모 밖)' : '고장으로 전환 (이전 분류 복원)'}`);
-                    } catch (e) {
-                        this.oeeError = `일괄 이동 실패(${done}/${rows.length}건 처리됨): ` + e.message;
-                        await this.loadOee();
-                    } finally { this.bulkBusy = false; this.bulkProgress = ''; }
-                },
-                async bulkClose() {
-                    const ids = this.filteredDowntime.filter(d => this.selectedIds[d.id] && d.status === 'open' && d.id > 0).map(d => d.id);
-                    if (!ids.length) return;
-                    if (!confirm(ids.length + '건의 진행중 정지를 마감 처리할까요?\n마감 후에는 화면에서 되돌릴 수 없습니다.')) return;
-                    this.bulkBusy = true;
-                    try {
-                        await this.apiPost('/api/oee/downtime/bulk-close', { ids });
-                        this.clearSel();
-                        await this.loadOee();
-                        this.flashDtMsg(`${ids.length}건 마감 처리됨`);
-                    } catch (e) {
-                        this.oeeError = '일괄 마감 실패: ' + e.message;
-                    } finally { this.bulkBusy = false; }
                 },
 
                 // 정지 구성 도넛 (고장/유지보수/비생산) — 벽시계 단일모델(doc/28 §2.7): 서버가 비가동을 유지보수/고장 행 전체 구간과
@@ -2588,64 +2465,6 @@
                     return s;
                 },
 
-                // ── 인터랙션: 고장/유지보수 토글 / 비생산↔비가동 보내기 / 수동마감 / 불량 / 표준 가동시간 ──
-                async setFault(d, isFault) {
-                    try {
-                        // 합성 행(id<0, 이상치 초과 사이클)은 flow/start/end 로 서버가 실제 이벤트 행을 만들어 분류(doc/25).
-                        await this.apiPost('/api/oee/downtime/' + d.id + '/set-fault', {
-                            isFault,
-                            flow: d.id > 0 ? null : (d.flowName || null),
-                            startAt: d.id > 0 ? null : (d.startAt || null),
-                            endAt: d.id > 0 ? null : (d.endAt || null),
-                        });
-                        await this.loadOee();
-                        this.flashDtMsg(`${d.flowName || d.systemName || ''} → ${isFault ? '고장' : '유지보수'}`);
-                    } catch (e) {
-                        this.oeeError = '변경 실패: ' + e.message;
-                    }
-                },
-                // 비생산↔비가동 보내기 — 당일 자동 판정을 행 단위로 사용자 확정(서버 classifySource='manual' 오버라이드).
-                // 합성 행(id<0, 계산 유래)은 flow/start/end 로 서버가 실제 이벤트 행을 만들어 확정한다.
-                // 성공 시 대상 탭으로 자동 이동 — 옮겨진 행을 그 자리에서 확인·판단(비가동 복귀는 이전 유지보수/고장 분류 복원).
-                async reclassifyDt(d, toNonProd) {
-                    this.dtReclassBusy = true;
-                    try {
-                        await this.apiPost('/api/oee/downtime/reclassify', {
-                            id: d.id > 0 ? d.id : null,
-                            flow: d.flowName || null,
-                            startAt: d.startAt || null,
-                            endAt: d.endAt || null,
-                            toNonProd,
-                        });
-                        await this.loadOee();
-                        this.dtTab = toNonProd ? 'nonprod' : 'down';
-                        this.flashDtMsg(`${d.flowName || d.systemName || ''} → ${toNonProd ? '비생산으로 전환 (A 분모 밖)' : '고장으로 전환 (이전 분류 복원)'}`);
-                    } catch (e) {
-                        this.oeeError = '구분 변경 실패: ' + e.message;
-                    } finally { this.dtReclassBusy = false; }
-                },
-                // 되돌리기(doc/28 §2.8) — 사용자 라벨을 지워 자동 판정으로 복귀. 계산 유래 행은 삭제되고 합성 행이 다시 뜬다.
-                async revertManualDt(d) {
-                    if (!d || d.id <= 0) return;
-                    this.dtReclassBusy = true;
-                    try {
-                        await this.apiPost('/api/oee/downtime/' + d.id + '/revert-manual', {});
-                        await this.loadOee();
-                        this.flashDtMsg(`${d.flowName || d.systemName || ''} → 자동 판정으로 되돌림`);
-                    } catch (e) {
-                        this.oeeError = '되돌리기 실패: ' + e.message;
-                    } finally { this.dtReclassBusy = false; }
-                },
-                async closeEvent(d) {
-                    if (!confirm(`'${d.flowName || d.systemName || '이 이벤트'}' 정지를 마감 처리할까요?\n마감 후에는 화면에서 되돌릴 수 없습니다.`)) return;
-                    try {
-                        await this.apiPost('/api/oee/downtime/' + d.id + '/close', {});
-                        await this.loadOee();
-                        this.flashDtMsg('마감 처리됨 — ' + (d.flowName || d.systemName || ''));
-                    } catch (e) {
-                        this.oeeError = '수동 마감 실패: ' + e.message;
-                    }
-                },
                 // ── 표준 가동시간(idealCT) Flow 테이블 ──
                 async loadCtTable() {
                     this.ctLoading = true;

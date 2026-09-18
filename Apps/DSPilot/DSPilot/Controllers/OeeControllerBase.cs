@@ -1137,7 +1137,7 @@ public abstract class OeeControllerBase : ControllerBase
         var sb = new System.Text.StringBuilder(256);
         sb.Append("v35|");   // 분모/분류 모델 버전(v35 = 2026-09-14 ④판정 불가(표본 게이트 flow)를 "전부 정상"에서 분모·분자 밖으로)
                              // v34(2026-09-14): ①창 경계 대칭(To 이후 끝나는 걸침 행 포함) ②길이 강등(고장이라도 행 길이 ≥ 비생산
-                             //   경계면 비생산+확인 필요) ③기록 공백 귀속(미귀속 잔여를 길이로 비생산/고장 처분) — 배포 직후 L1 캐시 혼재 방지
+                             //   경계면 비생산) ③기록 공백 귀속(미귀속 잔여를 길이로 비생산/고장 처분) — 배포 직후 L1 캐시 혼재 방지
                              // v33(2026-09-11): 두 규칙·사이클 단위 고장·불인정 행 CT 축·공백 삭제(doc/28)
                              // v32(2026-09-09): 정지·비생산 판정 CT축→WT축 전환(doc/27)
                              // v31(2026-09-08): 분기 최소 위반 판별
@@ -1783,7 +1783,7 @@ public abstract class OeeControllerBase : ControllerBase
             //  해법은 행을 새로 쓰는 게 아니라(= 없는 MT 를 지어내지 않는다) 이 구간을 <b>길이</b>로 귀속하는 것.
             //  나중에 그 구간에 진짜 행이 생기면 위 세 항(가동·유지보수·고장)이 먼저 먹어 잔여가 그만큼 줄므로
             //  <b>이중 계상이 구조적으로 불가능</b>하다 — 공백 귀속은 독립 소스가 아니라 잔여의 처분이다.
-            //  판정 경계·'확인 필요' 규약은 행과 완전히 동일(doc/28 §1 SSOT).
+            //  판정 경계 규약은 행과 완전히 동일(doc/28 §1 SSOT).
             var hasBounds = bounds.TryGetValue(f, out var bGap) && !bGap.Gated;
             var gapNonProd = new List<(double S, double E)>();
             double uaRest = 0;
@@ -2345,21 +2345,12 @@ public abstract class OeeControllerBase : ControllerBase
 
 // ── 요청 DTO ─────────────────────────────────────────────────────────────────
 
-public record ClassifyRequest(string? ReasonCode, string? Category);
-public record CloseRequest(DateTime? EndAt);
-public record BulkClassifyRequest(List<long> Ids, string? ReasonCode, string? Category);
-public record BulkCloseRequest(List<long> Ids, DateTime? EndAt);
-// Flow/StartAt/EndAt: 합성 행(이상치 초과 사이클, id 없음) 지원 — reclassify 와 동일하게 실제 이벤트 행을
-// materialize 한 뒤 분류한다(2026-07-16, doc/25 — 의도된 정지가 이상치로 잡혔을 때 유지보수 해제 가능해야 함).
-public record SetFaultRequest(bool IsFault, string? Flow = null, DateTime? StartAt = null, DateTime? EndAt = null);
-public record BulkSetFaultRequest(List<long> Ids, bool IsFault);
+// (정지 행의 수동 분류·마감·전환 요청 DTO 7종[Classify·BulkClassify·Close·BulkClose·SetFault·BulkSetFault·
+//  ReclassifyDowntime]은 2026-09-18 엔드포인트와 함께 삭제 — 상태는 규칙에서만 나온다, doc/30 §11.1.)
 public record ProductionRequest(DateTime? Date, string Flow, string? Shift, int Reject);
 public record ManualQualityRequest(double? QualityPercent);
 public record PlannedStopsRequest(List<PlannedStopWindowDto>? Windows);
 // (구 PlannedStopsAutoRequest[자동/수동 배타 토글] 은 2026-07-08 병행 모델로 폐기 — 자동 판정 상시 + 지정 시간대 추가 적용.)
-// 정지 이벤트 재분류(비생산↔비가동 보내기). Id>0 = 기존 이벤트, Id 없음/음수 = 합성 행(over-cycle) — Flow/StartAt/EndAt 로
-// 실제 이벤트 행을 materialize 한 뒤 분류한다. ToNonProd=true → 비생산(A 분모 밖), false → 비가동(고장 기본).
-public record ReclassifyDowntimeRequest(long? Id, string? Flow, DateTime? StartAt, DateTime? EndAt, bool ToNonProd);
 public record ShiftExceptionRequest(string? Flow, DateTime? StartAt, DateTime? EndAt, string Kind, string? Note);
 public record IdealCycleRequest(string Flow, int? IdealCycleTimeMs, string? Mode = null);
 public record IdealCycleBatchRequest(List<IdealCycleRequest> Items);

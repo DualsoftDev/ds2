@@ -392,7 +392,8 @@ GET /api/kpi/timeline?from=&to=&flow=[&branch=]
 | 대상 | 이유 |
 |---|---|
 | `oee.db` 전체(oeeDowntimeEvent, oeeNonProdDetectionLog, oeeCommHealthLog, oeeProductionCount, oeeShiftException) | 수동 라벨·파생 로그·자체 심박·시프트 모델 전부 스펙 밖 |
-| 고장·유지보수·확인 필요·수동 전환(고장↔비생산)·되돌리기 | 원인 어휘 금지. 상태는 규칙에서만 나온다 |
+| ~~확인 필요·수동 전환(고장↔비생산)·되돌리기·수동 마감~~ **제거 완료(2026-09-18, §13 2.5차)** | 원인 어휘 금지. 상태는 규칙에서만 나온다 |
+| 고장·유지보수 어휘(자동 분류가 남긴 것) | 3차 화면 교체와 함께. 지금은 CauseBit 자동분류로만 붙는다 |
 | 비생산 지정 시각대, 패턴 학습기, 시프트·plan-time, 자동 시프트 추론 | 비생산은 CT 길이로만 |
 | 표본 게이트·판정 불가, 미귀속, 형제가동 카빙, 진행 중 분모 밖, 미계측 분모 차감 | T = ΣCT 모델에서 카빙 사슬이 사라진다. 제외 행 하나로 통일 |
 | WT 축 비생산·MT 축 고장·불인정 행 CT 축(doc/28 두 규칙) | work OR MT 비가동 + CT 길이 비생산으로 대체 |
@@ -458,6 +459,23 @@ CycleDerivation · CycleBoundaryEdges(경계 상승 추출), 원시 신호 수�
 | 대체 | 없음. 오늘 현장에 떨림이 0건이라 필터를 빼는 것만으로 안전하다. 가짜 라이징 방어("IN 응답을 받은 OUT 상승만 경계")는 3차 §2.2 짝짓기가 head call 에 적용되면서 따라온다 |
 | 검증 | 빌드 경고 0 · 오류 0, 단위 테스트 통과. 현장 수치(#121 경계 0→199, #134 89→199)는 배포 후 **같은 시각에** 두 벌 받아 확인(§14 함정) |
 
+### 2.5차 — 정지 수동 라벨 폐기 (완료, 2026-09-18)
+
+3차를 기다릴 이유가 없었다. 현장은 매일 밤 생기는 '확인 필요' 행을 손으로 치고 있었는데, 그 라벨은 새 코어가
+읽지 않는다(`DSPilot/Kpi/` 전체에 `oeeDowntimeEvent` 참조 0건) — 3차에서 표와 함께 버려질 노동이었다.
+게다가 수동 라벨은 §12-⑨ "κ 변경 시 자동 재라벨" 과 원리적으로 충돌한다(박제된 라벨이 재라벨을 막는다).
+
+| 대상 | 내용 |
+|---|---|
+| API 삭제 | `downtime/reclassify` · `{id}/classify` · `{id}/set-fault` · `bulk-set-fault` · `bulk-classify` · `{id}/close` · `bulk-close` · `{id}/revert-manual`(+DELETE `downtime/manual/{id}`). 남은 것은 GET `downtime` 하나 |
+| 저장소 | `ReclassifyDowntimeAsync` · `BulkClassifyDowntimeAsync` · `BulkCloseDowntimeAsync` · `RevertManualLabelAsync` · `GetManualReclassIntervalsAsync` · `DeleteNonProdDetectionsOverlappingAsync` 삭제. `prev*` 스태시 컬럼 마이그레이션 제거. `ClassifyDowntimeAsync` 는 자동 분류(CauseBit) 전용으로 남김 |
+| 판정 | `ComputeCycleAggregateAsync` 의 수동 라벨 우선 분기(행·공백 양쪽)와 `reviewPendingCount/Ms` 제거. 남은 우선순위는 **비생산 지정 시각대 > 규칙** |
+| 어휘 | `CycleClass.NonProductionReview` → `NonProductionByLength`, `IsReviewPending` → `IsNonProductionByLength`. DTO 의 `NeedsReview` · `ReviewPendingCount/Ms` 삭제 |
+| 데이터 | 기동 시 1회 정리 — 라벨용으로 materialize 됐던 `detectSource='over-cycle' ∧ classifySource='manual'` 행 삭제, 나머지 `manual` 라벨은 비워 자동 기본값 복귀(stale '유지보수' 라벨이 고장 귀속을 계속 깎던 문제) |
+| 화면 | 정지 이벤트 로그 = **조회 전용**. 선택 체크박스·일괄 작업 바·전환 열·'확인 필요' 칩/필터·되돌리기 제거, 구분은 정적 표시. 상단 KPI 의 '확인 필요 n건' 칩과 배수 미리보기의 확인 필요 항목 삭제. 일일 브리핑 ⓪ 블록은 '하루를 넘긴 장기 정지'(경계 초과·진행 중)로 축소 |
+| 남긴 것 | 표 자체(`oeeDowntimeEvent` · `oeeNonProdDetectionLog`)와 GET 조회·집계 — 화면이 아직 구 엔진 산출을 그린다. 3차 화면 교체와 함께 지운다 |
+| 검증 | 빌드 경고 0 · 오류 0, 단위 테스트 507건 통과 |
+
 ### 3차 — 사이클·모델 계층 + 구 엔진 철거 + 화면 전환
 
 바꾸는 것과 지우는 것이 한 묶음이다. 구 OEE 엔진이 사이클 표의 최대 독자라, 표를 바꾸려면 엔진을 같이
@@ -470,7 +488,7 @@ CycleDerivation · CycleBoundaryEdges(경계 상승 추출), 원시 신호 수�
 | **판정 규칙** | §2.2 call 구간 · §2.3 call 단위 제외 · §3 경계(스냅·초과 허용·분기 우선) · §4.1 게이트 · §6 MT 축. `KpiRules` 와 `CycleIngestService.LoadWorkSpansAsync` 가 대상 |
 | 철거 | 구 OEE 엔진 **약 9,282줄 / 18파일** — OeeControllerBase 와 4개 컨트롤러, OeeMath 판정부, OeeCtStats, NonProd 패턴·큐, 사전계산, 심박 서비스, 시프트 추론, OEE 저장소·DTO·Excel |
 | 화면 | uptime-oee · uptime-teep 를 새 지표로 교체. **간트(§9.2)는 완료(2026-09-18)** — 끝 입력 제거 · work 구간 막대 · MT/WT 점선. work 표시 중복 제거(§9.3). 브리핑 메일·Excel 도 같이 |
-| 어휘 | 고장·유지보수·확인 필요·수동 전환·비생산 시간대·시프트 제거(§11.1) |
+| 어휘 | 고장·유지보수·비생산 시간대·시프트 제거(§11.1). 확인 필요·수동 전환은 2.5차에서 이미 제거됨 |
 
 ### 하지 않는 것
 
@@ -492,6 +510,7 @@ DSPilot 이 혼자 정한다. 허브 계약은 그대로다.
 | UserTag 자료형 실제 값 저장 | 완료. 알람 Bit 전용 제한은 도입하지 않음 |
 | 태그 모니터링 조회 API(`/api/tag-monitor/*`) | 완료 — 화면은 미착수 |
 | **2차 — 채터 필터 폐기** | **완료(2026-09-18)** — 15파일에서 제거. 설정 JSON 에 남은 `chatterFilterMs` 키는 로드 시 무시된다 |
+| **2.5차 — 정지 수동 라벨 폐기** | **완료(2026-09-18)** — 쓰기 API 8개·저장소 6개·KPI 오버라이드·'확인 필요' 축 제거, 정지 로그는 조회 전용. 기존 라벨은 기동 시 1회 정리 |
 | **3차 — 사이클·모델 계층 + 구 엔진 철거 + 화면 전환** | 미착수 |
 | call 구간 규칙(§2.2) · 스냅·초과(§3) · 게이트(§4.1) · MT 축(§6) · 분기 call 제외(§2.3) | **완료(2026-09-18)** — Kpi 코어. 설정 카드에 계수 6개 노출, 연표·간트 툴팁에 축 표시 |
 | **간트 UI/UX — 시작만 지정, MT/WT 파생(§9.2)** | **완료(2026-09-18)** — 끝 선택기·'끝' 배지·자동 제안(`suggest-tail` 엔드포인트·`SuggestTailAsync` 삭제)·"시작과 끝 모두" 게이트 제거(flow-workspace.js · flow-cycle.html · flow-cycle-overview.js). 렌더러 화면 거울 `workSpansOf` · `cycleWorkEnvelopes` · `mtEndsOf`(node 합성 검증 20건). Work 그룹 기본 + work 구간 막대 + 게이트 칩 + IN 전용 레인 흐림. 연표 API 에 `cycles` · `gatedWorks` · `boundarySnapMs`. 서버는 분기 끝 빈 값 허용 + 내부 폴백(전환 스캐폴딩) |

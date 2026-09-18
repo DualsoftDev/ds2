@@ -126,18 +126,15 @@ DSPilot 웹서버가 제공하는 전체 HTTP API 목록.
 | POST | `/api/oee/ideal-cycle/batch` | 이상 사이클타임 설정(일괄) |
 | GET | `/api/oee/ideal-cycle/table` | 이상 CT 테이블 |
 
-### 정지 로그 (Downtime)
+### 정지 로그 (Downtime) — 조회 전용
+
+쓰기 엔드포인트 8개(`reclassify` · `{id}/classify` · `{id}/set-fault` · `{id}/close` · `bulk-classify` ·
+`bulk-set-fault` · `bulk-close` · `{id}/revert-manual`)는 **2026-09-18 삭제**됐다. 정지의 구분은 규칙과
+고장비트 자동분류로만 정해진다 — 사람이 행에 라벨을 찍는 경로는 없다(doc/30 §11.1 · §13 2.5차).
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| GET | `/api/oee/downtime` | 정지 로그 목록 |
-| POST | `/api/oee/downtime/reclassify` | 비생산↔비가동 재분류 (규칙: 당일 판정 10×CT) |
-| POST | `/api/oee/downtime/{id}/classify` | 정지 건별 분류 |
-| POST | `/api/oee/downtime/{id}/set-fault` | 고장 지정 |
-| POST | `/api/oee/downtime/{id}/close` | 정지 종료 |
-| POST | `/api/oee/downtime/bulk-classify` | 일괄 분류 |
-| POST | `/api/oee/downtime/bulk-set-fault` | 일괄 고장 지정 |
-| POST | `/api/oee/downtime/bulk-close` | 일괄 종료 |
+| GET | `/api/oee/downtime` | 정지 로그 목록. 필터 `from` `to` `status` `reason` `flow` `system` `minDurationMs` `todFrom` `todTo` |
 
 ### 계획정지·근무 예외 (PlannedStops)
 

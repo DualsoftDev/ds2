@@ -269,7 +269,9 @@ public static class OeeExcelExporter
         "nocycle" => "무사이클",
         "fault-bit" => "고장비트",
         "usertag" => "고장비트",
-        "manual" => "수동",
+        "over-cycle" => "사이클 판정",
+        "in-progress" => "진행 중",
+        "gap" => "기록 공백",
         _ => string.IsNullOrWhiteSpace(s) ? "-" : s!
     };
 

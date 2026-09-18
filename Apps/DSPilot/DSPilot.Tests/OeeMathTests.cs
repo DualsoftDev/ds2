@@ -226,14 +226,14 @@ public class OeeMathTests
         => Assert.Equal(expected, OeeMath.ResolveWtNonProdBoundaryMs(medWt, medCt, mult));
 
     [Theory]
-    [InlineData(180_000, 30.0, 5_400_000)]   // 중앙 CT 180s × 30 = 90분 — '확인 필요' 임계이기도 하다
+    [InlineData(180_000, 30.0, 5_400_000)]   // 중앙 CT 180s × 30 = 90분 — 길이 강등 임계이기도 하다
     [InlineData(180_000, 5.0, 1_800_000)]    // 배수 5 < 하한 10사이클 → 30분
     [InlineData(0, 30.0, 0)]
     public void ResolveCtNonProdBoundary_uses_median_ct_with_floor(double medCt, double mult, double expected)
         => Assert.Equal(expected, OeeMath.ResolveCtNonProdBoundaryMs(medCt, mult));
 
     [Theory]
-    [InlineData(5_400_000, 5_400_000, true)]    // 정확히 경계 = 확인 필요
+    [InlineData(5_400_000, 5_400_000, true)]    // 정확히 경계 = 비생산 강등
     [InlineData(5_399_999, 5_400_000, false)]
     [InlineData(13_680_000, 5_400_000, true)]   // 9/9 야간 방치 3.8h(현장 3000) → 표시
     [InlineData(2_040_000, 5_400_000, false)]   // 9/10 34분 라인 정지 → 미표시(고장 유지)
@@ -296,8 +296,8 @@ public class OeeMathTests
 
     const double Floor = 15_000;   // = StateReconcile tick 5s × 3 (기본 설정)
 
-    // ── 행↔구간 조인 허용치 (doc/28 §2.6) — 저장된 수동 라벨을 재도출된 행에 다시 붙일 때의 과반 규칙 ──
-    //   사용자 규칙이 아니다(전환 객체는 행). 경계 스침으로 이웃 행을 뒤집지 않고, 몇 초 어긋나도 라벨이 떨어지지 않는다.
+    // ── 행↔구간 조인 허용치 (doc/28 §2.6) — 저장된 유지보수 구간을 재도출된 행에 다시 붙일 때의 과반 규칙 ──
+    //   경계 스침으로 이웃 행을 뒤집지 않고, 몇 초 어긋나도 꼬리표가 떨어지지 않는다.
 
     [Theory]
     [InlineData(63 * 3600_000.0, 54 * 3600_000.0, true)]    // 주말 행(금 17:00~월 08:00) ∩ 토 00:00~월 06:00 라벨 = 86% → 붙음
@@ -443,11 +443,11 @@ public class OeeMathTests
     public void ClassifyCycle_weekend_going_row_is_demoted_to_nonproduction_review()
     {
         // 금요일 Going 상태로 세워 두고 월요일 이어서 완료 — mt 60h. 2026-09-14: 고장 규칙(①-a)을 넘겼지만
-        // 행 길이가 비생산 경계(CT) 이상이라 '비생산(확인 필요)'. 현장 실측에서 이 밴드는 대부분 퇴근이었다.
+        // 행 길이가 비생산 경계(CT) 이상이라 '비생산(길이 강등)'. 현장 실측에서 이 밴드는 대부분 퇴근이었다.
         var mt = 60 * 3600_000;
         Assert.Equal(OeeMath.CycleClass.NonProductionByLength, Cls(mt, mt + 20_000, 20_000));
         Assert.True(OeeMath.IsNonProductionClass(Cls(mt, mt + 20_000, 20_000)));   // 처분 = 분모 밖
-        Assert.True(OeeMath.IsNonProductionByLength(mt + 20_000, CtNp));                   // 강등 임계 = '확인 필요' 임계
+        Assert.True(OeeMath.IsNonProductionByLength(mt + 20_000, CtNp));                   // 길이 강등 임계
 
         // 경계 아래(동작 초과지만 행이 짧음)는 그대로 고장 — 일상적인 고장 감지는 유지된다.
         Assert.Equal(OeeMath.CycleClass.Fault, Cls(800_000, (int)CtNp - 1, 20_000));
@@ -455,8 +455,8 @@ public class OeeMathTests
     }
 
     [Fact]
-    public void ClassifyCycle_completed_row_wait_nonprod_is_never_review()
-        // ②-a(tail 을 찍고 기다린 대기 초과)는 근거가 확실해 '확인 필요'가 아니다 — 강등분과 섞이면 안 된다.
+    public void ClassifyCycle_completed_row_wait_nonprod_is_never_by_length()
+        // ②-a(tail 을 찍고 기다린 대기 초과)는 근거가 확실해 길이 강등이 아니다 — 강등분과 섞이면 안 된다.
         => Assert.Equal(OeeMath.CycleClass.NonProduction, Cls(150_000, 60 * 3600_000, 60 * 3600_000 - 150_000));
 
     [Fact]
@@ -471,7 +471,7 @@ public class OeeMathTests
     [InlineData(850_000, OeeMath.CycleClass.Normal)]         // 정확히 경계(> 조건) = 정상
     [InlineData(850_001, OeeMath.CycleClass.Fault)]          // 5× 초과 = 고장
     [InlineData(5_099_999, OeeMath.CycleClass.Fault)]        // 비생산 경계 직전 = 고장(불인정 행이라도 짧으면 고장)
-    [InlineData(60 * 3600_000, OeeMath.CycleClass.NonProductionByLength)]  // 주말 60h = 비생산(확인 필요) — 길이 강등(2026-09-14)
+    [InlineData(60 * 3600_000, OeeMath.CycleClass.NonProductionByLength)]  // 주말 60h = 비생산 — 길이 강등(2026-09-14)
     public void ClassifyCycle_incomplete_row_uses_ct_axis(int ct, OeeMath.CycleClass expected)
         => Assert.Equal(expected, Cls(null, ct, null));
 
@@ -479,10 +479,10 @@ public class OeeMathTests
     public void ClassifyCycle_incomplete_row_nonprod_only_when_fault_clause_is_above_it()
     {
         // 고장배수 20 > 비생산배수 5 인 설정: ctFault 3400s, ctNp = max(170×5, 170×10) = 1700s → 1700s 이상은 전부 비생산.
-        // 불인정 행은 동작 시간을 모르므로 비생산 판정이 전부 '확인 필요'다(2026-09-14).
+        // 불인정 행은 동작 시간을 모르므로 비생산 판정이 전부 길이 강등이다(2026-09-14).
         Assert.Equal(OeeMath.CycleClass.NonProductionByLength, Cls(null, 2_000_000, null, ctF: 3_400_000, ctNp: 1_700_000));
         Assert.Equal(OeeMath.CycleClass.NonProductionByLength, Cls(null, 3_400_001, null, ctF: 3_400_000, ctNp: 1_700_000));
-        // 강등 경계 양옆 — 아래는 여전히 고장, 정확히 경계(≥)부터 비생산(확인 필요).
+        // 강등 경계 양옆 — 아래는 여전히 고장, 정확히 경계(≥)부터 비생산.
         Assert.Equal(OeeMath.CycleClass.Fault, Cls(null, 1_699_999, null, ctF: 1_000_000, ctNp: 1_700_000));
         Assert.Equal(OeeMath.CycleClass.NonProductionByLength, Cls(null, 1_700_000, null, ctF: 1_000_000, ctNp: 1_700_000));
     }

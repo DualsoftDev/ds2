@@ -216,10 +216,6 @@
                             <span x-show="oee && oee.plannedDownMs > 0" style="font-weight:700;"
                                   title="가용성(A) 분모에서 제외된 비생산 시간(설비시간 합산) — 10×장시간정지 자동 감지 + 수동 시간대. 아래 가용성 카드의 '비생산 시간'과 동일 값(수신 공백은 달력 기반 타임라인·추이에만 합쳐 표시, 이 KPI 숫자와는 단위가 달라 합산하지 않음)."
                                   x-text="oee ? (' · 비생산 ' + durSum(oee.plannedDownMs)) : ''"></span>
-                            <!-- 확인 필요(doc/28 §2.8, 2026-09-14 방향 반전) — 동작 중 멈춘 채 길게 늘어져 비생산으로 둔 행. 클릭 → 정지 로그(확인 필요 필터) -->
-                            <span x-show="oee && oee.reviewPendingCount > 0" class="up-review-chip" style="cursor:pointer;" @click="openReviewLog()"
-                                  :title="'끄고 간 정지로 보고 분모에서 뺀 시간 ' + (oee ? oee.reviewPendingCount : 0) + '건 · ' + durSum(oee ? oee.reviewPendingMs : 0) + ' — 동작 중(Going) 멈춘 채 비생산 기준 이상으로 늘어진 정지입니다. 이 중 실제 고장이 있으면 가용성(A)이 그만큼 부풀어 있습니다. 클릭 → 정지 로그(확인 필요 필터)에서 [고장으로 →] 전환하거나 [비생산 확정]하세요.'"
-                                  x-text="oee ? ('확인 필요 ' + oee.reviewPendingCount + '건') : ''"></span>
                         </span>
                     </div>
                 </section>
@@ -457,12 +453,12 @@
                             </div>
                         </template>
                         <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:10px;">
-                            기본 <b>고장</b>(사이클 전체) — 로그에서 체크 해제 시 유지보수(평균 고장 간격 산출에서 제외) · <b>비생산</b>은 A 분모 밖(로그에서 고장↔비생산 전환 가능)
+                            기본 <b>고장</b>(사이클 전체) · <b>비생산</b>은 A 분모 밖 — 둘 다 <b>규칙으로만</b> 정해진다(행 단위 수동 전환 없음, doc/30 §11.1)
                             <span x-show="!curFlow && oee && oee.cycleFlowCount > 1">· 값은 선택한 기간으로 자른 뒤 <b>설비 <span x-text="oee ? oee.cycleFlowCount : ''"></span>대를 합산</b>한 시간(하루 최대 24시간 × 설비수)</span>
                         </div>
                         <button class="btn btn-sm btn-outlined" style="margin-top:12px; width:100%; justify-content:center;" @click="showDowntimeLog = true">
                             <span class="material-icons" style="font-size:16px;">receipt_long</span>
-                            정지 이벤트 로그 보기 및 설정
+                            정지 이벤트 로그 보기
                         </button>
                     </section>
 
@@ -495,7 +491,7 @@
                     </section>
                 </div>
 
-                <!-- ════ 정지 이벤트 로그 다이얼로그 (실데이터: /api/oee/downtime) + 미분류 큐 — 정지 구성의 [로그 보기 및 설정] 버튼으로 팝업 ════ -->
+                <!-- ════ 정지 이벤트 로그 다이얼로그 (조회 전용, 실데이터: GET /api/oee/downtime) — 정지 구성의 [로그 보기] 버튼으로 팝업 ════ -->
                 <!-- 닫힘은 mousedown 이 백드롭에서 시작 + 백드롭에서 release 일 때만(모달 안 클릭/드래그로 오닫힘 방지). -->
                 <div class="up-blk-overlay" x-show="showDowntimeLog" style="display:none;"
                      @mousedown="_dtDown = ($event.target === $el)"
@@ -505,14 +501,13 @@
                     <div class="up-blk-head">
                         <span class="material-icons">receipt_long</span>
                         <h3>정지 이벤트 로그</h3>
-                        <span class="ds-card-h-sub" style="margin-left:8px;">발생 → 복구 · 고장/유지보수/비생산 — 자동 판정을 <b>행 단위로 전환</b>(고장으로/비생산으로). 기간·시간대·길이로 필터하고 골라서 일괄 전환</span>
+                        <span class="ds-card-h-sub" style="margin-left:8px;">발생 → 복구 · 고장/유지보수/비생산 — <b>규칙이 판정한 결과를 그대로 보는 조회 전용</b> 목록. 기간·시간대·길이로 필터</span>
                         <span style="flex:1;"></span>
                         <button class="btn-icon" @click="showDowntimeLog=false" title="닫기"><span class="material-icons">close</span></button>
                     </div>
 
                     <div style="overflow:auto; flex:1; min-height:0;">
-                    <!-- 구분 탭 — 비가동/비생산 을 한 테이블에 섞지 않고 탭으로 분리(2026-07-08).
-                         [→ 비생산]/[→ 비가동] 보내기 후 대상 탭으로 자동 이동해 옮겨진 행을 바로 확인·판단한다. -->
+                    <!-- 구분 탭 — 비가동/비생산 을 한 테이블에 섞지 않고 탭으로 분리(2026-07-08). -->
                     <div class="up-filter-row" style="margin-bottom:6px;">
                         <div class="segmented">
                             <button :class="dtTab === 'down' ? 'is-active' : ''" @click="dtTab='down'"
@@ -523,7 +518,6 @@
                                 비생산 <span x-text="'(' + dtNonProdCount + ')'"></span></button>
                         </div>
                         <span style="flex:1;"></span>
-                        <span class="up-form-ok" x-show="dtMsg" x-text="dtMsg"></span>
                     </div>
                     <!-- 필터 -->
                     <div class="up-filter-row">
@@ -541,13 +535,9 @@
                             </span>
                         </template>
                     </div>
-                    <!-- 전환 UX 필터(doc/28 §2.8) — 전환 객체는 행. 시간 범위는 필터일 뿐이고, 뜬 행을 넣을지 뺄지는 사람이 정한다.
-                         주말은 이제 기본이 비생산이다(2026-09-14) — 남는 작업은 그 반대: [확인 필요] 필터 → 실제 고장이었던 행만 골라 [→ 고장으로 일괄 전환]. -->
+                    <!-- 열람 필터 — 목록을 좁혀 보는 도구일 뿐, 판정에는 영향이 없다(정지 로그 = 조회 전용). -->
                     <div class="up-filter-row" style="margin-top:4px;">
-                        <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">전환 필터</span>
-                        <span class="up-chip up-chip-review" :class="dtFilterReview ? 'is-on' : ''" @click="dtFilterReview = !dtFilterReview"
-                              title="길이만 보면 비생산 기준을 넘는 고장(끄고 간 정지 후보)만 — 비생산으로 전환하거나 고장으로 확정하면 사라집니다"
-                              x-text="'확인 필요' + (dtReviewCount ? ' (' + dtReviewCount + ')' : '')"></span>
+                        <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">열람 필터</span>
                         <select class="up-dt-sel" x-model.number="dtMinDurMs" title="사건 전체 길이가 이 값 이상인 행만">
                             <option value="0">길이 전체</option>
                             <option value="1800000">30분 이상</option>
@@ -562,47 +552,7 @@
                             <option value="day">주간 08:00~18:00</option>
                             <option value="lunch">점심 11:30~13:30</option>
                         </select>
-                        <span class="up-codeish" x-show="dtFilterReview || dtMinDurMs > 0 || dtTod !== 'all'" style="cursor:pointer;" @click="dtFilterReview=false; dtMinDurMs=0; dtTod='all'">필터 해제</span>
-                    </div>
-
-                    <!-- ── 일괄 작업 바 (선택 행 ≥ 1일 때만) ──────────────────────────────
-                         선택 범위 = 현재 탭·필터에 보이는 행만(필터로 사라진 체크는 카운트·처리에서 제외).
-                         [고장]/[유지보수] = 구분 일괄 지정(비가동 탭 전용) — 대기(공백)·비생산 행은 고장 개념이
-                         없어 대상에서 빠지며, 그래서 버튼에 실제 적용 대상 수를 따로 표기한다.
-                         [→ 비생산/비가동] = 탭 간 일괄 이동(행 단위 [이동 →] 의 일괄판, 되돌리기 가능). -->
-                    <div class="up-bulk-bar" x-show="selectedCount > 0" x-cloak>
-                        <span class="material-icons" style="font-size:17px; color:var(--color-primary);">done_all</span>
-                        <span class="up-bulk-count" x-text="selectedCount + '건 선택됨'"></span>
-
-                        <template x-if="dtTab === 'down'">
-                            <span class="up-bulk-grp">
-                                <span class="up-bulk-label">구분 일괄 지정</span>
-                                <button class="btn btn-sm up-bulk-fault" :disabled="bulkBusy || bulkFaultTargets.length === 0"
-                                        @click="bulkSetFault(true)"
-                                        :title="bulkFaultTargets.length ? bulkFaultTargets.length + '건을 고장으로 확정 — 고장 건수·평균 간격에 반영' : '선택 행 중 구분을 바꿀 수 있는 정지가 없습니다(비생산·진행 중 제외)'">
-                                    <span class="material-icons">error</span>고장<span x-show="bulkFaultTargets.length > 0" x-text="' ' + bulkFaultTargets.length"></span>
-                                </button>
-                                <button class="btn btn-sm up-bulk-maint" :disabled="bulkBusy || bulkFaultTargets.length === 0"
-                                        @click="bulkSetFault(false)"
-                                        :title="bulkFaultTargets.length ? bulkFaultTargets.length + '건을 유지보수로 확정 — 고장 건수·평균 간격에서 제외' : '선택 행 중 구분을 바꿀 수 있는 정지가 없습니다(비생산·진행 중 제외)'">
-                                    유지보수<span x-show="bulkFaultTargets.length > 0" x-text="' ' + bulkFaultTargets.length"></span>
-                                </button>
-                            </span>
-                        </template>
-
-                        <!-- 탭 간 이동·마감은 '구분 일괄 지정' 바로 옆(구분선으로 분리) — 같은 선택에 대한 액션끼리 붙여 둔다. -->
-                        <span class="up-bulk-grp">
-                            <button class="btn btn-sm btn-primary" :disabled="bulkBusy"
-                                    @click="bulkReclassify(dtTab !== 'nonprod')"
-                                    :title="dtTab === 'nonprod' ? '선택한 행을 고장으로 전환 — 가용성(A)이 다시 깎입니다(이전 고장/유지보수 분류 복원)' : '선택한 행을 비생산으로 전환 — 사이클 전체가 가용성(A) 분모에서 빠집니다'"
-                                    x-text="(dtTab === 'nonprod' ? '← 고장으로 일괄 전환 (' : '→ 비생산으로 일괄 전환 (') + selectedCount + ')'"></button>
-                            <button class="btn btn-sm btn-outlined" x-show="anySelectedOpen" :disabled="bulkBusy"
-                                    @click="bulkClose()" title="선택한 진행중 정지를 지금 시각으로 마감 처리">일괄 마감</button>
-                        </span>
-
-                        <span class="up-bulk-prog" x-show="bulkProgress" x-text="bulkProgress"></span>
-                        <span style="flex:1;"></span>
-                        <button class="up-bulk-clear" @click="clearSel()">선택 해제</button>
+                        <span class="up-codeish" x-show="dtMinDurMs > 0 || dtTod !== 'all'" style="cursor:pointer;" @click="dtMinDurMs=0; dtTod='all'">필터 해제</span>
                     </div>
 
                     <div class="alert alert-error" x-show="oeeError" style="margin-bottom:12px;"><span class="material-icons">error</span><span x-text="oeeError"></span></div>
@@ -612,13 +562,6 @@
                             <table class="ds-table up-dt-table">
                                 <thead>
                                     <tr>
-                                        <!-- 전체 선택 = 현재 탭·필터에 보이는 행만. indeterminate 는 속성이 아닌 프로퍼티라 x-effect 로 직접 세팅. -->
-                                        <th class="cb-col">
-                                            <input type="checkbox" class="up-dt-cb" :checked="allFilteredSelected"
-                                                   x-effect="$el.indeterminate = someFilteredSelected && !allFilteredSelected"
-                                                   @change="toggleAll($event.target.checked)"
-                                                   title="보이는 행 전체 선택 / 해제">
-                                        </th>
                                         <th style="width:140px;">발생</th>
                                         <th style="width:140px;">복구</th>
                                         <th style="width:96px;" title="조회 기간과 겹친 몫 — 기간 경계를 걸친 정지는 사건 전체 길이를 아래에 병기합니다.">지속</th>
@@ -627,18 +570,11 @@
                                         <th style="width:90px;">감지</th>
                                         <th style="width:150px;">겹친 신호 (단서)</th>
                                         <th style="width:84px;">상태</th>
-                                        <th style="width:170px;">전환</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <template x-for="d in filteredDowntime" :key="d.id">
-                                        <tr :class="selectedIds[d.id] ? 'ds-row-selected' : ''">
-                                            <td class="cb-col" data-label="선택">
-                                                <input type="checkbox" class="up-dt-cb" :checked="!!selectedIds[d.id]"
-                                                       :disabled="isInProgressDt(d)"
-                                                       @change="toggleSel(d.id, $event.target.checked)"
-                                                       :title="isInProgressDt(d) ? '진행 중 — 다음 사이클이 시작되면 완료 행으로 확정됩니다(지금은 분류·마감 대상 아님)' : (isSyntheticDt(d) ? '계산 유래(이상치 초과 사이클) — 일괄 처리 시 이벤트 행으로 확정 저장됩니다' : '일괄 작업 대상으로 선택')">
-                                            </td>
+                                        <tr>
                                             <td class="num" data-label="발생" x-text="dtTime(d.startAt)"></td>
                                             <td class="num" data-label="복구" x-text="d.endAt ? dtTime(d.endAt) : '—'"></td>
                                             <!-- 지속 = 조회 기간 내 몫(inRangeMs). 기간 경계를 걸친 정지는 사건 전체 길이를 병기. -->
@@ -657,43 +593,21 @@
                                                     <span style="color:var(--color-text-secondary);font-weight:700;" :title="d.note || '진행 중 — 다음 사이클이 시작되면 완료 행으로 확정·분류됩니다(집계 미반영)'">진행 중</span>
                                                 </template>
                                                 <template x-if="d.isNonProd">
-                                                    <span style="color:var(--nonprod);font-weight:700;" :title="'비생산 — 가용성(A) 분모 밖(사이클 전체) · ' + (d.classifySource === 'manual' ? '사용자 확정' : (d.classifySource === 'auto-planned' ? '비생산 지정 시각대 시작' : (d.axis === 'mt' ? '자동 판정(동작 중 멈춘 채 비생산 기준 이상)' : '자동 판정(길이가 비생산 기준 이상)')))">비생산</span>
+                                                    <span style="color:var(--nonprod);font-weight:700;" :title="'비생산 — 가용성(A) 분모 밖(사이클 전체) · ' + (d.classifySource === 'auto-planned' ? '비생산 지정 시각대 시작' : (d.axis === 'mt' ? '자동 판정(동작 중 멈춘 채 비생산 기준 이상)' : '자동 판정(길이가 비생산 기준 이상)'))">비생산</span>
                                                 </template>
-                                                <!-- 고장/유지보수 체크 — 합성 행(판정 기준 초과 사이클)도 가능: 체크 해제 시 서버가 실제 행으로 승격 후 유지보수 확정. -->
+                                                <!-- 고장/유지보수 — 규칙과 고장비트 자동분류(CauseBit)의 결과. 표시 전용이다(사람이 바꾸는 경로 없음, doc/30 §11.1). -->
                                                 <template x-if="!d.isNonProd && !isInProgressDt(d)">
-                                                    <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;" :title="(d.isFailure ? '고장 — 클릭하면 유지보수로 변경' : '유지보수 — 클릭하면 고장으로 변경') + (isSyntheticDt(d) ? ' (계산 유래 — 변경 시 이벤트 행으로 확정 저장)' : '')">
-                                                        <input type="checkbox" class="up-dt-cb" :checked="d.isFailure" @change="setFault(d, $event.target.checked)">
-                                                        <span x-text="d.isFailure ? '고장' : '유지보수'" :style="d.isFailure ? 'color:var(--oee-fault);font-weight:700;' : 'color:var(--oee-maint);font-weight:700;'"></span>
-                                                    </label>
+                                                    <span x-text="d.isFailure ? '고장' : '유지보수'"
+                                                          :style="d.isFailure ? 'color:var(--oee-fault);font-weight:700;' : 'color:var(--oee-maint);font-weight:700;'"
+                                                          :title="d.isFailure ? '고장 — 가용성(A) 분모 안에서 깎이고 고장 건수·평균 간격에 반영' : '유지보수 — 고장비트 자동분류가 계획정비로 찍은 정지. 가용성은 깎이되 고장 건수에서는 제외'"></span>
                                                 </template>
                                                 <!-- 판정 축(doc/28) — 동작 초과 / 대기 초과 / 완료 신호 없는 사이클 길이 -->
                                                 <span class="up-dt-axis" x-show="d.axis" x-text="axisLabel(d.axis)" :title="axisTitle(d.axis)"></span>
-                                                <!-- 확인 필요(doc/28 §2.8, 2026-09-14 방향 반전) — 동작 중 멈춘 채 길게 늘어져 비생산으로 둔 행. 고장 전환 또는 비생산 확정으로 해소 -->
-                                                <span class="up-review-chip" x-show="d.needsReview" title="동작 중(Going) 멈춘 채 비생산 기준 이상으로 늘어진 정지 — 끄고 간 정지로 봤습니다. 실제 고장이었다면 [고장으로 →], 맞으면 [비생산 확정]으로 사라집니다.">확인 필요</span>
                                             </td>
                                             <td data-label="감지"><span x-html="detectChipHtml(d.detectSource)" :title="d.note || ''"></span></td>
                                             <td data-label="겹친 신호 (단서)" x-html="clueHtml(d.clue)"></td>
                                             <td data-label="상태">
                                                 <span class="ds-status" :class="d.status === 'open' ? 'bad' : 'ok'" x-text="d.status === 'open' ? '진행중' : '복구'"></span>
-                                            </td>
-                                            <td data-label="전환" style="white-space:nowrap;">
-                                                <span x-show="isInProgressDt(d)" class="up-codeish" title="열린 사이클은 아직 분류 대상이 아닙니다 — 다음 사이클 시작 시 완료 행이 되면 여기서 전환할 수 있습니다.">완료 후 분류</span>
-                                                <button class="btn btn-sm btn-outlined" style="padding:3px 8px; font-size:0.68rem;"
-                                                        x-show="!isInProgressDt(d)"
-                                                        :disabled="dtReclassBusy"
-                                                        :title="d.isNonProd ? '이 행을 고장으로 전환 — 가용성(A)이 다시 깎입니다(이전 유지보수 분류가 있으면 복원)' : '이 행을 비생산으로 전환 — 사이클 전체가 가용성(A) 분모에서 빠집니다'"
-                                                        @click="reclassifyDt(d, !d.isNonProd)"
-                                                        x-text="d.isNonProd ? '고장으로 →' : '비생산으로 →'"></button>
-                                                <button class="btn btn-sm btn-outlined" style="padding:3px 8px; font-size:0.68rem;"
-                                                        x-show="!isInProgressDt(d) && d.needsReview && d.isNonProd"
-                                                        :disabled="dtReclassBusy"
-                                                        title="끄고 간 정지가 맞음 — 비생산으로 확정(수동 라벨). '확인 필요' 표시가 사라지고 자동 판정에 흔들리지 않습니다."
-                                                        @click="reclassifyDt(d, true)">비생산 확정</button>
-                                                <button class="btn btn-sm btn-outlined color-default" style="padding:3px 8px; font-size:0.68rem;"
-                                                        x-show="!isInProgressDt(d) && d.id > 0 && d.classifySource === 'manual'"
-                                                        :disabled="dtReclassBusy"
-                                                        title="사용자 라벨을 지우고 자동 판정으로 되돌립니다(계산 유래 행은 삭제되고 자동 판정 행이 다시 뜹니다)"
-                                                        @click="revertManualDt(d)">되돌리기</button>
                                             </td>
                                         </tr>
                                     </template>
@@ -705,13 +619,13 @@
                         <div class="ds-empty" style="border-style:solid;">
                             <span class="material-icons">check_circle</span>
                             <div class="ds-empty-title" x-text="downtime.length === 0 ? '해당 기간 정지 이벤트 없음' : (dtTab === 'nonprod' ? '이 기간 비생산으로 분류된 사이클 없음' : '필터에 해당하는 고장 이벤트 없음')"></div>
-                            <div class="ds-empty-desc" x-text="downtime.length === 0 ? '판정 기준(동작 초과·대기 초과)을 넘긴 사이클이 기록되면 여기에 표시됩니다.' : (dtTab === 'nonprod' ? '길이가 비생산 기준을 넘긴 사이클의 자동 판정 또는 [비생산으로 →] 전환으로 채워집니다.' : '상태·구분·전환 필터나 탭을 변경해 보세요.')"></div>
+                            <div class="ds-empty-desc" x-text="downtime.length === 0 ? '판정 기준(동작 초과·대기 초과)을 넘긴 사이클이 기록되면 여기에 표시됩니다.' : (dtTab === 'nonprod' ? '길이가 비생산 기준을 넘긴 사이클이 자동 판정으로 채워집니다.' : '상태·구분·열람 필터나 탭을 변경해 보세요.')"></div>
                         </div>
                     </template>
 
                     <!-- 상세 설명은 각 요소 툴팁으로 대체(2026-07-08) — 하단은 핵심 한 줄만 -->
                     <div style="font-size:0.62rem; color:var(--color-text-secondary); margin-top:12px;">
-                        고장 체크 해제 = 유지보수(평균 고장 간격 제외) · <b style="color:var(--nonprod);">비생산</b> = 가용성(A) 분모 밖 · <b>확인 필요</b> = 동작 중 멈춘 채 비생산 기준 이상으로 늘어져 비생산으로 둔 행(고장으로 전환 또는 비생산 확정으로 해소) · 고장 시간 = 사이클 전체 · 단서는 표시용(건수·평균 고장 간격 미반영)
+                        조회 전용 — 구분은 판정 배수와 고장비트 자동분류로만 정해집니다(doc/30 §11.1). <b style="color:var(--nonprod);">비생산</b> = 가용성(A) 분모 밖 · 유지보수 = 고장 건수·평균 간격 제외 · 고장 시간 = 사이클 전체 · 단서는 표시용(건수·평균 고장 간격 미반영). 판정을 옮기려면 아래 <b>판정 기준(배수)</b>을 조절하세요.
                     </div>
                     </div>
                 </div>
@@ -883,7 +797,7 @@
                             </div>
                             <div class="seg fault" :style="'width:' + cmBandW('mt-fault')">
                                 <span class="nm">고장</span><span class="rg">&gt; <b x-text="cm.fault"></b>×</span>
-                                <span class="badge" title="동작 초과로 잡힌 고장은 길이가 비생산 기준을 넘어도 고장으로 남습니다. 끄고 간 정지(주말 방치)는 정지 로그에서 '비생산으로' 전환하세요.">비생산 전환 없음</span>
+                                <span class="badge" title="동작 초과로 잡힌 고장이라도 사이클 전체 길이가 비생산 기준 이상이면 비생산으로 내려갑니다(비생산 우선, doc/30 §12-⑧) — 끄고 간 정지(주말 방치)가 고장으로 쌓이지 않게.">길이 ≥ 비생산 기준이면 비생산</span>
                             </div>
                         </div>
                         <div class="up-cm-row">
@@ -963,8 +877,7 @@
                                 고장 시간 <b x-text="cmFmtH(cm.preview.current.idleCtMs)"></b> → <b class="to" x-text="cmFmtH(cm.preview.proposed.idleCtMs)"></b> ·
                                 비생산 <b x-text="cmFmtH(cm.preview.current.nonProdWallMs)"></b> → <b class="to" x-text="cmFmtH(cm.preview.proposed.nonProdWallMs)"></b> ·
                                 가용성 <b x-text="cmFmtPct(cm.preview.current.availability)"></b> → <b class="to" x-text="cmFmtPct(cm.preview.proposed.availability)"></b> ·
-                                성능 <b x-text="cmFmtPct(cm.preview.current.performance)"></b> → <b class="to" x-text="cmFmtPct(cm.preview.proposed.performance)"></b> ·
-                                확인 필요 <b x-text="cm.preview.current.reviewPendingCount"></b> → <b class="to" x-text="cm.preview.proposed.reviewPendingCount"></b>건
+                                성능 <b x-text="cmFmtPct(cm.preview.current.performance)"></b> → <b class="to" x-text="cmFmtPct(cm.preview.proposed.performance)"></b>
                             </span>
                         </template>
                         <template x-if="!cm.previewBusy && !cm.preview && !cm.err"><span>기준을 조절하면 이 기간의 재분류 결과를 미리 보여드립니다.</span></template>
@@ -982,9 +895,9 @@
                         </button>
                     </div>
                     <div class="up-form-hint" style="margin-top:8px;">
-                        기준은 flow마다 <b>14일 중앙 동작시간(MT) · 중앙 대기시간(WT) × 배수</b>로 자동 환산되고, 정지 로그의 판정 근거 문구와 <b>'진행 중' 표시 시점</b>, <b>'확인 필요'</b> 임계도 같은 값을 씁니다.
-                        14일 완료 사이클이 <b x-text="cm.minSamples"></b>건 미만인 flow 는 판정을 보류합니다(전부 정상). 조회 시 재계산이라 과거 기간에도 즉시 소급 적용되며,
-                        정지 이벤트 로그의 <b>고장으로/비생산으로 전환</b>(수동 확정)은 이 기준과 무관하게 항상 우선합니다.
+                        기준은 flow마다 <b>14일 중앙 동작시간(MT) · 중앙 대기시간(WT) × 배수</b>로 자동 환산되고, 정지 로그의 판정 근거 문구와 <b>'진행 중' 표시 시점</b>, <b>길이에 의한 비생산 강등</b> 임계도 같은 값을 씁니다.
+                        14일 완료 사이클이 <b x-text="cm.minSamples"></b>건 미만인 flow 는 판정을 보류합니다(전부 정상). 조회 시 재계산이라 과거 기간에도 즉시 소급 적용됩니다 —
+                        판정을 옮기는 수단은 <b>이 배수뿐</b>입니다(행 단위 수동 전환은 2026-09-18 폐기, doc/30 §11.1).
                     </div>
                 </section>
 
@@ -1200,10 +1113,10 @@
                     <div class="up-dn-body">
                         <table>
                             <tbody>
-                                <tr><td>모델 (2026-09-11, doc/28)</td><td><b>두 규칙 · 사이클 단위</b> — 사이클 = 동작(MT) + 대기(WT). 동작이 평소(14일 중앙)의 고장배수를 넘으면 <b>고장</b>, 대기가 비생산배수 이상이면 <b>비생산</b>, 나머지는 <b>정상</b>. 판정·손실·표시·전환의 단위는 <b>사이클 행 하나</b>(행 안에서 고장이 언제 시작됐는지는 모른다 — 쪼개지 않는다). 수집된 정상 가동만 근거로 삼고 <b>못 본 시간에는 어떤 상태도 주장하지 않는다</b>.</td></tr>
+                                <tr><td>모델 (2026-09-11, doc/28)</td><td><b>두 규칙 · 사이클 단위</b> — 사이클 = 동작(MT) + 대기(WT). 동작이 평소(14일 중앙)의 고장배수를 넘으면 <b>고장</b>, 대기가 비생산배수 이상이면 <b>비생산</b>, 나머지는 <b>정상</b>. 판정·손실·표시의 단위는 <b>사이클 행 하나</b>(행 안에서 고장이 언제 시작됐는지는 모른다 — 쪼개지 않는다). 수집된 정상 가동만 근거로 삼고 <b>못 본 시간에는 어떤 상태도 주장하지 않는다</b>.</td></tr>
                                 <tr><td>OEE = A × P × Q</td><td><b>A</b> = 가동 ÷ 생산가능(캘린더 − 비생산 − 미계측 − 진행 중) · <b>P</b> = (N × 표준 CT[14일 중앙]) ÷ Σ실측 CT · <b>Q</b> = 양품/총생산(기본 100% 가정). 한 요소라도 미산출이면 OEE = '—'. 비가동 = 생산가능 − 가동 = 고장 + 유지보수.</td></tr>
                                 <tr><td>완료 신호 없는 사이클</td><td>시작 → 다음 시작(불인정 행)은 동작·대기를 나눌 수 없어 사이클 전체 길이를 <b>중앙 CT × 같은 배수</b>에 댄다. 동작 기준선에 대면 대기 비중이 큰 설비(셔틀 87%)에서 정상 길이 사이클도 완료 신호 한 번 누락에 고장이 된다.</td></tr>
-                                <tr><td>길이가 길면 기본 비생산</td><td>끄고 간 정지와 고장 조치는 행으로 구분할 수 없다 — 그래서 <b>기본값</b>을 정해야 한다. 행 길이가 비생산 기준 이상이면 고장 규칙을 넘겼더라도 <b>비생산</b>으로 둔다(2026-09-14): 실측에서 이 밴드는 대부분 "동작 중(Going) 멈춘 채 퇴근"이었고, 고장으로 세면 매일 전 설비에 장시간 고장이 쌓여 가용성·평균 고장 간격이 못 쓰게 된다. 대신 <b>'확인 필요'</b>로 표시해, 실제 고장이었으면 정지 로그에서 <b>고장으로 전환</b>하고 맞으면 <b>비생산 확정</b>한다(수동 라벨은 자동 판정에 우선, 재도출 후에도 과반 겹침으로 같은 행에 붙는다). 기준 미만의 정지는 그대로 고장이라 일상적인 고장 감지는 유지된다.</td></tr>
+                                <tr><td>길이가 길면 비생산</td><td>끄고 간 정지와 고장 조치는 행으로 구분할 수 없다 — 그래서 <b>규칙</b>이 정한다. 행 길이가 비생산 기준 이상이면 고장 규칙을 넘겼더라도 <b>비생산</b>이다(2026-09-14, doc/30 §12-⑧ 비생산 우선): 실측에서 이 밴드는 대부분 "동작 중(Going) 멈춘 채 퇴근"이었고, 고장으로 세면 매일 전 설비에 장시간 고장이 쌓여 가용성·평균 고장 간격이 못 쓰게 된다. 기준 미만의 정지는 그대로 고장이라 일상적인 고장 감지는 유지된다. 종전의 <b>'확인 필요' 대기열과 행 단위 수동 전환(고장으로/비생산으로·되돌리기)은 2026-09-18 폐기</b>했다 — 상태는 규칙에서만 나오고, 옮기려면 <b>배수</b>를 조절한다(doc/30 §11.1).</td></tr>
                                 <tr><td>표준 CT</td><td>최근 <b>14일 정상 사이클 CT 중앙값</b>(flow별, RAM only). 평균은 정지를 머금은 사이클에 끌려 P 가 100% 에 고정됐다. 완료 사이클 <b>10건 미만</b>이면 <b>판정 불가</b> — 그 설비의 시간은 A·P 분모·분자 어디에도 넣지 않고(미계측·진행 중과 같은 자리) 데이터 무결성 카드에 '판정 불가'로 보고한다(2026-09-14. 종전 "전부 정상"은 긴 정지까지 가동으로 세어 아래 '사이클 0건이면' 원칙과 모순이었다 — 0건은 '—'인데 9건은 만점). <b>0개</b>면 '—'.</td></tr>
                                 <tr><td>입력은 <b>합집합</b></td><td>CT 를 단순 합산하지 않고 <b>구간 union</b> 으로 잰다. 수집이 오염되면 사이클끼리 겹쳐 합이 달력을 넘는다 — union 은 창을 넘을 수 없다. 카빙 사슬 = 미계측 ▸ 비생산 ▸ 형제가동 ▸ 진행 중 ▸ 비가동.</td></tr>
                                 <tr><td>미귀속 = 0</td><td>비가동 − 유지보수 − 고장은 정의상 0 이어야 한다(행이 연속 + 고장 행 전체 적립). 0 이 아니면 데이터 결함(행 겹침·누락·재시작 조각) — 종전 '가동간 공백' 세그먼트는 삭제하고 데이터 무결성 카드의 진단 항목으로 보낸다.</td></tr>
