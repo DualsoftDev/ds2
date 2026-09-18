@@ -136,6 +136,8 @@
         .ude-scroll { overflow: auto; min-height: 320px; max-height: 60vh; }
         .ude-table thead th { cursor: pointer; user-select: none; white-space: nowrap; position: sticky; top: 0; z-index: 1; background: var(--color-surface-variant, var(--color-surface)); }
         .ude-table thead th:hover { color: var(--color-primary); }
+        /* 표에서 바로 고르는 디바이스 셀렉트 — 행 높이를 키우지 않도록 작게 둔다. */
+        .ut-dev-sel { min-width: 104px; max-width: 168px; padding: 2px 6px; font-size: 0.78rem; height: auto; }
         .ude-sort { font-size: 14px; vertical-align: middle; opacity: 0.6; }
         .ude-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
         .ude-pager-info { font-size: 0.75rem; color: var(--color-text-secondary); }
@@ -469,6 +471,22 @@
                                             </span>
                                         </small>
                                     </div>
+                                    <!-- 일괄 지정 — 검색으로 좁힌 뒤 한 번에. 태그를 하나씩 열지 않고 끝내는 경로다.
+                                         체크박스 선택 UI 를 새로 만들지 않고 이미 있는 검색 필터를 그대로 재사용한다. -->
+                                    <div class="settings-note" x-show="ut.tab === 'Error' && utBulkTargets.length > 1"
+                                         style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                        <span class="material-icons" style="font-size:18px;color:var(--color-text-secondary);">playlist_add_check</span>
+                                        <small>지금 보이는 <b x-text="utBulkTargets.length + '건'"></b> 에 한 번에 지정</small>
+                                        <select class="form-field" style="max-width:220px;" x-model="ut.bulkDevice"
+                                                @change="ut.bulkDevice !== '' && utBulkAssign(ut.bulkDevice)">
+                                            <option value="">디바이스 선택…</option>
+                                            <option :value="UT_DEVICE_GLOBAL">전역</option>
+                                            <template x-for="dev in ut.devices" :key="'bulk-' + dev">
+                                                <option :value="dev" x-text="dev"></option>
+                                            </template>
+                                        </select>
+                                        <small style="color:var(--color-text-secondary);">검색·System 으로 먼저 좁히면 그 범위에만 적용됩니다.</small>
+                                    </div>
                                     <ul class="ut-info" x-show="ut.showInfo" x-transition.opacity>
                                         <li>적용 시 태그 주소가 그 System 의 PLC 접속 정보(AID)에 수집 대상으로 함께 등록됩니다. PLC 접속이 없는 System(<span class="material-icons ut-noep" style="cursor:default;">warning</span> 표시)은 태그는 저장되지만 수집되지 않으니 Promaker 에서 PLC 접속을 먼저 지정하세요.</li>
                                         <li>Agent 는 파일 변경을 감지해 자동 재시작합니다(수 초 모니터링 공백). 변경을 모아 한 번에 적용하는 것을 권장합니다.</li>
@@ -544,9 +562,18 @@
                                                             <td data-label="주소"><span class="ut-addr" style="font-family:var(--font-mono);" x-text="d.tagAddress"></span></td>
                                                             <td data-label="타입" x-text="d.valueType"></td>
                                                             <td data-label="매칭 조건" x-show="ut.tab === 'Error'" x-text="describeUtOp(d.matchOp, d.matchValue)"></td>
+                                                            <!-- 표에서 바로 고른다 — 태그 수십 개를 모달로 하나씩 여는 것은 고역이다. -->
                                                             <td data-label="디바이스" x-show="ut.tab === 'Error'">
-                                                                <span x-show="d.device" x-text="utDeviceLabel(d.device)"></span>
-                                                                <span x-show="!d.device" style="color:var(--color-text-disabled);" title="묶이지 않아 MTBF·MTTR 산출에서 빠집니다">미지정</span>
+                                                                <select class="form-field ut-dev-sel" :value="d.device" @change="utSetDevice(d, $event.target.value)"
+                                                                        :disabled="d.state === 'del'"
+                                                                        :style="d.device ? '' : 'color:var(--color-text-disabled);'"
+                                                                        title="MTBF·MTTR 산출에 쓰입니다 — 묶인 디바이스가 쓰이는 설비가 다시 도는지로 복구를 확인합니다">
+                                                                    <option value="">미지정</option>
+                                                                    <option :value="UT_DEVICE_GLOBAL">전역</option>
+                                                                    <template x-for="dev in ut.devices" :key="dev">
+                                                                        <option :value="dev" x-text="dev"></option>
+                                                                    </template>
+                                                                </select>
                                                             </td>
                                                             <td data-label="단위" x-show="ut.tab === 'Info'" x-text="d.unit || '—'"></td>
                                                             <td data-label="데드밴드" x-show="ut.tab === 'Info'" x-text="d.deadband ? d.deadband : '모든 변화'"></td>
@@ -1904,6 +1931,8 @@
                     systems: [], valueTypes: [], matchOpsByType: {}, hiddenPassiveCount: 0,
                     devices: [],
                     items: [], warnings: [], saveErrors: [],
+                    // 일괄 지정 셀렉트의 임시 값 — 고르는 즉시 적용하고 비운다(확인 버튼 없음).
+                    bulkDevice: '',
                     q: '', sys: '', sortKey: 'systemName', sortDir: 'asc', page: 0, pageSize: 20,
                     modal: { show: false, mode: 'add', key: null, f: { systemId: '', name: '', tagAddress: '', valueType: 'Bit', matchOp: 'RisingEdge', matchValue: '', level: 'Error' }, err: {} },
                     csv: { show: false, busy: false, fileName: '', rows: [], hasSystemColumn: false, encoding: '', mode: 'append', targetSystemId: '', level: 'Error', adjusted: 0 },
@@ -2078,6 +2107,32 @@
                 utDeviceLabel(v) {
                     if (!v) return '미지정';
                     return v === this.UT_DEVICE_GLOBAL ? '전역' : v;
+                },
+                // 표에서 셀렉트로 바꿨을 때도 편집 모달과 같은 dirty 규약을 타야 한다 —
+                // orig 스냅샷을 안 뜨면 '수정' 배지도, 되돌리기도 동작하지 않는다.
+                // ★x-model 을 쓰면 안 된다. 값이 먼저 바뀐 뒤 @change 가 돌아 스냅샷이 '바뀐 값' 을 떠서
+                //   utSame 이 늘 참이 되고 변경이 통째로 묻힌다. :value + 새 값 전달로 순서를 고정한다.
+                utSetDevice(d, device) {
+                    if (d.device === device) return;
+                    if (d.state === '') d.orig = this.utSnapshot(d);   // 바꾸기 '전' 스냅샷
+                    d.device = device;
+                    if (d.state !== 'new') {
+                        const same = this.utSame(d);
+                        d.state = same ? '' : 'mod';
+                        if (same) d.orig = null;
+                    }
+                },
+                // 검색으로 좁힌 뒤 한 번에 지정 — 체크박스 선택 UI 를 새로 만들지 않고 기존 필터를 그대로 쓴다.
+                // 대상은 지금 목록에 보이는 이상알람TAG 중 삭제 예약이 아닌 행 전부다.
+                get utBulkTargets() {
+                    return this.utFiltered.filter(d => d.level === 'Error' && d.state !== 'del');
+                },
+                utBulkAssign(device) {
+                    const targets = this.utBulkTargets;
+                    if (targets.length === 0) return;
+                    for (const d of targets) this.utSetDevice(d, device);
+                    this.ut.bulkDevice = '';
+                    this.showToast(`${targets.length}건에 '${this.utDeviceLabel(device)}' 지정 — 적용을 누르면 저장됩니다.`, 'info');
                 },
                 // 묶음 진행률 — 삭제 예약 행은 빼고, '전역'(고의로 안 묶음)은 분모에서도 뺀다.
                 // 그래야 "묶을 게 남았나" 를 묻는 지표가 되고 100% 에 닿을 수 있다.
