@@ -350,22 +350,6 @@ public class FlowMetricsService : IFlowMetricsService
             // 그 경우 head Call 도 그냥 "발화한 call"(분기 근거)일 뿐이라 아래 else 로 간다.
             if (state.HeadCallName == callName && state.StartTagSignal is null)
             {
-                // 라이브 채터링 필터 — head OUT 이 방금(필터 ms 미만 전) 꺼졌다 다시 켜진 재상승이면 새 사이클 시작이
-                // 아니다(재도출 SignalDebounce 와 같은 정의). 진행 중 래치·MT 소비·FiredCalls 전부 그대로 둔다.
-                var chatterMs = _appSettingsService.GetEffectiveChatterFilterMs(flowName);
-                if (chatterMs > 0)
-                {
-                    DateTime? lastFall;
-                    lock (state.LatchLock) lastFall = state.HeadOutLastFallAt;
-                    if (lastFall.HasValue && (timestamp - lastFall.Value).TotalMilliseconds < chatterMs)
-                    {
-                        _logger.LogDebug(
-                            "Flow '{FlowName}' head '{Call}' Going start {Gap:F0}ms after OUT fall < chatter filter {Filter}ms — 재시작으로 보지 않음",
-                            flowName, callName, (timestamp - lastFall.Value).TotalMilliseconds, chatterMs);
-                        return;
-                    }
-                }
-
                 // 직전 사이클 마감(consume-once) + 새 사이클 래치 — 경계 태그 경로와 같은 코드(BeginCycle).
                 BeginCycle(flowName, state, timestamp, callName);
             }
@@ -396,19 +380,7 @@ public class FlowMetricsService : IFlowMetricsService
         {
             var state = kv.Value;
 
-            // (1) 라이브 채터 근거 — head Call OUT 의 활성 이탈 시각(Call 기준 경로 전용).
-            //     값형 OUT(Int/Float 등)은 bool 판정이 안 되므로 건너뛴다(재도출만 적용).
-            if (active is not null && state.HeadOutAddresses.Count > 0 && state.HeadOutAddresses.Contains(address))
-            {
-                lock (state.LatchLock)
-                {
-                    if (state.HeadOutLastActive == true && active == false)
-                        state.HeadOutLastFallAt = timestamp;
-                    state.HeadOutLastActive = active;
-                }
-            }
-
-            // (2) 경계 태그(2026-09-17) — 사용자가 고른 주소의 엣지가 곧 사이클 시작/완료.
+            // 경계 태그(2026-09-17) — 사용자가 고른 주소의 엣지가 곧 사이클 시작/완료.
             //     끝을 먼저 본다: 같은 주소를 시작·끝이 공유하면 "닫고 다시 연다" 가 맞는 순서다.
             try
             {
@@ -541,9 +513,9 @@ public class FlowMetricsService : IFlowMetricsService
     }
 
     /// <summary>
-    /// 경계 태그 1개의 상태 변화를 흡수하고, 지정 방향의 <b>안정</b> 전이면 true.
-    /// 안정 = 직전 상태를 채터링 필터(ms) 이상 유지 — 짧은 글리치 뒤 복귀는 경계로 세지 않는다.
+    /// 경계 태그 1개의 상태 변화를 흡수하고, 지정 방향의 전이면 true.
     /// 첫 관측(직전 상태 없음)은 기준선만 잡고 발화하지 않는다(재시작 직후 현재값이 사이클을 만들지 않게).
+    /// 시간 임계(채터 필터)는 두지 않는다 — doc/30 §2.1.
     /// </summary>
     private bool TrackBoundaryEdge(
         string flowName, FlowCycleState state, bool isStart, BoundarySignal sig, string value, DateTime timestamp)
@@ -551,20 +523,15 @@ public class FlowMetricsService : IFlowMetricsService
         var active = IsActiveValue(value, sig.ActiveValue);
         if (active is null) return false; // 해석 불가(값형 등) — 라이브는 판단하지 않는다(재도출이 정본)
 
-        var chatterMs = _appSettingsService.GetEffectiveChatterFilterMs(flowName);
         lock (state.LatchLock)
         {
             var prev = isStart ? state.StartTagLastActive : state.EndTagLastActive;
-            var lastChange = isStart ? state.StartTagLastChangeAt : state.EndTagLastChangeAt;
             if (prev == active) return false;
 
-            bool fired = prev is not null
-                && (sig.Falling ? active == false : active == true)
-                && (chatterMs <= 0 || lastChange is null
-                    || (timestamp - lastChange.Value).TotalMilliseconds >= chatterMs);
+            bool fired = prev is not null && (sig.Falling ? active == false : active == true);
 
-            if (isStart) { state.StartTagLastActive = active; state.StartTagLastChangeAt = timestamp; }
-            else { state.EndTagLastActive = active; state.EndTagLastChangeAt = timestamp; }
+            if (isStart) state.StartTagLastActive = active;
+            else state.EndTagLastActive = active;
             return fired;
         }
     }
@@ -582,30 +549,6 @@ public class FlowMetricsService : IFlowMetricsService
             return b is null ? null : !b.Value;
         }
         return string.Equals(value?.Trim(), activeValue.Trim(), StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>head Call 의 OUT 주소 집합(복수 ApiCall 전 쌍). 미로드/미해석이면 빈 집합 = 라이브 채터 필터 비활성.</summary>
-    private HashSet<string> ResolveHeadOutAddresses(string flowName, string? headCallName)
-    {
-        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (string.IsNullOrWhiteSpace(headCallName)) return set;
-        try
-        {
-            var flow = _projectService.GetFlowByName(flowName);
-            if (flow is null) return set;
-            foreach (var work in _projectService.GetWorks(flow.Id))
-                foreach (var call in _projectService.GetCalls(work.Id))
-                {
-                    if (!string.Equals(call.Name, headCallName, StringComparison.Ordinal)) continue;
-                    foreach (var d in _projectService.GetCallApiCallDetails(call.Id))
-                        if (!string.IsNullOrWhiteSpace(d.OutTag)) set.Add(d.OutTag!);
-                }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Flow '{FlowName}' head OUT 주소 해석 실패 — 라이브 채터링 필터 비활성", flowName);
-        }
-        return set;
     }
 
     /// <summary>
@@ -879,7 +822,6 @@ public class FlowMetricsService : IFlowMetricsService
             CurrentMT = null,
             CurrentWT = null,
             CurrentCT = null,
-            HeadOutAddresses = ResolveHeadOutAddresses(flowName, startCallName),
         };
 
         // 경계 태그 지정이 있으면 라이브 사이클도 그 주소의 엣지로 연다/닫는다(재도출과 같은 정의).
@@ -1163,26 +1105,14 @@ public class FlowCycleState
     public DateTime? PreviousCycleFinish { get; set; }
 
     /// <summary>
-    /// 라이브 채터링 필터(2026-09-07) — head Call 의 OUT 주소 집합(대소문자 무시)과 마지막 관측 활성 상태·활성 이탈 시각.
-    /// head Going 시작이 <see cref="HeadOutLastFallAt"/> 로부터 채터링 필터(ms) 안이면 "짧은 OFF 뒤 재상승"이라
-    /// 새 사이클 시작으로 세지 않는다(재도출 <see cref="SignalDebounce"/> 정의의 라이브 근사). <see cref="LatchLock"/> 보호.
-    /// </summary>
-    internal HashSet<string> HeadOutAddresses { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    public bool? HeadOutLastActive { get; set; }
-    public DateTime? HeadOutLastFallAt { get; set; }
-
-    /// <summary>
     /// 경계 태그 지정(2026-09-17) — 사용자가 주소·에지를 직접 고른 flow 는 Call 상태(Going 진입/완료) 대신
     /// 이 주소의 엣지가 사이클을 열고 닫는다. null = 그 쪽은 종전 Call 기준.
-    /// <c>*LastActive</c>/<c>*LastChangeAt</c> 은 라이브 엣지 검출 + 채터링 판정용 관측 상태(<see cref="LatchLock"/> 보호):
-    /// 직전 상태를 채터링 필터 ms 이상 유지했을 때만 전이를 경계로 인정한다(재도출 <see cref="SignalDebounce"/> 의 라이브 근사).
+    /// <c>*LastActive</c> 는 라이브 엣지 검출용 직전 관측 상태(<see cref="LatchLock"/> 보호).
     /// </summary>
     internal BoundarySignal? StartTagSignal { get; set; }
     internal BoundarySignal? EndTagSignal { get; set; }
     public bool? StartTagLastActive { get; set; }
-    public DateTime? StartTagLastChangeAt { get; set; }
     public bool? EndTagLastActive { get; set; }
-    public DateTime? EndTagLastChangeAt { get; set; }
 
     /// <summary>
     /// 마지막 워치독 abandon 의 (사이클 시작, abandon 시각) — 자세(midCycle) 판정용 증거 메모(2026-08-30).

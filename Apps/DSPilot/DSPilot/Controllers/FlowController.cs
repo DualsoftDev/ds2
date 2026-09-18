@@ -115,10 +115,7 @@ public class FlowController : ControllerBase
 
         try
         {
-            // 채터링 필터는 요청이 명시했을 때만 교체(구 클라이언트/벌크 편집기는 기존 값 보존). 저장 후 아래
-            // 전체 이력 재계산이 새 필터 값으로 과거를 재도출하고, 라이브는 설정을 매 사이클 읽어 즉시 반영된다.
             _settings.SaveFlowCycleOverride(flow.Name, overrideStart, overrideEnd,
-                req?.ChatterFilterMs, req?.ChatterSpecified ?? false,
                 _project.GetFlowCallLookup(flow.Id),    // GUID 동봉(이중 키 — CallRefReconciler)
                 tagSpec, req?.BoundarySpecified ?? false);
             await _flowMetrics.ApplyCycleBoundaryOverrideAsync(flow.Name, effectiveStart, effectiveEnd);
@@ -408,9 +405,7 @@ public class FlowController : ControllerBase
             isOverride,
             options.ToArray(),
             kpi,
-            NowTimestamp(),
-            overrideConfig?.ChatterFilterMs,
-            Math.Max(0, _settings.LoadSettings().FlowCycle.ChatterFilterMs));
+            NowTimestamp());
     }
 
     // Blazor SelectedSystemName: 이 flow 를 포함하는 active system 의 이름.
@@ -468,10 +463,7 @@ public record FlowDetailDto(
     bool IsOverride,
     string[] CallOptions,
     FlowKpiDto? Kpi,
-    DateTimeOffset Timestamp,
-    // 신호 채터링 필터(2026-09-07): flow override(null=글로벌 상속) / 글로벌 기본(ms).
-    int? ChatterFilterMs = null,
-    int GlobalChatterFilterMs = 0);
+    DateTimeOffset Timestamp);
 
 public record FlowKpiDto(
     int? CurrentCt,
@@ -483,9 +475,6 @@ public record FlowKpiDto(
 public record CycleOverrideRequestDto(
     string? StartCallName,
     string? EndCallName,
-    // 신호 채터링 필터(ms). ChatterSpecified=true 일 때만 반영 — null=글로벌 상속, 0=이 flow 끔, >0=전용값.
-    int? ChatterFilterMs = null,
-    bool ChatterSpecified = false,
     // 경계 신호 직접 지정(2026-09-17). BoundarySpecified=true 일 때만 반영 — 주소 빈값 = 그 쪽을 Call 기준으로 되돌림.
     // 주소는 이 flow 간트에 존재하는 PLC 주소여야 한다(서버가 카탈로그로 검증). Edge = "rising"(기본) | "falling".
     string? StartTagAddress = null,

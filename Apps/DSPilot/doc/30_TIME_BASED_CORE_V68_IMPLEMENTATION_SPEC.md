@@ -407,17 +407,18 @@ CycleDerivation · CycleBoundaryEdges(경계 상승 추출), 원시 신호 수�
 | 읽기 | PlcRepository(엣지·구간 조회 20여 개), CycleAnalysisService(간트), HeatmapService, CycleBoundaryEdges, PlcDebugService, DiagnosticTool |
 | 스키마 | KpiDb(신규 표), DspRepositoryAdapter(구 표 생성 코드 삭제) |
 
-### 2차 — 채터 필터 폐기 (독립, 즉시 가능)
+### 2차 — 채터 필터 폐기 (완료, 2026-09-18)
 
-1차가 끝났고 3차를 기다릴 이유가 없다. 필터를 끄면 그 즉시 신호 진단이 정확해지고, 지금 사라져 있는 call 들
+1차가 끝났고 3차를 기다릴 이유가 없었다. 필터를 끄면 그 즉시 신호 진단이 정확해지고, 사라져 있던 call 들
 (#121 의 ATC HAND 전부, #134 의 그리퍼 절반)이 돌아온다.
 
 | 대상 | 내용 |
 |---|---|
-| 삭제 | `SignalDebounce`, `FlowCycle.ChatterFilterMs`(전역·flow override), `GetEffectiveChatterFilterMs`, 미리보기 API, 설정 UI |
-| 호출부 | `CallLaneBuilderService.BuildLanesAsync`, `CycleBoundaryEdges`(Start/End/Head/Tail), `PlcRepository.FindActiveEdgesAsync`, `CallTestController` 의 chatter 인자 |
-| 대체 | 경계는 "IN 응답을 받은 OUT 상승만 인정". call 구간은 §2.2 짝짓기 |
-| 검증 | #121 경계 0→199, #134 89→199, #131·#137 불변. 전후 비교는 **같은 시각에** 두 벌 받아서(§14 함정) |
+| 삭제 | `SignalDebounce` 와 테스트, `FlowCycleSettings.ChatterFilterMs` · `FlowCycleOverride.ChatterFilterMs`, `GetEffectiveChatterFilterMs`, 요청·응답 DTO 의 chatter 필드, 설정 페이지·간트 툴바 UI, CSS |
+| 호출부 | `CallLaneBuilderService.BuildLanesAsync`, `CycleAnalysisService`(경계·간트 구간), `CycleBoundaryEdges`(Start/End/Head/Tail), `PlcRepository.FindActiveEdgesAsync`(디바운스 조회기·전이 행 제거), `CycleRecomputeService`, `CallTestController`, `FlowController`, `SettingsController` |
+| 라이브 | `FlowMetricsService` 의 head 재상승 억제(HeadOutLastFallAt 추적)와 경계 태그 안정 시간 판정 제거. 경계 태그는 직전 상태와 다른 지정 방향 전이면 곧 발화 |
+| 대체 | 없음. 오늘 현장에 떨림이 0건이라 필터를 빼는 것만으로 안전하다. 가짜 라이징 방어("IN 응답을 받은 OUT 상승만 경계")는 3차 §2.2 짝짓기가 head call 에 적용되면서 따라온다 |
+| 검증 | 빌드 경고 0 · 오류 0, 단위 테스트 통과. 현장 수치(#121 경계 0→199, #134 89→199)는 배포 후 **같은 시각에** 두 벌 받아 확인(§14 함정) |
 
 ### 3차 — 사이클·모델 계층 + 구 엔진 철거 + 화면 전환
 
@@ -451,7 +452,7 @@ DSPilot 이 혼자 정한다. 허브 계약은 그대로다.
 | **1차 — 원시 신호 계층 교체** | **완료** — system · tag · signal 로 이전 |
 | UserTag 자료형 실제 값 저장 | 완료. 알람 Bit 전용 제한은 도입하지 않음 |
 | 태그 모니터링 조회 API(`/api/tag-monitor/*`) | 완료 — 화면은 미착수 |
-| **2차 — 채터 필터 폐기** | 미착수 — 현재 300ms, #121 만 1000ms, #135 만 0 |
+| **2차 — 채터 필터 폐기** | **완료(2026-09-18)** — 15파일에서 제거. 설정 JSON 에 남은 `chatterFilterMs` 키는 로드 시 무시된다 |
 | **3차 — 사이클·모델 계층 + 구 엔진 철거 + 화면 전환** | 미착수 |
 | call 구간 규칙(§2.2 o~i / o~o, IN 전용 제외, 뒤따르는 IN 무시) | 미착수 — `LoadWorkSpansAsync` 가 call 별 OUT↑→IN↑ 단순 합집합 |
 | 경계 100ms 스냅 · 초과 허용 5초(§3) | 미착수 |

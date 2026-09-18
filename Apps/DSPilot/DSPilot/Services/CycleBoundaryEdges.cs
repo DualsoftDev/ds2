@@ -45,9 +45,8 @@ public sealed record CycleBoundaryTagSpec(string? StartAddress, string? StartEdg
 /// 어느 쪽이든 결과는 <see cref="BoundarySignal"/> 목록으로 통일되고, 시작은 union(OR), 끝은 스트림별 AND 합성을
 /// <see cref="CycleDerivation.BuildCycles(IReadOnlyList{DateTime}, IReadOnlyList{IReadOnlyList{DateTime}}, DateTime)"/>
 /// 이 담당한다. 화면(CallTestController)·재도출(CycleRecomputeService)·기본 경계(CycleAnalysisService)가 이 한 곳을 공유한다.
-/// <para><c>minStableMs</c> = 신호 채터링 필터(<see cref="SignalDebounce"/>, 2026-09-07): 그 시간 미만 유지된 상태
-/// 변화는 없었던 것으로 보고 안정 전이의 엣지만 경계로 쓴다. 0 = 필터 없음. 값은 호출자가
-/// <c>AppSettingsService.GetEffectiveChatterFilterMs(flow)</c>(글로벌 ▸ flow override) 로 해석해 넘긴다.</para>
+/// <para>엣지는 원시 전이 그대로다. 채터 필터(SignalDebounce, 2026-09-07~09-18)는 폐기했다 — 현장에 떨림이 없고
+/// 필터가 0.23~0.7초 정상 명령 펄스를 지웠다(doc/30 §2.1 · §15-①). 가짜 라이징 방어는 3차의 OUT↑→IN↑ 짝짓기가 맡는다.</para>
 /// </summary>
 public static class CycleBoundaryEdges
 {
@@ -152,11 +151,11 @@ public static class CycleBoundaryEdges
     /// <summary>시작 경계 = 전 신호 엣지의 union(오름차순, 동시각 dedup). 신호 0개면 빈 목록.</summary>
     public static async Task<List<DateTime>> StartEdgesAsync(
         IPlcRepository plc, IReadOnlyList<BoundarySignal> signals,
-        DateTime from, DateTime to, Guid? systemId, int minStableMs = 0)
+        DateTime from, DateTime to, Guid? systemId)
     {
         var merged = new SortedSet<DateTime>();
         foreach (var s in signals)
-            foreach (var t in await plc.FindActiveEdgesAsync(s.Address, s.ActiveValue, s.Falling, from, to, systemId, minStableMs))
+            foreach (var t in await plc.FindActiveEdgesAsync(s.Address, s.ActiveValue, s.Falling, from, to, systemId))
                 merged.Add(t);
         return merged.ToList();
     }
@@ -164,27 +163,27 @@ public static class CycleBoundaryEdges
     /// <summary>완료 마커 스트림(신호별, 각 오름차순) — AND 합성은 <see cref="CycleDerivation"/>.</summary>
     public static async Task<List<List<DateTime>>> EndStreamsAsync(
         IPlcRepository plc, IReadOnlyList<BoundarySignal> signals,
-        DateTime from, DateTime to, Guid? systemId, int minStableMs = 0)
+        DateTime from, DateTime to, Guid? systemId)
     {
         var streams = new List<List<DateTime>>(signals.Count);
         foreach (var s in signals)
-            streams.Add(await plc.FindActiveEdgesAsync(s.Address, s.ActiveValue, s.Falling, from, to, systemId, minStableMs));
+            streams.Add(await plc.FindActiveEdgesAsync(s.Address, s.ActiveValue, s.Falling, from, to, systemId));
         return streams;
     }
 
     /// <summary>Call 기준 시작 경계(구 API 유지) — <see cref="StartSignalsFromPairs"/> + <see cref="StartEdgesAsync"/>.</summary>
     public static Task<List<DateTime>> HeadStartsAsync(
         IPlcRepository plc, IReadOnlyList<CallTagPair> pairs,
-        DateTime from, DateTime to, Guid? systemId, int minStableMs = 0)
-        => StartEdgesAsync(plc, StartSignalsFromPairs(pairs), from, to, systemId, minStableMs);
+        DateTime from, DateTime to, Guid? systemId)
+        => StartEdgesAsync(plc, StartSignalsFromPairs(pairs), from, to, systemId);
 
     /// <summary>Call 기준 완료 마커(구 API 유지) — <see cref="EndSignalsFromPairs"/> + <see cref="EndStreamsAsync"/>.</summary>
     public static async Task<(List<List<DateTime>> Streams, string? SourceLabel)> TailStreamsAsync(
         IPlcRepository plc, IReadOnlyList<CallTagPair> pairs,
-        DateTime from, DateTime to, Guid? systemId, int minStableMs = 0)
+        DateTime from, DateTime to, Guid? systemId)
     {
         var (signals, label) = EndSignalsFromPairs(pairs);
-        return (await EndStreamsAsync(plc, signals, from, to, systemId, minStableMs), label);
+        return (await EndStreamsAsync(plc, signals, from, to, systemId), label);
     }
 
     /// <summary>완료 마커 엣지 전체 union(표시용) — 간트 tail 마커 틱은 모든 신호의 도달을 보여준다.</summary>

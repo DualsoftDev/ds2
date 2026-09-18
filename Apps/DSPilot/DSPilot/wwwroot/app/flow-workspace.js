@@ -137,10 +137,6 @@
                 // 태그 선택기(모달) — role='start'|'end', target='flow'|분기 index.
                 tagPickerOpen: false, tagPickerRole: 'start', tagPickerTarget: 'flow', tagPickerQuery: '',
                 isOverride: false,
-                // 신호 채터링 필터(2026-09-07) — 입력칸은 문자열(''=글로벌 상속), 서버 응답으로 적용값/글로벌/flow 저장값 동기화.
-                //   userOverrodeChatter = 입력 변경 후 미저장(미리보기 중). Head/Tail 스테이징과 같은 dirty 규약.
-                chatterInput: '', chatterGlobalMs: 0, chatterFlowMs: null, chatterAppliedMs: 0,
-                userOverrodeChatter: false,
                 exporting: false,
                 avgCycleMs: null, avgActiveMs: null,
                 tailCompletionSource: null,
@@ -213,7 +209,7 @@
                     this.systemParam = this.allMode ? (new URLSearchParams(location.search).get('system') || '') : '';
                     // 더티 가드 등록 — 가동시간 분석(cycle)에서 Head/Tail 미저장 이탈 방지
                     if (this.view === 'cycle') {
-                        window.dspDirtyRegister(() => this.userOverrodeHeadTail || this.userOverrodeChatter || this.branchesDirty);
+                        window.dspDirtyRegister(() => this.userOverrodeHeadTail || this.branchesDirty);
                         // 앵커 지연 문구는 시간이 지나면 커진다 — 30초마다 재계산(숨긴 탭에서는 정지).
                         setInterval(() => { if (!document.hidden) this.refreshAnchorHint(); }, 30000);
                     }
@@ -1439,31 +1435,6 @@
                     return info.workName + ' ▸ ' + info.callName + ' ▸ ' + (info.io === 'in' ? 'IN(응답)' : 'OUT(명령)');
                 },
 
-                // ── 신호 채터링 필터 ──
-                chatterValueOrNull() {
-                    const s = String(this.chatterInput ?? '').replace(/[^\d]/g, '');
-                    return s === '' ? null : Math.max(0, parseInt(s, 10) || 0);
-                },
-                get chatterTitle() {
-                    const v = this.chatterValueOrNull();
-                    const eff = v == null ? this.chatterGlobalMs : v;
-                    return '신호 채터링 필터: ' + eff + 'ms 미만으로 유지된 ON/OFF 변화는 무시합니다(짧은 끊김 뒤 재상승은 가동 시작이 아님). '
-                        + (v == null ? '빈칸 = 설정 기본값(' + this.chatterGlobalMs + 'ms) 상속. ' : '이 Flow 전용 값. ')
-                        + '0 = 사용 안 함. 바꾸면 즉시 미리보기, 적용(저장) 시 이 Flow 에 저장됩니다.';
-                },
-                async onChatterChanged() {
-                    const v = this.chatterValueOrNull();
-                    this.chatterInput = v == null ? '' : String(v);
-                    this.userOverrodeChatter = true;
-                    await this.load();   // 파형·경계·분기 미리보기 전부 새 필터로 재조회(서버 단일 정의)
-                },
-                // ✕ — Flow 전용 값을 지워 설정 기본값(빈칸 상속)으로. 이미 저장값도 빈칸이면 dirty 없이 원복만(미저장 타이핑 취소).
-                async resetChatterToDefault() {
-                    if (this.chatterInput === '') return;
-                    this.chatterInput = '';
-                    this.userOverrodeChatter = this.chatterFlowMs != null;
-                    await this.load();
-                },
                 async applyHeadTail() {
                     if (!this.selectedFlow) return;
                     const headName = this.headName, tailName = this.tailName;
@@ -1475,14 +1446,12 @@
                     const skip = !!(opts && opts.skipRecompute);
                     this.overlayBusy = true; this.errorMessage = null;
                     this.recomputeError = false;
-                    this.recomputeMsg = skip ? '경계·채터링 저장 중…' : '전체 이력 재계산 준비…';
+                    this.recomputeMsg = skip ? '경계 저장 중…' : '전체 이력 재계산 준비…';
                     try {
                         await this.apiPost('/api/flow/' + encodeURIComponent(this.selectedFlow) + '/cycle-override',
-                            { startCallName: headName, endCallName: tailName,
-                              chatterFilterMs: this.chatterValueOrNull(), chatterSpecified: true, skipRecompute: skip,
+                            { startCallName: headName, endCallName: tailName, skipRecompute: skip,
                               ...this.boundaryPayload() });
                         this.userOverrodeHeadTail = false;
-                        this.userOverrodeChatter = false;
                         this.userOverrodeBoundary = false;
                         this.savedBoundary = this._boundarySnapshot();
                         this.tailSuggested = false; this.tailSuggestReason = '';   // 저장 완료 = 확정값
@@ -1503,9 +1472,9 @@
                 // ═══ 통합 적용(저장) — 시작/끝·채터링·분기 정의를 한 버튼으로(2026-09-08). 종전엔 상단 적용(저장)과
                 //     분기 간트 하단 '분기 저장' 이 따로 있어 헷갈렸다. 셋 중 dirty 인 것만 저장하고 전체 이력 재계산은 1회.
                 //     · 분기 없음: 종전 적용(저장) 그대로(dirty 아니어도 재저장 = 재계산 강제).
-                //     · 분기 있음: 채터링 dirty 면 cycle-override(재계산 생략) → 분기 저장(재계산). 분기만 dirty 면 분기 저장만.
+                //     · 분기 있음: 경계 dirty 면 cycle-override(재계산 생략) → 분기 저장(재계산). 분기만 dirty 면 분기 저장만.
                 //       분기를 전부 지운 상태(저장본은 있음) = 분기 해제 경로. 분기 해제 버튼(별도, 파괴적)은 그대로 둔다.
-                get anyDirty() { return this.userOverrodeHeadTail || this.userOverrodeChatter || this.boundaryDirty || this.branchesDirty; },
+                get anyDirty() { return this.userOverrodeHeadTail || this.boundaryDirty || this.branchesDirty; },
                 get applyBusy() { return this.overlayBusy || this.recomputeBusy || this.branchBusy || this.isLoading; },
                 get applyDisabled() {
                     if (this.applyBusy || !this.selectedFlow) return true;
@@ -1517,7 +1486,6 @@
                 get applySummary() {
                     const parts = [];
                     if (this.userOverrodeHeadTail || this.boundaryDirty) parts.push('시작/끝 경계');
-                    if (this.userOverrodeChatter) parts.push('채터링 필터');
                     if (this.branchesDirty) parts.push(this.branches.length === 0 && this.branchSavedCount > 0 ? '분기 해제' : '분기 ' + this.branches.length + '개');
                     return parts.join(' · ');
                 },
@@ -1525,7 +1493,7 @@
                     const s = this.applySummary;
                     if (s) return '저장: ' + s + ' — 이 Flow 의 과거 이력 전체를 새 기준으로 재계산합니다(백그라운드, 진행률 표시). 라이브 가동시간·대시보드에 과거 포함 반영';
                     if (this.branches.length > 0) return '변경 없음 — 다시 누르면 분기 정의를 재저장하고 과거 이력 전체를 재분류합니다';
-                    return '변경 없음 — 다시 누르면 현재 시작/끝·채터링으로 과거 이력 전체를 재계산합니다';
+                    return '변경 없음 — 다시 누르면 현재 시작/끝으로 과거 이력 전체를 재계산합니다';
                 },
                 // 분기 정의 사전 검증(서버 400 을 기다리지 않고) — 시작/끝 미지정·이름 중복.
                 branchesPrecheck() {
@@ -1543,7 +1511,7 @@
                 },
                 async applyAll() {
                     if (this.applyDisabled) return;
-                    const wantBoundary = this.userOverrodeHeadTail || this.userOverrodeChatter || this.boundaryDirty;
+                    const wantBoundary = this.userOverrodeHeadTail || this.boundaryDirty;
                     const branchMode = this.branches.length > 0 || this.branchSavedCount > 0;
                     // 분기 없는 flow = 종전 적용(저장) 그대로.
                     if (!branchMode) { await this.applyHeadTail(); return; }
@@ -2165,7 +2133,6 @@
                     if (!this.selectedFlow || this.isLoading) return;
                     this.headCallId = null; this.tailCallId = null;
                     this.userOverrodeHeadTail = false;
-                    this.userOverrodeChatter = false;   // 채터링 필터 입력도 서버 저장값으로 복귀
                     this.userOverrodeBoundary = false;  // 경계 태그·에지도 서버 저장값으로 복귀
                     // 분기 정의도 저장 스냅샷으로 복귀(통합 적용(저장)의 되돌리기 = 세 dirty 전부, 2026-09-08)
                     if (this.branchesDirty) {
@@ -2193,8 +2160,6 @@
                             start: this.startTime, end: this.endTime,
                             headCallId: this.headCallId, tailCallId: this.tailCallId,
                             headSpecified: this.userOverrodeHeadTail, tailSpecified: this.userOverrodeHeadTail,
-                            chatterFilterMs: this.userOverrodeChatter ? this.chatterValueOrNull() : null,
-                            chatterSpecified: this.userOverrodeChatter,
                             // 경계 태그 — 편집 중이면 그 값으로 미리보기, 아니면 서버 저장값을 그대로 돌려받는다.
                             ...(this.userOverrodeBoundary ? this.boundaryPayload() : { boundarySpecified: false }),
                         };
@@ -2239,11 +2204,6 @@
                         this.savedBoundary = JSON.stringify([d.startTagAddress || null, d.startTagEdge || null,
                                                              d.endTagAddress || null, d.endTagEdge || null]);
                     }
-                    // 채터링 필터 — 적용값/글로벌/flow 저장값 동기화. 편집 중(미저장)이면 입력칸은 사용자 값 유지.
-                    this.chatterAppliedMs = d.chatterFilterMs | 0;
-                    this.chatterGlobalMs = d.globalChatterFilterMs | 0;
-                    this.chatterFlowMs = (d.flowChatterFilterMs ?? null);
-                    if (!this.userOverrodeChatter) this.chatterInput = this.chatterFlowMs == null ? '' : String(this.chatterFlowMs);
                     this.selectedRange = null;
                     this.applySort();
                     this.recomputeTopGaps();
@@ -2615,8 +2575,6 @@
                             headStartTag: headLane ? headLane.outTag : null,
                             tailFinishTag: tailLane ? tailLane.inTag : null,
                             tailOutTag: tailLane ? tailLane.outTag : null,
-                            chatterFilterMs: this.userOverrodeChatter ? this.chatterValueOrNull() : null,
-                            chatterSpecified: this.userOverrodeChatter,
                             ...(this.userOverrodeBoundary ? this.boundaryPayload() : { boundarySpecified: false }),
                         };
                         const d = await this.apiPost('/api/call-test/resolve-overlays', body);

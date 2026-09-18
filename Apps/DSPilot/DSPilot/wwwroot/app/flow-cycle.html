@@ -136,21 +136,6 @@
                         <span class="material-icons">auto_fix_high</span>Tail 자동 제안
                     </span>
                     <!-- 분기 사용 중이면 flow 경계 편집 잠김(분기 탭에서 정의·저장) -->
-                    <!-- 신호 채터링 필터(2026-09-07) — N ms 미만으로 유지된 ON/OFF 변화 무시(짧은 끊김의 재상승 = 시작 아님).
-                         빈칸 = 설정 기본값 상속, 0 = 이 Flow 만 끔. 바꾸면 간트 파형·가동 경계가 즉시 미리보기되고 '적용(저장)' 으로 확정
-                         (분기 사용 중에도 저장 가능 — 분기 판정도 같은 필터를 쓴다). type=number 는 로케일 입력 소거 문제로 text+inputmode. -->
-                    <label class="ct-chatter" :class="{ 'is-on': chatterAppliedMs > 0, 'is-dirty': userOverrodeChatter }" :title="chatterTitle">
-                        <span class="material-icons">filter_alt</span>
-                        <span>채터링 필터</span>
-                        <input type="text" inputmode="numeric" class="ct-chatter-in" x-model="chatterInput"
-                               @change="onChatterChanged()" @keydown.enter.prevent="$event.target.blur()"
-                               :placeholder="'기본 ' + chatterGlobalMs" aria-label="신호 채터링 필터(ms)" />
-                        <span>ms</span>
-                        <!-- ✕ = Flow 전용 값 지우고 설정 기본값으로 되돌림(빈칸 상속). 미리보기 즉시, 확정은 적용(저장). label 안 버튼이라 기본 동작(입력 포커스) 차단. -->
-                        <button type="button" class="ct-chatter-x" x-show="chatterInput !== ''" x-cloak
-                                @click.prevent.stop="resetChatterToDefault()"
-                                :title="'Flow 전용 값 지우고 설정 기본값(' + chatterGlobalMs + 'ms) 적용'" aria-label="채터링 필터 기본값으로">✕</button>
-                    </label>
                 </div>
             </div>
             <template x-teleport="#dsp-header-actions">

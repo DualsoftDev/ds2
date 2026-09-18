@@ -165,21 +165,14 @@ public class CycleAnalysisService
 
         // 진영 B: Head OutTag↑(PLC 명령) = 사이클 시작 경계. 복수 I/O 쌍이면 전 쌍 OUT union(OR — 엔진 Going 규칙).
         // 멀티 PLC: 이 Flow 의 PLC 로 한정 — 안 하면 같은 주소를 쓰는 다른 PLC 의 엣지가 경계로 섞인다.
-        // 채터링 필터(글로벌 ▸ flow override) — 짧은 OFF 끊김의 재상승을 시작으로 세지 않는다.
         return await CycleBoundaryEdges.HeadStartsAsync(
-            _plcRepository, pairs, startTime, endTime, flow.ParentId,
-            _settings.GetEffectiveChatterFilterMs(flowName));
+            _plcRepository, pairs, startTime, endTime, flow.ParentId);
     }
 
     /// <summary>
     /// 시간 범위 기준 실제 PLC 태그 상태를 읽어 In/Out의 ON~OFF 구간을 Gantt segment로 변환한다.
     /// cycle-time-analysis 페이지 전용 실제 IO 타임라인.
     /// </summary>
-    /// <param name="chatterFilterMs">
-    /// 신호 채터링 필터(ms). null = 설정의 유효값(글로벌 ▸ flow override), 0 = 필터 없음(원신호), &gt;0 = 그 값으로
-    /// 미리보기. 그 시간 미만 유지된 ON/OFF 는 구간에서 사라진다(<see cref="SignalDebounce.FilterIntervals"/>) —
-    /// 사이클 경계(<see cref="CycleBoundaryEdges"/>)와 같은 정의라 간트 파형·경계·분기 미리보기가 일치한다.
-    /// </param>
     /// <param name="maxItems">
     /// 세그먼트 개수 상한. null(기본) = 무제한 — 요청 범위의 신호를 전부 반환한다. 값이 있으면 최신 N개만 남기고
     /// <see cref="GanttChartData.IsTruncated"/> 를 세운다(구 Blazor 간트 렌더 보호용, <see cref="MaxRenderedGanttItems"/>).
@@ -189,7 +182,6 @@ public class CycleAnalysisService
         string flowName,
         DateTime startTime,
         DateTime endTime,
-        int? chatterFilterMs = null,
         int? maxItems = null)
     {
         var flow = GetFlowByName(flowName);
@@ -198,8 +190,6 @@ public class CycleAnalysisService
             _logger.LogWarning("Flow '{FlowName}' not found", flowName);
             return new GanttChartData { FlowName = flowName };
         }
-
-        int debounceMs = chatterFilterMs ?? _settings.GetEffectiveChatterFilterMs(flowName);
 
         var laneDefinitions = BuildSignalLaneDefinitions(flow);
         if (laneDefinitions.Count == 0)
@@ -312,10 +302,7 @@ public class CycleAnalysisService
             if (currentState && segmentStart.HasValue && endTime > segmentStart.Value)
                 rawIntervals.Add((segmentStart.Value, endTime));
 
-            var laneIntervals = debounceMs > 0
-                ? SignalDebounce.FilterIntervals(rawIntervals, debounceMs, endTime)
-                : rawIntervals;
-            foreach (var (segStart, segEnd) in laneIntervals)
+            foreach (var (segStart, segEnd) in rawIntervals)
             {
                 items.Add(BuildSignalSegmentItem(
                     lane,

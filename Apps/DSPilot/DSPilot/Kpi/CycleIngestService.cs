@@ -254,7 +254,7 @@ public sealed class CycleIngestService : BackgroundService
             var analysis = scope.ServiceProvider.GetRequiredService<CycleAnalysisService>();
 
             var data = await analysis.GetActualIoSignalSegmentsInTimeRangeAsync(
-                flow, KpiTime.ToLocal(fromMs), KpiTime.ToLocal(toMs), chatterFilterMs: null, maxItems: null);
+                flow, KpiTime.ToLocal(fromMs), KpiTime.ToLocal(toMs), maxItems: null);
 
             // work → call → (OUT↑ 목록, IN↑ 목록)
             var byWork = new Dictionary<string, Dictionary<Guid, (List<long> Out, List<long> In)>>(StringComparer.Ordinal);
