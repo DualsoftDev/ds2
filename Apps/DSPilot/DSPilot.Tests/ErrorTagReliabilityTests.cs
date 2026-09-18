@@ -94,107 +94,6 @@ public class ErrorTagReliabilityTests
         Assert.Equal(6 * Min, r.RestartMs);
     }
 
-    // ── 비생산 차감 ────────────────────────────────────────────────────────
-
-    [Fact]
-    public void 비생산_차감을_수리_시간에_쓰면_수리_시간까지_지워진다()
-    {
-        // ★이 축의 설계 결정 근거. 비생산 사이클은 '그 정지 행' 자체라, 수리는 그 안에서 일어난다.
-        // 금요일 18:50 마지막 head → 월요일 08:00 다음 head 한 행이 통째로 비생산으로 잡히고,
-        // 그 행이 [발생, 재가동) 을 완전히 덮으므로 차감하면 0 이 된다. 그래서 eMTTR 은 차감하지 않는다.
-        long lastHead = 0;                       // 금 18:50
-        long occurred = 10 * Min;                // 금 19:00 발생
-        long restart = 61 * Hour;                // 월 08:00 다음 head = 재가동
-        var stopRow = new List<Span> { new(lastHead, restart) };
-
-        Assert.Equal(0, ElapsedExcludingNonProduction(occurred, restart, stopRow));
-        Assert.True(restart - occurred > 60 * Hour);
-    }
-
-    [Fact]
-    public void 주말을_타고_넘는_건은_확인_창이_걸러_낸다()
-    {
-        // 차감이 아니라 창이 주말을 막는다. 금요일에 해소만 하고 월요일에야 돌면 '재가동 미확인' 이라
-        // eMTTR 분모에 애초에 들어가지 않는다.
-        var r = Resolve(A(0, 30 * Min, window: 1 * Hour), [61 * Hour], nowMs: 70 * Hour);
-        Assert.Equal(RecoveryState.RestartUnconfirmed, r.State);
-    }
-
-    [Fact]
-    public void 비생산이_구간을_전부_덮으면_0_이다()
-    {
-        var net = ElapsedExcludingNonProduction(10, 20, [new Span(0, 100)]);
-        Assert.Equal(0, net);
-    }
-
-    [Fact]
-    public void 차감이_총량을_넘어도_음수가_되지_않는다()
-    {
-        // 겹치는 구간이 섞여 들어오면 합이 총량을 넘을 수 있다 — 음수 지표를 내보내지 않는다.
-        var net = ElapsedExcludingNonProduction(0, 10, [new Span(0, 10), new Span(0, 10)]);
-        Assert.Equal(0, net);
-    }
-
-    [Fact]
-    public void 끝이_시작보다_빠르면_0_이다()
-    {
-        Assert.Equal(0, ElapsedExcludingNonProduction(100, 50, []));
-    }
-
-    // ── 여러 flow 의 비생산 교집합 ─────────────────────────────────────────
-
-    [Fact]
-    public void 한_flow_만_쉰_시간은_차감하지_않는다()
-    {
-        // ★회복이 OR("하나라도 돌면")이므로 비생산은 AND("전부 쉴 때")여야 대칭이다.
-        // 합집합으로 빼면 한 flow 만 쉬어도 통째로 차감되어 eMTTR 이 실제보다 짧게 나온다.
-        var flowA = new List<Span> { new(0, 100) };
-        var flowB = new List<Span> { new(50, 200) };
-
-        var both = IntersectSpans([flowA, flowB]);
-
-        var single = Assert.Single(both);
-        Assert.Equal(50, single.S);
-        Assert.Equal(100, single.E);
-    }
-
-    [Fact]
-    public void 한_flow_라도_계속_돌았으면_교집합이_없다()
-    {
-        var flowA = new List<Span> { new(0, 100) };
-        var flowB = new List<Span>();
-        Assert.Empty(IntersectSpans([flowA, flowB]));
-    }
-
-    [Fact]
-    public void flow_가_하나면_그_구간_그대로다()
-    {
-        var only = new List<Span> { new(10, 20), new(30, 40) };
-        Assert.Equal(only, IntersectSpans([only]));
-    }
-
-    [Fact]
-    public void 세_flow_교집합도_맞는다()
-    {
-        var a = new List<Span> { new(0, 100), new(200, 300) };
-        var b = new List<Span> { new(50, 250) };
-        var c = new List<Span> { new(60, 90), new(210, 400) };
-
-        Assert.Equal([new Span(60, 90), new Span(210, 250)], IntersectSpans([a, b, c]));
-    }
-
-    [Fact]
-    public void 맞닿기만_한_구간은_교집합이_아니다()
-    {
-        Assert.Empty(IntersectSpans([[new Span(0, 100)], [new Span(100, 200)]]));
-    }
-
-    [Fact]
-    public void 빈_입력은_빈_결과다()
-    {
-        Assert.Empty(IntersectSpans([]));
-    }
-
     // ── 재발화 병합 ────────────────────────────────────────────────────────
 
     [Fact]
@@ -239,7 +138,7 @@ public class ErrorTagReliabilityTests
             Done(0, 5 * Min, 10 * Min),          // 10분
             Done(1 * Hour, 0, 1 * Hour + 20 * Min),  // 20분
             Done(5 * Hour, 0, 5 * Hour + 30 * Min),  // 30분
-        ], [], minSample: 3);
+        ], minSample: 3);
 
         Assert.Equal(3, s.RecoveredCount);
         Assert.Equal(20 * Min, s.EMttrMs);
@@ -255,7 +154,7 @@ public class ErrorTagReliabilityTests
             Done(1 * Hour, 0, 1 * Hour + 20 * Min),
             Done(5 * Hour, 0, 5 * Hour + 30 * Min),
             Done(7 * Hour, 0, 7 * Hour + 10 * Min),
-        ], [], minSample: 3);
+        ], minSample: 3);
 
         Assert.Equal(3, s.MtbfIntervalCount);
         Assert.Equal((50 * Min + 220 * Min + 90 * Min) / 3.0, s.EMtbfMs);
@@ -271,7 +170,7 @@ public class ErrorTagReliabilityTests
             (A(1 * Hour, null), new Recovery(RecoveryState.InProgress, null)),
             (A(2 * Hour, 2 * Hour + Min), new Recovery(RecoveryState.RestartUnconfirmed, null)),
             (A(3 * Hour, 3 * Hour + Min), new Recovery(RecoveryState.AwaitingRestart, null)),
-        ], [], minSample: 1);
+        ], minSample: 1);
 
         Assert.Equal(4, s.FaultCount);
         Assert.Equal(1, s.RecoveredCount);
@@ -288,7 +187,7 @@ public class ErrorTagReliabilityTests
         [
             (A(0, null), new Recovery(RecoveryState.InProgress, null)),
             (A(1 * Hour, null), new Recovery(RecoveryState.InProgress, null)),
-        ], [], minSample: 1);
+        ], minSample: 1);
 
         Assert.Equal(0, s.MtbfIntervalCount);
         Assert.Null(s.EMtbfMs);
@@ -297,7 +196,7 @@ public class ErrorTagReliabilityTests
     [Fact]
     public void 표본이_모자라면_숫자_대신_null_이다()
     {
-        var s = Aggregate([Done(0, 5 * Min, 10 * Min)], [], minSample: 3);
+        var s = Aggregate([Done(0, 5 * Min, 10 * Min)], minSample: 3);
 
         Assert.Equal(1, s.RecoveredCount);
         Assert.Null(s.EMttrMs);
@@ -305,32 +204,24 @@ public class ErrorTagReliabilityTests
     }
 
     [Fact]
-    public void eMTTR_은_비생산을_차감하지_않는다()
+    public void 두_지표_모두_달력_시간_그대로다()
     {
-        // 발생 → 재가동 구간이 곧 정지다. 비생산 사이클이 그 정지 행이라 빼면 수리 시간이 사라진다.
-        var s = Aggregate([Done(0, 30 * Min, 10 * Hour)], [new Span(0, 10 * Hour)], minSample: 1);
-        Assert.Equal(10 * Hour, s.EMttrMs);
-    }
-
-    [Fact]
-    public void eMTBF_는_비생산을_차감한다()
-    {
-        // 반대로 고장 사이 구간은 "설비가 돌던 시간" 이라 안 돌던 시간을 빼는 것이 정의에 맞다.
-        // 복구 1시간 → 다음 발생 11시간 사이(10시간) 중 9시간이 비생산이면 가동은 1시간이다.
+        // 이 축은 κ 를 읽지 않는다 — 재가동은 "사이클이 시작됐나" 하나만 보고, 그 사이클의 판정
+        // (가동·비가동·비생산)은 쳐다보지 않는다. 그래서 OEE 설정을 바꿔도 이 숫자는 움직이지 않는다.
         var s = Aggregate(
         [
-            Done(0, 30 * Min, 1 * Hour),
-            Done(11 * Hour, 0, 11 * Hour + 10 * Min),
-        ], [new Span(2 * Hour, 11 * Hour)], minSample: 1);
+            Done(0, 30 * Min, 10 * Hour),           // 발생 0 → 재가동 10h  = 수리 10시간
+            Done(30 * Hour, 0, 40 * Hour),          // 발생 30h → 재가동 40h = 수리 10시간
+        ], minSample: 1);
 
-        Assert.Equal(1, s.MtbfIntervalCount);
-        Assert.Equal(1 * Hour, s.EMtbfMs);
+        Assert.Equal(10 * Hour, s.EMttrMs);         // 달력 그대로, 야간·주말을 빼지 않는다
+        Assert.Equal(20 * Hour, s.EMtbfMs);         // 직전 재가동 10h → 다음 발생 30h
     }
 
     [Fact]
     public void 빈_입력은_0_건이고_숫자가_없다()
     {
-        var s = Aggregate([], [], minSample: 1);
+        var s = Aggregate([], minSample: 1);
         Assert.Equal(0, s.FaultCount);
         Assert.Null(s.EMttrMs);
         Assert.Null(s.EMtbfMs);

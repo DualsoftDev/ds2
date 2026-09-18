@@ -114,68 +114,13 @@ public static class ErrorTagReliability
     }
 
     /// <summary>
-    /// 비생산 구간을 뺀 경과 시간. <b>eMTBF 전용이다 — eMTTR 에 쓰면 안 된다.</b>
-    /// <para>
-    /// eMTBF 는 "고장 사이에 설비가 돌던 시간"이라 안 돌던 구간을 빼는 것이 정의에 맞다.
-    /// 반면 eMTTR 구간(발생→재가동)은 <b>정지 그 자체</b>이고, v68 의 비생산 사이클이 바로 그 정지 행이다.
-    /// 빼면 수리 시간까지 통째로 지워진다 — 실측 확인: 금요일 고장 건이 60.83시간 → <b>0.00시간</b>.
-    /// 주말을 타고 넘는 건은 차감이 아니라 <b>재가동 확인 창</b>이 걸러 낸다(창을 넘기면 '재가동 미확인').
-    /// </para>
-    /// <paramref name="nonProdSpans"/> 는 겹치지 않는 오름차순 구간이어야 한다.
-    /// </summary>
-    public static long ElapsedExcludingNonProduction(long fromMs, long toMs, IReadOnlyList<Span> nonProdSpans)
-    {
-        if (toMs <= fromMs) return 0;
-        var gross = toMs - fromMs;
-        var excluded = WorkSpanMath.OverlapMs(nonProdSpans, fromMs, toMs);
-        // 방어 — 겹치는 구간이 섞여 들어오면 차감이 총량을 넘을 수 있다. 음수 지표를 내보내지 않는다.
-        return excluded >= gross ? 0 : gross - excluded;
-    }
-
-    /// <summary>
-    /// 여러 flow 의 비생산 구간을 <b>교집합</b>으로 합친다 — 한 디바이스가 여러 flow 에 걸칠 때
-    /// "이 디바이스가 비생산이었다" 는 <b>후보 flow 가 전부</b> 비생산이었다는 뜻이다.
-    /// <para>
-    /// 회복 판정이 OR("하나라도 돌면 재가동")인 것의 대칭이다. 합집합으로 빼면 한 flow 만 쉬어도
-    /// 그 시간이 통째로 차감되어 eMTTR 이 실제보다 짧게 나온다.
-    /// </para>
-    /// 각 목록은 겹치지 않는 오름차순이어야 한다. 빈 목록이 하나라도 있으면 교집합도 비어 있다.
-    /// </summary>
-    public static List<Span> IntersectSpans(IReadOnlyList<IReadOnlyList<Span>> perFlowSpans)
-    {
-        if (perFlowSpans is not { Count: > 0 }) return [];
-        if (perFlowSpans.Count == 1) return [.. perFlowSpans[0]];
-
-        var acc = perFlowSpans[0].ToList();
-        for (var i = 1; i < perFlowSpans.Count && acc.Count > 0; i++)
-            acc = IntersectPair(acc, perFlowSpans[i]);
-        return acc;
-    }
-
-    /// <summary>정렬된 두 구간 목록의 교집합 — 투 포인터.</summary>
-    private static List<Span> IntersectPair(IReadOnlyList<Span> a, IReadOnlyList<Span> b)
-    {
-        var result = new List<Span>();
-        int i = 0, j = 0;
-        while (i < a.Count && j < b.Count)
-        {
-            var s = Math.Max(a[i].S, b[j].S);
-            var e = Math.Min(a[i].E, b[j].E);
-            if (e > s) result.Add(new Span(s, e));
-            // 먼저 끝나는 쪽을 넘긴다 — 남은 쪽은 다음 구간과도 겹칠 수 있다.
-            if (a[i].E < b[j].E) i++; else j++;
-        }
-        return result;
-    }
-
-    /// <summary>
     /// 집계 결과. <b>두 지표의 모집단이 다르다</b> — eMTBF 의 고장 건수는 발생 전체이고 eMTTR 평균은
     /// 복구 완료 건만이다. 미확정 건을 건수에서도 빼면 고장이 과소 계상되어 eMTBF 가 부풀어 오른다.
     /// </summary>
     /// <param name="FaultCount">발생 건수(재발화 병합 후). eMTBF 의 분모.</param>
     /// <param name="RecoveredCount">복구 완료 건수. eMTTR 의 분모.</param>
-    /// <param name="EMttrMs">복구 완료 건의 (재가동 − 발생) 평균. <b>차감 없음</b> — 그 구간이 곧 정지다.</param>
-    /// <param name="EMtbfMs">복구 → 다음 발생 간격 평균, <b>비생산 차감</b>. 고장 사이의 가동 시간이므로 안 돌던 시간은 뺀다.</param>
+    /// <param name="EMttrMs">복구 완료 건의 (재가동 − 발생) 평균.</param>
+    /// <param name="EMtbfMs">복구 → 다음 발생 간격 평균.</param>
     public readonly record struct Summary(
         int FaultCount,
         int RecoveredCount,
@@ -200,7 +145,6 @@ public static class ErrorTagReliability
     /// <param name="minSample">표본 하한. 테스트·설정에서 낮출 수 있도록 인자로 둔다.</param>
     public static Summary Aggregate(
         IReadOnlyList<(AlertInput Alert, Recovery Recovery)> resolvedAsc,
-        IReadOnlyList<Span> nonProdSpans,
         int minSample = MinSample)
     {
         int inProgress = 0, awaiting = 0, unconfirmed = 0;
@@ -217,15 +161,13 @@ public static class ErrorTagReliability
                 case RecoveryState.RestartUnconfirmed: unconfirmed++; break;
             }
 
-            // eMTBF = 직전 복구 → 이번 발생. 복구가 없는 건은 간격을 끊지 않고 건너뛴다
+            // eMTBF = 직전 복구 → 이번 발생, 그대로. 복구가 없는 건은 간격을 끊지 않고 건너뛴다
             // (그 사이가 가동 시간이었다고 주장할 근거가 없다).
             if (prevRestart is { } prev && alert.OccurredMs > prev)
-                upSpans.Add(ElapsedExcludingNonProduction(prev, alert.OccurredMs, nonProdSpans));
+                upSpans.Add(alert.OccurredMs - prev);
 
             if (recovery is { State: RecoveryState.Recovered, RestartMs: { } restart })
             {
-                // ★비생산을 빼지 않는다. 이 구간이 곧 정지이고 비생산 사이클이 바로 그 정지 행이라,
-                // 빼면 수리 시간까지 지워진다(실측 60.83h → 0.00h). 주말 건은 확인 창이 걸러 낸다.
                 repairs.Add(restart - alert.OccurredMs);
                 prevRestart = restart;
             }

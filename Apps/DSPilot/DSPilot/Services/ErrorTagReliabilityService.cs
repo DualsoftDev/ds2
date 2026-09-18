@@ -92,7 +92,7 @@ public sealed class ErrorTagReliabilityService
         var globalCount = bindings.Count - bound.Count;
 
         if (!_project.IsLoaded || bound.Count == 0)
-            return new Result(Aggregate([], []), [], UnboundTagCount: 0, globalCount, 0, _project.IsLoaded);
+            return new Result(Aggregate([]), [], UnboundTagCount: 0, globalCount, 0, _project.IsLoaded);
 
         // 디바이스 → flow 집합. 한 디바이스가 여러 flow 에 걸치는 것이 Ds2 모델의 정상이라 집합으로 받는다.
         var flowsByDevice = BuildFlowsByDevice();
@@ -107,14 +107,14 @@ public sealed class ErrorTagReliabilityService
 
         var fromMs = KpiTime.ToMs(fromUtc);
         var toMs = KpiTime.ToMs(toUtc);
-        var kappa = settings.Kpi.Resolve();
 
-        // 재가동 근거와 비생산 구간은 같은 사이클 행에서 나온다 — flow 당 한 번만 읽는다.
+        // 재가동 근거는 사이클 시작 시각뿐이다 — 그 사이클이 가동인지 비가동인지 비생산인지는 보지 않는다.
+        // 그래서 이 축은 κ 를 읽지 않고, OEE 설정을 바꿔도 여기 숫자는 움직이지 않는다.
         // 창 밖의 재가동도 근거가 되어야 하므로(구간 끝에 걸친 알람) 뒤쪽을 넉넉히 연다.
         var cycleToMs = Math.Max(toMs, KpiTime.NowMs());
         var flowFacts = new Dictionary<string, FlowFacts>(StringComparer.OrdinalIgnoreCase);
         foreach (var flow in neededFlows)
-            flowFacts[flow] = await LoadFlowFactsAsync(flow, fromMs, cycleToMs, kappa, ct);
+            flowFacts[flow] = await LoadFlowFactsAsync(flow, fromMs, cycleToMs, ct);
 
         // 알람 — 사용자정의(usertag) 구분만. 자동감지(abnormal)는 사용자가 선언한 고장이 아니다.
         var records = await _alerts.QueryAlertsAsync(
@@ -127,7 +127,6 @@ public sealed class ErrorTagReliabilityService
 
         var verdicts = new List<AlertVerdict>();
         var resolvedAll = new List<(AlertInput Alert, Recovery Recovery)>();
-        var nonProdAll = new List<Span>();
         var skippedChanged = 0;
         var unboundAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -147,9 +146,6 @@ public sealed class ErrorTagReliabilityService
 
             var flows = flowsByDevice.TryGetValue(device, out var f) ? f : [];
             var restarts = MergeRestarts(flows, flowFacts);
-            var nonProd = IntersectSpans([.. flows.Select(fl =>
-                flowFacts.TryGetValue(fl, out var ff) ? ff.NonProd : (IReadOnlyList<Span>)[])]);
-            nonProdAll.AddRange(nonProd);
 
             var windowMs = RestartWindowFor(flows, flowFacts);
             var ordered = group.OrderBy(r => r.OccurredAt).ToList();
@@ -189,7 +185,7 @@ public sealed class ErrorTagReliabilityService
         resolvedAll.Sort((a, b) => a.Alert.OccurredMs.CompareTo(b.Alert.OccurredMs));
         verdicts.Sort((a, b) => b.OccurredAtUtc.CompareTo(a.OccurredAtUtc));
 
-        var summary = Aggregate(resolvedAll, WorkSpanMath.Union(nonProdAll));
+        var summary = Aggregate(resolvedAll);
 
         return new Result(summary, verdicts, unboundAddresses.Count, globalCount, skippedChanged, true);
     }
@@ -247,26 +243,22 @@ public sealed class ErrorTagReliabilityService
         return Math.Max((long)(maxR * RestartWindowRMultiple), RestartWindowFloorMs);
     }
 
-    /// <summary>flow 1개에서 뽑은 재료 — 재가동 후보, 비생산 구간, 박제 R 대표값.</summary>
-    private sealed record FlowFacts(List<long> Restarts, List<Span> NonProd, double MedianRMs);
+    /// <summary>flow 1개에서 뽑은 재료 — 재가동 후보와 확인 창을 정할 박제 R 대표값뿐이다.</summary>
+    private sealed record FlowFacts(List<long> Restarts, double MedianRMs);
 
     private async Task<FlowFacts> LoadFlowFactsAsync(
-        string flow, long fromMs, long toMs, KpiKappa kappa, CancellationToken ct)
+        string flow, long fromMs, long toMs, CancellationToken ct)
     {
         var cycles = await _kpi.QueryCyclesAsync(fromMs, toMs, flow, branch: null, ct);
 
-        // 재가동 = 사이클 시작. 제외 행(잘림·UNK·진행 중)도 시작 자체는 진짜 head 신호이므로 근거로 쓴다.
+        // 재가동 = 사이클 시작. 그 사이클의 판정(가동·비가동·비생산)은 보지 않는다 — 우리가 묻는 것은
+        // "다시 돌았나" 하나뿐이다. 제외 행(잘림·UNK·진행 중)도 시작 자체는 진짜 head 신호라 근거로 쓴다.
         var restarts = cycles.Select(c => c.StartMs).Distinct().OrderBy(x => x).ToList();
-
-        // 비생산 = 현재 κ 로 도출. 상태를 저장하지 않으므로 κ 를 바꾸면 과거도 함께 다시 라벨된다.
-        var nonProd = WorkSpanMath.Union(cycles
-            .Where(c => KpiRules.Classify(c.ToFact(), kappa) == CycleState.NonProd)
-            .Select(c => new Span(c.StartMs, c.EndMs)));
 
         var rs = cycles.Where(c => c.RUsedMs > 0).Select(c => c.RUsedMs).OrderBy(x => x).ToList();
         var medianR = rs.Count == 0 ? 0 : rs[rs.Count / 2];
 
-        return new FlowFacts(restarts, nonProd, medianR);
+        return new FlowFacts(restarts, medianR);
     }
 
     /// <summary>
