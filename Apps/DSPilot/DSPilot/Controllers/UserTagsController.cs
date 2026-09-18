@@ -3,6 +3,7 @@
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Ds2.Editor;
 using DSPilot.Infrastructure;
+using DSPilot.Kpi;
 using DSPilot.Models;
 using DSPilot.Models.UserTagAlerts;
 using DSPilot.Repositories;
@@ -27,16 +28,18 @@ public class UserTagsController : ControllerBase
     private readonly IUserTagAlertRepository _repo;
     private readonly AppSettingsService _settings;
     private readonly DsProjectService _project;
+    private readonly ErrorTagReliabilityService _reliability;
     private readonly ILogger<UserTagsController> _logger;
 
     public UserTagsController(
         UserTagAlertService alertService, IUserTagAlertRepository repo, AppSettingsService settings,
-        DsProjectService project, ILogger<UserTagsController> logger)
+        DsProjectService project, ErrorTagReliabilityService reliability, ILogger<UserTagsController> logger)
     {
         _alertService = alertService;
         _repo = repo;
         _settings = settings;
         _project = project;
+        _reliability = reliability;
         _logger = logger;
     }
 
@@ -340,6 +343,49 @@ public class UserTagsController : ControllerBase
             warnings.Add($"태그는 저장됐지만 디바이스 귀속을 저장하지 못했습니다 — {ex.Message}");
         }
         return new UtEditorSaveResult(true, result.Applied, warnings, errors, null);
+    }
+
+    // ── GET: 등록 에러 태그 기반 신뢰성 지표 (eMTBF · eMTTR) ──────────────────────
+    // doc/31. 리듬축(OEE 의 MTBF/MTTR, 비가동 기준)과 별개 축이라 값이 다른 것이 정상이다 —
+    // 느린 사이클 ⊃ 등록된 고장이라 리듬축이 늘 더 많이 잡는다.
+    [HttpGet("reliability")]
+    public async Task<ActionResult<UtReliabilityDto>> GetReliability(
+        [FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null,
+        [FromQuery] string? system = null,
+        CancellationToken ct = default)
+    {
+        // 기본 창 = 최근 30일. 표본이 얇은 축이라(실측 11일 164건) 기본을 짧게 잡으면 늘 "표본 부족" 이 뜬다.
+        var endUtc = (to ?? DateTime.Now).ToUniversalTime();
+        var startUtc = (from ?? (to ?? DateTime.Now).AddDays(-30)).ToUniversalTime();
+
+        var r = await _reliability.AnalyzeAsync(startUtc, endUtc, system, ct);
+        var s = r.Summary;
+
+        return new UtReliabilityDto(
+            EMtbfMs: s.EMtbfMs,
+            EMttrMs: s.EMttrMs,
+            FaultCount: s.FaultCount,
+            RecoveredCount: s.RecoveredCount,
+            InProgressCount: s.InProgressCount,
+            AwaitingRestartCount: s.AwaitingRestartCount,
+            RestartUnconfirmedCount: s.RestartUnconfirmedCount,
+            MtbfIntervalCount: s.MtbfIntervalCount,
+            MinSample: ErrorTagReliability.MinSample,
+            UnboundTagCount: r.UnboundTagCount,
+            GlobalTagCount: r.GlobalTagCount,
+            SkippedChangedCount: r.SkippedChangedCount,
+            ProjectLoaded: r.ProjectLoaded,
+            Alerts: [.. r.Alerts.Select(a => new UtReliabilityAlertDto(
+                OccurredAtLocal: a.OccurredAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                ClearedAtLocal: a.ClearedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                RestartedAtLocal: a.RestartedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                SystemName: a.SystemName,
+                Name: a.Name,
+                TagAddress: a.TagAddress,
+                Device: a.Device,
+                State: a.State.ToString(),
+                RepairMs: a.RepairMs,
+                RestartFlow: a.RestartFlow))]);
     }
 
     /// <summary>

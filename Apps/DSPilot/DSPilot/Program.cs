@@ -271,6 +271,8 @@ builder.Services.AddSingleton<DSPilot.Kpi.KpiRepository>();
 // 태그 모니터링 — UserTag 값·추이 조회. 값은 저장소(DB), 종류(이상알람/모니터링)는 서비스가 AASX 에서 얹는다.
 builder.Services.AddSingleton<DSPilot.Kpi.TagMonitorRepository>();
 builder.Services.AddSingleton<TagMonitorService>();
+// 등록 에러 태그 기반 신뢰성(eMTBF·eMTTR, doc/31) — 리듬축과 별개 축. 알람 저장소가 Scoped 라 함께 Scoped.
+builder.Services.AddScoped<ErrorTagReliabilityService>();
 builder.Services.AddSingleton<DSPilot.Kpi.BaselineService>();
 builder.Services.AddSingleton<DSPilot.Kpi.CycleIngestService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DSPilot.Kpi.CycleIngestService>());

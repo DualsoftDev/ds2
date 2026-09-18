@@ -128,6 +128,42 @@ public static class ErrorTagReliability
     }
 
     /// <summary>
+    /// 여러 flow 의 비생산 구간을 <b>교집합</b>으로 합친다 — 한 디바이스가 여러 flow 에 걸칠 때
+    /// "이 디바이스가 비생산이었다" 는 <b>후보 flow 가 전부</b> 비생산이었다는 뜻이다.
+    /// <para>
+    /// 회복 판정이 OR("하나라도 돌면 재가동")인 것의 대칭이다. 합집합으로 빼면 한 flow 만 쉬어도
+    /// 그 시간이 통째로 차감되어 eMTTR 이 실제보다 짧게 나온다.
+    /// </para>
+    /// 각 목록은 겹치지 않는 오름차순이어야 한다. 빈 목록이 하나라도 있으면 교집합도 비어 있다.
+    /// </summary>
+    public static List<Span> IntersectSpans(IReadOnlyList<IReadOnlyList<Span>> perFlowSpans)
+    {
+        if (perFlowSpans is not { Count: > 0 }) return [];
+        if (perFlowSpans.Count == 1) return [.. perFlowSpans[0]];
+
+        var acc = perFlowSpans[0].ToList();
+        for (var i = 1; i < perFlowSpans.Count && acc.Count > 0; i++)
+            acc = IntersectPair(acc, perFlowSpans[i]);
+        return acc;
+    }
+
+    /// <summary>정렬된 두 구간 목록의 교집합 — 투 포인터.</summary>
+    private static List<Span> IntersectPair(IReadOnlyList<Span> a, IReadOnlyList<Span> b)
+    {
+        var result = new List<Span>();
+        int i = 0, j = 0;
+        while (i < a.Count && j < b.Count)
+        {
+            var s = Math.Max(a[i].S, b[j].S);
+            var e = Math.Min(a[i].E, b[j].E);
+            if (e > s) result.Add(new Span(s, e));
+            // 먼저 끝나는 쪽을 넘긴다 — 남은 쪽은 다음 구간과도 겹칠 수 있다.
+            if (a[i].E < b[j].E) i++; else j++;
+        }
+        return result;
+    }
+
+    /// <summary>
     /// 집계 결과. <b>두 지표의 모집단이 다르다</b> — eMTBF 의 고장 건수는 발생 전체이고 eMTTR 평균은
     /// 복구 완료 건만이다. 미확정 건을 건수에서도 빼면 고장이 과소 계상되어 eMTBF 가 부풀어 오른다.
     /// </summary>

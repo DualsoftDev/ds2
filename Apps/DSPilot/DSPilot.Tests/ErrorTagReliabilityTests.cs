@@ -135,6 +135,60 @@ public class ErrorTagReliabilityTests
         Assert.Equal(0, ElapsedExcludingNonProduction(100, 50, []));
     }
 
+    // ── 여러 flow 의 비생산 교집합 ─────────────────────────────────────────
+
+    [Fact]
+    public void 한_flow_만_쉰_시간은_차감하지_않는다()
+    {
+        // ★회복이 OR("하나라도 돌면")이므로 비생산은 AND("전부 쉴 때")여야 대칭이다.
+        // 합집합으로 빼면 한 flow 만 쉬어도 통째로 차감되어 eMTTR 이 실제보다 짧게 나온다.
+        var flowA = new List<Span> { new(0, 100) };
+        var flowB = new List<Span> { new(50, 200) };
+
+        var both = IntersectSpans([flowA, flowB]);
+
+        var single = Assert.Single(both);
+        Assert.Equal(50, single.S);
+        Assert.Equal(100, single.E);
+    }
+
+    [Fact]
+    public void 한_flow_라도_계속_돌았으면_교집합이_없다()
+    {
+        var flowA = new List<Span> { new(0, 100) };
+        var flowB = new List<Span>();
+        Assert.Empty(IntersectSpans([flowA, flowB]));
+    }
+
+    [Fact]
+    public void flow_가_하나면_그_구간_그대로다()
+    {
+        var only = new List<Span> { new(10, 20), new(30, 40) };
+        Assert.Equal(only, IntersectSpans([only]));
+    }
+
+    [Fact]
+    public void 세_flow_교집합도_맞는다()
+    {
+        var a = new List<Span> { new(0, 100), new(200, 300) };
+        var b = new List<Span> { new(50, 250) };
+        var c = new List<Span> { new(60, 90), new(210, 400) };
+
+        Assert.Equal([new Span(60, 90), new Span(210, 250)], IntersectSpans([a, b, c]));
+    }
+
+    [Fact]
+    public void 맞닿기만_한_구간은_교집합이_아니다()
+    {
+        Assert.Empty(IntersectSpans([[new Span(0, 100)], [new Span(100, 200)]]));
+    }
+
+    [Fact]
+    public void 빈_입력은_빈_결과다()
+    {
+        Assert.Empty(IntersectSpans([]));
+    }
+
     // ── 재발화 병합 ────────────────────────────────────────────────────────
 
     [Fact]

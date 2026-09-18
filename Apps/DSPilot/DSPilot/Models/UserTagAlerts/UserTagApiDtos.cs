@@ -167,3 +167,46 @@ public record UtCsvRowDto(
     string? Device = null);
 
 public record UtCsvParseResult(List<UtCsvRowDto> Rows, bool HeaderDetected, bool HasSystemColumn, string Encoding);
+
+// ── 등록 에러 태그 기반 신뢰성 (/api/user-tags/reliability) — doc/31 ──────────
+
+/// <summary>
+/// eMTBF · eMTTR 과 상태 분포. OEE 의 MTBF/MTTR(비가동 기준)과 <b>별개 축</b>이라 값이 다른 것이 정상이다.
+/// <para>
+/// ★두 지표의 모집단이 다르다 — <paramref name="FaultCount"/>(발생 전체)가 eMTBF 의 분모이고
+/// <paramref name="RecoveredCount"/>(복구 완료)가 eMTTR 의 분모다. 화면이 둘을 함께 밝혀야 한다.
+/// </para>
+/// Ms 값이 null 이면 표본 미달(<paramref name="MinSample"/> 미만) — 숫자 대신 "표본 부족(n=…)" 을 띄운다.
+/// </summary>
+public record UtReliabilityDto(
+    double? EMtbfMs,
+    double? EMttrMs,
+    int FaultCount,
+    int RecoveredCount,
+    int InProgressCount,
+    int AwaitingRestartCount,
+    int RestartUnconfirmedCount,
+    int MtbfIntervalCount,
+    int MinSample,
+    // 묶이지 않아 계산에서 빠진 태그 수. 0 이 아니면 화면이 설정으로 유도한다.
+    int UnboundTagCount,
+    int GlobalTagCount,
+    int SkippedChangedCount,
+    bool ProjectLoaded,
+    List<UtReliabilityAlertDto> Alerts);
+
+/// <summary>
+/// 알람 1건의 판정. <paramref name="State"/> 는 InProgress · AwaitingRestart · RestartUnconfirmed · Recovered.
+/// <paramref name="RestartFlow"/> 는 회복 근거가 된 flow — 분기 우회로 오판이 났을 때 사후 추적의 실마리다.
+/// </summary>
+public record UtReliabilityAlertDto(
+    string OccurredAtLocal,
+    string? ClearedAtLocal,
+    string? RestartedAtLocal,
+    string SystemName,
+    string Name,
+    string TagAddress,
+    string Device,
+    string State,
+    long? RepairMs,
+    string? RestartFlow);
