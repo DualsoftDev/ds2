@@ -122,10 +122,6 @@
         /* 적용(저장) 옆 저장 대기 요약("채터링 필터 · 분기 2개") — 재계산 메시지가 없을 때만 보인다. */
         .ct-apply-sum { font-size: 0.7rem; font-weight: 700; color: var(--color-primary); white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
         /* Tail 1차 제안 칩 — 확정이 아니라 '입력 보조'라 중립 톤(테두리 점선). 직접 찍으면 사라진다. */
-        .ct-tailsug { display: inline-flex; align-items: center; gap: 3px; font-size: 0.66rem; font-weight: 700;
-                      color: var(--color-primary); border: 1px dashed color-mix(in srgb, var(--color-primary) 55%, transparent);
-                      border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
-        .ct-tailsug .material-icons { font-size: 13px; }
         .ct-mono { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
 
         /* 간트 layout (헤어라인 박스, 그림자 없음)
@@ -173,7 +169,6 @@
         .dark-theme .ct-ribbon-side { background: var(--color-surface-variant); }
         .ct-lane-row { display: flex; align-items: center; padding: 0 10px; gap: 8px; border-bottom: 1px solid var(--color-lines); background: var(--color-surface); }
         .ct-lane-row.is-head { background: color-mix(in srgb, #4caf50 12%, var(--color-surface)); box-shadow: inset 3px 0 0 #4caf50; }
-        .ct-lane-row.is-tail { background: color-mix(in srgb, #ab47bc 12%, var(--color-surface)); box-shadow: inset 3px 0 0 #ab47bc; }
         .ct-lane-name-block { flex: 1; min-width: 0; overflow: hidden; }
         .ct-lane-name { font-size: 0.78rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
         .ct-lane-work { font-size: 0.66rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
@@ -188,7 +183,6 @@
         .ct-lane-row-leg .leg-more { color: var(--color-text-secondary); font-weight: 800; cursor: help; }
         .ct-badge { display: inline-block; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.08em; padding: 1px 5px; border-radius: var(--radius-sm); color: #fff; line-height: 1.5; }
         .ct-badge.head { background: #4caf50; }
-        .ct-badge.tail { background: #ab47bc; }
         .ct-lane-tags { display: flex; gap: 4px; flex: 0 0 auto; }
         .ct-tag-btn { min-width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); background: var(--color-surface); font-size: 0.7rem; font-weight: 800; cursor: pointer; padding: 0 6px; color: var(--color-text-primary); white-space: nowrap; transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
         .ct-tag-btn:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
@@ -342,7 +336,6 @@
         /* 다크 보강 */
         .dark-theme .ct-sidebar-header { background: var(--color-surface-variant); }
         .dark-theme .ct-lane-row.is-head { background: color-mix(in srgb, #4caf50 18%, var(--color-surface)); }
-        .dark-theme .ct-lane-row.is-tail { background: color-mix(in srgb, #ab47bc 18%, var(--color-surface)); }
         .dark-theme .ct-tag-btn { background: var(--color-surface-variant); }
         .dark-theme .ct-gantt-chart-area { background: #ffffff; }
 
@@ -733,3 +726,13 @@
 .fg-divider::before, .fg-divider::after { content: ''; flex: 1; height: 1px; background: var(--color-lines); }
 .ct-gantt-layout.is-branch { border-color: color-mix(in srgb, var(--fg-c, var(--color-primary)) 40%, var(--color-lines)); box-shadow: inset 3px 0 0 var(--fg-c, var(--color-primary)); }
 .fg-branch-gantt { max-height: 60vh; }
+
+/* ── 시간 기반 코어 화면(2026-09-18, doc/30 §9.2) — 끝(tail) 없음 · work 구간 · 게이트 표시 ── */
+/* 경계 카드의 파생 항목(MT·WT) — 입력이 아니라 안내. 버튼처럼 보이지 않게 납작하게. */
+.fb-bd-item.fb-bd-derived { opacity: 0.85; }
+.fb-bd-item.fb-bd-derived .fb-bd-role.end { background: #ab47bc; }
+.fb-bd-item.fb-bd-derived .fb-bd-ctx { font-size: 0.7rem; color: var(--color-text-secondary); }
+/* Work 헤더 행 칩 — 게이트에 걸려 판정에서 빠진 work(doc/30 §4.1) */
+.ct-work-gated { margin-left: 6px; padding: 0 5px; border-radius: 3px; font-size: 0.6rem; font-weight: 800; letter-spacing: 0;
+                 color: #546e7a; background: color-mix(in srgb, #b0bec5 35%, var(--color-surface)); border: 1px solid #b0bec5; white-space: nowrap; }
+.dark-theme .ct-work-gated { color: #cfd8dc; }

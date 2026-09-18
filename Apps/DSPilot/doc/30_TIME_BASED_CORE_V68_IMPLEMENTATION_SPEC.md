@@ -226,12 +226,24 @@ GET /api/kpi/timeline?from=&to=&flow=[&branch=]
 - 오버레이: 접속 공백 해치, 잘림·UNK·진행 중·미분류·기준 없음·경계 초과 표시.
 - 세그먼트 툴팁: CT, MT, 박제 R, 초과한 축과 배율, 단절 배지.
 
-### 9.2 가동시간 분석 간트 CT 리본
+### 9.2 가동시간 분석 간트 — 시작만 지정, MT/WT 는 파생 (2026-09-18 반영)
 
-- 리본 셀 색 = 상태(가동·비가동·비생산·제외).
-- 비가동 셀에 초과한 축 표기 — work 이름 또는 "MT".
-- 게이트에 걸린 work 레인에 "판정 제외" 표시.
+- **경계 입력은 시작(head) 하나** — call 또는 태그 주소 + 에지(상승/하강). 끝(tail) 선택기·배지·자동 제안·
+  "시작과 끝을 모두 지정" 게이트는 없다(§2.4). 분기도 시작 call + 제외 call 만.
+- **MT/WT 분할선 = 그 사이클 안 마지막 work 끝**(보라 점선). 리본의 동작/대기, 사이클 표·차트의 MT/WT/동작률이
+  전부 이 선에서 나온다. 계산은 `cycle-gantt.js` 의 화면 거울(`workSpansOf` · `cycleWorkEnvelopes` · `mtEndsOf`)이
+  lane 신호에서 §2.2~§2.4 그대로 구한다 — 정본은 서버 `WorkSpanMath`, 규칙을 바꾸면 두 곳을 같이 바꾼다.
+- **Work 그룹 정렬이 기본.** Work 헤더 행에 사이클마다 그 work 의 구간 막대(최소 시작~최대 끝, 청록).
+  게이트에 걸린 work 는 회색 막대 + 사이드바 "판정 제외" 칩, 사이클 끝을 넘은 work 는 빨간 테두리.
+  '신호 순' 정렬은 시작 맨 위 · 나머지 첫 신호 순.
+- OUT 이 없는 call(IN 전용) 레인은 흐리게 — 동작이 시작된 적이 없어 판정에 쓰이지 않는다.
+- 미완료 = work 동작이 하나도 안 잡힌 닫힌 사이클(MT 없음). 종전 "완료신호 없음" 정의를 대체.
+- 리본 셀 색 = 상태(가동·비가동·비생산·제외). 비가동 셀에 초과한 축 표기 — work 이름 또는 "MT".
+  제외 사유는 우리말 라벨(경계 초과 · 분기 미분류 · 진행 중 · 기준 표본 부족 · 구간에 잘림).
 - 상단 칩을 상태별 개수로 교체. "비가동·비생산만" 필터를 켜면 해당 CT 로 점프.
+- **전환 기간 스캐폴딩**: 구 파이프라인(FlowMetricsService·CycleRecomputeService)은 아직 끝 call 로 MT 를 재고
+  분기 반증 창의 끝으로 쓰므로, 분기 저장에 끝이 비어 오면 서버가 내부 폴백(이전 저장값 ▸ AASX 기본 끝 ▸ 시작 call)을
+  채운다. flow 경계는 종전대로 AASX 기본 끝. 화면은 이 값을 보이지도 편집하지도 않는다. 3차 출처 교체 때 함께 제거.
 
 ### 9.3 work 목록 표시 — 주소 집합으로 중복 제거
 
@@ -436,7 +448,7 @@ CycleDerivation · CycleBoundaryEdges(경계 상승 추출), 원시 신호 수�
 | 사이클 출처 | FlowMetricsService · CycleRecomputeService 가 `cycle` · `cycleWork` 에 직접 쓴다. CycleIngestService 의 구 DB 읽기 경로 삭제 |
 | **판정 규칙** | §2.2 call 구간 · §2.3 call 단위 제외 · §3 경계(스냅·초과 허용·분기 우선) · §4.1 게이트 · §6 MT 축. `KpiRules` 와 `CycleIngestService.LoadWorkSpansAsync` 가 대상 |
 | 철거 | 구 OEE 엔진 **약 9,282줄 / 18파일** — OeeControllerBase 와 4개 컨트롤러, OeeMath 판정부, OeeCtStats, NonProd 패턴·큐, 사전계산, 심박 서비스, 시프트 추론, OEE 저장소·DTO·Excel |
-| 화면 | uptime-oee · uptime-teep 를 새 지표로 교체. 간트 리본, work 표시 중복 제거(§9.3). 브리핑 메일·Excel 도 같이 |
+| 화면 | uptime-oee · uptime-teep 를 새 지표로 교체. **간트(§9.2)는 완료(2026-09-18)** — 끝 입력 제거 · work 구간 막대 · MT/WT 점선. work 표시 중복 제거(§9.3). 브리핑 메일·Excel 도 같이 |
 | 어휘 | 고장·유지보수·확인 필요·수동 전환·비생산 시간대·시프트 제거(§11.1) |
 
 ### 하지 않는 것
@@ -461,6 +473,7 @@ DSPilot 이 혼자 정한다. 허브 계약은 그대로다.
 | **2차 — 채터 필터 폐기** | **완료(2026-09-18)** — 15파일에서 제거. 설정 JSON 에 남은 `chatterFilterMs` 키는 로드 시 무시된다 |
 | **3차 — 사이클·모델 계층 + 구 엔진 철거 + 화면 전환** | 미착수 |
 | call 구간 규칙(§2.2) · 스냅·초과(§3) · 게이트(§4.1) · MT 축(§6) · 분기 call 제외(§2.3) | **완료(2026-09-18)** — Kpi 코어. 설정 카드에 계수 6개 노출, 연표·간트 툴팁에 축 표시 |
+| **간트 UI/UX — 시작만 지정, MT/WT 파생(§9.2)** | **완료(2026-09-18)** — 끝 선택기·'끝' 배지·자동 제안(`suggest-tail` 엔드포인트·`SuggestTailAsync` 삭제)·"시작과 끝 모두" 게이트 제거(flow-workspace.js · flow-cycle.html · flow-cycle-overview.js). 렌더러 화면 거울 `workSpansOf` · `cycleWorkEnvelopes` · `mtEndsOf`(node 합성 검증 20건). Work 그룹 기본 + work 구간 막대 + 게이트 칩 + IN 전용 레인 흐림. 연표 API 에 `cycles` · `gatedWorks` · `boundarySnapMs`. 서버는 분기 끝 빈 값 허용 + 내부 폴백(전환 스캐폴딩) |
 | 분기 활성 flow 는 flow head 무시(§3) | 미착수 — 전환 기간 출처(dspFlowHistory)가 이미 분기 경계로 도출된 행이라 지금은 우회됨. 3차 출처 교체 시 적용 |
 | work 표시 중복 제거(§9.3) | 미착수 |
 | 알람 표 이전(userTagAlertLog → alert) | 미착수 — 표는 만들어져 있음 |
@@ -476,6 +489,8 @@ DSPilot 이 혼자 정한다. 허브 계약은 그대로다.
 - API 파형을 두 번에 나눠 받아 비교하면 그 사이 라인이 돈 만큼이 "필터가 지운 것" 으로 보인다.
   셔틀·D-L 의 차이 15건·14건이 그것이었다. 비교는 같은 시각에 받은 두 벌로 한다.
 - 개발 앱을 띄우면 `EmailBriefingService` 가 실제 일일 브리핑 메일을 보낸다.
+- 간트의 MT/WT 는 화면 거울이 lane 신호에서 계산한다 — 서버 판정(`cycle.mtMs`)과 다르면 두 구현이 갈라진 것.
+  개요 카드처럼 표시 lane 이 일부일 땐 `mtLanes` 로 전 lane 을 넘겨야 한다(시작 lane 만으로 MT 를 재면 틀린다).
 
 ## 15. 실측 근거 (2026-09-17, UB1 12 flow · 사이클 2,202건)
 

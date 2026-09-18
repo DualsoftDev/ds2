@@ -62,20 +62,7 @@ public class FlowController : ControllerBase
     ///  - AppSettingsService.SaveFlowCycleOverride → FlowMetrics.ApplyCycleBoundaryOverrideAsync
     /// 갱신된 FlowDetailDto 반환.
     /// </summary>
-    /// <summary>
-    /// GET /api/flow/{name}/suggest-tail?head=X — head 선택 시 tail 1차 제안(사용자 변경 가능).
-    /// 자동 확정이 아니라 입력 보조 — 경계는 사용자가 정한다는 원칙은 유지한다.
-    /// </summary>
-    [HttpGet("{name}/suggest-tail")]
-    public async Task<ActionResult<object>> SuggestTail(string name, [FromQuery] string? head)
-    {
-        if (string.IsNullOrWhiteSpace(head))
-            return BadRequest(new { message = "head 파라미터가 필요합니다." });
-        var s = await _flowMetrics.SuggestTailAsync(name, head.Trim());
-        return s is null
-            ? Ok(new { tailCallName = (string?)null, source = (string?)null, reason = "제안할 후보가 없습니다." })
-            : Ok(new { tailCallName = s.TailCallName, source = s.Source, reason = s.Reason });
-    }
+    // suggest-tail 엔드포인트는 폐기(2026-09-18) — 끝(tail)은 사용자가 정하지 않는다. MT 끝 = 마지막 work 끝(doc/30 §2.4).
 
     [HttpPost("{name}/cycle-override")]
     public async Task<ActionResult<FlowDetailDto>> SaveCycleOverride(string name, [FromBody] CycleOverrideRequestDto req)
@@ -224,6 +211,8 @@ public class FlowController : ControllerBase
                      { (b.StartCallName, "start", b.StartTagAddress), (b.EndCallName, "end", b.EndTagAddress) })
             {
                 if (!string.IsNullOrWhiteSpace(tag)) continue;
+                // 끝(end)은 사용자가 정하지 않는다(doc/30 §2.4) — 비어 있으면 정상, 값이 있는데 모델에 없을 때만 유령.
+                if (role == "end" && string.IsNullOrWhiteSpace(call)) continue;
                 if (string.IsNullOrWhiteSpace(call) || !optionSet.Contains(call.Trim()))
                     unknownRefs.Add(new UnknownCallRefDto(brName, call ?? "", role));
             }
@@ -249,6 +238,16 @@ public class FlowController : ControllerBase
                 EndTagAddress = brSpec.EndAddress,
                 EndTagEdge = brSpec.EndEdge,
             };
+            // 전환 기간 스캐폴딩(3차 출처 교체 시 제거) — 구 파이프라인이 MT 를 끝 call 로 재고 분기 반증 창의 끝으로 쓴다.
+            // 화면은 끝을 보이지도 편집하지도 않으므로 비어 오면 이전 저장값 ▸ AASX 기본 끝 ▸ 시작 call 순으로 내부 폴백을 채운다.
+            // 새 코어는 이 값을 쓰지 않는다(MT = 마지막 work 끝, doc/30 §2.4).
+            if (string.IsNullOrWhiteSpace(def.EndCallName) && string.IsNullOrWhiteSpace(def.EndTagAddress))
+            {
+                var prev = existingSet?.Branches.FirstOrDefault(x => string.Equals(x.Name, def.Name, StringComparison.OrdinalIgnoreCase));
+                def.EndCallName = !string.IsNullOrWhiteSpace(prev?.EndCallName)
+                    ? prev!.EndCallName
+                    : (_flowMetrics.GetAasxCycleBoundaries(flow.Name).Item2 ?? def.StartCallName);
+            }
             CallRefReconciler.StampIds(def, lookup);   // 다중 키(GUID + 배선 지문) — 이후 AASX 재로드 때 이름·GUID 가 바뀌어도 추종
             // 모델에 없는 이름은 이전 저장분의 GUID·지문을 승계 — 되돌리기/배선 재매칭의 근거를 저장 한 번으로 잃지 않게.
             CallRefReconciler.InheritUnresolved(def, existingSet);

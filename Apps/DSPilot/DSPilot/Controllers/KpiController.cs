@@ -53,6 +53,20 @@ public sealed class KpiController : ControllerBase
         var totals = KpiRules.Compute(facts, kappa);
         var segments = KpiRules.BuildSegments(facts, kappa);
         var links = await _repo.QueryLinkEventsAsync(fromMs, toMs, ct);
+        var gatedWorks = await _repo.GetGatedWorksAsync(fromMs, toMs, flow, ct);
+        var snapMs = _settings.LoadSettings().Kpi.ResolveBoundarySnapMs();
+
+        // 사이클 단위 행 — 간트가 사이클마다 MT/WT 경계선과 축(work | MT)을 그릴 때 쓴다(세그먼트는 인접 병합이라 사이클을 못 가른다).
+        var cycles = facts.Select(f =>
+        {
+            var st = KpiRules.Classify(f, kappa);
+            return new KpiCycleDto(
+                f.Id, f.StartMs, f.EndMs, st.ToString(),
+                st == CycleState.Excluded ? KpiRules.ResolveExclude(f, kappa).ToString() : null,
+                f.MtMs,
+                st == CycleState.Down ? KpiRules.Axis(f, kappa).ToString() : null,
+                f.WorstWork, f.WorstRatio, f.MtRatio, f.OverflowMs);
+        }).ToList();
 
         var excluded = new List<KpiExcludedDto>();
         int cut = 0, unknown = 0, inProgress = 0, noBaseline = 0, unclassified = 0, overflow = 0;
@@ -111,7 +125,10 @@ public sealed class KpiController : ControllerBase
             links.Select(l => new KpiLinkDto(
                 l.System, KpiTime.ToIso(l.AtMs), l.EndMs is long e ? KpiTime.ToIso(e) : null,
                 l.IsConnected, l.Kind, l.Detail)).ToList(),
-            new KpiKappaDto(kappa.NonProd, kappa.Work, kappa.Mt, kappa.Quality, kappa.OverflowMs)));
+            new KpiKappaDto(kappa.NonProd, kappa.Work, kappa.Mt, kappa.Quality, kappa.OverflowMs),
+            cycles,
+            gatedWorks,
+            snapMs));
     }
 
     // ── GET /api/kpi/cycle/{id}/works ─────────────────────────────────────────
@@ -193,6 +210,9 @@ public sealed class KpiController : ControllerBase
 // ── DTO ───────────────────────────────────────────────────────────────────────
 
 /// <summary>한줄 연표 한 벌. 세 페이지가 공유한다.</summary>
+/// <param name="Cycles">사이클 단위 행(연표 세그먼트는 인접 병합이라 사이클을 못 가른다) — 간트의 MT/WT 선·축 표시용.</param>
+/// <param name="GatedWorks">이 구간·flow 에서 게이트에 걸려 판정에서 빠진 work 이름(doc/30 §4.1).</param>
+/// <param name="BoundarySnapMs">경계 스냅(ms) — 간트가 work 구간을 사이클에 귀속할 때 서버와 같은 값을 쓴다(doc/30 §3).</param>
 public sealed record KpiTimelineDto(
     string From,
     string To,
@@ -203,7 +223,15 @@ public sealed record KpiTimelineDto(
     List<KpiSegmentDto> Segments,
     List<KpiExcludedDto> Excluded,
     List<KpiLinkDto> Links,
-    KpiKappaDto Kappa);
+    KpiKappaDto Kappa,
+    List<KpiCycleDto> Cycles,
+    List<string> GatedWorks,
+    long BoundarySnapMs);
+
+/// <summary>사이클 한 행의 판정 결과. Axis 는 비가동일 때만("Work" | "Mt"), Reason 은 제외일 때만.</summary>
+public sealed record KpiCycleDto(
+    long Id, long StartMs, long EndMs, string State, string? Reason,
+    long? MtMs, string? Axis, string? WorstWork, double WorstRatio, double MtRatio, long OverflowMs);
 
 public sealed record KpiCountsDto(int Run, int Down, int NonProd, KpiExcludedCountsDto Excluded);
 

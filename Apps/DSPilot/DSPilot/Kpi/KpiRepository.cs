@@ -268,6 +268,22 @@ public sealed class KpiRepository
         return map;
     }
 
+    /// <summary>구간·flow 에서 게이트에 걸린(판정 제외) work 이름 — 간트 Work 헤더 표시용(doc/30 §4.1 · §9.2).</summary>
+    public async Task<List<string>> GetGatedWorksAsync(
+        long fromMs, long toMs, string? flow, CancellationToken ct = default)
+    {
+        await using var conn = _db.OpenRead();
+        var sql = """
+            SELECT DISTINCT w.work
+            FROM cycleWork w JOIN cycle c ON c.id = w.cycleId
+            WHERE w.gated = 1 AND c.endMs > @fromMs AND c.startMs < @toMs
+            """;
+        if (!string.IsNullOrWhiteSpace(flow)) sql += " AND c.flow = @flow";
+        var rows = await conn.QueryAsync<string>(new CommandDefinition(
+            sql, new { fromMs, toMs, flow }, cancellationToken: ct));
+        return rows.ToList();
+    }
+
     /// <summary>수집 중인 flow·분기 목록 — 기준선 계산 대상.</summary>
     public async Task<List<(string Flow, string? Branch)>> GetActiveScopesAsync(
         long sinceMs, CancellationToken ct = default)

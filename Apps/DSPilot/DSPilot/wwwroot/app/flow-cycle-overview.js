@@ -127,17 +127,18 @@ function overviewCycleApp() {
                 // state: 'ok' | 'nosignal'(기간 내 신호 0) | 'noedge'(신호는 있으나 시작/끝 call 신호 없음)
                 state: 'ok',
                 callLanesRaw: [], callLanes: [],
-                laneRoles: {},           // callId → [{ kind:'head'|'tail', branches:[{ bi, color, name }] }] — 역할(시작/끝)당 1배지, 분기 flow 는 분기 색 점을 덧붙임
-                noWorkRows: true,        // 시작/끝 2행만 그리므로 Work 헤더 행 불필요
+                laneRoles: {},           // callId → [{ kind:'head', branches:[{ bi, color, name }] }] — 시작 배지 1개, 분기 flow 는 분기 색 점을 덧붙임
+                noWorkRows: true,        // 시작 행만 그리므로 Work 헤더 행 불필요
+                mtLanes: [],             // MT/WT 계산용 전 lane(표시 lane 은 시작만이라 따로 든다, doc/30 §2.4)
                 unmeasuredRegions: [], unmeasuredMs: 0,
-                cycleBoundaries: [], tailEdges: [], tailCompletionSource: null,
-                cycleBoundariesIso: [], tailEdgesIso: [],
+                cycleBoundaries: [],
+                cycleBoundariesIso: [],
                 cycleSpans: null, unionMode: false, hasRibbon: false,
                 branches: [], bp: null,  // bp = CycleGantt.classifyBranches 결과(분기 flow 만) — 이름을 branchPreview 로 두지 않는다
                                          // (CycleGantt.appendBranchOverlay 가 s.branchPreview 를 분기 간트 색 바로 해석 — 개요 리본은 합산 1벌만).
                 sum: { cycles: 0, open: false },
                 chartStart: null, chartEnd: null, chartStartIso: '', chartEndIso: '',
-                headCallId: null, tailCallId: null,
+                headCallId: null,
                 isOverride: false, avgCycleMs: null, avgActiveMs: null,
                 plotWidth: 1200, baseWidth: 1200, zoom: this.zoom, showCall: this.showCall, showIo: this.showIo,
                 expandedCalls: {}, topGaps: [], showMaxGap: false, selectedGapIndex: 0,
@@ -257,7 +258,6 @@ function overviewCycleApp() {
             slice.chartEnd = new Date(d.chartEnd);
             slice.chartStartIso = d.chartStart; slice.chartEndIso = d.chartEnd;
             const cs = slice.chartStart.getTime(), ce = slice.chartEnd.getTime();
-            slice.tailCompletionSource = d.tailCompletionSource ?? null;
             slice.isOverride = !!d.isOverride;
             slice.unmeasuredRegions = (d.unmeasuredRegions || []).map(r => ({
                 startMs: new Date(r.start).getTime(), endMs: new Date(r.end).getTime(), cause: r.cause || 'unknown'
@@ -279,26 +279,20 @@ function overviewCycleApp() {
             };
 
             if (slice.branches.length === 0) {
-                // 단일 Head/Tail — 서버 경계/평균 그대로. 표시 lane = head, tail(같으면 1행).
+                // 단일 flow — 서버 경계 그대로. 표시 lane = 시작 call 1행. MT/WT 는 전 lane 의 work 구간에서 구한다(doc/30 §2.4).
                 slice.headCallId = d.headCallId || null;
-                slice.tailCallId = d.tailCallId || null;
                 slice.cycleBoundariesIso = d.cycleBoundaries || [];
-                slice.tailEdgesIso = d.tailEdges || [];
                 slice.cycleBoundaries = slice.cycleBoundariesIso.map(s => new Date(s));
-                slice.tailEdges = slice.tailEdgesIso.map(s => new Date(s));
                 slice.cycleSpans = null; slice.unionMode = false; slice.bp = null;
                 slice.avgCycleMs = d.avgCycleMs ?? null;
-                slice.avgActiveMs = d.avgActiveMs ?? null;
                 const picked = [];
                 if (slice.headCallId && byId[slice.headCallId]) picked.push(byId[slice.headCallId]);
-                if (slice.tailCallId && slice.tailCallId !== slice.headCallId && byId[slice.tailCallId]) picked.push(byId[slice.tailCallId]);
-                slice.callLanes = CG.sortLanes(picked, slice.headCallId, slice.tailCallId);
+                slice.callLanes = CG.sortLanes(picked, slice.headCallId);
                 addRole(byId[slice.headCallId], 'head', -1);
-                addRole(byId[slice.tailCallId], 'tail', -1);
             } else {
-                // 분기 flow — flow 자체 Head/Tail 은 경계가 아니다(경계 = 분기별 head/tail). 합산 리본 = 판별 스팬.
-                slice.headCallId = null; slice.tailCallId = null;
-                slice.cycleBoundaries = []; slice.tailEdges = [];
+                // 분기 flow — flow 자체 head 는 경계가 아니다(경계 = 분기별 시작 call). 합산 리본 = 판별 스팬.
+                slice.headCallId = null;
+                slice.cycleBoundaries = [];
                 const bp = CG.classifyBranches(raw, slice.branches, cs, ce);
                 slice.bp = bp;
                 slice.unionMode = true;
@@ -306,16 +300,18 @@ function overviewCycleApp() {
                 slice.avgCycleMs = null; slice.avgActiveMs = null;
                 // Excel 내보내기용 경계/완료 마커 = 판별 스팬 시작/승자 분기 완료(로컬 ISO).
                 slice.cycleBoundariesIso = bp.spans.map(sp => this.dateToInput(new Date(sp.sMs)));
-                slice.tailEdgesIso = bp.spans.filter(sp => sp.tailIn !== null && sp.tailIn !== undefined).map(sp => this.dateToInput(new Date(sp.tailIn)));
-                // 표시 lane = 분기 시작 call(정의 순서, 중복 제거) → 분기 끝 call(아직 없는 것만).
+                // 표시 lane = 분기 시작 call(정의 순서, 중복 제거).
                 const order = [];
                 const pushName = (n) => { if (n && byName[n] && order.indexOf(n) === -1) order.push(n); };
                 slice.branches.forEach(b => pushName(b.startCallName));
-                slice.branches.forEach(b => pushName(b.endCallName));
                 slice.callLanes = order.map(n => byName[n]);
-                slice.branches.forEach((b, bi) => { addRole(byName[b.startCallName], 'head', bi); addRole(byName[b.endCallName], 'tail', bi); });
+                slice.branches.forEach((b, bi) => addRole(byName[b.startCallName], 'head', bi));
             }
             slice.laneRoles = roles;
+            // MT 평균 = 사이클마다 시작→마지막 work 끝(전 call 의 work 구간, doc/30 §2.4). 서버 tail 통계는 쓰지 않는다.
+            slice.mtLanes = raw;
+            const mtRows = CG.cycleRows(slice).filter(c => !c.isOpen && c.atMs !== null);
+            slice.avgActiveMs = mtRows.length ? mtRows.reduce((a, c) => a + c.atMs, 0) / mtRows.length : null;
 
             const spans = CG.cycleSpansOf(slice);
             slice.hasRibbon = spans.length > 0;
@@ -488,15 +484,15 @@ function overviewCycleApp() {
                 flowName: slice.flowName,
                 chartStart: slice.chartStartIso, chartEnd: slice.chartEndIso,
                 showCall: slice.showCall, showIo: slice.showIo,
-                headCallId: slice.headCallId, tailCallId: slice.tailCallId,
-                headName: this.callNameOf(slice, slice.headCallId), tailName: this.callNameOf(slice, slice.tailCallId),
+                headCallId: slice.headCallId, tailCallId: null,
+                headName: this.callNameOf(slice, slice.headCallId), tailName: null,   // 끝은 없다(doc/30 §2.4)
                 avgCycleMs: slice.avgCycleMs, avgActiveMs: slice.avgActiveMs,
                 lanes: slice.callLanes.map(l => ({
                     callId: l.callId, callName: l.callName, workName: l.workName, laneIndex: l.laneIndex,
                     inTag: l.inTag, outTag: l.outTag,
                     intervals: l.intervals, outIntervals: l.outIntervals, inIntervals: l.inIntervals
                 })),
-                cycleBoundaries: slice.cycleBoundariesIso, tailEdges: slice.tailEdgesIso,
+                cycleBoundaries: slice.cycleBoundariesIso, tailEdges: [],
                 showMaxGap: false, selectedGapIndex: 0,
                 topGaps: (slice.topGaps || []).map(g => ({
                     callId: g.callId, durMs: g.durMs,
