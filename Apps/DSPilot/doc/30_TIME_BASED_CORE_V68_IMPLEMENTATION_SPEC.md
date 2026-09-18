@@ -137,6 +137,9 @@ work 가 라인에 8개 있고, 이들이 대기를 정지로 오판해 셔틀 �
 - 원본 §18 의 "스펙 버전 고정 상수" 조항은 **폐기**. 전부 설정 화면에서 조절한다.
 - κ_MT 를 κ_work 와 같은 2.5 로 두면 안 된다. MT 는 개별 work 보다 산포가 훨씬 작아 더 조일 수 있고,
   2.5 에서는 진짜 정지의 27%를 놓친다(§15-⑦).
+- **적용 시점이 둘로 갈린다.** κ 셋과 경계 초과 허용은 조회 시 비교라 저장 즉시 과거까지 재라벨된다.
+  게이트와 스냅은 적재 시점 값이다 — 게이트 결과는 `cycleWork.gated` 에, 스냅은 사이클 귀속 자체에 박제되므로
+  바꾸면 다음 적재부터 반영된다. 기준선이 박제인 것과 같은 이유다.
 - κ 를 바꾸면 **과거 행도 즉시 재라벨**된다. 상태는 저장하지 않고 조회 시 현재 κ 로 도출한다(§6).
   R · W · MT중앙은 박제라 기준선 자체는 불변이다. 설정 변경은 사용자의 명시적 행위이므로 원본 §16-⑥
   "몰래 재계산 금지" 와 충돌하지 않는다.
@@ -301,13 +304,15 @@ GET /api/kpi/timeline?from=&to=&flow=[&branch=]
 
 | 표 | 컬럼 |
 |---|---|
-| cycle | id, flowId, branch, startMs, endMs, ctMs, mtMs, wtMs, rUsedMs, mtMedianUsedMs, worstAxis, worstWorkId, worstRatio, overflowMs, excludeReason, specVer |
+| cycle | id, flowId, branch, startMs, endMs, ctMs, mtMs, wtMs, rUsedMs, mtMedianUsedMs, worstWorkId, worstRatio, overflowMs, excludeReason, specVer |
 | cycleWork | cycleId, workId, durationMs, wUsedMs, gated |
 | baseline | scope('R'/'W'/'MT'), flowId, branch, workId, asOfDate, valueMs, sampleCount, q1Ms, q3Ms |
 
 - `rUsedMs · mtMedianUsedMs · wUsedMs` 는 사이클 완료 시점의 **박제**값이다.
-- `worstAxis` 는 `work` 또는 `mt`. 비가동 사유를 화면에 그대로 보인다.
-- `overflowMs` 는 CT 끝을 넘은 call 구간의 최대 초과량. 허용치(§5)를 넘으면 `excludeReason = overflow`.
+- 비가동 축(work | MT)은 상태와 같이 **저장하지 않고 조회 시 도출**한다 — κ 가 바뀌면 축도 따라 바뀌어야 한다.
+  둘 다 넘었으면 임계 대비 더 크게 넘은 쪽이 대표다.
+- `overflowMs` 는 CT 끝을 넘은 call 구간의 최대 초과량. 허용치(§5) 비교도 조회 시 — 넘으면 제외(Overflow)로 도출된다.
+- `excludeReason` 에 저장되는 것은 적재 시점에 확정되는 사유만이다: 기준 없음, 미분류. 잘림·진행 중·경계 초과는 조회 시 도출.
 - `cycleWork.gated` 는 그 사이클 시점에 게이트(§4.1)에 걸려 판정에서 빠졌는지.
 - `baseline.q1Ms · q3Ms` 는 게이트 근거. 사용자가 게이트 값을 바꾸면 이 둘로 즉시 다시 가른다.
 
@@ -443,10 +448,11 @@ DSPilot 이 혼자 정한다. 허브 계약은 그대로다.
 
 | 항목 | 상태 |
 |---|---|
-| 판정·집계 순수함수(KpiRules) · work 스팬(WorkSpanMath) | 완료 · 테스트 42건. **MT 축·게이트·스냅은 미반영** |
-| 기준선 R·W(BaselineService) · 사이클 적재(CycleIngestService) | 완료(출처는 3차에서 교체). **MT중앙 미반영** |
+| 판정·집계 순수함수(KpiRules) · call/work 구간(WorkSpanMath) | **완료(2026-09-18)** — 두 축 비가동, 경계 초과 제외, 미분류, 사분위·게이트, call 유형(o~i/o~o), 스냅, work 봉투. 테스트 KpiRules 30 · WorkSpanMath 22 |
+| 기준선 R·W·MT중앙(BaselineService) · 사이클 적재(CycleIngestService) | **완료(2026-09-18)** — 셋 다 분기별, W 에 Q1·Q3 동봉. 적재기는 §2.2 call 구간 → 분기 call 제외 → work 봉투·MT·초과 → 게이트 박제. 출처는 3차에서 교체 |
 | 접속 이력·심박(LinkEventRecorder) — Agent 1초 심박 첫 구독 | 완료 |
-| 연표 API(/api/kpi/timeline · cycle/{id}/works · settings) | 완료. **mt · mtMedian · worstAxis 필드 미반영** |
+| 연표 API(/api/kpi/timeline · cycle/{id}/works · settings) | **완료(2026-09-18)** — 세그먼트에 mt · mtMedian · axis · mtRatio, work 에 gated, 제외 개수에 unclassified · overflow, 설정에 계수 6개 |
+| 스키마 v4 (`cycle.mtMedianUsedMs/overflowMs`, `cycleWork.gated`, `baseline.q1Ms/q3Ms/scope='MT'`) | **완료(2026-09-18)** — 파생 표 재생성, spec v68.2 |
 | 3페이지 공용 한줄 연표 · 간트 리본 판정 오버레이 · 설정 카드 | 완료 |
 | 단일 DB 전환(경로·기동 순서·구 DB 삭제) | 완료 |
 | **1차 — 원시 신호 계층 교체** | **완료** — system · tag · signal 로 이전 |
@@ -454,11 +460,8 @@ DSPilot 이 혼자 정한다. 허브 계약은 그대로다.
 | 태그 모니터링 조회 API(`/api/tag-monitor/*`) | 완료 — 화면은 미착수 |
 | **2차 — 채터 필터 폐기** | **완료(2026-09-18)** — 15파일에서 제거. 설정 JSON 에 남은 `chatterFilterMs` 키는 로드 시 무시된다 |
 | **3차 — 사이클·모델 계층 + 구 엔진 철거 + 화면 전환** | 미착수 |
-| call 구간 규칙(§2.2 o~i / o~o, IN 전용 제외, 뒤따르는 IN 무시) | 미착수 — `LoadWorkSpansAsync` 가 call 별 OUT↑→IN↑ 단순 합집합 |
-| 경계 100ms 스냅 · 초과 허용 5초(§3) | 미착수 |
-| MT 축 비가동 판정 · κ_MT(§5·§6) | 미착수 |
-| work 신뢰도 게이트(§4.1) | 미착수 |
-| 분기 활성 flow 는 flow head 무시(§3) | 미착수 |
+| call 구간 규칙(§2.2) · 스냅·초과(§3) · 게이트(§4.1) · MT 축(§6) · 분기 call 제외(§2.3) | **완료(2026-09-18)** — Kpi 코어. 설정 카드에 계수 6개 노출, 연표·간트 툴팁에 축 표시 |
+| 분기 활성 flow 는 flow head 무시(§3) | 미착수 — 전환 기간 출처(dspFlowHistory)가 이미 분기 경계로 도출된 행이라 지금은 우회됨. 3차 출처 교체 시 적용 |
 | work 표시 중복 제거(§9.3) | 미착수 |
 | 알람 표 이전(userTagAlertLog → alert) | 미착수 — 표는 만들어져 있음 |
 

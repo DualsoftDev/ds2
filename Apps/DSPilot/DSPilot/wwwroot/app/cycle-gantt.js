@@ -743,7 +743,11 @@
                 : '';
         }
         var tip = tone.label
-            + (k.state === 'Down' && k.worstWork ? ' · 초과 work ' + k.worstWork + ' (평소의 ' + (k.worstRatio || 0).toFixed(1) + '배)' : '')
+            + (k.state === 'Down'
+                ? (k.axis === 'Mt'
+                    ? ' · MT 초과 (평소의 ' + (k.mtRatio || 0).toFixed(1) + '배)'
+                    : (k.worstWork ? ' · 초과 work ' + k.worstWork + ' (평소의 ' + (k.worstRatio || 0).toFixed(1) + '배)' : ''))
+                : '')
             + (k.state === 'Excluded' && k.reason ? ' · ' + k.reason : '');
         var o = '<g class="kpi-mark"><title>' + esc(tip) + '</title>';
         // 윗변 띠 — 밴드 자체 색을 가리지 않으면서 상태를 한눈에 준다.

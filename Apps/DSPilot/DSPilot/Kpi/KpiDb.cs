@@ -25,11 +25,13 @@ public sealed class KpiDb
     /// 스키마 버전 — PRAGMA user_version 에 기록된다.
     /// v3(2026-09-17): 원시 계층(system · tag · signal · alert)을 이 코어가 소유한다.
     /// 시각은 정수 epoch ms 이고, 신호 값은 타입 친화도를 선언하지 않아 비트·수치·문자열이 한 칸에 들어간다.
+    /// v4(2026-09-18): MT 축 비가동(cycle.mtMedianUsedMs) · 경계 초과(cycle.overflowMs) · work 게이트(cycleWork.gated,
+    /// baseline.q1Ms/q3Ms) · MT 기준선(baseline.scope='MT'). doc/30 §3 · §4.1 · §6.
     /// </summary>
-    public const int SchemaVersion = 3;
+    public const int SchemaVersion = 4;
 
     /// <summary>판정 규칙 버전 — 사이클 행에 박제해 어떤 규칙으로 만들어진 행인지 남긴다.</summary>
-    public const string SpecVersion = "v68.1";
+    public const string SpecVersion = "v68.2";
 
     /// <summary>DB 파일 이름. 구 이름(plc.db)과 겹치지 않아야 한다.</summary>
     public const string FileName = "dspilot.db";
@@ -98,7 +100,7 @@ public sealed class KpiDb
             {
                 await using (var tx = await conn.BeginTransactionAsync(ct))
                 {
-                    foreach (var sql in SchemaV2)
+                    foreach (var sql in Schema)
                     {
                         await using var cmd = conn.CreateCommand();
                         cmd.Transaction = (SqliteTransaction)tx;
@@ -126,7 +128,7 @@ public sealed class KpiDb
                         cmd.CommandText = $"DROP TABLE IF EXISTS {name}";
                         await cmd.ExecuteNonQueryAsync(ct);
                     }
-                    foreach (var sql in SchemaV2)
+                    foreach (var sql in Schema)
                     {
                         await using var cmd = conn.CreateCommand();
                         cmd.Transaction = (SqliteTransaction)tx;
@@ -192,7 +194,7 @@ public sealed class KpiDb
     /// 스키마 — doc/30 §9. 원시 계층(system · tag · signal · alert)과 판정 계층(cycle 이하)을 함께 소유한다.
     /// 원시는 절대 버리지 않고(재생성 불가), 판정 계층만 버전이 바뀌면 다시 만든다.
     /// </summary>
-    private static readonly string[] SchemaV2 =
+    private static readonly string[] Schema =
     [
         // ── 원시 계층 ──────────────────────────────────────────────────────────
         // 시스템 = PLC 연결 하나. 이름은 표시용이고 귀속 키는 guid 다(사용자가 이름을 바꿀 수 있다).
@@ -263,41 +265,47 @@ public sealed class KpiDb
         "CREATE INDEX IF NOT EXISTS idx_alert_name_time ON alert(name, occurredMs)",
 
         // ── 판정 계층 ──────────────────────────────────────────────────────────
-        // 사이클 행. 상태 컬럼은 없다 — 상태는 조회 시 현재 κ 로 도출한다(doc/30 §5).
-        // rUsedMs · worstRatio 가 완료 시점에 박제되므로 기준선이 움직여도 과거는 변하지 않는다.
+        // 사이클 행. 상태 컬럼은 없다 — 상태와 비가동 축은 조회 시 현재 κ 로 도출한다(doc/30 §6).
+        // rUsedMs · mtMedianUsedMs · worstRatio 가 완료 시점에 박제되므로 기준선이 움직여도 과거는 변하지 않는다.
+        // mtMs = 경계→마지막 work 끝(work 사이 공백 포함), overflowMs = call 구간이 CT 끝을 넘은 최대량(허용치 비교는 조회 시).
         // 시각은 전부 정수 epoch ms — 텍스트 날짜(약 28바이트)보다 짧고 파싱 함정이 없다.
         """
         CREATE TABLE IF NOT EXISTS cycle (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            flow          TEXT    NOT NULL,
-            branch        TEXT,
-            startMs       INTEGER NOT NULL,
-            endMs         INTEGER NOT NULL,
-            ctMs          INTEGER NOT NULL,
-            mtMs          INTEGER,
-            wtMs          INTEGER,
-            rUsedMs       REAL    NOT NULL DEFAULT 0,
-            worstWork     TEXT,
-            worstRatio    REAL    NOT NULL DEFAULT 0,
-            excludeReason INTEGER NOT NULL DEFAULT 0,
-            specVersion   TEXT    NOT NULL
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            flow           TEXT    NOT NULL,
+            branch         TEXT,
+            startMs        INTEGER NOT NULL,
+            endMs          INTEGER NOT NULL,
+            ctMs           INTEGER NOT NULL,
+            mtMs           INTEGER,
+            wtMs           INTEGER,
+            rUsedMs        REAL    NOT NULL DEFAULT 0,
+            mtMedianUsedMs REAL    NOT NULL DEFAULT 0,
+            worstWork      TEXT,
+            worstRatio     REAL    NOT NULL DEFAULT 0,
+            overflowMs     INTEGER NOT NULL DEFAULT 0,
+            excludeReason  INTEGER NOT NULL DEFAULT 0,
+            specVersion    TEXT    NOT NULL
         )
         """,
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_cycle_flow_start ON cycle(flow, startMs)",
         "CREATE INDEX IF NOT EXISTS idx_cycle_start ON cycle(startMs)",
 
-        // 사이클별 work 지속시간. 비가동 판정의 근거이자 화면의 "초과 work" 표시 소스.
+        // 사이클별 work 지속시간(= call 구간 집합의 최소 시작~최대 끝). 비가동 판정의 근거이자 "초과 work" 표시 소스.
+        // gated = 그 시점 게이트(Q3/Q1)에 걸려 판정에서 빠졌는지 — 화면에 이유를 보이기 위해 박제한다.
         """
         CREATE TABLE IF NOT EXISTS cycleWork (
             cycleId    INTEGER NOT NULL REFERENCES cycle(id) ON DELETE CASCADE,
             work       TEXT    NOT NULL,
             durationMs INTEGER NOT NULL,
             wUsedMs    REAL    NOT NULL DEFAULT 0,
+            gated      INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (cycleId, work)
         ) WITHOUT ROWID
         """,
 
-        // 기준선 일별 스냅샷. scope='R' 이면 work='' (flow·분기 기준), scope='W' 면 work 별.
+        // 기준선 일별 스냅샷. scope='R'·'MT' 면 work='' (flow·분기 기준), scope='W' 면 work 별.
+        // q1Ms·q3Ms 는 W 의 게이트 근거 — 사용자가 게이트 값을 바꾸면 이 둘로 다시 가른다.
         """
         CREATE TABLE IF NOT EXISTS baseline (
             scope       TEXT    NOT NULL,
@@ -307,6 +315,8 @@ public sealed class KpiDb
             asOfDate    TEXT    NOT NULL,
             valueMs     REAL    NOT NULL,
             sampleCount INTEGER NOT NULL,
+            q1Ms        REAL,
+            q3Ms        REAL,
             PRIMARY KEY (scope, flow, branch, work, asOfDate)
         ) WITHOUT ROWID
         """,

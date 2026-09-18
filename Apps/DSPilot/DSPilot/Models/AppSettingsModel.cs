@@ -38,21 +38,49 @@ public class AppSettingsModel
 /// </summary>
 public class KpiSettings
 {
-    /// <summary>비생산 판정 계수 — <c>CT ≥ 이 값 × R</c> 이면 비생산. 기본 10.</summary>
+    /// <summary>κ_비생산 — <c>CT ≥ 이 값 × R</c> 이면 비생산. 기본 10.</summary>
     public double NonProdKappa { get; set; } = Kpi.KpiKappa.NonProdDefault;
 
-    /// <summary>비가동 판정 계수 — 어느 work 라도 <c>지속시간 &gt; 이 값 × W</c> 면 비가동(OR). 기본 2.5.</summary>
-    public double DownKappa { get; set; } = Kpi.KpiKappa.DownDefault;
+    /// <summary>κ_work — 어느 work 라도 <c>지속시간 &gt; 이 값 × W</c> 면 비가동(OR). 기본 2.5. (JSON 키는 호환을 위해 DownKappa 유지)</summary>
+    public double DownKappa { get; set; } = Kpi.KpiKappa.WorkDefault;
+
+    /// <summary>κ_MT — <c>MT &gt; 이 값 × MT중앙</c> 이면 비가동. 기본 1.5. work 보다 산포가 작아 더 조인다(doc/30 §5 · §15-⑦).</summary>
+    public double MtKappa { get; set; } = Kpi.KpiKappa.MtDefault;
 
     /// <summary>전역 양품률 %(0~100). 기본 100 — 미입력을 "미산출"로 두지 않는다(doc/30 §12-⑥).</summary>
     public double QualityPercent { get; set; } = 100.0;
 
+    /// <summary>
+    /// work 신뢰도 게이트 — Q3 ÷ Q1 이 이 값을 넘는 work 는 비가동 판정에서 뺀다. 기본 3(doc/30 §4.1).
+    /// 적재·박제 시점에 적용되어 행에 박제된다 — 바꾸면 다음 적재부터 반영된다.
+    /// </summary>
+    public double WorkGate { get; set; } = Kpi.KpiRules.WorkGateDefault;
+
+    /// <summary>
+    /// 경계 스냅(ms) — 다음 경계 직전 이 안의 OUT↑ 은 다음 사이클 것으로 귀속한다. 기본 100(스캔 한 번, doc/30 §3).
+    /// 적재 시점에 적용된다 — 바꾸면 다음 적재부터 반영된다.
+    /// </summary>
+    public long BoundarySnapMs { get; set; } = Kpi.KpiRules.BoundarySnapMsDefault;
+
+    /// <summary>경계 초과 허용(ms) — call 구간이 CT 끝을 이보다 더 넘으면 그 행은 제외(모델링 이슈). 기본 5000. 조회 시 비교(즉시 재라벨).</summary>
+    public long OverflowToleranceMs { get; set; } = Kpi.KpiKappa.OverflowMsDefault;
+
     /// <summary>원시 신호·알람 보존 일수. 0 이하면 삭제하지 않는다.</summary>
     public int RawRetentionDays { get; set; } = 90;
 
-    /// <summary>정규화된 계수·품질 묶음 — 판정·집계·표시의 단일 소스.</summary>
+    /// <summary>정규화된 조회 시점 계수 묶음 — 판정·집계·표시의 단일 소스. 게이트·스냅은 적재 시점 값이라 여기 없다.</summary>
     public Kpi.KpiKappa Resolve()
-        => new Kpi.KpiKappa(NonProdKappa, DownKappa, QualityPercent / 100.0).Normalized();
+        => new Kpi.KpiKappa(NonProdKappa, DownKappa, MtKappa, QualityPercent / 100.0, OverflowToleranceMs).Normalized();
+
+    /// <summary>정규화된 게이트 값.</summary>
+    public double ResolveWorkGate()
+        => double.IsFinite(WorkGate) && WorkGate > 0
+            ? Math.Clamp(WorkGate, Kpi.KpiRules.WorkGateMin, Kpi.KpiRules.WorkGateMax)
+            : Kpi.KpiRules.WorkGateDefault;
+
+    /// <summary>정규화된 스냅 값(ms).</summary>
+    public long ResolveBoundarySnapMs()
+        => Math.Clamp(BoundarySnapMs, 0, Kpi.KpiRules.BoundarySnapMsMax);
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

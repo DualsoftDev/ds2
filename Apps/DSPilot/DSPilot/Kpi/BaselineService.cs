@@ -4,9 +4,10 @@
 namespace DSPilot.Kpi;
 
 /// <summary>
-/// 기준선 R·W 의 14일 이동 중앙값. doc/30 §3.
+/// 기준선 R · W · MT중앙 의 14일 이동 중앙값. doc/30 §4.
 /// <para>
-/// R 은 flow(분기가 있으면 분기별) 완료 CT 의 중앙값, W 는 work 별 지속시간의 중앙값이다.
+/// 셋 다 flow(분기가 있으면 분기별) 키다. R 은 완료 CT, MT중앙 은 경계→마지막 work 끝, W 는 work 별 지속시간의
+/// 중앙값이다. W 에는 사분위(Q1·Q3)를 함께 두어 게이트(<see cref="KpiRules.IsGated"/>)의 근거로 쓴다.
 /// 표본이 <see cref="KpiRules.MinBaselineSamples"/> 미만이면 기준선을 만들지 않는다 — 그 사이클은
 /// 기준 없음으로 제외된다. 설치 직후 첫 10 사이클이 여기에 해당한다(자가 부팅).
 /// </para>
@@ -39,19 +40,28 @@ public sealed class BaselineService
         return snap.R.TryGetValue(Key(flow, branch), out var v) ? v : null;
     }
 
-    /// <summary>flow 의 work 별 현재 W(ms). 표본 부족한 work 는 빠진다.</summary>
-    public async Task<IReadOnlyDictionary<string, double>> GetWAsync(string flow, CancellationToken ct = default)
+    /// <summary>flow·분기의 현재 MT중앙(ms). 표본 부족이면 null.</summary>
+    public async Task<double?> GetMtAsync(string flow, string? branch, CancellationToken ct = default)
     {
         var snap = await EnsureAsync(ct);
-        return snap.W.TryGetValue(flow, out var m) ? m : EmptyW;
+        return snap.Mt.TryGetValue(Key(flow, branch), out var v) ? v : null;
+    }
+
+    /// <summary>flow·분기의 work 별 현재 W 와 사분위. 표본 부족한 work 는 빠진다.</summary>
+    public async Task<IReadOnlyDictionary<string, WorkBaseline>> GetWAsync(
+        string flow, string? branch, CancellationToken ct = default)
+    {
+        var snap = await EnsureAsync(ct);
+        return snap.W.TryGetValue(Key(flow, branch), out var m) ? m : EmptyW;
     }
 
     /// <summary>캐시를 즉시 무효화한다 — 사이클을 대량 적재한 직후 등.</summary>
     public void Invalidate() => _snapshot = _snapshot with { ExpiresAt = DateTime.MinValue };
 
-    private static readonly IReadOnlyDictionary<string, double> EmptyW =
-        new Dictionary<string, double>(StringComparer.Ordinal);
+    private static readonly IReadOnlyDictionary<string, WorkBaseline> EmptyW =
+        new Dictionary<string, WorkBaseline>(StringComparer.Ordinal);
 
+    // 구분자를 넣어 (flow "A", 분기 "B") 와 (flow "AB", 분기 없음) 이 한 키로 겹치지 않게 한다.
     private static string Key(string flow, string? branch) => $"{flow}{branch ?? ""}";
 
     private async Task<Snapshot> EnsureAsync(CancellationToken ct)
@@ -74,7 +84,8 @@ public sealed class BaselineService
     private async Task<Snapshot> ComputeAsync(CancellationToken ct)
     {
         var r = new Dictionary<string, double>(StringComparer.Ordinal);
-        var w = new Dictionary<string, Dictionary<string, double>>(StringComparer.Ordinal);
+        var mt = new Dictionary<string, double>(StringComparer.Ordinal);
+        var w = new Dictionary<string, IReadOnlyDictionary<string, WorkBaseline>>(StringComparer.Ordinal);
         var rows = new List<BaselineRow>();
 
         try
@@ -85,27 +96,34 @@ public sealed class BaselineService
 
             foreach (var (flow, branch) in scopes)
             {
-                var cts = await _repo.GetCtSamplesAsync(flow, branch, since, ct);
-                if (KpiRules.Median(cts) is double med)
-                {
-                    r[Key(flow, branch)] = med;
-                    rows.Add(new BaselineRow(BaselineRow.ScopeR, flow, branch ?? "", "", today, med, cts.Count));
-                }
-            }
+                var key = Key(flow, branch);
+                var br = branch ?? "";
 
-            // W 는 분기와 무관하게 flow 단위로 모은다 — work 는 물리 설비의 동작 회로다.
-            foreach (var flow in scopes.Select(s => s.Flow).Distinct(StringComparer.Ordinal))
-            {
-                var samples = await _repo.GetWorkSamplesAsync(flow, since, ct);
+                var cts = await _repo.GetCtSamplesAsync(flow, branch, since, ct);
+                if (KpiRules.Median(cts) is double medCt)
+                {
+                    r[key] = medCt;
+                    rows.Add(new BaselineRow(BaselineRow.ScopeR, flow, br, "", today, medCt, cts.Count));
+                }
+
+                var mts = await _repo.GetMtSamplesAsync(flow, branch, since, ct);
+                if (KpiRules.Median(mts) is double medMt)
+                {
+                    mt[key] = medMt;
+                    rows.Add(new BaselineRow(BaselineRow.ScopeMt, flow, br, "", today, medMt, mts.Count));
+                }
+
+                // W 는 분기별 — 같은 이름의 work 라도 기종에 따라 다른 call 집합이 남는다(doc/30 §2.3).
+                var samples = await _repo.GetWorkSamplesAsync(flow, branch, since, ct);
                 if (samples.Count == 0) continue;
-                var map = new Dictionary<string, double>(StringComparer.Ordinal);
+                var map = new Dictionary<string, WorkBaseline>(StringComparer.Ordinal);
                 foreach (var (work, list) in samples)
                 {
-                    if (KpiRules.Median(list) is not double med) continue;
-                    map[work] = med;
-                    rows.Add(new BaselineRow(BaselineRow.ScopeW, flow, "", work, today, med, list.Count));
+                    if (KpiRules.QuartilesOf(list) is not Quartiles q) continue;
+                    map[work] = new WorkBaseline(q.Median, q.Q1, q.Q3, q.Count);
+                    rows.Add(new BaselineRow(BaselineRow.ScopeW, flow, br, work, today, q.Median, q.Count, q.Q1, q.Q3));
                 }
-                if (map.Count > 0) w[flow] = map;
+                if (map.Count > 0) w[key] = map;
             }
 
             if (rows.Count > 0) await _repo.UpsertBaselineAsync(rows, ct);
@@ -116,20 +134,19 @@ public sealed class BaselineService
             return _snapshot with { ExpiresAt = DateTime.UtcNow.Add(CacheTtl) };
         }
 
-        return new Snapshot(
-            r,
-            w.ToDictionary(kv => kv.Key, kv => (IReadOnlyDictionary<string, double>)kv.Value, StringComparer.Ordinal),
-            DateTime.UtcNow.Add(CacheTtl));
+        return new Snapshot(r, mt, w, DateTime.UtcNow.Add(CacheTtl));
     }
 
     private sealed record Snapshot(
         IReadOnlyDictionary<string, double> R,
-        IReadOnlyDictionary<string, IReadOnlyDictionary<string, double>> W,
+        IReadOnlyDictionary<string, double> Mt,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, WorkBaseline>> W,
         DateTime ExpiresAt)
     {
         public static Snapshot Empty => new(
             new Dictionary<string, double>(StringComparer.Ordinal),
-            new Dictionary<string, IReadOnlyDictionary<string, double>>(StringComparer.Ordinal),
+            new Dictionary<string, double>(StringComparer.Ordinal),
+            new Dictionary<string, IReadOnlyDictionary<string, WorkBaseline>>(StringComparer.Ordinal),
             DateTime.MinValue);
     }
 }

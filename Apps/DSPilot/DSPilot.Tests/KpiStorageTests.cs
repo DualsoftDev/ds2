@@ -34,8 +34,11 @@ public sealed class KpiStorageTests : IDisposable
 
     private const long T0 = 1_800_000_000_000;   // 고정 기준 시각(epoch ms)
 
-    private static CycleRecord Cycle(long startMs, long ctMs, double r = 10_000, double worst = 0) =>
-        new("FlowA", null, startMs, startMs + ctMs, null, r, worst > 0 ? "w1" : null, worst);
+    private static CycleRecord Cycle(long startMs, long ctMs, double r = 10_000, double worst = 0, long? mt = null) =>
+        new("FlowA", null, startMs, startMs + ctMs, mt, r, 0, worst > 0 ? "w1" : null, worst);
+
+    private static CycleRecord NoBaseline(long startMs, long ctMs) =>
+        new("FlowA", null, startMs, startMs + ctMs, null, 0, 0, null, 0, 0, ExcludeReason.NoBaseline);
 
     [Fact]
     public async Task 스키마는_멱등이다()
@@ -48,19 +51,38 @@ public sealed class KpiStorageTests : IDisposable
     public async Task 사이클과_work_가_함께_저장되고_조회된다()
     {
         var id = await _repo.SaveCycleAsync(
-            Cycle(T0, 12_000, worst: 3.0),
-            [new WorkDuration("w1", 9_000, 3_000), new WorkDuration("w2", 1_000, 2_000)]);
+            Cycle(T0, 12_000, worst: 3.0, mt: 9_500),
+            [new WorkDuration("w1", 9_000, 3_000), new WorkDuration("w2", 1_000, 2_000, Gated: true)]);
         Assert.True(id > 0);
 
         var rows = await _repo.QueryCyclesAsync(T0 - 1000, T0 + 60_000);
         var row = Assert.Single(rows);
         Assert.Equal(12_000, row.CtMs);
+        Assert.Equal(9_500, row.MtMs);
+        Assert.Equal(2_500, row.WtMs);
         Assert.Equal("w1", row.WorstWork);
         Assert.Equal(ExcludeReason.None, row.Exclude);
 
         var works = await _repo.GetCycleWorksAsync(id);
         Assert.Equal(2, works.Count);
         Assert.Equal(3.0, works[0].Ratio, 6);   // 9000/3000, durationMs 내림차순 정렬
+        Assert.False(works[0].Gated);
+        Assert.True(works[1].Gated);            // 게이트 표시가 왕복한다
+    }
+
+    [Fact]
+    public async Task MT중앙과_경계초과가_박제되어_돌아온다()
+    {
+        await _repo.SaveCycleAsync(
+            new CycleRecord("FlowA", null, T0, T0 + 12_000, 9_000, 10_000, 8_000, null, 0, OverflowMs: 3_100), []);
+        var row = Assert.Single(await _repo.QueryCyclesAsync(T0 - 1, T0 + 60_000));
+        Assert.Equal(8_000, row.MtMedianUsedMs, 6);
+        Assert.Equal(3_100, row.OverflowMs);
+
+        var f = row.ToFact();
+        Assert.Equal(1.125, f.MtRatio, 6);   // 9000/8000
+        Assert.Equal(CycleState.Run, KpiRules.Classify(f, KpiKappa.Default));            // 3.1초 초과는 허용
+        Assert.Equal(CycleState.Excluded, KpiRules.Classify(f, KpiKappa.Default with { OverflowMs = 1_000 }));
     }
 
     [Fact]
@@ -94,8 +116,7 @@ public sealed class KpiStorageTests : IDisposable
     [Fact]
     public async Task 저장된_제외사유가_잘림보다_우선한다()
     {
-        await _repo.SaveCycleAsync(
-            new CycleRecord("FlowA", null, T0, T0 + 10_000, null, 0, null, 0, ExcludeReason.NoBaseline), []);
+        await _repo.SaveCycleAsync(NoBaseline(T0, 10_000), []);
         var row = Assert.Single(await _repo.QueryCyclesAsync(T0 - 1, T0 + 60_000));
         Assert.Equal(ExcludeReason.NoBaseline, row.Exclude);
     }
@@ -104,16 +125,19 @@ public sealed class KpiStorageTests : IDisposable
     public async Task 표본_조회는_제외행을_빼고_돌려준다()
     {
         for (int i = 0; i < 5; i++)
-            await _repo.SaveCycleAsync(Cycle(T0 + i * 20_000, 10_000), []);
-        await _repo.SaveCycleAsync(
-            new CycleRecord("FlowA", null, T0 + 500_000, T0 + 510_000, null, 0, null, 0, ExcludeReason.NoBaseline), []);
+            await _repo.SaveCycleAsync(Cycle(T0 + i * 20_000, 10_000, mt: 7_000 + i), []);
+        await _repo.SaveCycleAsync(NoBaseline(T0 + 500_000, 10_000), []);
 
         var samples = await _repo.GetCtSamplesAsync("FlowA", null, T0 - 1);
         Assert.Equal(5, samples.Count);
+
+        var mts = await _repo.GetMtSamplesAsync("FlowA", null, T0 - 1);
+        Assert.Equal(5, mts.Count);
+        Assert.Equal(7_000, mts.Min());
     }
 
     [Fact]
-    public async Task work_표본은_work_별로_모인다()
+    public async Task work_표본은_work_별_분기별로_모인다()
     {
         for (int i = 0; i < 3; i++)
         {
@@ -121,10 +145,18 @@ public sealed class KpiStorageTests : IDisposable
                 Cycle(T0 + i * 20_000, 10_000),
                 [new WorkDuration("w1", 3_000 + i, 0), new WorkDuration("w2", 500, 0)]);
         }
-        var map = await _repo.GetWorkSamplesAsync("FlowA", T0 - 1);
+        // 다른 분기의 같은 work 는 섞이지 않는다(doc/30 §4 — W 는 분기별).
+        await _repo.SaveCycleAsync(
+            new CycleRecord("FlowA", "Y450", T0 + 100_000, T0 + 110_000, null, 10_000, 0, null, 0),
+            [new WorkDuration("w1", 99_000, 0)]);
+
+        var map = await _repo.GetWorkSamplesAsync("FlowA", null, T0 - 1);
         Assert.Equal(2, map.Count);
         Assert.Equal(3, map["w1"].Count);
         Assert.Equal(3, map["w2"].Count);
+
+        var branched = await _repo.GetWorkSamplesAsync("FlowA", "Y450", T0 - 1);
+        Assert.Equal(99_000, Assert.Single(branched["w1"]));
     }
 
     [Fact]
@@ -166,25 +198,27 @@ public sealed class KpiStorageTests : IDisposable
     {
         // 설치 직후: 표본이 없어 R 을 못 박제한 채 들어온 행.
         var id = await _repo.SaveCycleAsync(
-            new CycleRecord("FlowA", null, T0, T0 + 30_000, null, 0, null, 0, ExcludeReason.NoBaseline),
+            new CycleRecord("FlowA", null, T0, T0 + 30_000, 26_000, 0, 0, null, 0, 0, ExcludeReason.NoBaseline),
             [new WorkDuration("w1", 24_000, 0)]);
 
         var pending = await _repo.GetPendingBaselineCyclesAsync(10);
         Assert.Equal(id, Assert.Single(pending).Id);
 
-        // 표본이 쌓여 R=10초 · W(w1)=3초 가 생긴 뒤 뒤늦게 박제.
+        // 표본이 쌓여 R=10초 · MT중앙=8초 · W(w1)=3초 가 생긴 뒤 뒤늦게 박제.
         Assert.True(await _repo.StampBaselineAsync(
-            id, 10_000, "w1", 8.0, [new WorkDuration("w1", 24_000, 3_000)]));
+            id, 10_000, 8_000, "w1", 8.0, [new WorkDuration("w1", 24_000, 3_000)]));
 
         Assert.Empty(await _repo.GetPendingBaselineCyclesAsync(10));
 
         var row = Assert.Single(await _repo.QueryCyclesAsync(T0 - 1, T0 + 60_000));
         Assert.Equal(ExcludeReason.None, row.Exclude);
         Assert.Equal(10_000, row.RUsedMs, 6);
+        Assert.Equal(8_000, row.MtMedianUsedMs, 6);
         Assert.Equal(8.0, row.WorstRatio, 6);
 
-        // 이제 다른 행과 똑같이 판정된다 — work 가 W 의 8배라 비가동.
+        // 이제 다른 행과 똑같이 판정된다 — work 가 W 의 8배라 비가동(work 축이 MT 3.25배보다 임계 대비 크다).
         Assert.Equal(CycleState.Down, KpiRules.Classify(row.ToFact(), KpiKappa.Default));
+        Assert.Equal(DownAxis.Work, KpiRules.Axis(row.ToFact(), KpiKappa.Default));
 
         var works = await _repo.GetCycleWorksAsync(id);
         Assert.Equal(3_000, Assert.Single(works).WUsedMs, 6);
@@ -195,6 +229,8 @@ public sealed class KpiStorageTests : IDisposable
     {
         await _repo.UpsertBaselineAsync([new BaselineRow("R", "FlowA", "", "", "2026-09-17", 10_000, 12)]);
         await _repo.UpsertBaselineAsync([new BaselineRow("R", "FlowA", "", "", "2026-09-17", 11_000, 13)]);
+        await _repo.UpsertBaselineAsync([new BaselineRow("W", "FlowA", "", "w1", "2026-09-17", 3_000, 20, 2_500, 3_600)]);
+        await _repo.UpsertBaselineAsync([new BaselineRow("MT", "FlowA", "", "", "2026-09-17", 8_000, 12)]);
         // 예외 없이 통과하면 PK 충돌이 갱신으로 흡수된 것.
     }
 

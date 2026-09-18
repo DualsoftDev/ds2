@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace DSPilot.Controllers;
 
 /// <summary>
-/// 시간 기반 코어 v68 의 HTTP 표면. doc/30 §8.
+/// 시간 기반 코어 v68 의 HTTP 표면. doc/30 §9.
 /// <para>
 /// 설비효율(OEE) · 생산효율(TEEP) · 가동시간 분석 세 페이지가 <b>이 엔드포인트 하나</b>를 공유한다.
 /// 구간을 정하면 그 안의 CT 개수와 상태를 한줄 연표로 그릴 재료를 돌려준다. 페이지마다 다른 것은
@@ -34,7 +34,7 @@ public sealed class KpiController : ControllerBase
 
     /// <summary>
     /// 구간 안의 사이클 개수·상태·KPI. 유효 행(구간에 완전히 들어온 행)만 계산에 들어가고,
-    /// 잘림·미상·진행 중·기준 없음은 연표에만 표시된다.
+    /// 잘림·미상·진행 중·미분류·기준 없음·경계 초과는 연표에만 표시된다.
     /// </summary>
     [HttpGet("timeline")]
     public async Task<ActionResult<KpiTimelineDto>> Timeline(
@@ -55,23 +55,25 @@ public sealed class KpiController : ControllerBase
         var links = await _repo.QueryLinkEventsAsync(fromMs, toMs, ct);
 
         var excluded = new List<KpiExcludedDto>();
-        int cut = 0, unknown = 0, inProgress = 0, noBaseline = 0;
+        int cut = 0, unknown = 0, inProgress = 0, noBaseline = 0, unclassified = 0, overflow = 0;
         foreach (var f in facts)
         {
             if (KpiRules.Classify(f, kappa) != CycleState.Excluded) continue;
-            var reason = KpiRules.ResolveExclude(f);
+            var reason = KpiRules.ResolveExclude(f, kappa);
             switch (reason)
             {
                 case ExcludeReason.Cut: cut++; break;
                 case ExcludeReason.InProgress: inProgress++; break;
                 case ExcludeReason.NoBaseline: noBaseline++; break;
+                case ExcludeReason.Unclassified: unclassified++; break;
+                case ExcludeReason.Overflow: overflow++; break;
                 default: unknown++; break;
             }
             excluded.Add(new KpiExcludedDto(
                 Math.Max(f.StartMs, fromMs), Math.Min(f.EndMs, toMs), reason.ToString()));
         }
 
-        // 구간 시작부터 첫 행까지는 이전 head 를 모르는 구간(UNK). 행이 하나도 없으면 구간 전체가 UNK.
+        // 구간 시작부터 첫 행까지는 이전 경계를 모르는 구간(UNK). 행이 하나도 없으면 구간 전체가 UNK.
         long firstStart = rows.Count > 0 ? rows.Min(r => r.StartMs) : toMs;
         if (firstStart > fromMs)
         {
@@ -95,31 +97,36 @@ public sealed class KpiController : ControllerBase
             branch,
             new KpiCountsDto(
                 totals.RunCount, totals.DownCount, totals.NonProdCount,
-                new KpiExcludedCountsDto(cut, unknown, inProgress, noBaseline)),
+                new KpiExcludedCountsDto(cut, unknown, inProgress, noBaseline, unclassified, overflow)),
             KpiMetricsDto.From(totals),
             segments.Select(s => new KpiSegmentDto(
                 KpiTime.ToIso(s.StartMs), KpiTime.ToIso(s.EndMs),
                 s.StartMs, s.EndMs,
                 s.State.ToString(),
                 s.State == CycleState.Excluded ? s.Reason.ToString() : null,
-                s.Cycles, s.CtMs, s.RMs, s.WorstWork, s.WorstRatio)).ToList(),
+                s.Cycles, s.CtMs, s.MtMs, s.RMs, s.MtMedianMs,
+                s.State == CycleState.Down ? s.Axis.ToString() : null,
+                s.WorstWork, s.WorstRatio, s.MtRatio)).ToList(),
             excluded,
             links.Select(l => new KpiLinkDto(
                 l.System, KpiTime.ToIso(l.AtMs), l.EndMs is long e ? KpiTime.ToIso(e) : null,
                 l.IsConnected, l.Kind, l.Detail)).ToList(),
-            new KpiKappaDto(kappa.NonProd, kappa.Down, kappa.Quality)));
+            new KpiKappaDto(kappa.NonProd, kappa.Work, kappa.Mt, kappa.Quality, kappa.OverflowMs)));
     }
 
     // ── GET /api/kpi/cycle/{id}/works ─────────────────────────────────────────
 
-    /// <summary>한 사이클의 work 지속시간 — 세그먼트 툴팁·간트 상세가 "왜 비가동인가"를 보일 때.</summary>
+    /// <summary>
+    /// 한 사이클의 work 지속시간 — 세그먼트 툴팁·간트 상세가 "왜 비가동인가"를 보일 때.
+    /// 게이트에 걸린 work 는 <c>gated</c> 로 표시되고 <c>over</c> 는 항상 false 다(판정 근거가 아니므로).
+    /// </summary>
     [HttpGet("cycle/{id:long}/works")]
     public async Task<ActionResult<List<KpiWorkDto>>> CycleWorks(long id, CancellationToken ct)
     {
         var works = await _repo.GetCycleWorksAsync(id, ct);
         var kappa = _settings.LoadSettings().Kpi.Resolve();
         return Ok(works
-            .Select(w => new KpiWorkDto(w.Work, w.DurationMs, w.WUsedMs, w.Ratio, w.Ratio > kappa.Down))
+            .Select(w => new KpiWorkDto(w.Work, w.DurationMs, w.WUsedMs, w.Ratio, w.Gated, !w.Gated && w.Ratio > kappa.Work))
             .ToList());
     }
 
@@ -131,13 +138,20 @@ public sealed class KpiController : ControllerBase
     {
         var s = _settings.LoadSettings().Kpi;
         return Ok(new KpiSettingsDto(
-            s.NonProdKappa, s.DownKappa, s.QualityPercent, s.RawRetentionDays,
-            KpiKappa.NonProdMin, KpiKappa.NonProdMax, KpiKappa.DownMin, KpiKappa.DownMax,
+            s.NonProdKappa, s.DownKappa, s.MtKappa, s.QualityPercent,
+            s.WorkGate, s.BoundarySnapMs, s.OverflowToleranceMs, s.RawRetentionDays,
+            KpiKappa.NonProdMin, KpiKappa.NonProdMax,
+            KpiKappa.WorkMin, KpiKappa.WorkMax,
+            KpiKappa.MtMin, KpiKappa.MtMax,
+            KpiRules.WorkGateMin, KpiRules.WorkGateMax,
+            0, KpiRules.BoundarySnapMsMax,
+            KpiKappa.OverflowMsMin, KpiKappa.OverflowMsMax,
             KpiRules.MinBaselineSamples, KpiRules.BaselineWindowDays));
     }
 
     /// <summary>
-    /// 계수·품질 저장. 저장 즉시 전 구간이 재라벨된다 — 상태를 저장하지 않고 조회 시 도출하기 때문이다(doc/30 §4).
+    /// 계수·품질 저장. κ 와 초과 허용치는 저장 즉시 전 구간이 재라벨된다 — 상태를 저장하지 않고 조회 시 도출하기
+    /// 때문이다(doc/30 §5). 게이트와 스냅은 적재 시점 값이라 다음 적재부터 반영된다.
     /// </summary>
     [HttpPut("settings")]
     public ActionResult<KpiSettingsDto> PutSettings([FromBody] KpiSettingsRequest req)
@@ -145,13 +159,17 @@ public sealed class KpiController : ControllerBase
         _settings.Update(m =>
         {
             if (req.NonProdKappa is double np) m.Kpi.NonProdKappa = Math.Clamp(np, KpiKappa.NonProdMin, KpiKappa.NonProdMax);
-            if (req.DownKappa is double dn) m.Kpi.DownKappa = Math.Clamp(dn, KpiKappa.DownMin, KpiKappa.DownMax);
+            if (req.DownKappa is double dn) m.Kpi.DownKappa = Math.Clamp(dn, KpiKappa.WorkMin, KpiKappa.WorkMax);
+            if (req.MtKappa is double mk) m.Kpi.MtKappa = Math.Clamp(mk, KpiKappa.MtMin, KpiKappa.MtMax);
             if (req.QualityPercent is double q) m.Kpi.QualityPercent = Math.Clamp(q, 0, 100);
+            if (req.WorkGate is double g) m.Kpi.WorkGate = Math.Clamp(g, KpiRules.WorkGateMin, KpiRules.WorkGateMax);
+            if (req.BoundarySnapMs is long sn) m.Kpi.BoundarySnapMs = Math.Clamp(sn, 0, KpiRules.BoundarySnapMsMax);
+            if (req.OverflowToleranceMs is long ov) m.Kpi.OverflowToleranceMs = Math.Clamp(ov, KpiKappa.OverflowMsMin, KpiKappa.OverflowMsMax);
             if (req.RawRetentionDays is int d) m.Kpi.RawRetentionDays = Math.Max(0, d);
         });
         _logger.LogInformation(
-            "[Kpi] settings saved — nonProd={Np} down={Dn} quality={Q}",
-            req.NonProdKappa, req.DownKappa, req.QualityPercent);
+            "[Kpi] settings saved — nonProd={Np} work={Wk} mt={Mt} quality={Q} gate={G} snap={S}ms overflow={O}ms",
+            req.NonProdKappa, req.DownKappa, req.MtKappa, req.QualityPercent, req.WorkGate, req.BoundarySnapMs, req.OverflowToleranceMs);
         return GetSettings();
     }
 
@@ -189,9 +207,10 @@ public sealed record KpiTimelineDto(
 
 public sealed record KpiCountsDto(int Run, int Down, int NonProd, KpiExcludedCountsDto Excluded);
 
-public sealed record KpiExcludedCountsDto(int Cut, int Unknown, int InProgress, int NoBaseline)
+public sealed record KpiExcludedCountsDto(
+    int Cut, int Unknown, int InProgress, int NoBaseline, int Unclassified, int Overflow)
 {
-    public int Total => Cut + Unknown + InProgress + NoBaseline;
+    public int Total => Cut + Unknown + InProgress + NoBaseline + Unclassified + Overflow;
 }
 
 /// <summary>지표. T 는 캘린더가 아니라 유효 행 CT 의 합이다.</summary>
@@ -207,11 +226,12 @@ public sealed record KpiMetricsDto(
         t.ToCount, t.TtrMs, t.TbfMs, KpiRules.Verify(t));
 }
 
-/// <summary>연표 세그먼트. 인접한 같은 상태의 사이클이 하나로 묶여 있다.</summary>
+/// <summary>연표 세그먼트. 인접한 같은 상태의 사이클이 하나로 묶여 있다. Axis 는 비가동일 때만("Work" | "Mt").</summary>
 public sealed record KpiSegmentDto(
     string Start, string End, long StartMs, long EndMs,
     string State, string? Reason,
-    int Cycles, long CtMs, double RMs, string? WorstWork, double WorstRatio);
+    int Cycles, long CtMs, long MtMs, double RMs, double MtMedianMs,
+    string? Axis, string? WorstWork, double WorstRatio, double MtRatio);
 
 public sealed record KpiExcludedDto(long StartMs, long EndMs, string Reason);
 
@@ -219,15 +239,22 @@ public sealed record KpiExcludedDto(long StartMs, long EndMs, string Reason);
 public sealed record KpiLinkDto(
     string System, string At, string? End, bool IsConnected, string Kind, string? Detail);
 
-public sealed record KpiKappaDto(double NonProd, double Down, double Quality);
+public sealed record KpiKappaDto(double NonProd, double Work, double Mt, double Quality, long OverflowMs);
 
 public sealed record KpiWorkDto(
-    string Work, long DurationMs, double WUsedMs, double Ratio, bool Over);
+    string Work, long DurationMs, double WUsedMs, double Ratio, bool Gated, bool Over);
 
 public sealed record KpiSettingsDto(
-    double NonProdKappa, double DownKappa, double QualityPercent, int RawRetentionDays,
-    double NonProdMin, double NonProdMax, double DownMin, double DownMax,
+    double NonProdKappa, double DownKappa, double MtKappa, double QualityPercent,
+    double WorkGate, long BoundarySnapMs, long OverflowToleranceMs, int RawRetentionDays,
+    double NonProdMin, double NonProdMax,
+    double DownMin, double DownMax,
+    double MtMin, double MtMax,
+    double WorkGateMin, double WorkGateMax,
+    long BoundarySnapMin, long BoundarySnapMax,
+    long OverflowMin, long OverflowMax,
     int MinBaselineSamples, int BaselineWindowDays);
 
 public sealed record KpiSettingsRequest(
-    double? NonProdKappa, double? DownKappa, double? QualityPercent, int? RawRetentionDays);
+    double? NonProdKappa, double? DownKappa, double? MtKappa, double? QualityPercent,
+    double? WorkGate, long? BoundarySnapMs, long? OverflowToleranceMs, int? RawRetentionDays);

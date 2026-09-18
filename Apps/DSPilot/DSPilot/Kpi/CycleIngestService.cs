@@ -1,8 +1,9 @@
-﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System.Globalization;
 using Dapper;
+using DSPilot.Models;
 using DSPilot.Models.Analysis;
 using DSPilot.Services;
 using Microsoft.Data.Sqlite;
@@ -10,15 +11,15 @@ using Microsoft.Data.Sqlite;
 namespace DSPilot.Kpi;
 
 /// <summary>
-/// 완료된 사이클을 시간 기반 코어 DB 로 적재한다. doc/30 §13 2~3단계.
+/// 완료된 사이클을 시간 기반 코어 DB 로 적재한다. doc/30 §2 · §3 · §4 · §13 3차.
 /// <para>
-/// 하는 일은 셋이다. ① 사이클 구간 안에서 work 별 지속시간을 재고 ② 그 시점의 기준선 R·W 를 박제하고
-/// ③ 한 트랜잭션으로 저장한다. 상태는 저장하지 않는다 — 조회 시 현재 κ 로 도출한다.
+/// 하는 일은 넷이다. ① 신호에서 call 구간(§2.2)을 만들고 ② 사이클마다 분기 제외 call 을 뺀 뒤 work 구간(§2.3)·
+/// MT(§2.4)·경계 초과(§3)를 재고 ③ 그 시점의 기준선 R·W·MT중앙 과 게이트(§4.1)를 박제하고 ④ 한 트랜잭션으로
+/// 저장한다. 상태는 저장하지 않는다 — 조회 시 현재 κ 로 도출한다.
 /// </para>
 /// <para>
-/// ★ 전환 기간의 사이클 <b>출처</b>는 구 파이프라인의 산출물(dspFlowHistory)이다. head→head 경계 도출은
-/// 이미 검증된 경로라 그대로 재사용하고, 교체 완료(doc/30 §13 7단계) 시 출처만 새 수집 경로로 바꾼다.
-/// 여기서 하는 계산(work 지속시간·박제·저장)은 그때도 그대로 남는다.
+/// ★ 전환 기간의 사이클 <b>출처</b>는 구 파이프라인의 산출물(dspFlowHistory)이다. 경계 도출과 분기 판별은 이미
+/// 검증된 경로라 그대로 재사용하고, 3차 완료 시 출처만 새 수집 경로로 바꾼다. 여기서 하는 계산은 그때도 그대로 남는다.
 /// </para>
 /// </summary>
 public sealed class CycleIngestService : BackgroundService
@@ -35,11 +36,12 @@ public sealed class CycleIngestService : BackgroundService
     /// <summary>한 번에 기준선을 뒤늦게 찍어 줄 최대 행 수.</summary>
     private const int BackfillLimit = 2000;
 
-    /// <summary>work 신호를 조회할 때 사이클 앞뒤로 두는 여유(ms) — 경계에 걸친 OUT↑/IN↑ 짝을 놓치지 않기 위함.</summary>
+    /// <summary>call 신호를 조회할 때 사이클 앞뒤로 두는 여유(ms) — 경계에 걸친 OUT↑/IN↑ 짝을 놓치지 않기 위함.</summary>
     private const long SignalPadMs = 60_000;
 
     private readonly KpiRepository _repo;
     private readonly BaselineService _baselines;
+    private readonly AppSettingsService _settings;
     private readonly IDatabasePathResolver _paths;
     private readonly IServiceScopeFactory _scopes;
     private readonly ILogger<CycleIngestService> _logger;
@@ -47,12 +49,14 @@ public sealed class CycleIngestService : BackgroundService
     public CycleIngestService(
         KpiRepository repo,
         BaselineService baselines,
+        AppSettingsService settings,
         IDatabasePathResolver paths,
         IServiceScopeFactory scopes,
         ILogger<CycleIngestService> logger)
     {
         _repo = repo;
         _baselines = baselines;
+        _settings = settings;
         _paths = paths;
         _scopes = scopes;
         _logger = logger;
@@ -95,6 +99,10 @@ public sealed class CycleIngestService : BackgroundService
         var pending = await ReadPendingAsync(ct);
         if (pending.Count == 0) return 0;
 
+        var kpi = _settings.LoadSettings().Kpi;
+        double gate = kpi.ResolveWorkGate();
+        long snapMs = kpi.ResolveBoundarySnapMs();
+
         int saved = 0;
         foreach (var group in pending.GroupBy(c => c.Flow, StringComparer.Ordinal))
         {
@@ -102,38 +110,48 @@ public sealed class CycleIngestService : BackgroundService
             var flow = group.Key;
             var rows = group.OrderBy(c => c.StartMs).ToList();
 
-            var workSpans = await LoadWorkSpansAsync(
+            var callSpans = await LoadCallSpansAsync(
                 flow, rows[0].StartMs - SignalPadMs, rows[^1].EndMs + SignalPadMs, ct);
 
-            var wBaseline = await _baselines.GetWAsync(flow, ct);
+            // 스냅 대상 경계 = 이 배치의 모든 사이클 시작·끝(오름차순).
+            var boundaries = rows.SelectMany(r => new[] { r.StartMs, r.EndMs }).Distinct().OrderBy(x => x).ToList();
+
+            var branchSet = _settings.GetFlowBranchSet(flow);
+            bool hasBranches = branchSet is { Branches.Count: > 0 };
 
             foreach (var src in rows)
             {
-                var r = await _baselines.GetRAsync(flow, src.Branch, ct);
+                // 분기가 있는 flow 에서 어느 분기도 아니면 미분류 — 계산·표본 밖. 구간은 재서 보여 주되 기준선은 박제하지 않는다.
+                bool unclassified = hasBranches && string.IsNullOrWhiteSpace(src.Branch);
+                var excl = unclassified ? EmptyNames : ExcludedCallsOf(branchSet, src.Branch);
 
-                var works = new List<WorkDuration>();
-                double worstRatio = 0;
-                string? worstWork = null;
+                var (measured, mt, overflow) = MeasureCycle(callSpans, excl, src.StartMs, src.EndMs, boundaries, snapMs);
 
-                foreach (var (work, spans) in workSpans)
+                if (unclassified)
                 {
-                    long dur = WorkSpanMath.OverlapMs(spans, src.StartMs, src.EndMs);
-                    if (dur <= 0) continue;
-                    double wUsed = wBaseline.TryGetValue(work, out var wv) ? wv : 0;
-                    var wd = new WorkDuration(work, dur, wUsed);
-                    works.Add(wd);
-                    if (wd.Ratio > worstRatio) { worstRatio = wd.Ratio; worstWork = work; }
+                    var works0 = measured.Select(m => new WorkDuration(m.Work, m.DurationMs, 0)).ToList();
+                    var rec0 = new CycleRecord(flow, null, src.StartMs, src.EndMs, mt, 0, 0, null, 0, overflow, ExcludeReason.Unclassified);
+                    if (await _repo.SaveCycleAsync(rec0, works0, ct) > 0) saved++;
+                    continue;
                 }
+
+                var r = await _baselines.GetRAsync(flow, src.Branch, ct);
+                var mtMed = await _baselines.GetMtAsync(flow, src.Branch, ct);
+                var wBase = await _baselines.GetWAsync(flow, src.Branch, ct);
+
+                var (works, worstWork, worstRatio) = Stamp(measured, wBase, gate);
 
                 var record = new CycleRecord(
                     flow,
                     src.Branch,
                     src.StartMs,
                     src.EndMs,
-                    src.MtMs,
+                    mt,
                     r ?? 0,
+                    mtMed ?? 0,
                     worstWork,
                     worstRatio,
+                    overflow,
                     r is null ? ExcludeReason.NoBaseline : ExcludeReason.None);
 
                 if (await _repo.SaveCycleAsync(record, works, ct) > 0) saved++;
@@ -155,36 +173,121 @@ public sealed class CycleIngestService : BackgroundService
         var pending = await _repo.GetPendingBaselineCyclesAsync(BackfillLimit, ct);
         if (pending.Count == 0) return 0;
 
+        double gate = _settings.LoadSettings().Kpi.ResolveWorkGate();
+
         int done = 0;
-        foreach (var group in pending.GroupBy(p => p.Flow, StringComparer.Ordinal))
+        foreach (var (id, flow, branch) in pending)
         {
-            var wBaseline = await _baselines.GetWAsync(group.Key, ct);
-            foreach (var (id, flow, branch) in group)
-            {
-                ct.ThrowIfCancellationRequested();
-                if (await _baselines.GetRAsync(flow, branch, ct) is not double r) continue;
+            ct.ThrowIfCancellationRequested();
+            if (await _baselines.GetRAsync(flow, branch, ct) is not double r) continue;
+            var mtMed = await _baselines.GetMtAsync(flow, branch, ct) ?? 0;
+            var wBase = await _baselines.GetWAsync(flow, branch, ct);
 
-                var works = await _repo.GetCycleWorksAsync(id, ct);
-                var stamped = new List<WorkDuration>(works.Count);
-                double worstRatio = 0;
-                string? worstWork = null;
-                foreach (var w in works)
-                {
-                    double wUsed = wBaseline.TryGetValue(w.Work, out var wv) ? wv : 0;
-                    var wd = new WorkDuration(w.Work, w.DurationMs, wUsed);
-                    stamped.Add(wd);
-                    if (wd.Ratio > worstRatio) { worstRatio = wd.Ratio; worstWork = w.Work; }
-                }
+            var works = await _repo.GetCycleWorksAsync(id, ct);
+            var (stamped, worstWork, worstRatio) = Stamp(works.Select(w => (w.Work, w.DurationMs)).ToList(), wBase, gate);
 
-                if (await _repo.StampBaselineAsync(id, r, worstWork, worstRatio, stamped, ct)) done++;
-            }
+            if (await _repo.StampBaselineAsync(id, r, mtMed, worstWork, worstRatio, stamped, ct)) done++;
         }
         return done;
     }
 
+    // ── 측정 ──────────────────────────────────────────────────────────────────
+
+    /// <summary>한 call 의 이름·소속 work·구간 목록(§2.2 규칙으로 만든 것).</summary>
+    private sealed record CallSpanSet(string CallName, string Work, List<Span> Spans);
+
+    private static readonly HashSet<string> EmptyNames = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>이 분기의 제외 call 이름 집합. 분기 정의가 없거나 이름이 안 맞으면 빈 집합(= 아무것도 빼지 않음).</summary>
+    private static HashSet<string> ExcludedCallsOf(FlowBranchSet? set, string? branch)
+    {
+        if (set is null || string.IsNullOrWhiteSpace(branch)) return EmptyNames;
+        var def = set.Branches.FirstOrDefault(b => string.Equals(b.Name, branch, StringComparison.OrdinalIgnoreCase));
+        if (def is null) return EmptyNames;
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var n in def.ExcludedCallNames)
+        {
+            // 자기 시작/끝 call 이 제외 목록에 섞여 있으면 무시 — 분기 판별 경로와 같은 방어.
+            if (string.Equals(n, def.StartCallName, StringComparison.OrdinalIgnoreCase)) continue;
+            if (string.Equals(n, def.EndCallName, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.IsNullOrWhiteSpace(n)) names.Add(n.Trim());
+        }
+        return names;
+    }
+
+    /// <summary>
+    /// 사이클 [cs, ce) 안의 work 구간·MT·경계 초과(doc/30 §2.3 · §2.4 · §3).
+    /// <list type="bullet">
+    ///   <item>제외 call 은 뺀다(call 단위). 남은 call 구간 중 시작이 이 사이클에 속하는 것만 본다 — 시작은 스냅 뒤 시각.</item>
+    ///   <item>work 구간 = 그 work 에 속한 call 구간들의 최소 시작 ~ 최대 끝. 더하지 않는다.</item>
+    ///   <item>MT = 경계 → 마지막 work 끝(사이클 끝에서 자름). work 사이 공백을 포함한다.</item>
+    ///   <item>초과 = call 구간 끝이 사이클 끝을 넘은 최대량. 허용치 비교는 조회 시(κ).</item>
+    /// </list>
+    /// </summary>
+    private static (List<(string Work, long DurationMs)> Works, long? MtMs, long OverflowMs) MeasureCycle(
+        IReadOnlyList<CallSpanSet> calls, HashSet<string> excluded, long cs, long ce,
+        IReadOnlyList<long> boundaries, long snapMs)
+    {
+        var env = new Dictionary<string, (long S, long E)>(StringComparer.Ordinal);
+        long lastEnd = long.MinValue;
+        long overflow = 0;
+
+        foreach (var call in calls)
+        {
+            if (excluded.Count > 0 && excluded.Contains(call.CallName)) continue;
+            foreach (var span in call.Spans)
+            {
+                long start = WorkSpanMath.Snap(span.S, boundaries, snapMs);
+                if (start < cs || start >= ce) continue;
+
+                if (env.TryGetValue(call.Work, out var cur))
+                    env[call.Work] = (Math.Min(cur.S, span.S), Math.Max(cur.E, span.E));
+                else
+                    env[call.Work] = (span.S, span.E);
+
+                if (span.E > lastEnd) lastEnd = span.E;
+                if (span.E > ce) overflow = Math.Max(overflow, span.E - ce);
+            }
+        }
+
+        var works = new List<(string, long)>(env.Count);
+        foreach (var (work, (s, e)) in env)
+            if (e > s) works.Add((work, e - s));
+
+        long? mt = lastEnd > cs ? Math.Min(lastEnd, ce) - cs : null;
+        return (works, mt, overflow);
+    }
+
+    /// <summary>
+    /// work 별 지속시간에 기준선 W 와 게이트를 박제하고, 게이트를 통과한 work 중 최악 배율을 고른다(doc/30 §4.1).
+    /// 기준선이 없는 work 는 W=0 으로 남아 비교에서 빠진다.
+    /// </summary>
+    private static (List<WorkDuration> Works, string? WorstWork, double WorstRatio) Stamp(
+        IReadOnlyList<(string Work, long DurationMs)> measured,
+        IReadOnlyDictionary<string, WorkBaseline> wBase, double gate)
+    {
+        var list = new List<WorkDuration>(measured.Count);
+        double worst = 0;
+        string? worstWork = null;
+        foreach (var (work, dur) in measured)
+        {
+            WorkDuration wd;
+            if (wBase.TryGetValue(work, out var wb))
+            {
+                bool gated = KpiRules.IsGated(new Quartiles(wb.Q1Ms, wb.MedianMs, wb.Q3Ms, wb.SampleCount), gate);
+                wd = new WorkDuration(work, dur, wb.MedianMs, gated);
+            }
+            else wd = new WorkDuration(work, dur, 0);
+
+            list.Add(wd);
+            if (!wd.Gated && wd.Ratio > worst) { worst = wd.Ratio; worstWork = work; }
+        }
+        return (list, worstWork, worst);
+    }
+
     // ── 출처(전환 기간): 구 파이프라인의 완료 사이클 ─────────────────────────────
 
-    private sealed record SourceCycle(string Flow, string? Branch, long StartMs, long EndMs, long? MtMs);
+    private sealed record SourceCycle(string Flow, string? Branch, long StartMs, long EndMs);
 
     private async Task<List<SourceCycle>> ReadPendingAsync(CancellationToken ct)
     {
@@ -196,10 +299,10 @@ public sealed class CycleIngestService : BackgroundService
         await using var conn = new SqliteConnection($"Data Source={legacyPath};Mode=ReadOnly;Default Timeout=20");
         await conn.OpenAsync(ct);
 
-        // recordedAt 은 사이클의 <b>끝</b>(= 다음 head). 시작은 끝 − ct.
+        // recordedAt 은 사이클의 <b>끝</b>(= 다음 경계). 시작은 끝 − ct. mt 는 tail 기준이라 쓰지 않는다 — 여기서 work 로 다시 잰다.
         var raw = await conn.QueryAsync(new CommandDefinition(
             """
-            SELECT flowName AS FlowName, branchName AS BranchName, ct AS Ct, mt AS Mt, recordedAt AS RecordedAt
+            SELECT flowName AS FlowName, branchName AS BranchName, ct AS Ct, recordedAt AS RecordedAt
             FROM dspFlowHistory
             WHERE ct > 0 AND recordedAt IS NOT NULL
             ORDER BY recordedAt DESC
@@ -219,12 +322,7 @@ public sealed class CycleIngestService : BackgroundService
             long mark = watermarks.TryGetValue(flow, out var m) ? m : 0;
             if (end <= mark) continue;
 
-            list.Add(new SourceCycle(
-                flow,
-                r.BranchName as string,
-                end - cts,
-                end,
-                r.Mt is null ? null : Convert.ToInt64(r.Mt)));
+            list.Add(new SourceCycle(flow, r.BranchName as string, end - cts, end));
 
             if (list.Count >= BatchLimit) break;
         }
@@ -242,12 +340,13 @@ public sealed class CycleIngestService : BackgroundService
     }
 
     /// <summary>
-    /// flow 의 work 별 "실제로 움직인" 구간. 신호에서 call 의 OUT↑→IN↑ 을 짝지어 work 단위로 합집합한다.
+    /// flow 의 call 별 구간(doc/30 §2.2). 신호에서 call 마다 OUT ON 구간과 IN 상승을 모아 유형(o~i / o~o)을 정하고
+    /// 구간을 만든다. IN 만 있는 call 은 여기서 빠진다. 채터 필터 없는 원본을 쓴다.
     /// </summary>
-    private async Task<Dictionary<string, List<Span>>> LoadWorkSpansAsync(
+    private async Task<List<CallSpanSet>> LoadCallSpansAsync(
         string flow, long fromMs, long toMs, CancellationToken ct)
     {
-        var result = new Dictionary<string, List<Span>>(StringComparer.Ordinal);
+        var result = new List<CallSpanSet>();
         try
         {
             using var scope = _scopes.CreateScope();
@@ -256,34 +355,35 @@ public sealed class CycleIngestService : BackgroundService
             var data = await analysis.GetActualIoSignalSegmentsInTimeRangeAsync(
                 flow, KpiTime.ToLocal(fromMs), KpiTime.ToLocal(toMs), maxItems: null);
 
-            // work → call → (OUT↑ 목록, IN↑ 목록)
-            var byWork = new Dictionary<string, Dictionary<Guid, (List<long> Out, List<long> In)>>(StringComparer.Ordinal);
+            // call → (이름, work, OUT ON 구간, IN 상승)
+            var byCall = new Dictionary<Guid, (string Name, string Work, List<(long Rise, long Fall)> Outs, List<long> Ins)>();
             foreach (var item in data.Items)
             {
                 var work = string.IsNullOrWhiteSpace(item.WorkName) ? item.CallName : item.WorkName;
                 if (string.IsNullOrWhiteSpace(work)) continue;
 
-                if (!byWork.TryGetValue(work, out var calls))
-                    byWork[work] = calls = new Dictionary<Guid, (List<long>, List<long>)>();
-                if (!calls.TryGetValue(item.CallId, out var pair))
-                    calls[item.CallId] = pair = ([], []);
+                if (!byCall.TryGetValue(item.CallId, out var c))
+                    byCall[item.CallId] = c = (item.CallName ?? "", work, [], []);
 
-                long at = KpiTime.ToMs(item.GoingStartTime);
-                if (item.EventType == IOEventType.OutTag) pair.Out.Add(at);
-                else pair.In.Add(at);
+                long rise = KpiTime.ToMs(item.GoingStartTime);
+                if (item.EventType == IOEventType.OutTag)
+                {
+                    // 하강을 모르는 열린 구간은 Fall ≤ Rise 로 넘겨 o~o 에서 버려지게 한다.
+                    long fall = item.FinishTime is DateTime ft ? KpiTime.ToMs(ft) : rise;
+                    c.Outs.Add((rise, fall));
+                }
+                else c.Ins.Add(rise);
             }
 
-            foreach (var (work, calls) in byWork)
+            foreach (var (_, c) in byCall)
             {
-                var spans = new List<Span>();
-                foreach (var (_, pair) in calls) spans.AddRange(WorkSpanMath.Pair(pair.Out, pair.In));
-                var merged = WorkSpanMath.Union(spans);
-                if (merged.Count > 0) result[work] = merged;
+                var spans = WorkSpanMath.CallSpans(c.Outs, c.Ins);
+                if (spans.Count > 0) result.Add(new CallSpanSet(c.Name, c.Work, spans));
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[Kpi] work span load failed — flow={Flow}", flow);
+            _logger.LogWarning(ex, "[Kpi] call span load failed — flow={Flow}", flow);
         }
         return result;
     }

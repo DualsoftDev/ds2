@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Dapper;
@@ -40,13 +40,14 @@ public sealed class KpiRepository
             var id = await conn.ExecuteScalarAsync<long>(new CommandDefinition(
                 """
                 INSERT INTO cycle (flow, branch, startMs, endMs, ctMs, mtMs, wtMs,
-                                   rUsedMs, worstWork, worstRatio, excludeReason, specVersion)
+                                   rUsedMs, mtMedianUsedMs, worstWork, worstRatio, overflowMs, excludeReason, specVersion)
                 VALUES (@Flow, @Branch, @StartMs, @EndMs, @CtMs, @MtMs, @WtMs,
-                        @RUsedMs, @WorstWork, @WorstRatio, @Exclude, @Spec)
+                        @RUsedMs, @MtMedianUsedMs, @WorstWork, @WorstRatio, @OverflowMs, @Exclude, @Spec)
                 ON CONFLICT(flow, startMs) DO UPDATE SET
                     branch=excluded.branch, endMs=excluded.endMs, ctMs=excluded.ctMs,
-                    mtMs=excluded.mtMs, wtMs=excluded.wtMs, rUsedMs=excluded.rUsedMs,
-                    worstWork=excluded.worstWork, worstRatio=excluded.worstRatio,
+                    mtMs=excluded.mtMs, wtMs=excluded.wtMs,
+                    rUsedMs=excluded.rUsedMs, mtMedianUsedMs=excluded.mtMedianUsedMs,
+                    worstWork=excluded.worstWork, worstRatio=excluded.worstRatio, overflowMs=excluded.overflowMs,
                     excludeReason=excluded.excludeReason, specVersion=excluded.specVersion
                 RETURNING id
                 """,
@@ -60,8 +61,10 @@ public sealed class KpiRepository
                     cycle.MtMs,
                     cycle.WtMs,
                     cycle.RUsedMs,
+                    cycle.MtMedianUsedMs,
                     cycle.WorstWork,
                     cycle.WorstRatio,
+                    cycle.OverflowMs,
                     Exclude = (int)cycle.Exclude,
                     Spec = KpiDb.SpecVersion,
                 },
@@ -73,8 +76,11 @@ public sealed class KpiRepository
             if (works.Count > 0)
             {
                 await conn.ExecuteAsync(new CommandDefinition(
-                    "INSERT INTO cycleWork (cycleId, work, durationMs, wUsedMs) VALUES (@id, @Work, @DurationMs, @WUsedMs)",
-                    works.Select(w => new { id, w.Work, w.DurationMs, w.WUsedMs }),
+                    """
+                    INSERT INTO cycleWork (cycleId, work, durationMs, wUsedMs, gated)
+                    VALUES (@id, @Work, @DurationMs, @WUsedMs, @Gated)
+                    """,
+                    works.Select(w => new { id, w.Work, w.DurationMs, w.WUsedMs, Gated = w.Gated ? 1 : 0 }),
                     transaction: tx, cancellationToken: ct));
             }
 
@@ -106,10 +112,11 @@ public sealed class KpiRepository
         await using var conn = _db.Open();
         await conn.ExecuteAsync(new CommandDefinition(
             """
-            INSERT INTO baseline (scope, flow, branch, work, asOfDate, valueMs, sampleCount)
-            VALUES (@Scope, @Flow, @Branch, @Work, @AsOfDate, @ValueMs, @SampleCount)
+            INSERT INTO baseline (scope, flow, branch, work, asOfDate, valueMs, sampleCount, q1Ms, q3Ms)
+            VALUES (@Scope, @Flow, @Branch, @Work, @AsOfDate, @ValueMs, @SampleCount, @Q1Ms, @Q3Ms)
             ON CONFLICT(scope, flow, branch, work, asOfDate) DO UPDATE SET
-                valueMs=excluded.valueMs, sampleCount=excluded.sampleCount
+                valueMs=excluded.valueMs, sampleCount=excluded.sampleCount,
+                q1Ms=excluded.q1Ms, q3Ms=excluded.q3Ms
             """,
             rows, cancellationToken: ct));
     }
@@ -149,7 +156,7 @@ public sealed class KpiRepository
 
     /// <summary>
     /// 구간과 겹치는 사이클 행. 구간 경계에 걸친 행은 <see cref="ExcludeReason.Cut"/> 으로 표시해 돌려준다 —
-    /// 연표에는 잘라 그리되 개수·합산에서는 빠진다(doc/30 §2 · §5).
+    /// 연표에는 잘라 그리되 개수·합산에서는 빠진다(doc/30 §3 · §6).
     /// </summary>
     public async Task<List<CycleRow>> QueryCyclesAsync(
         long fromMs, long toMs, string? flow = null, string? branch = null, CancellationToken ct = default)
@@ -157,7 +164,7 @@ public sealed class KpiRepository
         await using var conn = _db.OpenRead();
         var sql = """
             SELECT id, flow, branch, startMs, endMs, ctMs, mtMs, wtMs,
-                   rUsedMs, worstWork, worstRatio, excludeReason
+                   rUsedMs, mtMedianUsedMs, worstWork, worstRatio, overflowMs, excludeReason
             FROM cycle
             WHERE endMs > @fromMs AND startMs < @toMs
             """;
@@ -174,7 +181,7 @@ public sealed class KpiRepository
             long start = (long)r.startMs;
             long end = (long)r.endMs;
             var stored = (ExcludeReason)(int)(long)r.excludeReason;
-            // 저장된 사유가 우선(진행 중·기준 없음). 그렇지 않으면 경계 잘림 여부로 판단.
+            // 저장된 사유가 우선(진행 중·기준 없음·미분류). 그렇지 않으면 경계 잘림 여부로 판단.
             var exclude = stored != ExcludeReason.None
                 ? stored
                 : (start < fromMs || end > toMs ? ExcludeReason.Cut : ExcludeReason.None);
@@ -189,25 +196,30 @@ public sealed class KpiRepository
                 r.mtMs is null ? (long?)null : (long)r.mtMs,
                 r.wtMs is null ? (long?)null : (long)r.wtMs,
                 Convert.ToDouble(r.rUsedMs),
+                Convert.ToDouble(r.mtMedianUsedMs),
                 r.worstWork as string,
                 Convert.ToDouble(r.worstRatio),
+                (long)r.overflowMs,
                 exclude));
         }
         return rows;
     }
 
-    /// <summary>한 사이클의 work 지속시간 — 세그먼트 툴팁·간트 상세용.</summary>
+    /// <summary>한 사이클의 work 지속시간 — 세그먼트 툴팁·간트 상세용. 게이트에 걸린 work 도 함께 준다(표시용).</summary>
     public async Task<List<WorkDuration>> GetCycleWorksAsync(long cycleId, CancellationToken ct = default)
     {
         await using var conn = _db.OpenRead();
-        var rows = await conn.QueryAsync<(string Work, long DurationMs, double WUsedMs)>(new CommandDefinition(
-            "SELECT work AS Work, durationMs AS DurationMs, wUsedMs AS WUsedMs FROM cycleWork WHERE cycleId=@cycleId ORDER BY durationMs DESC",
+        var rows = await conn.QueryAsync<(string Work, long DurationMs, double WUsedMs, long Gated)>(new CommandDefinition(
+            """
+            SELECT work AS Work, durationMs AS DurationMs, wUsedMs AS WUsedMs, gated AS Gated
+            FROM cycleWork WHERE cycleId=@cycleId ORDER BY durationMs DESC
+            """,
             new { cycleId }, cancellationToken: ct));
-        return rows.Select(r => new WorkDuration(r.Work, r.DurationMs, r.WUsedMs)).ToList();
+        return rows.Select(r => new WorkDuration(r.Work, r.DurationMs, r.WUsedMs, r.Gated != 0)).ToList();
     }
 
     /// <summary>
-    /// R 표본 — 최근 창의 완료 CT. 제외 행(진행 중·기준 없음)은 빼고, 비생산으로 보일 만큼 긴 행도
+    /// R 표본 — 최근 창의 완료 CT. 제외 행(진행 중·기준 없음·미분류)은 빼고, 비생산으로 보일 만큼 긴 행도
     /// 중앙값 특성상 자연히 밀려나므로 따로 거르지 않는다(원본 스펙 §3 의 중앙값 채택 이유).
     /// </summary>
     public async Task<List<long>> GetCtSamplesAsync(
@@ -221,18 +233,31 @@ public sealed class KpiRepository
         return rows.ToList();
     }
 
-    /// <summary>W 표본 — 최근 창에서 그 work 가 실제 실행된 사이클의 지속시간.</summary>
-    public async Task<Dictionary<string, List<long>>> GetWorkSamplesAsync(
-        string flow, long sinceMs, CancellationToken ct = default)
+    /// <summary>MT중앙 표본 — 최근 창에서 work 가 하나라도 잡힌 완료 사이클의 MT.</summary>
+    public async Task<List<long>> GetMtSamplesAsync(
+        string flow, string? branch, long sinceMs, CancellationToken ct = default)
     {
         await using var conn = _db.OpenRead();
-        var rows = await conn.QueryAsync<(string Work, long DurationMs)>(new CommandDefinition(
-            """
+        var sql = "SELECT mtMs FROM cycle WHERE flow=@flow AND startMs >= @sinceMs AND mtMs > 0 AND excludeReason = 0";
+        sql += branch is null ? " AND branch IS NULL" : " AND branch = @branch";
+        var rows = await conn.QueryAsync<long>(new CommandDefinition(
+            sql, new { flow, branch, sinceMs }, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    /// <summary>W 표본 — 최근 창에서 그 work 가 실제 실행된 사이클의 지속시간. 분기가 있으면 분기별(doc/30 §4).</summary>
+    public async Task<Dictionary<string, List<long>>> GetWorkSamplesAsync(
+        string flow, string? branch, long sinceMs, CancellationToken ct = default)
+    {
+        await using var conn = _db.OpenRead();
+        var sql = """
             SELECT w.work AS Work, w.durationMs AS DurationMs
             FROM cycleWork w JOIN cycle c ON c.id = w.cycleId
             WHERE c.flow=@flow AND c.startMs >= @sinceMs AND c.excludeReason = 0 AND w.durationMs > 0
-            """,
-            new { flow, sinceMs }, cancellationToken: ct));
+            """;
+        sql += branch is null ? " AND c.branch IS NULL" : " AND c.branch = @branch";
+        var rows = await conn.QueryAsync<(string Work, long DurationMs)>(new CommandDefinition(
+            sql, new { flow, branch, sinceMs }, cancellationToken: ct));
 
         var map = new Dictionary<string, List<long>>(StringComparer.Ordinal);
         foreach (var r in rows)
@@ -270,11 +295,11 @@ public sealed class KpiRepository
     }
 
     /// <summary>
-    /// 뒤늦게 기준선을 박제한다. 행의 R·최악 work·배율과 각 work 의 W 를 갱신하고 제외 표시를 푼다.
+    /// 뒤늦게 기준선을 박제한다. 행의 R·MT중앙·최악 work·배율과 각 work 의 W·게이트를 갱신하고 제외 표시를 푼다.
     /// 이후에는 다른 행과 똑같이 현재 κ 로 판정된다.
     /// </summary>
     public async Task<bool> StampBaselineAsync(
-        long cycleId, double rMs, string? worstWork, double worstRatio,
+        long cycleId, double rMs, double mtMedianMs, string? worstWork, double worstRatio,
         IReadOnlyList<WorkDuration> works, CancellationToken ct = default)
     {
         await using var conn = _db.Open();
@@ -283,16 +308,17 @@ public sealed class KpiRepository
         {
             await conn.ExecuteAsync(new CommandDefinition(
                 """
-                UPDATE cycle SET rUsedMs=@rMs, worstWork=@worstWork, worstRatio=@worstRatio, excludeReason=0
+                UPDATE cycle SET rUsedMs=@rMs, mtMedianUsedMs=@mtMedianMs,
+                                 worstWork=@worstWork, worstRatio=@worstRatio, excludeReason=0
                 WHERE id=@cycleId
                 """,
-                new { cycleId, rMs, worstWork, worstRatio }, transaction: tx, cancellationToken: ct));
+                new { cycleId, rMs, mtMedianMs, worstWork, worstRatio }, transaction: tx, cancellationToken: ct));
 
             if (works.Count > 0)
             {
                 await conn.ExecuteAsync(new CommandDefinition(
-                    "UPDATE cycleWork SET wUsedMs=@WUsedMs WHERE cycleId=@cycleId AND work=@Work",
-                    works.Select(w => new { cycleId, w.Work, w.WUsedMs }),
+                    "UPDATE cycleWork SET wUsedMs=@WUsedMs, gated=@Gated WHERE cycleId=@cycleId AND work=@Work",
+                    works.Select(w => new { cycleId, w.Work, w.WUsedMs, Gated = w.Gated ? 1 : 0 }),
                     transaction: tx, cancellationToken: ct));
             }
             tx.Commit();
@@ -344,7 +370,7 @@ public sealed class KpiRepository
     /// <summary>
     /// 롤링 보존 — 원시 신호와 알람에서 기준 시각 이전 행을 지운다.
     /// 원시 표는 아직 기존 이름(plcTagLog · userTagAlertLog)이고 시각이 텍스트라 문자열 경계로 비교한다.
-    /// 7단계에서 표를 정수 epoch 로 바꾸면 이 비교도 정수로 바뀐다.
+    /// 3차에서 표를 정수 epoch 로 바꾸면 이 비교도 정수로 바뀐다.
     /// </summary>
     public async Task<int> PruneRawBeforeAsync(long beforeMs, CancellationToken ct = default)
     {

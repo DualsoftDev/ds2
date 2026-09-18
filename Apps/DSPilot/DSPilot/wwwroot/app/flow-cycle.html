@@ -421,7 +421,9 @@
                                               :title="'계산에서 빠진 사이클 — 잘림 ' + (kpiCounts ? kpiCounts.excluded.cut : 0)
                                                     + ' · 미상 ' + (kpiCounts ? kpiCounts.excluded.unknown : 0)
                                                     + ' · 진행 중 ' + (kpiCounts ? kpiCounts.excluded.inProgress : 0)
-                                                    + ' · 기준 표본 부족 ' + (kpiCounts ? kpiCounts.excluded.noBaseline : 0)">
+                                                    + ' · 기준 표본 부족 ' + (kpiCounts ? kpiCounts.excluded.noBaseline : 0)
+                                                    + ' · 분기 미분류 ' + (kpiCounts ? (kpiCounts.excluded.unclassified || 0) : 0)
+                                                    + ' · 경계 초과 ' + (kpiCounts ? (kpiCounts.excluded.overflow || 0) : 0)">
                                             <i style="background:#C9CED6; border:1px solid #90a4ae;"></i>제외 <b x-text="(kpiCounts ? kpiCounts.excluded.total : 0) + '회'"></b>
                                         </span>
                                         <button type="button" class="fb-stat fg-stat-link" @click="toggleKpiOnlyIssues()"

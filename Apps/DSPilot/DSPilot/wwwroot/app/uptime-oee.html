@@ -246,12 +246,15 @@
                                 <b x-text="({Run:'가동',Down:'비가동',NonProd:'비생산',Excluded:'제외'})[ktlSelected.state]"></b>
                                 · 사이클 <span x-text="ktlSelected.cycles"></span>회
                                 · 합 <span x-text="durSum(ktlSelected.ctMs)"></span>
-                                <template x-if="ktlSelected.state === 'Down' && ktlSelected.worstWork">
+                                <template x-if="ktlSelected.state === 'Down' && ktlSelected.axis === 'Mt'">
+                                    <span> · MT 초과 (평소의 <span x-text="(ktlSelected.mtRatio || 0).toFixed(1)"></span>배)</span>
+                                </template>
+                                <template x-if="ktlSelected.state === 'Down' && ktlSelected.axis !== 'Mt' && ktlSelected.worstWork">
                                     <span> · 초과 work <b x-text="ktlSelected.worstWork"></b>
                                         (평소의 <span x-text="ktlSelected.worstRatio.toFixed(1)"></span>배)</span>
                                 </template>
                                 <template x-if="ktlSelected.reason">
-                                    <span> · <span x-text="({Cut:'구간에 잘림',Unknown:'이전 사이클 미상',InProgress:'진행 중',Gap:'기록 공백',NoBaseline:'기준 표본 부족'})[ktlSelected.reason] || ktlSelected.reason"></span> — 계산에서 빠짐</span>
+                                    <span> · <span x-text="({Cut:'구간에 잘림',Unknown:'이전 사이클 미상',InProgress:'진행 중',Gap:'기록 공백',NoBaseline:'기준 표본 부족',Unclassified:'분기 미분류',Overflow:'경계 초과(모델링 확인)'})[ktlSelected.reason] || ktlSelected.reason"></span> — 계산에서 빠짐</span>
                                 </template>
                             </span>
                         </template>

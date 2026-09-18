@@ -30,6 +30,8 @@
         Unknown: '이전 사이클 미상',
         InProgress: '진행 중',
         NoBaseline: '기준 표본 부족',
+        Unclassified: '분기 미분류',
+        Overflow: '경계 초과(모델링 확인)',
         None: '',
     };
 
@@ -143,7 +145,8 @@
         function hole(s, e, reason) {
             return {
                 startMs: s, endMs: e, state: 'Excluded', reason,
-                cycles: 0, ctMs: e - s, rMs: 0, worstWork: null, worstRatio: 0, synthetic: true,
+                cycles: 0, ctMs: e - s, mtMs: 0, rMs: 0, mtMedianMs: 0, axis: null,
+                worstWork: null, worstRatio: 0, mtRatio: 0, synthetic: true,
             };
         }
     }
@@ -157,9 +160,15 @@
         if (seg.cycles > 0) {
             rows.push(`<span class="kt-tip-k">사이클</span> ${seg.cycles}회 · 합 ${dur(seg.ctMs)}`);
             if (seg.rMs > 0) rows.push(`<span class="kt-tip-k">기준 R</span> ${dur(seg.rMs)}`);
+            if (seg.mtMs > 0) rows.push(`<span class="kt-tip-k">MT</span> ${dur(seg.mtMs)}${seg.mtMedianMs > 0 ? ' · 기준 ' + dur(seg.mtMedianMs) : ''}`);
         }
-        if (seg.state === 'Down' && seg.worstWork) {
-            rows.push(`<span class="kt-tip-k">초과 work</span> ${seg.worstWork} · 평소의 ${seg.worstRatio.toFixed(1)}배`);
+        if (seg.state === 'Down') {
+            // 비가동 축 — MT(work 사이 공백이 벌어진 정지) 또는 개별 work 초과(doc/30 §6).
+            if (seg.axis === 'Mt') {
+                rows.push(`<span class="kt-tip-k">MT 초과</span> 평소의 ${(seg.mtRatio || 0).toFixed(1)}배 — work 사이 공백이 벌어졌습니다`);
+            } else if (seg.worstWork) {
+                rows.push(`<span class="kt-tip-k">초과 work</span> ${seg.worstWork} · 평소의 ${seg.worstRatio.toFixed(1)}배`);
+            }
         }
         if (seg.state === 'Excluded') rows.push('<span class="kt-tip-k">계산에서 빠짐</span>');
         return rows.join('<br>');
