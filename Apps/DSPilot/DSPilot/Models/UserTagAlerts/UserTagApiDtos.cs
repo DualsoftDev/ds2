@@ -112,7 +112,11 @@ public record UtEditorTagDto(
     // 모니터링TAG 전용 표시·수집 메타. 단위는 AID interaction, 데드밴드·간격은 SignalPolicy 에서 온다.
     string? Unit = null,
     double? Deadband = null,
-    int? MinIntervalMs = null);
+    int? MinIntervalMs = null,
+    // 이상알람TAG 전용 귀속. 모니터링 메타의 거울상이며 사는 곳만 다르다 — 이쪽은 AASX 가 아니라
+    // DSPilot 설정(AbnormalAlarm.UserTagDeviceBindings)이다. MTBF/MTTR 회복 게이트가 볼 flow 집합을 정한다.
+    //   null = 미지정(아직 안 묶음, 지표 제외) · "" = 전역(고의, 역시 지표 제외) · 그 외 = 디바이스 이름
+    string? Device = null);
 
 /// <summary>편집기 초기 로드 — System 목록 + 태그 + 허용 값 표. HiddenPassiveCount = Passive System 에 남아 있는(편집 불가) 태그 수.</summary>
 public record UtEditorDto(
@@ -121,11 +125,15 @@ public record UtEditorDto(
     string[] ValueTypes,
     Dictionary<string, string[]> MatchOpsByType,
     int HiddenPassiveCount,
-    bool ProjectLoaded);
+    bool ProjectLoaded,
+    // 디바이스 드롭다운 소스 = AASX 모든 Call 의 DevicesAlias(중복 제거·정렬). 귀속에만 남고 모델에서
+    // 사라진 이름도 뒤에 붙여 내려보낸다 — 유령이 된 귀속을 화면에서 해제할 수 있어야 하기 때문이다.
+    List<string>? Devices = null);
 
 public record UtEditorTagInput(
     string? Name, string? TagAddress, string? ValueType, string? MatchOp, string? MatchValue, string? Level = null,
-    string? Unit = null, double? Deadband = null, int? MinIntervalMs = null);
+    string? Unit = null, double? Deadband = null, int? MinIntervalMs = null,
+    string? Device = null);
 
 /// <summary>System 별 최종 목록(통째 교체). 포함되지 않은 System 은 건드리지 않는다.</summary>
 public record UtEditorSystemInput(string SystemId, List<UtEditorTagInput> Tags);
@@ -154,6 +162,8 @@ public record UtCsvRowDto(
     // 모니터링 양식(열 8~10)에서만 채워진다. 이상알람 행에서는 언제나 null 이다.
     string? Unit = null,
     double? Deadband = null,
-    int? MinIntervalMs = null);
+    int? MinIntervalMs = null,
+    // 이상알람 양식(열 8)에서만 채워진다. null = 미지정 · "" = 전역 · 그 외 = 디바이스 이름.
+    string? Device = null);
 
 public record UtCsvParseResult(List<UtCsvRowDto> Rows, bool HeaderDetected, bool HasSystemColumn, string Encoding);

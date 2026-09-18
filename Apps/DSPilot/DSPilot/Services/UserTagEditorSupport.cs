@@ -181,6 +181,31 @@ public static class UserTagEditorSupport
     public static readonly string[] CsvHeaderMonitor =
         [.. CsvHeader, "단위", "데드밴드", "최소 기록 간격(ms)"];
 
+    /// <summary>
+    /// 이상알람TAG 양식 — 위 7컬럼 뒤에 디바이스 1칸. 모니터링 양식과 같은 자리(8열)를 쓰지만 뜻은 종류마다 다르다
+    /// (양식 자체가 탭별이라 섞이지 않는다). 앞 7칸 위치를 지켜 Promaker 6컬럼 파서와 어긋나지 않는다.
+    /// <para>이 칸을 빼면 CSV 교체 가져오기가 사용자가 묶어 둔 귀속을 조용히 지운다 — 값은 DSPilot 설정에 있고
+    /// CSV 는 그 System 의 최종 목록이기 때문이다.</para>
+    /// </summary>
+    public static readonly string[] CsvHeaderAlarm = [.. CsvHeader, "디바이스"];
+
+    /// <summary>
+    /// CSV 디바이스 칸의 '전역' 표기. 빈 칸(미지정)과 구분해야 왕복에서 두 상태가 뭉개지지 않는다.
+    /// DevicesAlias 로 쓰일 수 없는 글자라 실제 디바이스 이름과 충돌하지 않는다(Call 이름 "{alias}.{api}" 의 앞부분).
+    /// 편집기 폼의 센티넬(settings.html UT_DEVICE_GLOBAL)과 같은 글자를 쓴다.
+    /// </summary>
+    public const string CsvDeviceGlobal = "*";
+
+    /// <summary>
+    /// CSV 디바이스 칸 → 저장 표현. 빈 칸 = <c>null</c>(미지정), <see cref="CsvDeviceGlobal"/> = <c>""</c>(전역), 그 외 = 이름.
+    /// </summary>
+    public static string? ParseCsvDevice(string? cell)
+    {
+        var v = (cell ?? string.Empty).Trim();
+        if (v.Length == 0) return null;
+        return v == CsvDeviceGlobal ? string.Empty : v;
+    }
+
     public const string CsvMimeType = "text/csv; charset=utf-8";
 
     /// <summary>
@@ -193,7 +218,7 @@ public static class UserTagEditorSupport
         var lv = NormalizeLevel(level);
         var monitor = lv == LevelMonitor;
         var sb = new StringBuilder();
-        sb.AppendLine(string.Join(",", monitor ? CsvHeaderMonitor : CsvHeader));
+        sb.AppendLine(string.Join(",", monitor ? CsvHeaderMonitor : CsvHeaderAlarm));
         var any = false;
         foreach (var r in rows)
         {
@@ -209,6 +234,12 @@ public static class UserTagEditorSupport
                 cells.Add(r.Deadband?.ToString(CultureInfo.InvariantCulture) ?? string.Empty);
                 cells.Add(r.MinIntervalMs?.ToString(CultureInfo.InvariantCulture) ?? string.Empty);
             }
+            else
+            {
+                // 세 상태를 한 칸에 담는다: 빈 칸 = 미지정, CsvDeviceGlobal = 전역, 그 외 = 디바이스 이름.
+                // 전역을 빈 칸으로 내보내면 왕복에서 '아직 안 묶음' 과 뭉개진다.
+                cells.Add(Esc(r.Device is null ? string.Empty : (r.Device.Length == 0 ? CsvDeviceGlobal : r.Device)));
+            }
             sb.AppendLine(string.Join(",", cells));
         }
         if (!any && includeExample)
@@ -221,8 +252,10 @@ public static class UserTagEditorSupport
             }
             else
             {
-                sb.AppendLine(string.Join(",", "", "예시_모터과부하", LevelAlarm, "M901", "Bit", "RisingEdge", ""));
-                sb.AppendLine(string.Join(",", "", "예시_고온경보", LevelAlarm, "D100", "Word", "Gte", "1000"));
+                // 디바이스 칸: 이름 = 그 디바이스 · "*" = 전역(라인 전체 신호) · 빈 칸 = 미지정(지표 제외).
+                sb.AppendLine(string.Join(",", "", "예시_모터과부하", LevelAlarm, "M901", "Bit", "RisingEdge", "", "Conveyor1"));
+                sb.AppendLine(string.Join(",", "", "예시_비상정지", LevelAlarm, "M950", "Bit", "RisingEdge", "", CsvDeviceGlobal));
+                sb.AppendLine(string.Join(",", "", "예시_고온경보", LevelAlarm, "D100", "Word", "Gte", "1000", ""));
             }
         }
         return new UTF8Encoding(true).GetBytes(sb.ToString());
@@ -272,7 +305,9 @@ public static class UserTagEditorSupport
             var vt = Cell(off + 3);
             var op = Cell(off + 4);
             var mv = Cell(off + 5);
-            // 모니터링 양식의 덧댄 3칸. 없는 파일(Promaker 6컬럼·이상알람 양식)은 그냥 빈 값이 된다.
+            // 8열은 종류마다 뜻이 다르다 — 모니터링 양식은 단위, 이상알람 양식은 디바이스. 양식이 탭별이라 섞이지 않는다.
+            // 없는 파일(Promaker 6컬럼)은 그냥 빈 값이 된다.
+            var deviceCell = Cell(off + 6);
             var unit = Cell(off + 6);
             var deadbandCell = Cell(off + 7);
             var intervalCell = Cell(off + 8);
@@ -303,9 +338,12 @@ public static class UserTagEditorSupport
                     interval = iv;
             }
             var metaErr = entry.Level == LevelMonitor ? ValidateMonitorMeta(deadband, interval) : null;
+            // 귀속은 이상알람TAG 행에만 싣는다 — 모니터링 행에서 8열은 단위다. 이름이 모델에 없는 디바이스라도
+            // 여기서 막지 않는다(유령 귀속은 화면이 경고로 다루고, 가져오기가 태그 등록 자체를 막을 이유가 없다).
+            var device = entry.Level == LevelMonitor ? null : ParseCsvDevice(deviceCell);
             rows.Add(new UtCsvRowDto(i + 1, sys, entry.Name, entry.TagAddress, entry.ValueType, entry.MatchOp,
                 entry.MatchValue, metaErr, entry.Level, adjusted,
-                entry.Level == LevelMonitor && unit.Length > 0 ? unit : null, deadband, interval));
+                entry.Level == LevelMonitor && unit.Length > 0 ? unit : null, deadband, interval, device));
         }
         return new UtCsvParseResult(rows, headerDetected, hasSystemCol, encodingName);
     }

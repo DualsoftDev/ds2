@@ -3,6 +3,7 @@
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Ds2.Editor;
 using DSPilot.Infrastructure;
+using DSPilot.Models;
 using DSPilot.Models.UserTagAlerts;
 using DSPilot.Repositories;
 using DSPilot.Services;
@@ -201,6 +202,10 @@ public class UserTagsController : ControllerBase
         var metaBySystem = new Dictionary<Guid, Dictionary<string, MonitorTagMeta>>();
         foreach (var id in activeIds) metaBySystem[id] = _project.GetMonitorMetaForSystem(id);
 
+        // 이상알람TAG 귀속은 AASX 가 아니라 DSPilot 설정에 산다 — (System 이름, 주소) 복합키로 한 번에 색인한다.
+        var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
+            _settings.LoadSettings().AbnormalAlarm.UserTagDeviceBindings);
+
         var tags = rows
             .Where(r => activeIds.Contains(r.SystemId))
             .Select(r =>
@@ -208,18 +213,34 @@ public class UserTagsController : ControllerBase
                 MonitorTagMeta? meta = null;
                 if (metaBySystem.TryGetValue(r.SystemId, out var m) && !string.IsNullOrWhiteSpace(r.TagAddress))
                     m.TryGetValue(r.TagAddress.Trim(), out meta);
+                var level = UserTagEditorSupport.NormalizeLevel(r.LogLevel);
+                // 미지정(키 부재)은 null, 전역은 "" 로 내려보낸다 — 화면이 둘을 구분해야 커버리지가 뜻을 갖는다.
+                string? device = null;
+                if (!UserTagEditorSupport.IsMonitorLevel(level)
+                    && AbnormalDeviceFilterHelpers.TryGetBoundDevice(deviceIndex, r.SystemName, r.TagAddress, out var bound))
+                    device = bound;
                 return new UtEditorTagDto(
                     r.SystemId.ToString(), r.SystemName, r.Name, r.TagAddress,
                     UserTagEditorSupport.NormalizeValueType(r.ValueType) ?? "Bit",
                     UserTagEditorSupport.NormalizeMatchOp(r.MatchOp, r.ValueType) ?? "RisingEdge",
                     r.MatchValue,
-                    UserTagEditorSupport.NormalizeLevel(r.LogLevel),
-                    meta?.Unit, meta?.DeadbandAbsolute, meta?.MinIntervalMs);
+                    level,
+                    meta?.Unit, meta?.DeadbandAbsolute, meta?.MinIntervalMs,
+                    device);
             })
             .OrderBy(t => t.SystemName).ThenBy(t => t.Name)
             .ToList();
         var hidden = rows.Count(r => !activeIds.Contains(r.SystemId));
-        return new UtEditorDto(systems, tags, UserTagEditorSupport.ValueTypes, matchOps, hidden, true);
+
+        // 드롭다운 소스 — 모델의 디바이스 + 귀속에만 남은(모델에서 사라진) 이름. 후자를 빼면 유령 귀속을
+        // 화면에서 고를 수도 해제할 수도 없게 된다(차단 규칙 UI 의 InModel=false 와 같은 태도).
+        var devices = _project.GetDeviceAliases();
+        var known = new HashSet<string>(devices, StringComparer.OrdinalIgnoreCase);
+        foreach (var t in tags)
+            if (!string.IsNullOrEmpty(t.Device) && known.Add(t.Device))
+                devices.Add(t.Device);
+
+        return new UtEditorDto(systems, tags, UserTagEditorSupport.ValueTypes, matchOps, hidden, true, devices);
     }
 
     /// <summary>
@@ -238,6 +259,9 @@ public class UserTagsController : ControllerBase
         var nameById = _project.GetActiveSystems().ToDictionary(s => s.Id, s => s.Name);
         var bySystem = new Dictionary<Guid, IReadOnlyList<UserTagWriteEntry>>();
         var addrWarnings = new List<string>();
+        // 이상알람TAG 귀속 — AASX 가 아니라 설정에 쓴다. 요청에 든 System 의 것만 모아 두었다가
+        // export 가 성공한 뒤에 반영한다(AASX 가 실패했는데 귀속만 바뀌면 두 저장소가 어긋난다).
+        var bindingsBySystemName = new Dictionary<string, List<UserTagDeviceBinding>>(StringComparer.OrdinalIgnoreCase);
         foreach (var sysIn in req.Systems)
         {
             if (!Guid.TryParse(sysIn.SystemId, out var sid) || !nameById.TryGetValue(sid, out var sysName))
@@ -248,6 +272,9 @@ public class UserTagsController : ControllerBase
             if (bySystem.ContainsKey(sid)) { errors.Add($"{sysName}: System 이 요청에 두 번 들어 있습니다."); continue; }
 
             var entries = new List<UserTagWriteEntry>();
+            // 이 System 의 귀속은 통째 교체된다 — 요청이 최종 목록 전체이므로, 지워진 태그의 귀속은
+            // 여기 안 담겨 자동으로 사라진다(고아 방지).
+            var bindings = bindingsBySystemName[sysName] = [];
             foreach (var t in sysIn.Tags ?? [])
             {
                 var (entry, err) = UserTagEditorSupport.Normalize(
@@ -266,6 +293,17 @@ public class UserTagsController : ControllerBase
                         DeadbandAbsolute = t.Deadband is > 0 ? t.Deadband : null,
                         MinIntervalMs = t.MinIntervalMs is > 0 ? t.MinIntervalMs : null,
                     };
+                }
+                else if (t.Device is not null)
+                {
+                    // 거울상 — 귀속은 이상알람TAG 에만 뜻이 있어 모니터링TAG 에 섞여 오면 위 갈래에서 버려진다.
+                    // null(미지정)은 항목을 만들지 않고, ""(전역)은 사용자가 고의로 고른 것이라 항목을 남긴다.
+                    bindings.Add(new UserTagDeviceBinding
+                    {
+                        System = sysName,
+                        TagAddress = entry.TagAddress,
+                        Device = t.Device.Trim(),
+                    });
                 }
                 entries.Add(entry);
             }
@@ -290,7 +328,35 @@ public class UserTagsController : ControllerBase
             _logger.LogWarning("[UserTags] 편집기 적용 실패 — {Error}", result.Error);
             return new UtEditorSaveResult(false, result.Applied, warnings, errors, result.Error ?? "저장에 실패했습니다.");
         }
+
+        // AASX 가 나간 뒤에 귀속을 반영한다. 요청에 없던 System 의 귀속은 건드리지 않는다
+        // (태그 목록과 같은 규약 — "포함되지 않은 System 은 건드리지 않는다").
+        try { SaveDeviceBindings(bindingsBySystemName); }
+        catch (Exception ex)
+        {
+            // 태그 자체는 이미 저장됐으므로 실패로 뒤집지 않는다. 다만 조용히 넘기면 사용자가 묶은 것이
+            // 사라진 줄 모르므로 경고로 올린다.
+            _logger.LogError(ex, "[UserTags] 디바이스 귀속 저장 실패");
+            warnings.Add($"태그는 저장됐지만 디바이스 귀속을 저장하지 못했습니다 — {ex.Message}");
+        }
         return new UtEditorSaveResult(true, result.Applied, warnings, errors, null);
+    }
+
+    /// <summary>
+    /// 이상알람TAG 디바이스 귀속 반영 — 요청에 든 System 의 것만 통째 교체하고 나머지는 그대로 둔다.
+    /// 귀속이 AASX 가 아닌 설정에 사는 이유는 <see cref="UserTagDeviceBinding"/> 주석 참고.
+    /// </summary>
+    private void SaveDeviceBindings(Dictionary<string, List<UserTagDeviceBinding>> bindingsBySystemName)
+    {
+        if (bindingsBySystemName.Count == 0) return;
+
+        _settings.Update(m =>
+        {
+            var kept = (m.AbnormalAlarm.UserTagDeviceBindings ?? [])
+                .Where(b => !bindingsBySystemName.ContainsKey(b?.System?.Trim() ?? string.Empty));
+            m.AbnormalAlarm.UserTagDeviceBindings = AbnormalDeviceFilterHelpers.NormalizeUserTagDeviceBindings(
+                kept.Concat(bindingsBySystemName.Values.SelectMany(v => v)));
+        });
     }
 
     /// <summary>

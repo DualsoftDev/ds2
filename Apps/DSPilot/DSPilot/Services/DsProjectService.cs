@@ -430,6 +430,22 @@ public class DsProjectService
     }
 
     /// <summary>
+    /// 프로젝트 전체의 디바이스 이름(= Call "{DevicesAlias}.{ApiName}" 의 앞부분) 중복 제거·정렬 목록.
+    /// 한 디바이스가 여러 Flow/Work 의 Call 에 걸치는 것이 정상이므로(Ds2 모델 전제) 여기서 평탄화한다.
+    /// 이상감지 차단 규칙·이상알람TAG 귀속이 모두 이 어휘를 키로 쓴다.
+    /// </summary>
+    public List<string> GetDeviceAliases()
+    {
+        var set = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var flow in GetAllFlows())
+            foreach (var work in GetWorks(flow.Id))
+                foreach (var call in GetCalls(work.Id))
+                    if (!string.IsNullOrWhiteSpace(call.DevicesAlias))
+                        set.Add(call.DevicesAlias.Trim());
+        return [.. set];
+    }
+
+    /// <summary>
     /// flow 1개의 Call 조회표(GUID ↔ 이름) — 분기 정의·경계 override 의 (GUID, 이름) 이중 키 재해석 전용
     /// (<see cref="CallRefReconciler"/>). 이름은 <see cref="Call.Name"/> 그대로(화면 lane·BuildCallOptions 와 동일 소스).
     /// </summary>

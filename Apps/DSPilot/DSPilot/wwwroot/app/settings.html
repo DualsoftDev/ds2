@@ -454,6 +454,21 @@
                                         </small>
                                         <button class="btn-icon btn-sm" @click="ut.showInfo = !ut.showInfo" :title="ut.showInfo ? '설명 접기' : '자세히'"><span class="material-icons" x-text="ut.showInfo ? 'expand_less' : 'info'"></span></button>
                                     </div>
+                                    <!-- 묶음 커버리지 — 이상알람TAG 탭에서만. MTBF·MTTR 이 몇 건 위에 서 있는지 한 줄로 보여 준다.
+                                         '전역' 은 고의로 안 묶은 것이라 분모에서 빼야 진행률이 100% 에 닿는다. -->
+                                    <div class="settings-note" x-show="ut.tab === 'Error' && utDeviceCoverage.total > 0" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                        <span class="chip" :class="utDeviceCoverage.unbound === 0 ? 'chip-success' : 'chip-warning'"
+                                              x-text="'디바이스 묶음 ' + utDeviceCoverage.bound + ' / ' + utDeviceCoverage.total"></span>
+                                        <small style="flex:1;">
+                                            <span x-show="utDeviceCoverage.unbound > 0">
+                                                <b x-text="utDeviceCoverage.unbound + '건'"></b> 이 미지정이라 MTBF·MTTR 산출에서 빠집니다 — 편집에서 디바이스를 고르세요.
+                                            </span>
+                                            <span x-show="utDeviceCoverage.unbound === 0">모두 묶였습니다 — 이상·알람 분석의 MTBF·MTTR 에 전부 반영됩니다.</span>
+                                            <span x-show="utDeviceCoverage.global > 0" style="color:var(--color-text-secondary);">
+                                                (전역 <span x-text="utDeviceCoverage.global"></span>건 제외)
+                                            </span>
+                                        </small>
+                                    </div>
                                     <ul class="ut-info" x-show="ut.showInfo" x-transition.opacity>
                                         <li>적용 시 태그 주소가 그 System 의 PLC 접속 정보(AID)에 수집 대상으로 함께 등록됩니다. PLC 접속이 없는 System(<span class="material-icons ut-noep" style="cursor:default;">warning</span> 표시)은 태그는 저장되지만 수집되지 않으니 Promaker 에서 PLC 접속을 먼저 지정하세요.</li>
                                         <li>Agent 는 파일 변경을 감지해 자동 재시작합니다(수 초 모니터링 공백). 변경을 모아 한 번에 적용하는 것을 권장합니다.</li>
@@ -505,6 +520,8 @@
                                                     <th @click="utSort('valueType')">타입 <span class="material-icons ude-sort" x-text="utSortIcon('valueType')"></span></th>
                                                     <!-- 매칭 조건은 이상알람TAG 에만 뜻이 있다 — 모니터링TAG 는 값이 바뀌면 그냥 기록한다. -->
                                                     <th x-show="ut.tab === 'Error'" @click="utSort('match')">매칭 조건 <span class="material-icons ude-sort" x-text="utSortIcon('match')"></span></th>
+                                                    <!-- 이상알람TAG 전용: MTBF/MTTR 회복 판정이 볼 flow 집합을 정한다. 미지정 태그는 지표에서 빠진다. -->
+                                                    <th x-show="ut.tab === 'Error'" @click="utSort('device')" title="MTBF·MTTR 산출에 쓰입니다 — 묶인 디바이스가 쓰이는 설비(Flow)가 다시 도는지로 복구를 확인합니다">디바이스 <span class="material-icons ude-sort" x-text="utSortIcon('device')"></span></th>
                                                     <!-- 모니터링TAG 전용: 표시 단위 + 기록량을 줄이는 두 손잡이 -->
                                                     <th x-show="ut.tab === 'Info'" style="cursor:default;">단위</th>
                                                     <th x-show="ut.tab === 'Info'" style="cursor:default;" title="이만큼 넘게 변할 때만 기록합니다">데드밴드</th>
@@ -527,6 +544,10 @@
                                                             <td data-label="주소"><span class="ut-addr" style="font-family:var(--font-mono);" x-text="d.tagAddress"></span></td>
                                                             <td data-label="타입" x-text="d.valueType"></td>
                                                             <td data-label="매칭 조건" x-show="ut.tab === 'Error'" x-text="describeUtOp(d.matchOp, d.matchValue)"></td>
+                                                            <td data-label="디바이스" x-show="ut.tab === 'Error'">
+                                                                <span x-show="d.device" x-text="utDeviceLabel(d.device)"></span>
+                                                                <span x-show="!d.device" style="color:var(--color-text-disabled);" title="묶이지 않아 MTBF·MTTR 산출에서 빠집니다">미지정</span>
+                                                            </td>
                                                             <td data-label="단위" x-show="ut.tab === 'Info'" x-text="d.unit || '—'"></td>
                                                             <td data-label="데드밴드" x-show="ut.tab === 'Info'" x-text="d.deadband ? d.deadband : '모든 변화'"></td>
                                                             <td data-label="기록 간격" x-show="ut.tab === 'Info'" x-text="d.minIntervalMs ? (d.minIntervalMs + ' ms') : '제한 없음'"></td>
@@ -1682,6 +1703,26 @@
                         </template>
                     </div>
                 </div>
+                <!-- 디바이스 귀속 — MTBF·MTTR 전용. AASX 가 아니라 DSPilot 설정에 저장된다. -->
+                <div class="ut-form-row" x-show="ut.modal.f.level === 'Error'">
+                    <label>디바이스 <span style="font-weight:400;">— MTBF·MTTR 산출에만 쓰입니다</span></label>
+                    <select class="form-field" x-model="ut.modal.f.device">
+                        <option value="">미지정 — 지표에서 제외</option>
+                        <option :value="UT_DEVICE_GLOBAL">전역 — 라인 전체 신호(비상정지 등)</option>
+                        <template x-for="dev in ut.devices" :key="dev">
+                            <option :value="dev" x-text="dev"></option>
+                        </template>
+                    </select>
+                    <small class="settings-hint" x-show="!ut.modal.f.device">
+                        묶지 않으면 이 태그는 MTBF·MTTR 에 들어가지 않습니다. 복구 시점을 확인할 설비(Flow)를 특정할 수 없기 때문입니다.
+                    </small>
+                    <small class="settings-hint" x-show="ut.modal.f.device === UT_DEVICE_GLOBAL">
+                        디바이스로 묶을 수 없는 신호라고 표시만 합니다 — 지표에서는 제외되지만 '아직 안 묶음' 과 구분됩니다.
+                    </small>
+                    <small class="settings-hint" x-show="ut.modal.f.device && ut.modal.f.device !== UT_DEVICE_GLOBAL">
+                        알람이 해소되고 <b x-text="ut.modal.f.device"></b> 가 쓰이는 설비 중 하나가 다시 돌면 복구로 봅니다.
+                    </small>
+                </div>
                 <template x-if="ut.modal.f.level === 'Info'">
                     <div>
                         <div class="ut-form-row">
@@ -1756,7 +1797,8 @@
                 </div>
                 <div class="ut-csv-scroll">
                     <table class="ds-table">
-                        <thead><tr><th>#</th><th>System</th><th>이름</th><th>주소</th><th>타입</th><th>매칭 조건</th><th>결과</th></tr></thead>
+                        <!-- 디바이스는 이상알람 양식에만 있다. 지표 포함 여부가 걸린 칸이라 반영 전에 보여 준다. -->
+                        <thead><tr><th>#</th><th>System</th><th>이름</th><th>주소</th><th>타입</th><th>매칭 조건</th><th x-show="ut.csv.level !== 'Info'">디바이스</th><th>결과</th></tr></thead>
                         <tbody>
                             <template x-for="r in ut.csv.rows" :key="r.line">
                                 <tr :class="utCsvRowStatus(r).ok ? '' : 'ut-csv-bad'">
@@ -1766,10 +1808,12 @@
                                     <td style="font-family:var(--font-mono);" x-text="r.tagAddress"></td>
                                     <td x-text="r.valueType"></td>
                                     <td x-text="describeUtOp(r.matchOp, r.matchValue)"></td>
+                                    <td x-show="ut.csv.level !== 'Info'" x-text="utDeviceLabel(utDeviceFromWire(r.device))"
+                                        :style="r.device == null ? 'color:var(--color-text-disabled);' : ''"></td>
                                     <td x-text="utCsvRowStatus(r).ok ? '반영' : utCsvRowStatus(r).text" :style="utCsvRowStatus(r).skip ? 'color:var(--color-warning);' : ''"></td>
                                 </tr>
                             </template>
-                            <tr x-show="!ut.csv.rows.length"><td colspan="7" style="text-align:center; padding:16px; color:var(--color-text-secondary);">읽을 수 있는 행이 없습니다.</td></tr>
+                            <tr x-show="!ut.csv.rows.length"><td :colspan="ut.csv.level === 'Info' ? 7 : 8" style="text-align:center; padding:16px; color:var(--color-text-secondary);">읽을 수 있는 행이 없습니다.</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1829,6 +1873,7 @@
                     loading: false, loaded: false, projectLoaded: true, busy: false, error: '', showInfo: false,
                     tab: 'Error',
                     systems: [], valueTypes: [], matchOpsByType: {}, hiddenPassiveCount: 0,
+                    devices: [],
                     items: [], warnings: [], saveErrors: [],
                     q: '', sys: '', sortKey: 'systemName', sortDir: 'asc', page: 0, pageSize: 20,
                     modal: { show: false, mode: 'add', key: null, f: { systemId: '', name: '', tagAddress: '', valueType: 'Bit', matchOp: 'RisingEdge', matchValue: '', level: 'Error' }, err: {} },
@@ -1949,6 +1994,7 @@
                         this.ut.matchOpsByType = d.matchOpsByType || {};
                         this.ut.hiddenPassiveCount = d.hiddenPassiveCount || 0;
                         this.ut.projectLoaded = d.projectLoaded !== false;
+                        this.ut.devices = d.devices || [];
                         this.ut.items = (d.tags || []).map((t, i) => ({
                             key: t.systemId + '|' + i, systemId: t.systemId, systemName: t.systemName,
                             name: t.name, tagAddress: t.tagAddress, valueType: t.valueType, matchOp: t.matchOp, matchValue: t.matchValue || '',
@@ -1956,6 +2002,7 @@
                             // 모니터링 메타 — 폼에서 문자열로 다루고(빈칸 = 없음) 전송 직전에 숫자로 되돌린다.
                             unit: t.unit || '', deadband: t.deadband == null ? '' : String(t.deadband),
                             minIntervalMs: t.minIntervalMs == null ? '' : String(t.minIntervalMs),
+                            device: this.utDeviceFromWire(t.device),
                             state: '', orig: null,
                         }));
                         if (this.ut.sys && !this.ut.systems.some(s => s.systemId === this.ut.sys)) this.ut.sys = '';
@@ -1972,14 +2019,42 @@
                     if (this.ut.tab === tab) return;
                     this.ut.tab = tab;
                     this.ut.page = 0;
-                    // 정렬 키가 그 탭에 없는 컬럼(매칭 조건)이면 기본으로 되돌린다.
-                    if (tab === 'Info' && this.ut.sortKey === 'match') { this.ut.sortKey = 'systemName'; this.ut.sortDir = 'asc'; }
+                    // 정렬 키가 그 탭에 없는 컬럼(매칭 조건·디바이스)이면 기본으로 되돌린다.
+                    if (tab === 'Info' && (this.ut.sortKey === 'match' || this.ut.sortKey === 'device')) { this.ut.sortKey = 'systemName'; this.ut.sortDir = 'asc'; }
                 },
                 // 탭 배지 — 삭제 예약을 뺀 현재 목록 건수(추가 예약은 포함).
                 utTabCount(tab) { return this.ut.items.filter(i => i.level === tab && i.state !== 'del').length; },
                 // 되돌리기용 원본 스냅샷 + 변경 판정의 단일 소스. 칸이 늘 때 한 곳만 고치면 되도록 모아 둔다
                 // (세 곳에 흩어져 있던 때는 새 칸을 더해도 '수정' 표시가 안 뜨는 조용한 누락이 생겼다).
-                UT_FIELDS: ['name', 'tagAddress', 'valueType', 'matchOp', 'matchValue', 'level', 'unit', 'deadband', 'minIntervalMs'],
+                UT_FIELDS: ['name', 'tagAddress', 'valueType', 'matchOp', 'matchValue', 'level', 'unit', 'deadband', 'minIntervalMs', 'device'],
+
+                // ── 이상알람TAG 디바이스 귀속: 세 상태를 폼에서 구분해 들고 있기 ──
+                // 서버는 null(미지정) · ''(전역) · 이름 을 쓰는데, 변경 판정(utSame)이 `?? ''` 로 접기 때문에
+                // null 과 '' 를 그대로 쓰면 미지정→전역 전환이 '수정'으로 안 잡힌다. 그래서 폼에서는
+                // ''(미지정) · UT_DEVICE_GLOBAL(전역) · 이름 세 문자열로 구분하고 경계에서만 환산한다.
+                // 센티넬은 DevicesAlias 로 쓰일 수 없는 글자를 골랐다(Call 이름 "{alias}.{api}" 의 앞부분).
+                UT_DEVICE_GLOBAL: '*',
+                utDeviceFromWire(v) { return v == null ? '' : (v === '' ? this.UT_DEVICE_GLOBAL : v); },
+                utDeviceToWire(v) {
+                    if (!v) return null;                                   // 미지정 — 항목 자체를 만들지 않는다
+                    return v === this.UT_DEVICE_GLOBAL ? '' : v;           // 전역 — 빈 문자열로 명시
+                },
+                utDeviceLabel(v) {
+                    if (!v) return '미지정';
+                    return v === this.UT_DEVICE_GLOBAL ? '전역' : v;
+                },
+                // 묶음 진행률 — 삭제 예약 행은 빼고, '전역'(고의로 안 묶음)은 분모에서도 뺀다.
+                // 그래야 "묶을 게 남았나" 를 묻는 지표가 되고 100% 에 닿을 수 있다.
+                get utDeviceCoverage() {
+                    let bound = 0, unbound = 0, global = 0;
+                    for (const i of this.ut.items || []) {
+                        if (i.level === 'Info' || i.state === 'del') continue;
+                        if (i.device === this.UT_DEVICE_GLOBAL) global++;
+                        else if (i.device) bound++;
+                        else unbound++;
+                    }
+                    return { bound, unbound, global, total: bound + unbound };
+                },
                 utSnapshot(it) {
                     const o = { systemId: it.systemId, systemName: it.systemName };
                     for (const k of this.UT_FIELDS) o[k] = it[k];
@@ -2020,14 +2095,18 @@
                         if (d.level !== this.ut.tab) return false;
                         if (sys && d.systemId !== sys) return false;
                         if (q) {
-                            const hay = [d.systemName, d.name, d.tagAddress, d.valueType, this.describeUtOp(d.matchOp, d.matchValue)]
+                            // 디바이스는 원값으로 담는다 — 라벨('미지정')로 담으면 모니터링 행까지 걸린다.
+                            const hay = [d.systemName, d.name, d.tagAddress, d.valueType, this.describeUtOp(d.matchOp, d.matchValue), d.device]
                                 .map(x => (x || '').toString().toLowerCase()).join(' ');
                             if (!hay.includes(q)) return false;
                         }
                         return true;
                     });
                     const key = this.ut.sortKey, dir = this.ut.sortDir === 'asc' ? 1 : -1;
-                    const val = (d) => key === 'match' ? this.describeUtOp(d.matchOp, d.matchValue) : (d[key] ?? '');
+                    // 디바이스는 화면 라벨로 정렬한다 — 센티넬('*') 원값으로 줄세우면 '전역' 이 엉뚱한 자리에 간다.
+                    const val = (d) => key === 'match' ? this.describeUtOp(d.matchOp, d.matchValue)
+                        : key === 'device' ? this.utDeviceLabel(d.device)
+                        : (d[key] ?? '');
                     return [...list].sort((a, b) => {
                         const c = dir * val(a).toString().localeCompare(val(b).toString(), undefined, { numeric: true });
                         return c !== 0 ? c : a.name.localeCompare(b.name, undefined, { numeric: true });
@@ -2065,13 +2144,13 @@
                     const vt = lv === 'Info' ? 'Word' : 'Bit';
                     this.ut.modal = { show: true, mode: 'add', key: null, err: {},
                         f: { systemId: sysId, name: '', tagAddress: '', valueType: vt, matchOp: lv === 'Info' ? 'Changed' : 'RisingEdge', matchValue: '', level: lv,
-                             unit: '', deadband: '', minIntervalMs: '' } };
+                             unit: '', deadband: '', minIntervalMs: '', device: '' } };
                     this.$nextTick(() => this.$refs.utNameInput?.focus());
                 },
                 utOpenEdit(d) {
                     this.ut.modal = { show: true, mode: 'edit', key: d.key, err: {},
                         f: { systemId: d.systemId, name: d.name, tagAddress: d.tagAddress, valueType: d.valueType, matchOp: d.matchOp, matchValue: d.matchValue || '', level: d.level || 'Error',
-                             unit: d.unit || '', deadband: d.deadband || '', minIntervalMs: d.minIntervalMs || '' } };
+                             unit: d.unit || '', deadband: d.deadband || '', minIntervalMs: d.minIntervalMs || '', device: d.device || '' } };
                     this.$nextTick(() => this.$refs.utNameInput?.focus());
                 },
                 // 종류 전환 — 모니터링으로 가면 조건을 Changed 로 중립화하고, 알람으로 돌아오면 값 타입 기본 조건을 세운다.
@@ -2154,7 +2233,9 @@
                                    matchValue: (!isMonitor && this.utModalNeedsValue()) ? f.matchValue.trim() : '',
                                    unit: isMonitor ? (f.unit || '').trim() : '',
                                    deadband: numeric ? (f.deadband || '').toString().trim() : '',
-                                   minIntervalMs: isMonitor ? (f.minIntervalMs || '').toString().trim() : '' };
+                                   minIntervalMs: isMonitor ? (f.minIntervalMs || '').toString().trim() : '',
+                                   // 귀속은 이상알람TAG 에만 뜻이 있다 — 모니터링으로 옮기면 비운다(서버도 같은 갈래에서 버린다).
+                                   device: isMonitor ? '' : (f.device || '') };
                     const movedTab = this.ut.modal.mode === 'edit' && f.level !== this.ut.tab;
                     if (this.ut.modal.mode === 'add') {
                         this.ut.items.push({ key: 'new|' + Date.now() + '|' + Math.random().toString(36).slice(2, 7), ...vals, state: 'new', orig: null });
@@ -2214,6 +2295,8 @@
                                 unit: i.unit || null,
                                 deadband: Number(i.deadband) > 0 ? Number(i.deadband) : null,
                                 minIntervalMs: parseInt(i.minIntervalMs, 10) > 0 ? parseInt(i.minIntervalMs, 10) : null,
+                                // null = 미지정(귀속 항목 없음) · '' = 전역 · 이름 = 그 디바이스.
+                                device: i.level === 'Info' ? null : this.utDeviceToWire(i.device),
                             })),
                     }));
                     this.ut.busy = true; this.ut.saveErrors = []; this.ut.warnings = [];
@@ -2336,7 +2419,9 @@
                         toAdd.push({ systemId: s.systemId, systemName: s.systemName, name: r.name, tagAddress: r.tagAddress, valueType: r.valueType,
                                      matchOp: r.matchOp, matchValue: r.matchValue || '', level: r.level === 'Info' ? 'Info' : 'Error',
                                      unit: r.unit || '', deadband: r.deadband == null ? '' : String(r.deadband),
-                                     minIntervalMs: r.minIntervalMs == null ? '' : String(r.minIntervalMs) });
+                                     minIntervalMs: r.minIntervalMs == null ? '' : String(r.minIntervalMs),
+                                     // 서버가 CSV 8열을 이미 세 상태(null/''/이름)로 정규화해 준다 — 폼 표현으로만 옮긴다.
+                                     device: this.utDeviceFromWire(r.device) });
                     }
                     if (csv.mode === 'replace') {
                         // 교체 = 파일이 건드리는 System 의 기존 태그를 삭제 예약(적용 전 되돌리기 가능).

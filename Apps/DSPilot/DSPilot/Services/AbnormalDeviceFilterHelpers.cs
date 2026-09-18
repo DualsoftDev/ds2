@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Models;
@@ -126,5 +126,63 @@ public static class AbnormalDeviceFilterHelpers
             if (!string.IsNullOrWhiteSpace(a))
                 set.Add(a.Trim());
         return [.. set];
+    }
+
+    // ── 이상알람TAG → 디바이스 귀속 ──
+    // 키 = (System 이름, 태그 주소). MTBF/MTTR 회복 게이트가 볼 flow 집합의 근거다.
+    // 값이 빈 문자열이면 '전역'(고의로 안 묶음), 항목 자체가 없으면 '미지정'(아직 안 묶음) — 둘은 다르다.
+
+    /// <summary>(System, 주소) 복합키. 두 칸 모두 trim + 대소문자 무시로 맞춘다.</summary>
+    private static string BindingKey(string? system, string? tagAddress) =>
+        (system ?? string.Empty).Trim() + "\u0001" + (tagAddress ?? string.Empty).Trim();
+
+    /// <summary>
+    /// 귀속 목록 정규화: trim, 주소 빈 항목 제거, 같은 (System, 주소) 는 <b>뒤엣것이 이긴다</b>(편집기가
+    /// 최종 목록을 통째로 보내므로 마지막 값이 사용자의 의도다). System·주소 순 정렬.
+    /// </summary>
+    public static List<UserTagDeviceBinding> NormalizeUserTagDeviceBindings(IEnumerable<UserTagDeviceBinding>? bindings)
+    {
+        var merged = new Dictionary<string, UserTagDeviceBinding>(StringComparer.OrdinalIgnoreCase);
+        foreach (var b in bindings ?? [])
+        {
+            var addr = b?.TagAddress?.Trim();
+            if (string.IsNullOrEmpty(addr)) continue;
+            var sys = b!.System?.Trim() ?? string.Empty;
+            merged[BindingKey(sys, addr)] = new UserTagDeviceBinding
+            {
+                System = sys,
+                TagAddress = addr,
+                Device = b.Device?.Trim() ?? string.Empty,
+            };
+        }
+
+        return merged.Values
+            .OrderBy(b => b.System, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(b => b.TagAddress, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// 조회 색인 — (System, 주소) → 디바이스. 값 <c>""</c> 는 전역, <b>키 부재는 미지정</b>이라
+    /// 호출부가 <c>TryGetValue</c> 로 둘을 구분할 수 있어야 한다(빈 문자열을 null 로 접지 말 것).
+    /// </summary>
+    public static Dictionary<string, string> BuildUserTagDeviceIndex(IEnumerable<UserTagDeviceBinding>? bindings)
+    {
+        var index = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var b in NormalizeUserTagDeviceBindings(bindings))
+            index[BindingKey(b.System, b.TagAddress)] = b.Device;
+        return index;
+    }
+
+    /// <summary>
+    /// 색인에서 한 태그의 귀속을 찾는다. <c>false</c> = 미지정(지표 제외),
+    /// <c>true</c> + 빈 문자열 = 전역(역시 지표 제외지만 커버리지에서는 '묶을 필요 없음').
+    /// </summary>
+    public static bool TryGetBoundDevice(
+        IReadOnlyDictionary<string, string>? index, string? systemName, string? tagAddress, out string device)
+    {
+        device = string.Empty;
+        if (index is not { Count: > 0 } || string.IsNullOrWhiteSpace(tagAddress)) return false;
+        return index.TryGetValue(BindingKey(systemName, tagAddress), out device!);
     }
 }

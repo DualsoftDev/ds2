@@ -358,6 +358,44 @@ public class AbnormalAlarmSettings
     /// </summary>
     public List<string> UserTagFilters { get; set; } = [];
 
+    /// <summary>
+    /// 이상알람TAG(Error) → 디바이스 귀속. MTBF/MTTR 의 <b>회복 게이트가 볼 flow 집합</b>을 이것으로 정한다
+    /// (그 디바이스를 쓰는 Call 들의 Flow). 목록에 없는 태그는 볼 flow 가 없어 지표 산출에서 제외된다.
+    /// <para>
+    /// AASX 가 아니라 여기 사는 이유: 이 값은 모델의 <b>사실</b>이 아니라 모델로의 <b>참조</b>이고(디바이스 이름을
+    /// 가리킬 뿐이다), Ds2 모델에는 "디바이스가 소유한 상태 비트"를 적을 자리가 없다(디바이스는 동작(API)의
+    /// IN/OUT 으로만 정의된다). 읽는 앱도 DSPilot 하나뿐이라 공유 폴더로 나갈 이유가 없다 —
+    /// <see cref="DeviceFilters"/>(같은 디바이스 이름 키)와 κ·Q 가 이미 같은 자리에 산다.
+    /// </para>
+    /// </summary>
+    public List<UserTagDeviceBinding> UserTagDeviceBindings { get; set; } = [];
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+/// <summary>
+/// 이상알람TAG 1건의 디바이스 귀속. 키는 <b>(System, 주소) 복합키</b> — 주소만으로 묶으면 멀티 PLC 에서
+/// 두 System 이 같은 주소를 정의했을 때 구분이 안 된다(<see cref="AbnormalAlarmSettings.UserTagFilters"/> 가
+/// 주소만 써서 안고 있는 약점을 여기서 반복하지 않는다).
+/// <para>System 은 <b>이름</b>으로 잡는다. GUID 는 AASX 재발급으로 통째로 바뀐 전례가 있고(2026-09-08),
+/// 알람 해소 지정키(<c>UserTagClearKey</c>)도 SystemName 을 쓴다.</para>
+/// </summary>
+public class UserTagDeviceBinding
+{
+    /// <summary>UserTag 을 정의한 활성 System 의 이름.</summary>
+    public string System { get; set; } = "";
+
+    /// <summary>UserTag 정의의 태그 주소(정의 고유키).</summary>
+    public string TagAddress { get; set; } = "";
+
+    /// <summary>
+    /// 귀속 디바이스 = Call 이름 "{DevicesAlias}.{ApiName}" 의 DevicesAlias 부분.
+    /// <b>빈 문자열 = 전역</b>(비상정지·전원 등 디바이스로 묶을 수 없는 신호라고 사용자가 명시한 것).
+    /// 항목 자체가 없으면 <b>미지정</b>(아직 안 묶음) — 둘 다 지표에서 빠지지만 커버리지 계산에서 구분된다.
+    /// </summary>
+    public string Device { get; set; } = "";
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
