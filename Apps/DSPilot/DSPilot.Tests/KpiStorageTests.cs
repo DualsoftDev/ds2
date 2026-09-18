@@ -237,19 +237,21 @@ public sealed class KpiStorageTests : IDisposable
     [Fact]
     public async Task 보존_삭제는_기준시각_이전만_지운다()
     {
-        // 원시 신호 표는 아직 기존 이름·텍스트 시각이다(7단계에서 정수 epoch 로 교체).
-        static string Iso(long ms) => KpiTime.ToUtc(ms).ToString("yyyy-MM-dd HH:mm:ss.fffffff") + "Z";
+        // ★ 종전 이 테스트는 자기가 만든 plcTagLog(실제 스키마에 없는 표)를 지워 초록불이었다. 운영 코드는
+        //   1차 이동 뒤 signal 을 봐야 하는데 구 이름이 남아 try/catch 에 삼켜지며 0건이었다(2026-09-18).
+        //   이제 KpiDb 가 만든 진짜 signal 표(정수 epoch atMs)에 넣고 지운다.
         await using (var conn = _db.Open())
         {
             await Dapper.SqlMapper.ExecuteAsync(conn,
-                """
-                CREATE TABLE plcTagLog (id INTEGER PRIMARY KEY AUTOINCREMENT, plcTagId INTEGER NOT NULL,
-                                        dateTime DATETIME NOT NULL, value TEXT NOT NULL)
-                """);
-            await Dapper.SqlMapper.ExecuteAsync(conn,
-                "INSERT INTO plcTagLog (plcTagId, dateTime, value) VALUES (1, @a, 'true'), (1, @b, 'false')",
-                new { a = Iso(T0 - 10_000), b = Iso(T0 + 10_000) });
+                "INSERT INTO signal (tagId, atMs, value) VALUES (1, @a, 1), (1, @b, 0)",
+                new { a = T0 - 10_000, b = T0 + 10_000 });
         }
         Assert.Equal(1, await _repo.PruneRawBeforeAsync(T0));
+
+        await using (var conn = _db.Open())
+        {
+            var left = await Dapper.SqlMapper.ExecuteScalarAsync<long>(conn, "SELECT COUNT(*) FROM signal");
+            Assert.Equal(1, left);   // 기준시각 이후 행은 남는다
+        }
     }
 }

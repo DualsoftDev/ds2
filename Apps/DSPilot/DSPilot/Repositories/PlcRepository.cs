@@ -138,21 +138,20 @@ public class PlcRepository : IPlcRepository
     {
         using var connection = CreateConnection();
 
-        // F# QueryHelpers 사용
-        var sinceStr = Kpi.KpiTime.ToMs(sinceDateTime);
+        var sinceMs = Kpi.KpiTime.ToMs(sinceDateTime);
 
         const string sql = @"
             SELECT
-                id as Id,
-                plcTagId as PlcTagId,
-                dateTime as DateTime,
-                value as Value
+                id AS Id,
+                tagId AS PlcTagId,
+                atMs AS DateTime,
+                CAST(value AS TEXT) AS Value
             FROM signal
-            WHERE dateTime > @SinceDateTime
-            ORDER BY dateTime ASC, id ASC";
+            WHERE atMs > @SinceMs
+            ORDER BY atMs ASC, id ASC";
 
-        var logs = await connection.QueryAsync<PlcTagLogEntity>(sql, new { SinceDateTime = sinceStr });
-        var result = logs.ToList();
+        var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new { SinceMs = sinceMs });
+        var result = rows.Select(ToEntity).ToList();
 
         _logger.LogDebug("Retrieved {Count} new logs since {DateTime}", result.Count, sinceDateTime);
 
@@ -176,22 +175,22 @@ public class PlcRepository : IPlcRepository
 
         const string sql = @"
             SELECT
-                id as Id,
-                plcTagId as PlcTagId,
-                dateTime as DateTime,
-                value as Value
+                id AS Id,
+                tagId AS PlcTagId,
+                atMs AS DateTime,
+                CAST(value AS TEXT) AS Value
             FROM signal
-            WHERE dateTime > @StartExclusive
-              AND dateTime <= @EndInclusive
-            ORDER BY dateTime ASC, id ASC";
+            WHERE atMs > @StartExclusive
+              AND atMs <= @EndInclusive
+            ORDER BY atMs ASC, id ASC";
 
-        var logs = await connection.QueryAsync<PlcTagLogEntity>(sql, new
+        var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new
         {
             StartExclusive = startStr,
             EndInclusive = endStr
         });
 
-        var result = logs.ToList();
+        var result = rows.Select(ToEntity).ToList();
 
         _logger.LogInformation(
             "📊 Retrieved {Count} logs",
@@ -205,19 +204,21 @@ public class PlcRepository : IPlcRepository
     {
         using var connection = CreateConnection();
 
-        const string sql = "SELECT MIN(dateTime) FROM signal";
-        var resultStr = await connection.ExecuteScalarAsync<string>(sql);
+        // signal.atMs 는 정수 epoch ms 다. 문자열로 읽어 UTC 문자열로 파싱하면 예외 없이 null 이 돼
+        // "데이터 없음" 으로 둔갑한다(전체 이력 재계산 범위가 통째로 비는 경로) — 정수로 읽고 변환한다.
+        const string sql = "SELECT MIN(atMs) FROM signal";
+        var ms = await connection.ExecuteScalarAsync<long?>(sql);
 
-        if (string.IsNullOrEmpty(resultStr))
+        if (ms is null)
         {
             _logger.LogInformation("📅 GetOldestLogDateTimeAsync: NULL");
             return null;
         }
 
-        var localDateTime = SqliteDateTimeHelpers.FromSqliteUtcString(resultStr);
+        var localDateTime = Kpi.KpiTime.ToLocal(ms.Value);
 
-        _logger.LogInformation("📅 GetOldestLogDateTimeAsync: {UtcResult} (UTC) → {LocalResult} (Local)",
-            resultStr, localDateTime?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "NULL");
+        _logger.LogInformation("📅 GetOldestLogDateTimeAsync: {Ms} (epoch ms) → {LocalResult} (Local)",
+            ms.Value, localDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff"));
 
         return localDateTime;
     }
@@ -227,19 +228,21 @@ public class PlcRepository : IPlcRepository
     {
         using var connection = CreateConnection();
 
-        const string sql = "SELECT MAX(dateTime) FROM signal";
-        var resultStr = await connection.ExecuteScalarAsync<string>(sql);
+        // signal.atMs 는 정수 epoch ms 다. 문자열로 읽어 UTC 문자열로 파싱하면 예외 없이 null 이 돼
+        // "데이터 없음" 으로 둔갑한다(전체 이력 재계산 범위가 통째로 비는 경로) — 정수로 읽고 변환한다.
+        const string sql = "SELECT MAX(atMs) FROM signal";
+        var ms = await connection.ExecuteScalarAsync<long?>(sql);
 
-        if (string.IsNullOrEmpty(resultStr))
+        if (ms is null)
         {
             _logger.LogInformation("📅 GetLatestLogDateTimeAsync: NULL");
             return null;
         }
 
-        var localDateTime = SqliteDateTimeHelpers.FromSqliteUtcString(resultStr);
+        var localDateTime = Kpi.KpiTime.ToLocal(ms.Value);
 
-        _logger.LogInformation("📅 GetLatestLogDateTimeAsync: {UtcResult} (UTC) → {LocalResult} (Local)",
-            resultStr, localDateTime?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "NULL");
+        _logger.LogInformation("📅 GetLatestLogDateTimeAsync: {Ms} (epoch ms) → {LocalResult} (Local)",
+            ms.Value, localDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff"));
 
         return localDateTime;
     }
@@ -251,17 +254,17 @@ public class PlcRepository : IPlcRepository
 
         const string sql = @"
             SELECT
-                id as Id,
-                plcTagId as PlcTagId,
-                dateTime as DateTime,
-                value as Value
+                id AS Id,
+                tagId AS PlcTagId,
+                atMs AS DateTime,
+                CAST(value AS TEXT) AS Value
             FROM signal
-            WHERE plcTagId = @TagId
-            ORDER BY dateTime DESC
+            WHERE tagId = @TagId
+            ORDER BY atMs DESC
             LIMIT 1";
 
-        var log = await connection.QueryFirstOrDefaultAsync<PlcTagLogEntity>(sql, new { TagId = tagId });
-        return log;
+        var row = await connection.QueryFirstOrDefaultAsync<PlcTagLogAddressRow>(sql, new { TagId = tagId });
+        return row is null ? null : ToEntity(row);
     }
 
     /// <inheritdoc />
@@ -292,19 +295,19 @@ SELECT
     l.id AS Id,
     l.tagId AS PlcTagId,
     l.atMs AS DateTime,
-    l.value AS Value
+    CAST(l.value AS TEXT) AS Value
 FROM signal l
 INNER JOIN max_times m
     ON l.tagId = m.PlcTagId AND l.atMs = m.MaxDateTime";
 
-        var logs = await connection.QueryAsync<PlcTagLogEntity>(sql, new
+        var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new
         {
             Addresses = addresses,
             AtOrBefore = atOrBeforeStr,
             SystemId = SystemKeyConvention.Scope(systemId)
         });
 
-        return logs.ToList();
+        return rows.Select(ToEntity).ToList();
     }
 
     /// <inheritdoc />
@@ -377,7 +380,7 @@ WHERE t.Address = @Address
   AND l.atMs <= @EndTime
 ORDER BY l.atMs ASC";
 
-        var logs = await connection.QueryAsync<PlcTagLogEntity>(sql, new
+        var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new
         {
             Address = address,
             StartTime = startStr,
@@ -385,7 +388,7 @@ ORDER BY l.atMs ASC";
             SystemId = SystemKeyConvention.Scope(systemId)
         });
 
-        return logs.ToList();
+        return rows.Select(ToEntity).ToList();
     }
 
     public async Task<List<PlcTagLogEntity>> GetMultipleTagLogsInRangeAsync(
@@ -776,6 +779,21 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
     /// 호출자는 로컬 시각을 넣고 로컬 시각을 받는다. 변환은 여기 한 곳에서만 한다.
     /// </summary>
     private static DateTime ParseSqliteDateTime(long atMs) => Kpi.KpiTime.ToLocal(atMs);
+
+    /// <summary>
+    /// 행 타입 → 엔티티. <b>signal.atMs 는 정수 epoch ms 라 Dapper 가 DateTime 속성에 직접 넣지 못한다</b>
+    /// (Invalid cast from 'Int64' to 'DateTime' — 행이 1건이라도 나오면 예외, 0건이면 조용히 통과한다).
+    /// 그래서 모든 로그 조회는 long 을 받는 행 타입으로 읽고 여기서 변환한다. 새 조회를 추가할 때도 이 경로를 쓴다.
+    /// </summary>
+    private static PlcTagLogEntity ToEntity(PlcTagLogAddressRow row) => new()
+    {
+        Id = row.Id,
+        PlcTagId = row.PlcTagId,
+        DateTime = ParseSqliteDateTime(row.DateTime),
+        Value = row.Value,
+        TagName = row.TagName,
+        Address = row.Address,
+    };
 
     private sealed class PlcTagLogAddressRow
     {

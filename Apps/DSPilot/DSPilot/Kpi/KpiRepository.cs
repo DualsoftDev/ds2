@@ -385,25 +385,33 @@ public sealed class KpiRepository
 
     /// <summary>
     /// 롤링 보존 — 원시 신호와 알람에서 기준 시각 이전 행을 지운다.
-    /// 원시 표는 아직 기존 이름(plcTagLog · userTagAlertLog)이고 시각이 텍스트라 문자열 경계로 비교한다.
-    /// 3차에서 표를 정수 epoch 로 바꾸면 이 비교도 정수로 바뀐다.
+    /// <para>signal 은 정수 epoch(atMs) 이라 정수로 비교한다. 알람 표는 아직 구 이름·텍스트 시각이라
+    /// 문자열 경계를 쓴다(3차 alert 이관 때 같이 정수로 바뀐다).</para>
+    /// <para>★ 1차 이동에서 plcTagLog 가 signal 로 바뀌었는데 여기만 구 이름이 남아, try/catch 가 예외를
+    /// 삼켜 보존 정리가 조용히 0건이었다(signal 무한 증가). 2026-09-18 수정.</para>
     /// </summary>
     public async Task<int> PruneRawBeforeAsync(long beforeMs, CancellationToken ct = default)
     {
         var boundary = KpiTime.ToUtc(beforeMs).ToString("yyyy-MM-dd HH:mm:ss.fffffff") + "Z";
         await using var conn = _db.Open();
         int n = 0;
-        foreach (var (table, column) in new[] { ("plcTagLog", "dateTime"), ("userTagAlertLog", "occurredAt") })
+        try
         {
-            try
-            {
-                n += await conn.ExecuteAsync(new CommandDefinition(
-                    $"DELETE FROM {table} WHERE {column} < @boundary", new { boundary }, cancellationToken: ct));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[Kpi] prune skipped — {Table}", table);
-            }
+            n += await conn.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM signal WHERE atMs < @beforeMs", new { beforeMs }, cancellationToken: ct));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Kpi] prune skipped — signal");
+        }
+        try
+        {
+            n += await conn.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM userTagAlertLog WHERE occurredAt < @boundary", new { boundary }, cancellationToken: ct));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Kpi] prune skipped — userTagAlertLog");
         }
         return n;
     }
