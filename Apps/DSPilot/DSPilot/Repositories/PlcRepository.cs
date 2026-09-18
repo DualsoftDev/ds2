@@ -65,14 +65,33 @@ public class PlcRepository : IPlcRepository
     }
 
     /// <summary>
-    /// 필요한 모든 테이블이 존재하는지 확인
+    /// 신호 조회가 만지는 표가 다 있는지 확인. 없으면 호출측은 빈 결과로 물러난다(기동 직후 등).
+    /// <para>
+    /// ★구 표 <c>plc</c> 를 여기서 요구하면 안 된다. 1차 이동(ab088f6b) 이후 스키마(KpiDb)는
+    /// system · tag · signal 만 만들고 plc 는 어디서도 만들지 않는다. 옛 DB 를 물려받은 서버는
+    /// 잔존 plc 표 덕에 우연히 통과했지만, 새 DB 로 시작한 현장(2026-09-18)에서는 이 가드가 늘 거짓이라
+    /// GetMaxLogIdAsync 가 0 을, GetLogsAfterIdAsync 가 빈 목록을 영원히 돌려줬다 — UserTag 폴링의
+    /// 워터마크가 0 에 묶여 이상·알람 발화도 해소도 한 건이 기록되지 않았다.
+    /// </para>
     /// </summary>
     private async Task<bool> RequiredTablesExistAsync(IDbConnection connection)
     {
-        return await TableExistsAsync(connection, "plc") &&
-               await TableExistsAsync(connection, "tag") &&
-               await TableExistsAsync(connection, "signal");
+        if (await TableExistsAsync(connection, "system") &&
+            await TableExistsAsync(connection, "tag") &&
+            await TableExistsAsync(connection, "signal"))
+            return true;
+
+        // 한 번만 크게 남긴다 — 폴링이 750ms 마다 부르므로 매번 찍으면 로그가 묻힌다. 이번 사고가 두 달 가까이
+        // 조용했던 이유가 여기 있다(가드 실패가 LogDebug 한 줄뿐이라 현장 로그에 흔적이 없었다).
+        if (Interlocked.Exchange(ref _missingTableWarned, 1) == 0)
+            _logger.LogWarning(
+                "신호 표(system · tag · signal)를 찾지 못했다 — 이 가드가 거짓인 동안 UserTag 폴링은 워터마크 0 에 " +
+                "묶여 이상·알람 발화도 해소도 한 건이 기록되지 않는다. 기동 직후가 아니라면 스키마를 확인할 것.");
+        return false;
     }
+
+    // 표 부재 경고 1회용 플래그(싱글턴 수명). Interlocked 로 폴링 스레드 경쟁에서도 한 번만.
+    private int _missingTableWarned;
 
     /// <inheritdoc />
     /// <inheritdoc />

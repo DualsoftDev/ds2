@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System;
@@ -104,6 +104,26 @@ public sealed class PlcRepositorySignalQueryTests : IDisposable
         var latest = await _repo.GetLatestLogByTagIdAsync(1);
         Assert.NotNull(latest);
         Assert.Equal(KpiTime.ToLocal(_t0 + 20_000), latest!.DateTime);
+    }
+
+    /// <summary>
+    /// 현장 2026-09-18: 새 DB 로 갈아 끼우자 이상·알람이 한 건도 기록되지 않았다. 폴링 진입 가드가 1차 이동에서
+    /// 사라진 구 표 <c>plc</c> 를 계속 요구해, 새 스키마(system·tag·signal)만 있는 DB 에서는 늘 거짓이 됐다.
+    /// 워터마크가 0 에 묶여 신호를 한 줄도 읽지 못하니 UserTag 발화·해소가 통째로 죽는다.
+    /// </summary>
+    [Fact]
+    public async Task 새_스키마_DB_에서도_알람_폴링이_신호를_읽는다()
+    {
+        Assert.True(await _repo.GetMaxLogIdAsync() > 0, "워터마크 시드가 0 이면 폴링이 영구히 멈춘다");
+
+        var logs = await _repo.GetLogsAfterIdAsync(0);
+
+        Assert.Equal(3, logs.Count);
+        Assert.Equal(Addr, logs[0].Address);
+        Assert.Equal("1", logs[0].Value);
+        Assert.Equal(KpiTime.ToLocal(_t0), logs[0].DateTime);
+        // (System, 주소) 복합키 매칭의 근거 — 비면 남의 System UserTag 로 오귀속되거나 매칭이 통째로 빠진다.
+        Assert.Equal(SystemGuid.ToString(), logs[0].SystemId);
     }
 
     public void Dispose()
