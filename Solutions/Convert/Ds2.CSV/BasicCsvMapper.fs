@@ -80,10 +80,54 @@ module internal BasicCsvMapper =
                 // systemNameHint = Some deviceAlias: Flow 간 동일 디바이스 → 단일 Passive 병합
                 bucket.Add(call, $"{deviceAlias}.{apiName}", Some deviceAlias)
 
-            // '>' 엣지 → ArrowBetweenCalls(Start)
+            // 선행·후행이 완전히 같은 Call 들은 한 묶음으로 동시에 시작/리셋된다 → Group 으로 연결.
+            // Group 확장(SimIndexGroupExpansion)은 멤버 전원에 외부 선행 합집합을 재분배하고
+            // 후행은 멤버 전원 AND-join 으로 재구성하므로, Start 엣지는 그룹의 **대표 멤버 하나**에만
+            // 넣고 나가게 하면 된다 — 실행 의미는 동일하고 캔버스에는 선이 한 가닥만 남는다.
+            // (시그니처가 같으므로 대표의 선행→대표 / 대표→후행 엣지는 CSV 에 반드시 존재한다.)
+            let predsOf = Dictionary<string, SortedSet<string>>()
+            let succsOf = Dictionary<string, SortedSet<string>>()
+            for (key, _, _) in basicWork.Nodes do
+                predsOf.[key] <- SortedSet<string>(StringComparer.Ordinal)
+                succsOf.[key] <- SortedSet<string>(StringComparer.Ordinal)
             for (srcKey, dstKey) in basicWork.Edges do
-                let arrow = ArrowBetweenCalls(work.Id, callByKey.[srcKey].Id, callByKey.[dstKey].Id, ArrowType.Start)
-                operations.Add(AddArrowCall arrow)
+                predsOf.[dstKey].Add srcKey |> ignore
+                succsOf.[srcKey].Add dstKey |> ignore
+
+            let groupOrder = ResizeArray<string>()
+            let groupMembers = Dictionary<string, ResizeArray<string>>()
+            for (key, _, _) in basicWork.Nodes do
+                // 선행/후행 집합을 그대로 키로 — 같은 키면 서로 교체 가능한 병렬 형제다.
+                let sig_ =
+                    String.concat "|" [ String.concat "," predsOf.[key]; ">"; String.concat "," succsOf.[key] ]
+                match groupMembers.TryGetValue sig_ with
+                | true, members -> members.Add key
+                | false, _ ->
+                    let members = ResizeArray<string>()
+                    members.Add key
+                    groupMembers.[sig_] <- members
+                    groupOrder.Add sig_
+
+            // 대표(첫 멤버)가 아닌 그룹 멤버 — 이들의 들어오는/나가는 Start 엣지는 생략한다.
+            let nonRepresentative = HashSet<string>()
+            for sig_ in groupOrder do
+                let members = groupMembers.[sig_]
+                for i in 1 .. members.Count - 1 do
+                    nonRepresentative.Add members.[i] |> ignore
+
+            // '>' 엣지 → ArrowBetweenCalls(Start). 비대표 멤버 몫은 Group 확장이 대신한다.
+            for (srcKey, dstKey) in basicWork.Edges do
+                if not (nonRepresentative.Contains srcKey) && not (nonRepresentative.Contains dstKey) then
+                    let arrow = ArrowBetweenCalls(work.Id, callByKey.[srcKey].Id, callByKey.[dstKey].Id, ArrowType.Start)
+                    operations.Add(AddArrowCall arrow)
+
+            for sig_ in groupOrder do
+                let members = groupMembers.[sig_]
+                // 2개 이상일 때만. 인접쌍으로 이으면 union-find 가 하나의 그룹으로 합친다.
+                for i in 0 .. members.Count - 2 do
+                    let arrow =
+                        ArrowBetweenCalls(work.Id, callByKey.[members.[i]].Id, callByKey.[members.[i + 1]].Id, ArrowType.Group)
+                    operations.Add(AddArrowCall arrow)
 
             // 행 순서 Work StartReset 체인 — Flow 경계를 넘어 끝까지 잇는다(스테이션 간 이송).
             match prevWork with

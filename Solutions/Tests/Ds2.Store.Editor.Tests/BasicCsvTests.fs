@@ -237,8 +237,10 @@ module MapperTests =
         Assert.Equal(2, cylWorks.Length)
         Assert.DoesNotContain("DONE", cylWorks |> List.map (fun w -> w.LocalName))
 
+    // 센서A/센서B 는 선행·후행이 같아 Group 으로 묶인다 — Start 엣지는 대표(센서A) 한 가닥만 남고
+    // 나머지 몫은 SimIndex 의 Group 확장이 재구성한다(합류 AND-join 유지).
     [<Fact>]
-    let ``합류 노드는 선행 2개의 Start 엣지를 받는다`` () =
+    let ``합류 노드는 Group 대표의 Start 엣지 하나만 받는다`` () =
         let store = loadOk (csv [ "투입,분기작업,컨베이어.시작>센서A.감지>컨베이어.정지;컨베이어.시작>센서B.감지>컨베이어.정지" ]) "P" "S"
         let stopCall =
             store.Calls.Values |> Seq.find (fun c -> c.Name = "컨베이어.정지")
@@ -246,7 +248,12 @@ module MapperTests =
             store.ArrowCalls.Values
             |> Seq.filter (fun a -> a.TargetId = stopCall.Id && a.ArrowType = ArrowType.Start)
             |> Seq.length
-        Assert.Equal(2, incoming)
+        Assert.Equal(1, incoming)
+        let groups =
+            store.ArrowCalls.Values
+            |> Seq.filter (fun a -> a.ArrowType = ArrowType.Group)
+            |> Seq.length
+        Assert.Equal(1, groups)
 
 // Excel/스프레드시트에서 복사하면 탭 구분(TSV)으로 붙여넣어진다 — 두 모드 모두 자동 인식해야 한다.
 module TsvPasteTests =

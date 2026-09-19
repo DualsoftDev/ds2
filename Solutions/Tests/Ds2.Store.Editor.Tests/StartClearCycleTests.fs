@@ -111,3 +111,47 @@ module FlowChainTests =
         let clear = works |> List.find (fun w -> w.LocalName = "Clear")
         Assert.Equal("LH", start.FlowPrefix)
         Assert.Equal("RH", clear.FlowPrefix)
+
+// ── Group 자동 연결이 실행 의미를 바꾸지 않는지 ─────────────────────────────
+module AutoGroupRuntimeTests =
+
+    let private run (content: string) =
+        let store =
+            match CsvImporter.parseBasicContent content with
+            | Error e -> failwith (String.concat "\n" e)
+            | Ok doc ->
+                match CsvImporter.loadBasicProjectWith true doc "P" "S" with
+                | Error e -> failwith (String.concat "\n" e)
+                | Ok s -> s
+        let index = SimIndex.build store 10
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        engine.SpeedMultiplier <- 1.0
+        engine.Start()
+        let acts =
+            store.Works.Values |> Seq.filter (fun w -> not (w.Name.Contains "_Flow.")) |> List.ofSeq
+        let start = acts |> List.find (fun w -> w.TokenRole = TokenRole.Source)
+        let clear = acts |> List.find (fun w -> w.TokenRole = TokenRole.Sink)
+        engine.StepWithSourcePriming(start.Id, true) |> ignore
+        let mutable n = 0
+        while n < 3000 && engine.GetWorkState(clear.Id) <> Some Status4.Finish do
+            engine.AdvanceSimulationTo(engine.CurrentTimeMs + 20L)
+            engine.Step() |> ignore
+            n <- n + 1
+        let st = engine.GetWorkState(clear.Id)
+        engine.Stop()
+        st
+
+    [<Fact>]
+    let ``Group 으로 묶인 병렬 Call 모델이 완주한다`` () =
+        let cell =
+            String.concat ";" [ for i in 1 .. 4 -> $"리프터.하강=50MS>클램프{i}.전진=50MS>용접.시작=50MS" ]
+        let st = run (csvOf [ $"F,용접,{cell}"; "F,반출,리프터.상승=50MS" ])
+        Assert.True((st = Some Status4.Finish), sprintf "Group 모델이 완주하지 못했습니다. Clear=%A" st)
+
+    [<Fact>]
+    let ``묶이지 않는 분기 모델도 완주한다`` () =
+        // 후행이 달라 Group 이 생기지 않는 경우 — 회귀 비교용.
+        let cell =
+            "리프터.하강=50MS>클램프1.전진=50MS>로봇1.용접=50MS;리프터.하강=50MS>클램프2.전진=50MS>로봇2.용접=50MS"
+        let st = run (csvOf [ $"F,용접,{cell}"; "F,반출,리프터.상승=50MS" ])
+        Assert.True((st = Some Status4.Finish), sprintf "분기 모델이 완주하지 못했습니다. Clear=%A" st)
