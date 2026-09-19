@@ -61,7 +61,6 @@
         .fw-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 9px 2px 0; }
         .fw-toolbar-label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 800; color: var(--color-text-secondary); }
         .fw-toolbar-label .material-icons { font-size: 17px; }
-        .fw-toolbar-hint { font-size: 0.68rem; font-weight: 600; color: var(--color-text-tertiary, var(--color-text-secondary)); opacity: 0.85; }
         .fw-toolbar-actions { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
 
         /* ════════════════════════════════════════════════════════════════
@@ -77,12 +76,14 @@
         /* 사이클 개수 프리셋 (세그먼트 앞 라벨 + .segmented) — 오른쪽 정렬 */
         .ct-cycle-presets { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
         .ct-preset-sep { padding-left: 10px; border-left: 1px solid var(--color-lines-strong); font-size: 0.68rem; font-weight: 800; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
-        /* 프리셋 앵커(신호 마지막 시각) 지연 안내 — 프리셋 끝점이 벽시계 now 가 아님을 알린다.
-           경고색(앰버)이지만 배지가 아니라 텍스트 — 상시 노출이 아니라 지연 1분 이상일 때만 뜬다. */
-        /* 앵커 힌트("기준: 신호 마지막 …")는 남는 폭만 쓰는 늘어나는 항목(flex-basis 0 + min-width 0) — 길어도 옆 그룹(가동 프리셋)을
-           다음 줄로 밀지 않고 자기만 말줄임된다(전문은 title). 2026-09-08 */
-        .ct-anchor-hint { font-size: 0.72rem; font-weight: 700; color: var(--color-warning, #b45309); white-space: nowrap;
+        /* 프리셋 앵커 = 마지막 신호 시각을 값으로("~ 10:19:43"). 지연 1분 이상(.is-lag)이면 " · N분 전" 과 경고색.
+           남는 폭만 쓰는 늘어나는 항목(flex-basis 0 + min-width 0) — 옆 그룹(가동 프리셋)을 다음 줄로 밀지 않는다. */
+        .ct-anchor-hint { display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary);
+                          font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap;
                           flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .ct-anchor-hint .material-icons { font-size: 15px; flex: 0 0 auto; opacity: 0.7; }
+        .ct-anchor-hint.is-lag { color: var(--color-warning, #b45309); }
+        .ct-anchor-hint.is-lag .material-icons { opacity: 1; }
         /* 시작·종료 직접 지정 팝업 */
         .ct-range-field { position: relative; min-width: 0; }
         .ct-range-popup { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; display: flex; gap: 12px; padding: 14px 16px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16); }
@@ -137,10 +138,15 @@
         /* 사이드바 폭 = 전역 CSS 변수(--ct-side-w, 기본 330px). 리사이저 드래그(gantt-sidebar.js)가 :root 에 세팅 + localStorage 보존
            — 한 페이지의 모든 간트(단일/분기 카드/전체 편집)가 같은 폭을 공유한다. */
         .ct-lane-sidebar { flex: 0 0 var(--ct-side-w, 330px); width: var(--ct-side-w, 330px); background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow: visible; z-index: 1; }
-        /* 사이드바↔본체 경계 리사이저(세로 손잡이). 사이드바 border 위에 겹치도록 음수 마진, 호버/드래그 시 악센트 띠. */
+        /* 사이드바↔본체 경계 리사이저(세로 손잡이). 사이드바 border 위에 겹치도록 음수 마진.
+           평상시 = 사이드바 경계선 위 1px 선(살짝 진하게) + 세로 점 3개 그립(sticky, 스크롤해도 보이는 높이 가운데) — 잡을 수 있는 곳임을 알린다(2026-09-18).
+           호버/드래그 = 악센트 띠 + 그립 진하게. 동작(gantt-sidebar.js)은 그대로. */
         .ct-side-resizer { flex: 0 0 7px; align-self: stretch; margin: 0 -4px 0 -3px; cursor: col-resize; z-index: 3; position: relative; touch-action: none; }
-        .ct-side-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; transition: background-color 0.12s, width 0.12s, left 0.12s; }
-        .ct-side-resizer:hover::before, .ct-side-resizer.is-dragging::before { left: 2px; width: 3px; background: var(--color-primary); }
+        .ct-side-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: 2px; width: 1px; background: var(--color-lines-strong); transition: background-color 0.12s, width 0.12s, left 0.12s; }
+        .ct-side-resizer::after { content: ''; display: block; position: sticky; top: calc(50% - 9px); width: 3px; height: 18px; margin: 0 0 0 1px; border-radius: 2px; opacity: 0.55;
+                                  background: radial-gradient(circle, var(--color-text-secondary) 1.1px, transparent 1.6px) center / 3px 6px repeat-y; transition: opacity 0.12s; }
+        .ct-side-resizer:hover::before, .ct-side-resizer.is-dragging::before { left: 1px; width: 3px; background: var(--color-primary); }
+        .ct-side-resizer:hover::after, .ct-side-resizer.is-dragging::after { opacity: 1; background-image: radial-gradient(circle, #fff 1.1px, transparent 1.6px); }
         body.ct-side-resizing { cursor: col-resize; user-select: none; }
         body.ct-side-resizing .ct-gantt-layout *:not(.ct-side-resizer) { pointer-events: none; }   /* 드래그 중 SVG/버튼 호버 억제(손잡이는 캡처 유지) */
         /* 사이드바 잘린 텍스트 툴팁 — body 직속 position:fixed(레이아웃 컨테이너 overflow 에 안 잘리게). 잘린 행에서만 뜬다(gantt-sidebar.js). */
@@ -241,7 +247,6 @@
         .ct-toolbar-stack { display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
         .ct-toolbar-stack > .call-test-controls { border: none; border-radius: var(--radius-md) var(--radius-md) 0 0; padding: 8px 10px; }
         .ct-toolbar-stack > .ct-gantt-toolbar { border: none; border-top: 1px solid var(--color-lines); border-radius: 0 0 var(--radius-md) var(--radius-md); box-shadow: none; }
-        .ct-tb-hint { font-size: 0.66rem; color: var(--color-text-secondary); }
         /* ── 세그먼트 컨트롤(.segmented / .ct-seg): swiss.css 공용 규칙이 단일 소스.
            (ds.css 가 swiss.css 를 @import → 프리셋·막대/InOut 토글 모두 통일된 룩 상속)
            기존의 로컬 .ct-seg 오버라이드는 swiss 표준과 통일하기 위해 제거함. */
@@ -267,13 +272,6 @@
         .ct-zoom-val { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; min-width: 44px; text-align: center; }
         .dark-theme .ct-zoom button { background: var(--color-surface-variant); }
 
-        /* 범례 (헤어라인 박스) */
-        .ct-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 0.72rem; color: var(--color-text-secondary); padding: 10px 16px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); align-items: center; }
-        .ct-legend > span { display: inline-flex; align-items: center; }
-        .ct-sw { display: inline-block; width: 12px; height: 12px; border-radius: 1px; margin-right: 6px; vertical-align: middle; }
-        .ct-sw-going { background: #5b9bd5; }
-        .ct-sw-out { background: #fb8c00; }
-        .ct-sw-in { background: #1e88e5; }
         /* 다중 토글 세그먼트(2026-09-17) — 택일이 아니라 각각 켜고 끈다. 네모 표식으로 체크박스처럼 읽히게 하고,
            마지막 남은 하나는 끌 수 없어(빈 간트 방지) disabled 로 잠그되 켜진 모습은 그대로 둔다. */
         .ct-seg.is-multi > button::before {
@@ -282,18 +280,6 @@
         }
         .ct-seg.is-multi > button.active::before { background: currentColor; opacity: 1; }
         .ct-seg.is-multi > button:disabled { cursor: default; }
-        /* Call 단위 막대(2026-09-17) — OUT 주황·IN 파랑과 겹치지 않는 청록 계열. SVG 의 CALL_STYLE 과 같은 값. */
-        .ct-sw-call { background: #00897b; }
-        .ct-sw-call-cmd { background: #4db6ac; }
-        .ct-sw-head { background: #4caf50; }
-        .ct-sw-tail { background: #ab47bc; }
-        .ct-sw-cycle-edge { background: transparent; border-left: 2px solid #ff9800; border-radius: 0; width: 6px; }
-        .ct-sw-active-band { background: #c8e6c9; border: 1px solid #81c784; }
-        .ct-sw-idle-band { background: #cfd8dc; border: 1px solid #90a4ae; }
-        .ct-sw-band-a { background: #f3e5f5; border: 1px solid #ce93d8; }
-        .ct-sw-band-b { background: #e8eaf6; border: 1px solid #9fa8da; }
-        .ct-sw-maxgap { background: rgba(245,166,35,0.28); border: 1.5px solid #e5494f; }
-        .ct-sw-range { background: rgba(126,87,194,0.16); border: 1px dashed #7e57c2; }
 
         /* 툴바 정렬/최대Gap 컨트롤 */
         .ct-tb-field { display: inline-flex; align-items: center; gap: 6px; }
@@ -366,7 +352,8 @@
         /* 이상치 제외 범위 모달 */
         .shift-modal { width: min(520px, 94vw); padding: 0; }
         .shift-modal .sm-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 14px; border-bottom: 1px solid var(--color-lines); }
-        .shift-modal .sm-title { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em; }
+        .shift-modal .sm-title { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em; display: inline-flex; align-items: center; gap: 6px; }
+        .shift-modal .sm-title .sm-title-ico { font-size: 20px; color: var(--color-primary); }
         .shift-modal .sm-body { padding: 18px 22px 4px; }
         .shift-modal .sm-foot { display: flex; gap: 10px; padding: 14px 22px 20px; }
         .shift-modal .sm-foot .btn { flex: 1; justify-content: center; }
@@ -453,9 +440,6 @@
             /* 사이클/히스토리 테이블: 가로 스크롤 래퍼(고정 컬럼폭 overflow 방지) */
             .ct-cycle-scroll, .hist-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
             .ct-cycle-scroll .ds-table, .hist-table-wrap .ds-table { min-width: 480px; }
-
-            /* 범례: 더 촘촘하게 */
-            .ct-legend { gap: 6px 12px; padding: 9px 12px; font-size: 0.68rem; }
 
             /* 이상치 제외 모달: 거의 전체폭 + 시간입력 1열 */
             .shift-modal { width: 98vw; }
@@ -544,7 +528,6 @@
 .fg-use-chip.is-none { --fg-c: #c62828; cursor: default; text-decoration: line-through; }
 .dark-theme .fg-use-chip { background: color-mix(in srgb, var(--fg-c) 18%, var(--color-surface)); }
 .fb-work-toggle:hover { color: var(--color-primary); }
-.fb-work-hint { margin-left: auto; font-size: 0.58rem; font-weight: 600; opacity: 0.6; white-space: nowrap; }
 
 /* ── 접힌 lane(2026-08-28) — 분기 간트의 제외 call: 신호 숨김·얇은 띠, 복원 버튼만 노출 ── */
 .ct-lane-row.is-collapsed { opacity: 0.7; overflow: hidden; }
@@ -565,6 +548,8 @@
 .fg-tab:hover:not(:disabled) { color: var(--color-text-primary); background: color-mix(in srgb, var(--fg-c) 7%, transparent); }
 .fg-tab.is-active { color: var(--color-text-primary); background: var(--color-surface); border-color: var(--color-lines); border-bottom-color: var(--color-surface); box-shadow: inset 0 3px 0 var(--fg-c); }
 .fg-tab .fg-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--fg-c); flex: 0 0 auto; }
+/* 분기 탭 앞의 ①②③ = 정의 순서 = 분류 우선순위(양쪽 통과 시 위의 분기 승) */
+.fg-tab .fg-tab-no { font-size: 0.86rem; line-height: 1; color: var(--fg-c); flex: 0 0 auto; }
 .fg-tab-sub { font-size: 0.66rem; font-weight: 700; color: var(--color-text-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .fg-tab-dup { font-size: 0.6rem; font-weight: 800; color: #fff; background: #e53935; border-radius: 999px; padding: 1px 6px; line-height: 1.3; }
 .fg-tab-mv { font-size: 0.6rem; font-weight: 800; color: #fff; background: #546e7a; border-radius: 999px; padding: 1px 6px; line-height: 1.3; }
@@ -590,7 +575,6 @@
 .fb-bd-item { display: flex; align-items: center; gap: 7px; flex: 1 1 380px; min-width: 0; }
 .fb-bd-role { font-size: 0.72rem; font-weight: 800; color: #fff; border-radius: var(--radius-sm); padding: 3px 9px; white-space: nowrap; }
 .fb-bd-role.start { background: #1E9BE8; }
-.fb-bd-role.end { background: #37474f; }
 .fb-bd-pick { display: inline-flex; align-items: center; gap: 7px; min-width: 0; flex: 1 1 auto; text-align: left;
               padding: 5px 8px; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm);
               background: var(--color-surface); font: inherit; cursor: pointer; }
@@ -611,10 +595,15 @@
 .fb-bd-edge button:disabled { cursor: not-allowed; opacity: 0.55; }
 .fb-bd-x { border: none; background: transparent; cursor: pointer; color: var(--color-text-secondary); font-size: 0.78rem; padding: 2px 5px; line-height: 1; flex: 0 0 auto; }
 .fb-bd-x:hover { color: #c62828; }
-.fb-bd-note { flex-basis: 100%; font-size: 0.7rem; color: var(--color-text-secondary); }
 
 /* ── lane 행의 주소 칩(2026-09-17) — 종전 [시작][끝] Call 버튼을 대체. 칩 하나 = 주소 하나 + 그 주소를 경계로 쓰는 두 버튼 ── */
 .fb-lane-tags { gap: 3px; flex-wrap: wrap; justify-content: flex-end; }
+/* 기본 사이드바 폭(330px)에서 call 이름이 사라지지 않게(상시 체크박스 2026-09-18) — 이름은 최소 폭을 지키고 칩 묶음이 줄어들어 두 줄로 접힌다.
+   접힌(제외) 행은 26px 라 두 줄이 안 들어가므로 종전대로 둔다. */
+.ct-lane-row:not(.is-collapsed) .ct-lane-name-block { min-width: 96px; }
+.ct-lane-row:not(.is-collapsed) .ct-lane-tags.fb-lane-tags { flex: 0 1 auto; min-width: 0; }
+/* 주소 칩이 있는 행에서는 이름 아래 OUT/IN 주소 줄이 같은 주소의 반복이라 숨긴다 — 44px 행에 4줄이 들어가 옆 행을 덮던 일 방지. */
+.ct-lane-row:has(.fb-lane-tags) .ct-lane-row-leg { display: none; }
 .fb-lane-tag { display: inline-flex; align-items: center; gap: 2px; padding: 1px 2px 1px 5px; border: 1px solid var(--color-lines); border-radius: 999px; background: var(--color-surface); max-width: 100%; }
 .fb-lane-tag > b { font-family: var(--font-mono); font-size: 0.62rem; font-weight: 800; color: var(--color-text-secondary);
                    max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -626,7 +615,6 @@
 .fb-lane-tag > button:disabled { opacity: 0.45; cursor: not-allowed; }
 .fb-lane-tag > button.active { background: var(--color-primary); color: #fff; }
 .fb-lane-tag.is-start { border-color: #1E9BE8; }
-.fb-lane-tag.is-end { border-color: #37474f; }
 .fb-lane-more { border: 1px dashed var(--color-lines-strong); background: transparent; font: inherit; font-size: 0.6rem; font-weight: 800;
                 color: var(--color-text-secondary); border-radius: 999px; padding: 2px 7px; cursor: pointer; }
 .fb-lane-more:hover { color: var(--color-primary); border-color: var(--color-primary); }
@@ -660,7 +648,6 @@
 
 /* 분기 탭 헤더(이름·통계·우선순위·삭제) — 분기색 옅은 배경 */
 .fg-bhead { padding: 8px 10px; border: 1px solid var(--color-lines); border-radius: var(--radius-md); background: color-mix(in srgb, var(--fg-c, var(--color-primary)) 5%, var(--color-surface)); }
-.fg-bhint { flex: 1 1 260px; min-width: 0; }
 .fg-dupwarn b { color: #e53935; }
 
 /* flow 전체 탭 · 분기별 CT 합산 요약 */
@@ -669,7 +656,6 @@
 .fg-stat-link:hover { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
 .fb-stat i.fg-hatch, .ct-sw-hatch { background: repeating-linear-gradient(45deg, rgba(229,57,53,0.9) 0 2px, rgba(229,57,53,0.15) 2px 5px); border: 1px solid #e53935; }
 .ct-sw-none { background: #cfd8dc; border: 1px solid #90a4ae; }
-.ct-sw-open { background: #e0e5e9; border: 1px dashed #78909c; }
 /* 최소위반 판별 — 분기색은 스팬마다 달라 범례는 중립 톤 + 촘촘한 점선 테두리(리본 스팬 테두리와 동일 의미) */
 .ct-sw-mv { background: repeating-linear-gradient(45deg, #b0bec5 0 2px, #f5f7f8 2px 4px); border: 1px dashed #263238; }
 .fb-stat.is-mv b, .fg-mvnote b { color: #37474f; }
@@ -693,28 +679,25 @@
 .fg-hidden-strip b { font-family: var(--font-mono); color: var(--fg-c, var(--color-primary)); }
 .dark-theme .ct-search { background: var(--color-surface-variant); }
 
+/* 검색 대상 칩(전체 | call | Work | 주소) — 검색 상자 바로 옆의 작은 세그먼트 */
+.ct-search-tgt > button { padding: 3px 8px; font-size: 0.66rem; }
 @media (max-width: 480px) {
     .ct-search { width: 100%; }
     .ct-search input { flex: 1; width: auto; }
     .fg-tabs { gap: 2px; }
     .fg-tab { padding: 6px 9px; font-size: 0.72rem; max-width: 180px; }
-    .fg-bhint { display: none; }
 }
-/* 툴바에 정렬·검색이 추가돼(2026-09-06) 중간 폭에서 이동/확대 슬라이더가 둘째 줄로 밀린다 — 힌트 문구는 넓은 화면에서만 */
-@media (max-width: 1700px) { .ct-gantt-toolbar .ct-tb-hint { display: none; } }
 @media (max-width: 1400px) { .ct-gantt-toolbar .ct-pan { flex-basis: 140px; } .ct-search { min-width: 150px; } .ct-search input { width: 90px; } }
 
-/* ── 복수 선택 모드(분기 탭, 2026-09-06) — 체크 후 일괄 제외/해제 ── */
-.fg-selbar { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; padding: 7px 10px; border: 1px solid color-mix(in srgb, var(--color-primary) 45%, transparent); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); }
-.fg-sel-count { font-size: 0.78rem; font-weight: 700; color: var(--color-text-secondary); white-space: nowrap; }
-.fg-sel-count b { font-size: 0.95rem; color: var(--color-primary); font-family: var(--font-mono); }
-.fg-sel-sep { width: 1px; height: 18px; background: var(--color-lines-strong); }
+/* ── 복수 선택(분기 탭, 2026-09-06 · 상시 체크박스 2026-09-18) — 행/Work/헤더 체크 후 공용 .ds-selbar 로 일괄 제외/해제 ── */
 .fg-chk { width: 15px; height: 15px; margin: 0 4px 0 0; flex: 0 0 auto; accent-color: var(--color-primary); cursor: pointer; }
 .ct-work-label .fg-chk { margin-right: 2px; }
+.fg-sh-title { display: inline-flex; align-items: center; gap: 6px; }
+.fg-sh-title .fg-chk { margin: 0; }
 .ct-lane-name-block.is-selectable { cursor: pointer; user-select: none; }
-.ct-lane-row.is-sel { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)) !important; box-shadow: inset 3px 0 0 var(--color-primary); }
-.ct-lane-row.is-sel.is-collapsed { opacity: 0.9; }
-@media (max-width: 480px) { .fg-selbar .fb-hint { display: none; } }
+.ct-lane-row.is-selected { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)) !important; box-shadow: inset 3px 0 0 var(--color-primary); }
+.ct-lane-row.is-selected.is-collapsed { opacity: 0.9; }
+.fg-branch-section .ds-selbar { margin: 0; }
 
 /* ── 2간트 구성(2026-09-06): 상단 원본 flow + 하단 분기(탭) ── */
 .fg-gantt-head { display: flex; align-items: center; gap: 8px; }
@@ -727,10 +710,6 @@
 .fg-branch-gantt { max-height: 60vh; }
 
 /* ── 시간 기반 코어 화면(2026-09-18, doc/30 §9.2) — 끝(tail) 없음 · work 구간 · 게이트 표시 ── */
-/* 경계 카드의 파생 항목(MT·WT) — 입력이 아니라 안내. 버튼처럼 보이지 않게 납작하게. */
-.fb-bd-item.fb-bd-derived { opacity: 0.85; }
-.fb-bd-item.fb-bd-derived .fb-bd-role.end { background: #ab47bc; }
-.fb-bd-item.fb-bd-derived .fb-bd-ctx { font-size: 0.7rem; color: var(--color-text-secondary); }
 /* Work 헤더 행 칩 — 게이트에 걸려 판정에서 빠진 work(doc/30 §4.1) */
 .ct-work-gated { margin-left: 6px; padding: 0 5px; border-radius: 3px; font-size: 0.6rem; font-weight: 800; letter-spacing: 0;
                  color: #546e7a; background: color-mix(in srgb, #b0bec5 35%, var(--color-surface)); border: 1px solid #b0bec5; white-space: nowrap; }

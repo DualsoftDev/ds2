@@ -24,6 +24,7 @@ function tagMonitorApp() {
         loaded: false, busy: false, projectLoaded: true, error: '', toast: '',
         tags: [], series: [],
         selected: [],                     // tagId 배열
+        maxSel: 8,                        // 한 화면 상한 — 여덟을 넘기면 색도 축도 읽히지 않는다(서버 상한 20 과 별개)
         q: '', sysFilter: '', kind: 'Info',
         period: 'today', rangeOpen: false, customFrom: '', customTo: '',
         fromMs: 0, toMs: 0,
@@ -132,14 +133,17 @@ function tagMonitorApp() {
             if (!t.tagId) return;
             const i = this.selected.indexOf(t.tagId);
             if (i >= 0) this.selected.splice(i, 1);
-            // 한 화면에 여덟 개를 넘기면 색도 축도 읽히지 않는다 — 서버 상한(20)과 별개의 화면 규칙.
-            else if (this.selected.length >= 8) { this.flash('한 번에 최대 8개까지 볼 수 있습니다.'); return; }
+            else if (this.selected.length >= this.maxSel) { this.flash('한 번에 최대 ' + this.maxSel + '개까지 볼 수 있습니다.'); return; }
             else this.selected.push(t.tagId);
             this.loadSeries();
         },
+        // 보이는(필터 통과 + 수집 중) 태그 수 — '보이는 것 선택' 버튼 라벨·비활성 판정에 쓴다.
+        get visibleSelectable() { return this.filteredTags.filter(t => t.tagId).length; },
         selectVisible() {
-            const ids = this.filteredTags.filter(t => t.tagId).slice(0, 8).map(t => t.tagId);
-            this.selected = ids;
+            const all = this.filteredTags.filter(t => t.tagId);
+            this.selected = all.slice(0, this.maxSel).map(t => t.tagId);
+            // 상한에 잘렸으면 조용히 넘기지 않는다 — 몇 개가 빠졌는지 알린다.
+            if (all.length > this.maxSel) this.flash('보이는 ' + all.length + '개 중 처음 ' + this.maxSel + '개만 선택했습니다.');
             this.loadSeries();
         },
         clearSelection() { this.selected = []; this.series = []; this.destroyChart(); },
@@ -324,6 +328,11 @@ function tagMonitorApp() {
             return Number(n.toFixed(3)).toLocaleString();
         },
         fmtNum(n) { return n == null ? '—' : this.trimNum(n); },
+        // 값 타입 한글 표기 — 모델(AASX) 원문은 그대로 두고 화면만 옮긴다. 목록에 없는 타입은 원문 그대로.
+        fmtType(v) {
+            const m = { bit: '비트', word: '워드', dword: '더블워드', real: '실수', string: '문자열' };
+            return m[String(v || '').toLowerCase()] || (v == null ? '' : String(v));
+        },
         fmtTime(ms) {
             if (!ms) return '—';
             const d = new Date(ms);
@@ -332,7 +341,7 @@ function tagMonitorApp() {
         },
         // 지속시간 표기는 전역 규약(dspFmt)이 있으면 그것을 따른다 — 없으면 같은 모양으로 직접 만든다.
         fmtDur(ms) {
-            if (window.dspFmt && typeof window.dspFmt.duration === 'function') return window.dspFmt.duration(ms);
+            if (window.dspFmt && typeof window.dspFmt.dur === 'function') return window.dspFmt.dur(ms);
             const s = Math.floor(ms / 1000);
             if (s < 60) return s + '초';
             const m = Math.floor(s / 60), rs = s % 60;

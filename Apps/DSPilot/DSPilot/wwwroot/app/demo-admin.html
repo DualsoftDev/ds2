@@ -42,17 +42,13 @@
         .dadm-head .material-icons { font-size: 20px; color: var(--color-primary); }
         .dadm-title { font-size: 1.0rem; font-weight: 700; }
         .dadm-sub { display: block; color: var(--color-text-secondary); font-size: 0.78rem; line-height: 1.55; margin: 4px 0 16px; }
+        /* 헤더 한 줄에 스위치까지 — 라벨 1개 + 스위치 1개(설명은 title) */
+        .dadm-head-row { margin-bottom: 0; }
+        .dadm-head-row .dadm-title { flex: 1; min-width: 0; cursor: pointer; }
 
         .dadm-field { margin-bottom: 14px; }
         .dadm-field label { display: block; font-size: 0.74rem; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 6px; letter-spacing: 0.02em; }
         .dadm-field .form-field { width: 100%; box-sizing: border-box; }
-
-        /* 스위치(체크박스) 행 */
-        .dadm-toggle { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--color-lines); }
-        .dadm-toggle:first-of-type { border-top: 0; }
-        .dadm-toggle-main { flex: 1; min-width: 0; }
-        .dadm-toggle-main .t { font-size: 0.86rem; font-weight: 600; }
-        .dadm-toggle-main .d { display: block; font-size: 0.72rem; color: var(--color-text-secondary); margin-top: 2px; line-height: 1.45; }
 
         /* iOS 스타일 스위치 */
         .dadm-switch { position: relative; flex: 0 0 auto; width: 44px; height: 24px; }
@@ -103,11 +99,10 @@
 
             <!-- ── 로그인 화면 ── -->
             <form class="dadm-card dadm-hidden" id="loginView" autocomplete="on">
-                <div class="dadm-head">
+                <div class="dadm-head" style="margin-bottom:16px;">
                     <span class="material-icons" aria-hidden="true">lock</span>
                     <span class="dadm-title">데모 관리자 로그인</span>
                 </div>
-                <small class="dadm-sub">데모 설정을 변경하려면 관리자 인증이 필요합니다.</small>
 
                 <div class="dadm-field">
                     <label for="loginId">아이디</label>
@@ -132,19 +127,11 @@
 
             <!-- ── 관리 패널 ── -->
             <div class="dadm-hidden" id="panelView">
-                <!-- 데모 전환 -->
+                <!-- 데모 전환 — 스위치 1개 + 라벨 1개(설명은 title) -->
                 <div class="dadm-card">
-                    <div class="dadm-head">
+                    <div class="dadm-head dadm-head-row" title="켜면 아래 바로가기가 사이드바에 노출되고, 끄면 순정 설치처럼 바로가기 없이 동작합니다.">
                         <span class="material-icons" aria-hidden="true">tune</span>
-                        <span class="dadm-title">데모 전환</span>
-                    </div>
-                    <small class="dadm-sub">켜면 아래 바로가기가 사이드바에 노출됩니다. 끄면 순정 설치처럼 바로가기 없이 동작합니다.</small>
-
-                    <div class="dadm-toggle">
-                        <div class="dadm-toggle-main">
-                            <span class="t">데모 전환</span>
-                            <span class="d">데모 바로가기 노출 on/off</span>
-                        </div>
+                        <label class="dadm-title" for="cfgEnabled">데모 전환 (사이드바 바로가기 노출)</label>
                         <label class="dadm-switch">
                             <input type="checkbox" id="cfgEnabled" />
                             <span class="track"></span><span class="thumb"></span>
@@ -158,26 +145,25 @@
                         <span class="material-icons" aria-hidden="true">link</span>
                         <span class="dadm-title">바로가기 메뉴</span>
                     </div>
-                    <small class="dadm-sub">사이드바에 노출할 외부 도구 바로가기입니다. 노출 여부는 각 스위치로, 하이퍼링크는 URL 칸에서 설정합니다. (데모 전환이 켜져 있을 때만 실제로 노출됩니다.)</small>
+                    <small class="dadm-sub">데모 전환이 켜져 있을 때만 사이드바에 노출됩니다.</small>
                     <div id="shortcutList"></div>
                 </div>
 
-                <!-- 저장 -->
+                <!-- 저장 — dirty 규약: 중립 .btn → 변경 시 btn-filled + '저장*' (스냅샷 내용 비교, JS refreshDirty) -->
                 <div class="dadm-card">
                     <div class="dadm-actions">
                         <small class="dadm-msg grow" id="cfgMsg" role="status"></small>
-                        <button type="button" class="btn btn-primary" id="cfgSaveBtn">
-                            <span class="material-icons" aria-hidden="true">save</span> 설정 저장
+                        <button type="button" class="btn" id="cfgSaveBtn" disabled>
+                            <span class="material-icons" aria-hidden="true">save</span> <span id="cfgSaveLabel">저장</span>
                         </button>
                     </div>
                 </div>
 
-                <!-- 계정·로그인 이관 안내 -->
+                <!-- 계정·로그인 이관 안내 — 한 줄 + 링크 -->
                 <div class="dadm-card">
                     <div class="dadm-moved">
                         <span class="material-icons" aria-hidden="true">manage_accounts</span>
-                        <span class="grow">계정 활성화(로그인 요구·범위)와 아이디·비밀번호 변경은 정규 설정으로 옮겨졌습니다.</span>
-                        <a class="btn btn-sm btn-outlined" href="/settings?tab=advanced">설정 ▸ 고급 열기</a>
+                        <span class="grow">계정·로그인 설정은 <a href="/settings?tab=advanced" style="color:var(--color-primary);font-weight:700;">설정 ▸ 고급</a>으로 옮겨졌습니다.</span>
                     </div>
                 </div>
 
@@ -266,7 +252,36 @@
                     list.appendChild(buildShortcutRow(s));
                 });
                 setMsg($('cfgMsg'), '', true);
+                baseline = JSON.stringify(collect());
+                refreshDirty();
             }
+
+            // ── 저장 버튼 dirty 규약: 중립 → 변경 시 btn-filled + '저장*'. 이벤트 누적이 아니라 스냅샷(baseline)과 내용 비교 ──
+            var baseline = null;
+            function collect() {
+                return {
+                    enabled: $('cfgEnabled').checked,
+                    shortcuts: Array.prototype.map.call(
+                        document.querySelectorAll('#shortcutList .dadm-shortcut'),
+                        function (row) {
+                            return {
+                                key: row.getAttribute('data-key'),
+                                show: row.querySelector('[data-role="show"]').checked,
+                                label: row.querySelector('[data-role="label"]').value,
+                                href: row.querySelector('[data-role="href"]').value
+                            };
+                        })
+                };
+            }
+            function refreshDirty() {
+                var dirty = baseline !== null && JSON.stringify(collect()) !== baseline;
+                var btn = $('cfgSaveBtn');
+                btn.classList.toggle('btn-filled', dirty);
+                btn.disabled = !dirty;
+                $('cfgSaveLabel').textContent = dirty ? '저장*' : '저장';
+            }
+            panelView.addEventListener('input', refreshDirty);
+            panelView.addEventListener('change', refreshDirty);
 
             function buildShortcutRow(s) {
                 var wrap = document.createElement('div');
@@ -317,22 +332,10 @@
                 var btn = this; btn.disabled = true;
                 setMsg($('cfgMsg'), '', true);
                 try {
-                    var shortcuts = Array.prototype.map.call(
-                        document.querySelectorAll('#shortcutList .dadm-shortcut'),
-                        function (row) {
-                            return {
-                                key: row.getAttribute('data-key'),
-                                show: row.querySelector('[data-role="show"]').checked,
-                                label: row.querySelector('[data-role="label"]').value,
-                                href: row.querySelector('[data-role="href"]').value
-                            };
-                        });
-                    var r = await api('POST', '/api/demo-admin/config', {
-                        enabled: $('cfgEnabled').checked,
-                        shortcuts: shortcuts
-                    });
+                    var r = await api('POST', '/api/demo-admin/config', collect());
                     if (r.ok) {
                         if (r.data && r.data.config) renderPanel(r.data.config);
+                        else baseline = JSON.stringify(collect());
                         setMsg($('cfgMsg'), '저장되었습니다.', true);
                     } else if (r.status === 401) {
                         await boot();
@@ -341,7 +344,7 @@
                     }
                 } catch (_) {
                     setMsg($('cfgMsg'), '서버에 연결할 수 없습니다.', false);
-                } finally { btn.disabled = false; }
+                } finally { refreshDirty(); }
             });
 
             // ── 로그아웃 ──

@@ -91,8 +91,12 @@
                 <section id="ut-section" class="card up-section">
                     <div class="ds-card-h">
                         <h4>알람 조회<span x-show="curFlow" style="font-weight:600;color:var(--color-text-secondary);"> · 설비 <span x-text="curFlow"></span></span><span x-show="!curFlow && curSystem" style="font-weight:600;color:var(--color-text-secondary);"> · 시스템 <span x-text="curSystem"></span></span></h4>
-                        <span class="ds-card-h-sub" x-show="!curFlow">자동 감지: DSPilot이 실시간으로 탐지한 이벤트</span>
-                        <span class="ds-card-h-sub" x-show="curFlow">이상알람TAG: PLC 데이터를 기준으로 사용자가 등록한 이벤트</span>
+                        <!-- 구분 필터(서버 category) — 아래 요약 카드 클릭과 같은 필터. 설비별 보기는 자동감지만 조회하므로 감춘다. -->
+                        <div class="segmented" x-show="utCatFilterOn">
+                            <button :class="utCategory === '' ? 'is-active' : ''" @click="utCategory !== '' && setUtCategory('')">전체</button>
+                            <button :class="utCategory === 'abnormal' ? 'is-active' : ''" @click="utCategory !== 'abnormal' && setUtCategory('abnormal')">자동감지</button>
+                            <button :class="utCategory === 'usertag' ? 'is-active' : ''" @click="utCategory !== 'usertag' && setUtCategory('usertag')">이상알람TAG</button>
+                        </div>
                     </div>
 
                     <!-- 로딩/오류 -->
@@ -105,33 +109,33 @@
 
                             <!-- ════ 요약 카드 (카드형 조회) ════
                                  설비효율(.up-oee-row)·생산효율·동작편차(.hm-kpi) 페이지와 같은 "상단 KPI 카드" 규약.
-                                 총 발생 / 자동감지 / 이상알람TAG 카드는 클릭 = 구분 필터(서버 category 파라미터) 토글이고,
-                                 현재 조회 중인 카드는 is-active 로 표시된다. 값은 전부 스냅샷 집계(categoryCounts ·
-                                 topRowsByPath)라 추가 조회가 없다.
+                                 총 발생 / 자동감지 / 이상알람TAG 카드는 클릭 = 구분 필터(서버 category 파라미터) 토글이고
+                                 (카드 헤더의 세그먼트와 같은 필터), 현재 조회 중인 카드는 is-active 로 표시된다. 값은 전부
+                                 스냅샷 집계(categoryCounts · topRowsByPath)라 추가 조회가 없다. 카드 부제는 사실(비율·범위)만.
                                  ⚠ 합계는 ut.totalCount 가 아니라 categoryTotal(자동감지+이상알람TAG) — totalCount 는
                                     구분 필터가 걸리면 같이 줄어들어 '전체의 N%' 가 100% 를 넘게 된다. -->
                             <div class="up-utkpi-row">
                                 <div class="up-utkpi" :class="utCatFilterOn ? 'clickable' + (utCategory === '' ? ' is-active' : '') : ''"
                                      @click="utCatFilterOn && setUtCategory('')"
-                                     :title="utCatFilterOn ? '클릭: 구분 필터 해제(전체 보기)' : '설비별 보기는 자동감지만 조회합니다'">
+                                     :title="utCatFilterOn ? '전체 조회' : null">
                                     <div class="up-utkpi-label">총 발생</div>
                                     <div class="up-utkpi-value" x-text="categoryTotal.toLocaleString() + '건'"></div>
-                                    <div class="up-utkpi-sub" x-text="(curFlow ? ('설비 ' + curFlow + ' · 자동감지') : ('자동감지 + 이상알람TAG 합산 · ' + (curSystem ? ('시스템 ' + curSystem) : '라인 전체')))"></div>
+                                    <div class="up-utkpi-sub" x-text="curFlow ? ('설비 ' + curFlow) : (curSystem ? ('시스템 ' + curSystem) : '라인 전체')"></div>
                                 </div>
                                 <div class="up-utkpi" :class="utCatFilterOn ? 'clickable' + (utCategory === 'abnormal' ? ' is-active' : '') : ''"
                                      @click="utCatFilterOn && setUtCategory('abnormal')"
-                                     :title="utCatFilterOn ? '클릭: 자동감지만 조회' : '설비별 보기는 이미 자동감지만 조회합니다'">
+                                     :title="utCatFilterOn ? '자동감지만 조회' : null">
                                     <div class="up-utkpi-label">자동감지</div>
                                     <div class="up-utkpi-value" x-text="cc('ABNORMAL').toLocaleString() + '건'"></div>
-                                    <div class="up-utkpi-sub" x-text="'전체의 ' + categoryShare('ABNORMAL') + '%' + (utCatFilterOn ? (utCategory === 'abnormal' ? ' · 조회 중 (클릭해 해제)' : ' · 클릭해 이 구분만 조회') : '')"></div>
+                                    <div class="up-utkpi-sub" x-text="'전체의 ' + categoryShare('ABNORMAL') + '%'"></div>
                                 </div>
                                 <div class="up-utkpi" :class="(utCatFilterOn && !curFlow) ? 'clickable' + (utCategory === 'usertag' ? ' is-active' : '') : ''"
                                      @click="(utCatFilterOn && !curFlow) && setUtCategory('usertag')"
-                                     :title="curFlow ? '이상알람TAG 는 설비(Flow)에 속하지 않아 설비별 보기에서 제외됩니다' : '클릭: 이상알람TAG 만 조회'">
+                                     :title="curFlow ? '이상알람TAG 는 설비에 속하지 않아 설비별 보기에서 제외됩니다' : '이상알람TAG 만 조회'">
                                     <div class="up-utkpi-label">이상알람TAG</div>
                                     <div class="up-utkpi-value" x-text="curFlow ? '—' : (cc('USERTAG').toLocaleString() + '건')"
                                          :style="curFlow ? 'color:var(--color-text-disabled);' : ''"></div>
-                                    <div class="up-utkpi-sub" x-text="curFlow ? '설비별 보기 제외 — 전체 보기에서 조회' : ('전체의 ' + categoryShare('USERTAG') + '%' + (utCategory === 'usertag' ? ' · 조회 중 (클릭해 해제)' : ' · 클릭해 이 구분만 조회'))"></div>
+                                    <div class="up-utkpi-sub" x-text="curFlow ? '설비별 보기 제외' : ('전체의 ' + categoryShare('USERTAG') + '%')"></div>
                                 </div>
                                 <!-- 최다 발생 — 아래 '태그별 Top 10'(경로 기준) 1위와 동일 소스. 검색은 이름만 매칭해
                                      경로로는 필터가 되지 않으므로 표시 전용(비클릭)으로 둔다. -->
@@ -150,8 +154,7 @@
                             <template x-if="rel">
                                 <div style="margin-bottom:18px;">
                                     <div class="ds-card-h" style="margin-bottom:10px;">
-                                        <h4 style="font-size:0.74rem;">고장 지표 <span style="font-weight:400;color:var(--color-text-secondary);">— 등록한 이상알람TAG 기준</span></h4>
-                                        <span class="ds-card-h-sub">해소 뒤 그 디바이스를 쓰는 설비의 사이클이 다시 시작되면 복구로 봅니다</span>
+                                        <h4 style="font-size:0.74rem;" title="해소 뒤 그 디바이스를 쓰는 설비의 사이클이 다시 시작되면 복구로 봅니다">고장 지표 <span style="font-weight:400;color:var(--color-text-secondary);">— 등록한 이상알람TAG 기준</span></h4>
                                     </div>
 
                                     <div class="up-utkpi-row" style="margin-bottom:10px;">
@@ -191,18 +194,17 @@
                                         </button>
                                     </div>
 
-                                    <!-- 묶음 유도 — 묶이지 않은 태그는 재가동을 확인할 설비를 특정할 수 없어 지표에서 빠진다. -->
-                                    <div class="settings-note" x-show="rel.unboundTagCount > 0" style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;">
-                                        <span class="material-icons" style="font-size:18px;color:var(--color-warning);flex-shrink:0;">link_off</span>
-                                        <small style="flex:1;">
-                                            디바이스가 묶이지 않은 에러 태그 <b x-text="rel.unboundTagCount + '개'"></b> 는 이 지표에서 빠집니다 —
-                                            복구를 확인할 설비를 특정할 수 없기 때문입니다.
-                                            <a href="/app/settings.html?tab=general#user-tags" style="color:var(--color-primary);">설정 ▸ 사용자 태그</a>에서 묶으세요.
-                                        </small>
-                                    </div>
-                                    <div class="settings-note" x-show="rel.skippedChangedCount > 0" style="margin-bottom:8px;">
-                                        <small>매칭 조건이 <b>값 변경</b>인 태그 <b x-text="rel.skippedChangedCount + '건'"></b> 은 제외했습니다 — 발화와 동시에 해소되어 수리 시간이 뜻을 갖지 못합니다.</small>
-                                    </div>
+                                    <!-- 지표에서 빠진 태그 — 칩 한 줄(근거는 툴팁). 디바이스 미지정은 재가동을 확인할 설비를 특정할 수 없고,
+                                         '값 변경' 조건은 발화와 동시에 해소되어 수리 시간이 없다. x-if = 인라인 display:flex 를 x-show 가 지우지 않게. -->
+                                    <template x-if="rel.unboundTagCount > 0 || rel.skippedChangedCount > 0">
+                                        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px;">
+                                            <span class="chip chip-warning" x-show="rel.unboundTagCount > 0" title="디바이스가 묶이지 않은 에러 태그는 복구를 확인할 설비가 없어 지표에서 빠집니다"
+                                                  x-text="'디바이스 미지정 ' + rel.unboundTagCount + '개 제외'"></span>
+                                            <a class="ds-selbar-link" x-show="rel.unboundTagCount > 0" href="/app/settings.html?tab=general#user-tags">설정 ▸ 사용자 태그에서 묶기</a>
+                                            <span class="chip" x-show="rel.skippedChangedCount > 0" title="매칭 조건이 '값 변경'인 태그는 발화와 동시에 해소되어 수리 시간이 없습니다"
+                                                  x-text="'값 변경 조건 ' + rel.skippedChangedCount + '건 제외'"></span>
+                                        </div>
+                                    </template>
 
                                     <!-- 건별 판정. 근거 flow 를 함께 보인다 — 분기로 우회해 오판이 났을 때 추적할 실마리다. -->
                                     <div style="overflow-x:auto;" x-show="relRows.length > 0">
@@ -211,7 +213,7 @@
                                                 <th>발생</th><th>이름</th><th>디바이스</th><th>해소</th><th>재가동</th><th>수리 시간</th><th>상태</th>
                                             </tr></thead>
                                             <tbody>
-                                                <template x-for="a in relRows.slice(0, 50)" :key="a.occurredAtLocal + a.tagAddress">
+                                                <template x-for="a in relRows.slice(0, relLimit)" :key="a.occurredAtLocal + a.tagAddress">
                                                     <tr>
                                                         <td data-label="발생" x-text="a.occurredAtLocal"></td>
                                                         <td data-label="이름">
@@ -236,6 +238,11 @@
                                                 </template>
                                             </tbody>
                                         </table>
+                                    </div>
+                                    <!-- 50건 단위 잘림을 밝힌다 — 더보기 = +50. -->
+                                    <div class="ut-pager" x-show="relRows.length > relLimit">
+                                        <span class="ut-pager-info" x-text="relRows.length.toLocaleString() + '건 중 ' + Math.min(relLimit, relRows.length).toLocaleString() + '건 표시'"></span>
+                                        <button class="btn btn-sm btn-outlined" @click="relMore()" x-text="Math.min(50, relRows.length - relLimit) + '건 더보기'"></button>
                                     </div>
                                     <div x-show="relRows.length === 0" class="settings-note">
                                         <small x-show="rel.faultCount === 0 && rel.unboundTagCount === 0">이 기간에 등록 에러 태그 발생이 없습니다.</small>
@@ -295,10 +302,24 @@
                                 </div>
                             </template>
 
+                            <!-- 선택·일괄 바(공용 .ds-selbar) — 헤더 체크 = 이 페이지에 표시된 행 전부. 서버 페이징이라 '검색 결과 모두 선택'은 없다.
+                                 [차단 N] = 선택 행의 디바이스·이상알람TAG(중복 제거 N)가 미리 선택된 채 차단 모달. Excel 부분 내보내기는
+                                 서버(/api/user-tags/excel)가 필터 단위만 받아 제공하지 않는다(CSV 는 2026-07-03 제품 결정으로 폐기). -->
+                            <div class="ds-selbar" x-show="histSelCount > 0" x-cloak>
+                                <span class="ds-selbar-count" x-text="histSelCount + '건 선택'"></span>
+                                <span class="ds-selbar-sp"></span>
+                                <button class="btn btn-sm btn-outlined color-default" @click="openBlockMgrForHistSel()" :disabled="!histSelBlockCount"
+                                        title="선택한 행의 디바이스·이상알람TAG 가 미리 선택된 채 차단 창을 엽니다">
+                                    <span class="material-icons">notifications_off</span> <span x-text="'차단 ' + histSelBlockCount"></span>
+                                </button>
+                                <button type="button" class="ds-selbar-link" @click="histSelClear()">선택 해제</button>
+                            </div>
                             <template x-if="ut.alerts && ut.alerts.length > 0">
                                 <div style="overflow-x:auto;">
                                     <table class="ds-table ut-table">
                                         <thead><tr>
+                                            <th class="ds-check"><input type="checkbox" :checked="histAllSel" x-effect="$el.indeterminate = histSelCount > 0 && !histAllSel"
+                                                                        @change="histSelectAll($event.target.checked)" title="표시된 행 모두 선택" /></th>
                                             <th style="width:170px;" class="ut-th-sort" @click="setUtSort('occurredAt')">시각 <span class="material-icons ut-sort" x-text="utSortIcon('occurredAt')"></span></th>
                                             <th style="width:96px;" x-show="!curFlow">구분</th>
                                             <th class="ut-th-sort" @click="setUtSort('systemName')">경로 <span class="material-icons ut-sort" x-text="utSortIcon('systemName')"></span></th>
@@ -313,7 +334,8 @@
                                         </tr></thead>
                                         <tbody>
                                             <template x-for="(a, i) in ut.alerts" :key="i">
-                                                <tr :data-at="(a.occurredAtLocal || '').slice(0,19)">
+                                                <tr :data-at="(a.occurredAtLocal || '').slice(0,19)" :class="histIsSel(a) ? 'is-selected' : ''">
+                                                    <td class="ds-check" data-label="선택"><input type="checkbox" :checked="histIsSel(a)" @change="histToggleSel(a, $event.target.checked)" /></td>
                                                     <td class="num" data-label="시각" x-text="(a.occurredAtLocal || '').slice(0,19)"></td>
                                                     <td data-label="구분" x-show="!curFlow"><span class="ds-status" :class="categoryStatus(a)" x-text="categoryLabel(a)"></span></td>
                                                     <!-- 경로: AbnormalDetect → "FLOW / WORK / CALL", 나머지 → SystemName -->
@@ -502,7 +524,7 @@
                         <table class="up-blk-table">
                             <thead>
                                 <tr>
-                                    <th style="width:36px; text-align:center;"><input type="checkbox" class="up-dt-cb" :checked="blkAllSelected" @change="blkSelectAll($event.target.checked)" title="전체 선택" /></th>
+                                    <th style="width:36px; text-align:center;"><input type="checkbox" class="up-dt-cb" :checked="blkAllSelected" x-effect="$el.indeterminate = blkSomeSelected && !blkAllSelected" @change="blkSelectAll($event.target.checked)" title="표시된 행 모두 선택" /></th>
                                     <th class="up-blk-th-sort" @click="blkSort('device')">
                                         디바이스
                                         <span class="up-blk-sort-icon" :class="{ active: blockMgr.sortCol === 'device' }">
@@ -594,7 +616,7 @@
                         <table class="up-blk-table">
                             <thead>
                                 <tr>
-                                    <th style="width:36px; text-align:center;"><input type="checkbox" class="up-dt-cb" :checked="utAllSelected" @change="utSelectAll($event.target.checked)" title="전체 선택" /></th>
+                                    <th style="width:36px; text-align:center;"><input type="checkbox" class="up-dt-cb" :checked="utAllSelected" x-effect="$el.indeterminate = utSomeSelected && !utAllSelected" @change="utSelectAll($event.target.checked)" title="표시된 행 모두 선택" /></th>
                                     <th>이름</th>
                                     <th style="width:130px;">시스템</th>
                                     <th>주소</th>

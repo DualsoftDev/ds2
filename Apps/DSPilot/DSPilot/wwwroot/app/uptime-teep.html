@@ -39,9 +39,9 @@
                 <div class="ds-topbar-actions">
                     <div class="segmented">
                         <button :class="period === 'today' ? 'is-active' : ''" @click="setPeriod('today')">오늘</button>
-                        <button :class="period === '7d' ? 'is-active' : ''" @click="setPeriod('7d')">7일</button>
-                        <button :class="period === '30d' ? 'is-active' : ''" @click="setPeriod('30d')">30일</button>
-                        <button :class="period === '60d' ? 'is-active' : ''" @click="setPeriod('60d')">60일</button>
+                        <button :class="period === '7d' ? 'is-active' : ''" @click="setPeriod('7d')">지난 7일</button>
+                        <button :class="period === '30d' ? 'is-active' : ''" @click="setPeriod('30d')">지난 30일</button>
+                        <button :class="period === '60d' ? 'is-active' : ''" @click="setPeriod('60d')">지난 60일</button>
                         <button :class="period === 'custom' ? 'is-active' : ''" @click="toggleCustomPeriod()" title="날짜 직접 선택">
                             <span class="material-icons">calendar_today</span>기간
                         </button>
@@ -83,21 +83,21 @@
                     </div>
 
                     <div class="up-oee-row">
-                        <!-- TEEP (hero) -->
-                        <div class="up-oee is-hero">
+                        <!-- TEEP (hero) — 공식은 hover 한 곳에만(2026-09-18: 노트·보조 카드·하단 힌트 3중 표기 정리) -->
+                        <div class="up-oee is-hero" title="TEEP = 가동시간 ÷ 캘린더 전체(비생산·미계측 포함)">
                             <div class="up-oee-label">생산효율 TEEP</div>
                             <div class="up-oee-value up-oee-mono" x-text="teep ? pct(teep.teep) : '—'"></div>
-                            <div class="up-oee-note" x-text="teep ? (teep.teep != null ? '가동시간 ÷ 캘린더(전체 · 비생산 포함) — 정지를 비생산으로 전환해도 TEEP 는 변하지 않음(달력 손실 그대로)' : (teep.teepNote || '산출 불가')) : '불러오는 중…'"></div>
+                            <div class="up-oee-note" x-text="teep ? (teep.teep != null ? ('가동 ' + durSum(teep.runningMs || 0) + ' / 캘린더 ' + durSum(teep.calendarMs || 0)) : (teep.teepNote || '산출 불가')) : '불러오는 중…'"></div>
                         </div>
-                        <!-- 가동률 (보조) -->
-                        <div class="up-oee">
-                            <div class="up-oee-label">가동률 <span class="up-oee-chip">보조</span></div>
+                        <!-- 가동률 -->
+                        <div class="up-oee" title="가동률 = (캘린더 − 비생산) ÷ 캘린더">
+                            <div class="up-oee-label">가동률</div>
                             <div class="up-oee-value up-oee-mono" x-text="teep ? pct(teep.utilization) : '—'"></div>
-                            <div class="up-oee-note">(캘린더 − 비생산) ÷ 캘린더</div>
+                            <div class="up-oee-note" x-text="teep && teep.calendarMs > 0 ? ('비생산 ' + durSum(teep.nonProdMs || 0)) : ''"></div>
                         </div>
-                        <!-- 설비효율 OEE (참조 — 설비효율 현황 페이지) — 현재 기간·설비 선택을 그대로 실어 이동 -->
+                        <!-- 설비효율 OEE (설비효율 현황 페이지로 — 현재 기간·설비 선택을 그대로 실어 이동) -->
                         <div class="up-oee">
-                            <div class="up-oee-label">설비효율 OEE <span class="up-oee-chip">참조</span></div>
+                            <div class="up-oee-label">설비효율 OEE</div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.oee) : '—'"></div>
                             <div class="up-oee-note"><a @click.prevent="location.href = '/uptime-oee' + location.search" style="cursor:pointer; color:var(--color-primary);">설비효율 현황에서 A·P·Q 보기 →</a></div>
                         </div>
@@ -127,7 +127,7 @@
                                 · 사이클 <span x-text="ktlSelected.cycles"></span>회
                                 · 합 <span x-text="durSum(ktlSelected.ctMs)"></span>
                                 <template x-if="ktlSelected.state === 'Down' && ktlSelected.axis === 'Mt'">
-                                    <span> · MT 초과 (평소의 <span x-text="(ktlSelected.mtRatio || 0).toFixed(1)"></span>배)</span>
+                                    <span> · 동작 초과 (평소의 <span x-text="(ktlSelected.mtRatio || 0).toFixed(1)"></span>배)</span>
                                 </template>
                                 <template x-if="ktlSelected.state === 'Down' && ktlSelected.axis !== 'Mt' && ktlSelected.worstWork">
                                     <span> · 초과 work <b x-text="ktlSelected.worstWork"></b>
@@ -140,9 +140,6 @@
                         </template>
                     </div>
 
-                    <div class="up-note" style="margin-top:6px; opacity:.75;"
-                         x-show="ktlData"
-                         x-text="'비생산 = CT ≥ 기준 R × ' + (ktlData ? ktlData.kappa.nonProd : '') + ' · 비가동 = work 하나라도 평소 W × ' + (ktlData ? ktlData.kappa.down : '') + ' 초과 · 잘린 구간과 진행 중은 계산 밖'"></div>
                 </section>
 
                 <!-- ════ 생산효율 매트릭스 (P6 L0) — 라인 전체=3D 아이소(설비×시간×가동, 4시점 회전·행 하이라이트),
@@ -159,9 +156,9 @@
                     <div x-show="teepMatrixMode()">
                         <!-- 3D 뷰 컨트롤 — 시점 스텝 회전(±90°, 가림 회피) -->
                         <div class="up-tm-controls" x-show="teepMatrixMode() === 'iso'">
-                            <button class="btn-icon" @click="teepIsoRotate(-1)" title="시점 왼쪽으로 90° 회전"><span class="material-icons">rotate_left</span></button>
-                            <button class="btn-icon" @click="teepIsoRotate(1)" title="시점 오른쪽으로 90° 회전"><span class="material-icons">rotate_right</span></button>
-                            <span class="up-tm-controls-hint" x-text="'시점 ' + (teepIsoRot + 1) + '/4 — 앞 막대에 가리면 회전, 설비에 올리면 그 행만 강조'"></span>
+                            <button class="btn-icon" @click="teepIsoRotate(-1)" title="시점 왼쪽으로 90° 회전 — 앞 막대에 가릴 때"><span class="material-icons">rotate_left</span></button>
+                            <button class="btn-icon" @click="teepIsoRotate(1)" title="시점 오른쪽으로 90° 회전 — 앞 막대에 가릴 때"><span class="material-icons">rotate_right</span></button>
+                            <span class="up-tm-controls-hint" x-text="'시점 ' + (teepIsoRot + 1) + '/4'"></span>
                         </div>
                         <div class="up-tm-scroll">
                             <div id="teep-matrix-host" class="up-tm-host"></div>
@@ -199,34 +196,25 @@
                     <template x-if="teep && teep.calendarMs > 0">
                         <div>
                             <!-- 누적 막대 — 색 SSOT는 설비효율 페이지와 동일(가동=--oee-run 솔리드 / 정지=고장 빗금 /
-                                 비생산=남색 슬레이트 빗금). "가동=솔리드, 비가동·제외=빗금" 규칙 공유. -->
-                            <div style="display:flex; height:26px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
-                                <div class="up-bar-seg" :style="`width:${teepPct('runningMs')}%; background:var(--oee-run);`" :title="'가동 ' + teepPct('runningMs') + '%'"><span class="up-bar-lbl" x-show="parseFloat(teepPct('runningMs')) >= 6" x-text="teepPct('runningMs') + '%'"></span></div>
-                                <div class="up-bar-seg hatch-fault" :style="`width:${teepPct('downMs')}%;`" :title="'정지 ' + teepPct('downMs') + '%'"><span class="up-bar-lbl" x-show="parseFloat(teepPct('downMs')) >= 6" x-text="teepPct('downMs') + '%'"></span></div>
-                                <div class="up-bar-seg hatch-nonprod" :style="`width:${teepPct('nonProdMs')}%;`" :title="'비생산 ' + teepPct('nonProdMs') + '%'"><span class="up-bar-lbl" x-show="parseFloat(teepPct('nonProdMs')) >= 6" x-text="teepPct('nonProdMs') + '%'"></span></div>
+                                 비생산=남색 슬레이트 빗금). "가동=솔리드, 비가동·제외=빗금" 규칙 공유.
+                                 라벨은 세그먼트 안에("가동 12h · 78%"), 좁은 구간은 % 만 또는 hover — 범례·값 행·공식 문장은 2026-09-18 제거. -->
+                            <div style="display:flex; height:28px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
+                                <div class="up-bar-seg" :style="`width:${teepPct('runningMs')}%; background:var(--oee-run);`" :title="'가동 ' + durSum(teep.runningMs) + ' · ' + teepPct('runningMs') + '%' + (sumFlowNote(teep.runningMs) ? ' · ' + sumFlowNote(teep.runningMs) : '')">
+                                    <span class="up-bar-lbl is-long" x-text="'가동 ' + durSum(teep.runningMs) + ' · ' + teepPct('runningMs') + '%'"></span><span class="up-bar-lbl is-short" x-text="teepPct('runningMs') + '%'"></span></div>
+                                <div class="up-bar-seg hatch-fault" :style="`width:${teepPct('downMs')}%;`" :title="'정지 ' + durSum(teep.downMs) + ' · ' + teepPct('downMs') + '%' + (sumFlowNote(teep.downMs) ? ' · ' + sumFlowNote(teep.downMs) : '')">
+                                    <span class="up-bar-lbl is-long" x-text="'정지 ' + durSum(teep.downMs) + ' · ' + teepPct('downMs') + '%'"></span><span class="up-bar-lbl is-short" x-text="teepPct('downMs') + '%'"></span></div>
+                                <div class="up-bar-seg hatch-nonprod" :style="`width:${teepPct('nonProdMs')}%;`" :title="'비생산 ' + durSum(teep.nonProdMs || 0) + ' · ' + teepPct('nonProdMs') + '%' + (sumFlowNote(teep.nonProdMs || 0) ? ' · ' + sumFlowNote(teep.nonProdMs || 0) : '')">
+                                    <span class="up-bar-lbl is-long" x-text="'비생산 ' + durSum(teep.nonProdMs || 0) + ' · ' + teepPct('nonProdMs') + '%'"></span><span class="up-bar-lbl is-short" x-text="teepPct('nonProdMs') + '%'"></span></div>
                                 <!-- 미계측(수신 공백, §3.4) = 비생산과 별도 표기(회색 빗금) — 데이터 있을 때만 노출 -->
                                 <template x-if="(teep.unmeasuredMs || 0) > 0">
-                                    <div class="up-bar-seg hatch-unmeas" :style="`width:${teepPct('unmeasuredMs')}%;`" :title="'미계측 ' + teepPct('unmeasuredMs') + '%'"><span class="up-bar-lbl up-bar-lbl-dark" x-show="parseFloat(teepPct('unmeasuredMs')) >= 6" x-text="teepPct('unmeasuredMs') + '%'"></span></div>
+                                    <div class="up-bar-seg hatch-unmeas" :style="`width:${teepPct('unmeasuredMs')}%;`" :title="'미계측 ' + durSum(teep.unmeasuredMs || 0) + ' · ' + teepPct('unmeasuredMs') + '%'">
+                                        <span class="up-bar-lbl up-bar-lbl-dark is-long" x-text="'미계측 ' + durSum(teep.unmeasuredMs || 0) + ' · ' + teepPct('unmeasuredMs') + '%'"></span><span class="up-bar-lbl up-bar-lbl-dark is-short" x-text="teepPct('unmeasuredMs') + '%'"></span></div>
                                 </template>
                                 <!-- 진행 중(열린 사이클, doc/26) = 옅은 회색 솔리드 — 어느 상태도 아님(분모 밖). 다음 사이클 시작 시 확정. -->
                                 <template x-if="(teep.inProgressMs || 0) > 0">
-                                    <div class="up-bar-seg seg-inprog" :style="`width:${teepPct('inProgressMs')}%;`" :title="'진행 중 ' + teepPct('inProgressMs') + '% — 마지막 완료 사이클 이후 다음 시작 신호가 없는 시간(미확정)'"><span class="up-bar-lbl up-bar-lbl-dark" x-show="parseFloat(teepPct('inProgressMs')) >= 6" x-text="teepPct('inProgressMs') + '%'"></span></div>
+                                    <div class="up-bar-seg seg-inprog" :style="`width:${teepPct('inProgressMs')}%;`" :title="'진행 중 ' + durSum(teep.inProgressMs || 0) + ' · ' + teepPct('inProgressMs') + '% — 마지막 완료 사이클 이후 다음 시작 신호가 없는 시간(미확정)'">
+                                        <span class="up-bar-lbl up-bar-lbl-dark is-long" x-text="'진행 중 ' + durSum(teep.inProgressMs || 0) + ' · ' + teepPct('inProgressMs') + '%'"></span><span class="up-bar-lbl up-bar-lbl-dark is-short" x-text="teepPct('inProgressMs') + '%'"></span></div>
                                 </template>
-                            </div>
-                            <!-- 범례 + 값 -->
-                            <div class="up-teep-legend">
-                                <div class="up-teep-leg"><span class="sw" style="background:var(--oee-run);"></span>가동 <b x-text="durSum(teep.runningMs)" :title="sumFlowNote(teep.runningMs)"></b> <em x-text="'(' + teepPct('runningMs') + '%)'"></em></div>
-                                <div class="up-teep-leg"><span class="sw hatch-fault"></span>정지 <b x-text="durSum(teep.downMs)" :title="sumFlowNote(teep.downMs)"></b> <em x-text="'(' + teepPct('downMs') + '%)'"></em></div>
-                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 <b x-text="durSum(teep.nonProdMs || 0)" :title="sumFlowNote(teep.nonProdMs || 0)"></b> <em x-text="'(' + teepPct('nonProdMs') + '%)'"></em></div>
-                                <template x-if="(teep.unmeasuredMs || 0) > 0">
-                                    <div class="up-teep-leg"><span class="sw hatch-unmeas"></span>미계측 <b x-text="durSum(teep.unmeasuredMs || 0)" :title="sumFlowNote(teep.unmeasuredMs || 0)"></b> <em x-text="'(' + teepPct('unmeasuredMs') + '%)'"></em></div>
-                                </template>
-                                <template x-if="(teep.inProgressMs || 0) > 0">
-                                    <div class="up-teep-leg" title="마지막 완료 사이클 이후 다음 시작 신호가 아직 없는 시간 — 가동·정지·비생산 어느 쪽도 아닙니다. 다음 사이클이 시작되면 그 사이클 행으로 확정됩니다."><span class="sw seg-inprog"></span>진행 중 <b x-text="durSum(teep.inProgressMs || 0)" :title="sumFlowNote(teep.inProgressMs || 0)"></b> <em x-text="'(' + teepPct('inProgressMs') + '%)'"></em></div>
-                                </template>
-                            </div>
-                            <div class="up-form-hint" style="margin-top:12px;">
-                                <b>TEEP</b> = 가동 ÷ 캘린더 전체(비생산·미계측 포함) — 성능·품질(P·Q)은 <b>설비효율(OEE)</b> 페이지 참조.
                             </div>
                         </div>
                     </template>
@@ -335,8 +323,7 @@
                             <div class="up-mq-bnd" x-show="mqIssueRows.length > 0" x-cloak>
                                 <span class="material-icons">rule_folder</span>
                                 <div>
-                                    <b>설비 경계(시작/완료 동작) 확인이 필요합니다</b> — 경계가 실제 동작과 어긋나면
-                                    가동이 0건으로 남거나 가동시간이 배로 계상됩니다.
+                                    <b title="경계가 실제 동작과 어긋나면 가동이 0건으로 남거나 가동시간이 배로 계상됩니다.">설비 경계(시작/완료 동작) 확인 필요</b>
                                     <template x-for="f in mqIssueRows" :key="'bnd-'+f.flowName">
                                         <div class="up-mq-bnd-row">
                                             <a :href="'/flow-cycle?name=' + encodeURIComponent(f.flowName)" x-text="f.flowName"></a>
@@ -351,8 +338,7 @@
                             <div class="up-mq-bnd" x-show="mqUnclassifiedRows.length > 0" x-cloak>
                                 <span class="material-icons">call_split</span>
                                 <div>
-                                    <b>분기 미분류 사이클이 많은 설비가 있습니다</b> — 어느 분기에도 속하지 않는 사이클은
-                                    분기 통계(설비효율)에서 빠집니다. 방치하면 분기 지표가 조용히 얇아집니다.
+                                    <b title="어느 분기에도 속하지 않는 사이클은 분기 통계(설비효율)에서 빠집니다.">분기 미분류 사이클이 많은 설비</b>
                                     <template x-for="f in mqUnclassifiedRows" :key="'unb-' + f.flowName">
                                         <div class="up-mq-bnd-row">
                                             <a :href="'/flow-cycle?name=' + encodeURIComponent(f.flowName)" x-text="f.flowName"></a>
@@ -363,22 +349,15 @@
                                 </div>
                             </div>
 
-                            <!-- 측정 불가 설비 — 제외율이 아무리 낮아도 이게 있으면 라인 지표를 그대로 믿을 수 없다 -->
+                            <!-- 측정 불가 설비 — 칩 1개 + 설비 링크(사유는 hover). OEE 페이지 카드와 동일 마크업 -->
                             <div class="up-mq-unmeas" x-show="mq.unmeasurableFlowCount > 0" x-cloak>
                                 <span class="material-icons">report_off</span>
-                                <div>
-                                    <b><span x-text="mq.unmeasurableFlowCount"></span>대가 측정되지 않고 있습니다</b> —
-                                    표준 가동시간(14일 평균)이 학습되지 않아 가동/정지 판정도, 대기 분류도 되지 않습니다.
-                                    해당 설비는 <b>가용성·OEE 모두 산출되지 않습니다</b> — 근사값을 만들지 않습니다.
-                                    사이클이 한 건도 없으면 <b>설비 경계(Head/Tail) 지정</b>을 먼저 확인하세요 —
-                                    한 번도 동작하지 않는 Call 이 Head 로 잡히면 사이클이 영구히 기록되지 않습니다.
-                                </div>
-                            </div>
-
-                            <div class="up-mq-link">
-                                OEE 는 <b>수집된 정상 가동시간만</b>으로 산출합니다 — 수집되지 않은 시간은 지표에 어떤 상태로도
-                                반영되지 않습니다. 그래서 <b>이 수집률이 곧 지표의 신뢰 범위</b>입니다.
-                                <a href="/uptime-oee#availability-section">가용성 정산 보기</a>
+                                <span class="up-oee-chip warn" style="margin-left:0;" x-text="'측정 불가 ' + mq.unmeasurableFlowCount + '대'"
+                                      title="표준 가동시간(14일 중앙 CT) 미학습 — 고장/비생산 판정도, 가용성·OEE 도 산출되지 않습니다(근사값 없음)."></span>
+                                <template x-for="f in mqRows.filter(r => r.measurable === false)" :key="'um-' + f.flowName">
+                                    <a :href="'/flow-cycle?name=' + encodeURIComponent(f.flowName)" x-text="f.flowName"
+                                       title="사이클이 0건이면 설비 경계(시작/완료 동작) 지정을 먼저 확인 — 사이클 분석으로 이동"></a>
+                                </template>
                             </div>
 
                             <button class="btn btn-sm btn-outlined color-default up-mq-toggle" @click="mqOpen = !mqOpen">
@@ -400,7 +379,7 @@
                                     <div class="up-mq-row" :class="(flowMatches(f.flowName) ? 'is-cur ' : '') + (f.measurable === false ? 'is-unmeas ' : '') + (mqHasBranched ? 'has-br' : '')">
                                         <a class="up-mq-name" :href="'/uptime-oee?flow=' + encodeURIComponent(f.flowName)"
                                            :title="f.measurable === false
-                                                   ? (f.flowName + ' — 측정 불가: 표준 가동시간 미학습(클린샘플 0). 설비 경계(Head/Tail) 지정을 확인하세요.')
+                                                   ? (f.flowName + ' — 측정 불가: 표준 가동시간(14일 중앙 CT) 미학습. 설비 경계(시작/완료 동작) 지정을 확인하세요.')
                                                    : (f.flowName + ' — 비가동 경계 ' + durShort(f.thresholdMs))"
                                            x-text="f.flowName"></a>
                                         <span class="up-mq-bnd-chip" x-show="!!f.boundaryIssue" x-cloak
@@ -415,7 +394,7 @@
                                             </div>
                                         </template>
                                         <template x-if="f.measurable === false">
-                                            <span class="up-mq-unmeas-tag">측정 불가 — 표준 가동시간 미학습(클린샘플 0)</span>
+                                            <span class="up-mq-unmeas-tag" title="표준 가동시간(14일 중앙 CT) 미학습">측정 불가</span>
                                         </template>
                                         <span class="num up-mq-rate" x-text="f.measurable === false ? '—' : mqPct(mqCollectRate(f))"></span>
                                         <span class="num" x-text="f.measurable === false ? '—' : f.incompleteCycles.toLocaleString()"></span>
@@ -426,13 +405,6 @@
                                         <span class="num" x-text="f.measurable === false ? '0' : f.totalCycles.toLocaleString()"></span>
                                     </div>
                                 </template>
-                            </div>
-
-                            <div class="up-mq-foot">
-                                IO 신호로 관측한 논리적 인과와 실제 설비 사이에는 구조적 괴리가 있고, PLC 수집도 100% 가
-                                되지 않습니다. 그래서 지표는 <b>수집된 정상 가동시간만</b>을 근거로 삼고, 못 본 시간은 어떤
-                                상태도 주장하지 않습니다. 수집률이 낮다고 설비가 나쁜 것이 아니라 <b>지표의 근거가 얇다</b>는
-                                뜻이며, <b>절대 수치보다 추세와 설비 편중</b>이 점검 신호입니다.
                             </div>
                         </div>
                     </template>
@@ -448,7 +420,7 @@
                         <div class="ds-empty">
                             <span class="material-icons">hourglass_empty</span>
                             <div class="ds-empty-title">계측 품질을 불러오는 중…</div>
-                            <div class="ds-empty-desc">표준 가동시간(14일 평균)이 학습된 설비부터 표시됩니다.</div>
+                            <div class="ds-empty-desc">표준 가동시간(14일 중앙 CT)이 학습된 설비부터 표시됩니다.</div>
                         </div>
                     </template>
                 </section>

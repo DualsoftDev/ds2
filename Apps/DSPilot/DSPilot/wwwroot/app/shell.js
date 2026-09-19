@@ -115,8 +115,9 @@ window.dspBranch = {
  *
  * 동작 개요:
  *   - 테마: <html> 에 dark + dark-theme 동시 토글(Tailwind dark: 변형 + ds.css 다크).
- *     localStorage 'dspilot-theme'. 로드 시 적용 + 설정 페이지/다른 탭 storage 동기화(헤더 토글 버튼 제거됨).
- *   - 콘텐츠 폭: localStorage 'dspilot-content-width'(auto|fixed|wide). auto=창 폭 ≥2200px 이면 넓게. 헤더 우측 토글 + 설정 페이지 동기화.
+ *     localStorage 'dspilot-theme'. 로드 시 적용 + 헤더 우측 토글(light_mode/dark_mode) + 설정 페이지/다른 탭 storage 동기화.
+ *   - 콘텐츠 폭: localStorage 'dspilot-content-width'(auto|fixed|wide). auto=창 폭 ≥2200px 이면 넓게. 설정▸사용자 인터페이스에서만 바꾼다(헤더 토글 제거).
+ *   - 나브 트리: 펼침 상태 localStorage 'dspilot-nav-open' 영속 + 상단 '설비 검색'(시스템/FLOW/분기 행 부분일치) + '모두 접기'.
  *   - .dsp-page(Alpine 루트) 를 main(ml-60) 안으로 이동, 슬림 헤더 제거.
  *   - /api/nav         : showPlcDebug (PLC 디버그 링크, 1회) + systems(기능별 트리 본문) + externalShortcuts.
  *   - /api/nav/summary : 이상발생 배지 · 연결 배지 · Agent 상태 (4초 폴링).
@@ -168,7 +169,7 @@ window.dspBranch = {
 
         // ── 1.1) 콘텐츠 폭: 분석 페이지 본문(.dsp-main)은 기본 1400px 캡(가독 폭) — 와이드 모니터(2560/3440)에서는
         //   좌우 여백이 과해져 '넓게(전체 폭)' 모드를 둔다. localStorage 'dspilot-content-width' = 'auto'|'fixed'|'wide'.
-        //   auto(기본) = 창 폭 ≥ WIDE_AUTO_MIN 이면 넓게. 헤더 토글(아래) / 설정▸사용자 인터페이스 / 타 탭 storage 로 동기화.
+        //   auto(기본) = 창 폭 ≥ WIDE_AUTO_MIN 이면 넓게. 설정▸사용자 인터페이스 / 타 탭 storage 로 동기화(헤더 폭 토글은 제거, 그 자리에 테마 토글).
         //   설정·폼류 페이지는 읽기 폭을 유지하고(제외), 대시보드·CCTV 는 원래 캡이 없어 대상이 아니다.
         //   <html>.dsp-wide 클래스만 켜고 실제 규칙은 1.6 의 주입 CSS(`html.dsp-wide .dsp-main{max-width:none}`).
         var WIDTH_KEY = 'dspilot-content-width';
@@ -218,14 +219,22 @@ window.dspBranch = {
                 '#dsp-header-actions .btn:disabled{opacity:0.42;cursor:not-allowed;}' +
                 /* 콘텐츠 폭 '넓게': 페이지별 .dsp-main{max-width:1400px}(id 셀렉터 포함) 캡을 해제 — 1.1 의 <html>.dsp-wide 가 스위치 */
                 'html.dsp-wide .dsp-main{max-width:none!important;}' +
-                /* 헤더 폭 토글(아이콘 버튼) — 실시간 배지 옆, 액션 슬롯 .btn 과 같은 테두리 톤 */
-                '.dsp-width-toggle{display:inline-flex;align-items:center;justify-content:center;width:32px;height:30px;padding:0;' +
+                /* 셸 아이콘 버튼(헤더 테마 토글 · 나브 '모두 접기') — 액션 슬롯 .btn 과 같은 테두리 톤 */
+                '.dsp-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:32px;height:30px;padding:0;flex:0 0 auto;' +
                   'border:1.5px solid rgba(120,140,165,0.55);border-radius:var(--radius-sm,6px);background:var(--color-surface);' +
                   'color:var(--color-text-secondary,#556);cursor:pointer;line-height:1;transition:color .15s,border-color .15s;}' +
-                '.dsp-width-toggle .material-icons{font-size:19px;}' +
-                '.dsp-width-toggle:hover{color:var(--color-text-primary);}' +
-                '.dsp-width-toggle[aria-pressed="true"]{color:var(--color-primary,#0058be);border-color:var(--color-primary,#0058be);}' +
-                '.dark .dsp-width-toggle,.dark-theme .dsp-width-toggle{border-color:rgba(180,200,220,0.50);}' +
+                '.dsp-icon-btn .material-icons{font-size:19px;}' +
+                '.dsp-icon-btn:hover{color:var(--color-text-primary);}' +
+                '.dark .dsp-icon-btn,.dark-theme .dsp-icon-btn{border-color:rgba(180,200,220,0.50);}' +
+                /* 나브 검색(사이드바 상단) — 시스템/FLOW/분기 행 부분일치, 매치 경로만 펼침 */
+                '.dsp-nav-tools{display:flex;align-items:center;gap:6px;padding:0 12px;margin:-12px 0 10px;}' +
+                '.dsp-nav-search{position:relative;flex:1 1 auto;min-width:0;}' +
+                '.dsp-nav-search .material-icons{position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:17px;opacity:.55;pointer-events:none;}' +
+                '.dsp-nav-search input{width:100%;height:30px;padding:0 8px 0 30px;box-sizing:border-box;border:1.5px solid rgba(120,140,165,0.45);' +
+                  'border-radius:var(--radius-sm,6px);background:var(--color-surface);color:var(--color-text-primary);font:inherit;font-size:12px;outline:none;}' +
+                '.dsp-nav-search input::-webkit-search-cancel-button{cursor:pointer;}' +
+                '.dsp-nav-search input:focus{border-color:var(--color-primary,#0058be);}' +
+                '.dark .dsp-nav-search input,.dark-theme .dsp-nav-search input{border-color:rgba(180,200,220,0.40);}' +
                 '@media (max-width:768px){' +
                   /* 드로어 폭: 폰에서 300px 가 화면을 다 가리지 않도록 85vw 로 클램프(인라인 width 를 !important 로 덮음). 숨김 오프셋(-300px)은 항상 폭 이상이라 완전히 가려짐. */
                   'aside.dsp-shell{width:min(300px,85vw)!important;}' +
@@ -241,9 +250,7 @@ window.dspBranch = {
                   'header.dsp-shell .dsp-shell-headleft{gap:10px!important;}' +
                   /* 헤더 액션 슬롯: 480px 미만에서 텍스트 숨기고 아이콘만 표시 */
                   '#dsp-header-actions .btn span:not(.material-icons){display:none!important;}' +
-                '}' +
-                /* 폭 토글은 데스크톱 전용(모바일/태블릿은 캡 이하라 의미 없음) */
-                '@media (max-width:1500px){.dsp-width-toggle{display:none!important;}}';
+                '}';
             document.head.appendChild(mcss);
         }
 
@@ -526,6 +533,29 @@ window.dspBranch = {
         brand.appendChild(el('p', 'font-label-sm text-label-sm text-on-surface-variant opacity-70 mt-2', 'Industrial Monitoring'));
         aside.appendChild(brand);
 
+        // ── 3.6) 나브 도구줄: '설비 검색' + '모두 접기' — 트리 행(시스템/FLOW/분기)을 부분일치로 걸러 매치 경로만 펼친다. ──
+        //   동작 함수(navSearch/navCollapseAll)는 3.7 의 fold 레지스트리에 있다(같은 블록 — 선언 호이스팅).
+        var navTools = el('div', 'dsp-nav-tools');
+        var navSearchWrap = el('div', 'dsp-nav-search');
+        navSearchWrap.appendChild(icon('search'));
+        var navSearchInput = el('input');
+        navSearchInput.type = 'search';
+        navSearchInput.placeholder = '설비 검색';
+        navSearchInput.setAttribute('aria-label', '설비 검색');
+        navSearchInput.autocomplete = 'off';
+        navSearchWrap.appendChild(navSearchInput);
+        navTools.appendChild(navSearchWrap);
+        var navCollapseBtn = el('button', 'dsp-icon-btn');
+        navCollapseBtn.type = 'button';
+        navCollapseBtn.title = '모두 접기';
+        navCollapseBtn.setAttribute('aria-label', '모두 접기');
+        navCollapseBtn.appendChild(icon('unfold_less'));
+        navTools.appendChild(navCollapseBtn);
+        aside.appendChild(navTools);
+        navSearchInput.addEventListener('input', function () { navSearch(navSearchInput.value); });
+        navSearchInput.addEventListener('keydown', function (e) { if (e.key === 'Escape') { navSearchInput.value = ''; navSearch(''); } });
+        navCollapseBtn.addEventListener('click', function () { navSearchInput.value = ''; navCollapseAll(); });
+
         var navMenu = el('nav', 'flex-1 flex flex-col gap-1 px-3 overflow-y-auto custom-scrollbar');
         aside.appendChild(navMenu);
 
@@ -552,8 +582,65 @@ window.dspBranch = {
         var curBranch = curFlow ? (qs.get('branch') || '') : '';
         var curSystem = curItem && !curFlow ? (qs.get('system') || '') : '';
 
+        // ── 3.7) 나브 트리 펼침 레지스트리 — 영속(localStorage 'dspilot-nav-open') + 검색 강제 펼침 + '모두 접기'. ──
+        //   fold = 접이식 노드 {key, open(영속 상태), forced(검색 중 덮어쓰기 true/false, 평소 null), apply()}.
+        //   자동 펼침(현재 경로)은 로드 시 open 초기값으로만 반영하고 저장하지 않는다 — 저장은 수동 토글만.
+        var NAV_OPEN_KEY = 'dspilot-nav-open';
+        var navOpenKeys = [];
+        try {
+            var _no = JSON.parse(localStorage.getItem(NAV_OPEN_KEY) || '[]');
+            if (Array.isArray(_no)) navOpenKeys = _no.filter(function (k) { return typeof k === 'string'; });
+        } catch (e) { /* ignore */ }
+        function navOpenHas(k) { return navOpenKeys.indexOf(k) !== -1; }
+        function navOpenSave(k, on) {
+            var i = navOpenKeys.indexOf(k);
+            if (on && i === -1) navOpenKeys.push(k);
+            else if (!on && i !== -1) navOpenKeys.splice(i, 1);
+            try { localStorage.setItem(NAV_OPEN_KEY, JSON.stringify(navOpenKeys)); } catch (e) { /* ignore */ }
+        }
+        var navFolds = [];   // 모든 fold(기능/시스템/FLOW-분기)
+        var navRows = [];    // 검색 대상 행 {el, text, parents:[상위 행…], folds:[이 행이 보이려면 펼쳐야 할 fold…]}
+        function makeFold(key, autoOpen, level, render) {
+            var f = {
+                key: key, level: level, open: !!autoOpen || navOpenHas(key), forced: null,
+                apply: function () { render(this.forced != null ? this.forced : this.open); },
+                toggle: function () {
+                    if (this.forced != null) this.forced = !this.forced;            // 검색 중 토글은 비영속
+                    else { this.open = !this.open; navOpenSave(this.key, this.open); }
+                    this.apply();
+                }
+            };
+            f.apply();
+            navFolds.push(f);
+            return f;
+        }
+        // 검색: 행 자신/조상/자손 중 하나라도 매치면 보이고, 매치 경로의 fold 는 강제 펼침. 빈 질의 = 원상 복구.
+        function navSearch(q) {
+            q = (q || '').trim().toLowerCase();
+            if (!q) {
+                navRows.forEach(function (r) { r.el.style.display = ''; });
+                navFolds.forEach(function (f) { f.forced = null; f.apply(); });
+                return;
+            }
+            navRows.forEach(function (r) { r.hit = r.text.indexOf(q) !== -1; r.desc = false; });
+            navRows.forEach(function (r) { if (r.hit) r.parents.forEach(function (p) { p.desc = true; }); });
+            navFolds.forEach(function (f) { f.forced = false; });
+            navRows.forEach(function (r) {
+                var anc = r.parents.some(function (p) { return p.hit; });
+                r.el.style.display = (r.hit || anc || r.desc) ? '' : 'none';
+                if (r.hit || r.desc) r.folds.forEach(function (f) { f.forced = true; });
+            });
+            navFolds.forEach(function (f) { f.apply(); });
+        }
+        function navCollapseAll() {
+            navOpenKeys = [];
+            try { localStorage.setItem(NAV_OPEN_KEY, '[]'); } catch (e) { /* ignore */ }
+            navRows.forEach(function (r) { r.el.style.display = ''; });
+            navFolds.forEach(function (f) { f.open = false; f.forced = null; f.apply(); });
+        }
+
         // ── 4) 최상위 링크 + 기능별 트리 컨테이너(링크 바로 뒤). 트리 본문은 /api/nav 도착 후 buildScopeTrees 가 채운다. ──
-        //   펼침 규칙: 평소 접힘, 현재 페이지의 기능 트리만 자동 펼침(선택 시스템/FLOW 가 보이게). 수동 토글은 비영속.
+        //   펼침 규칙: 현재 페이지의 기능 트리는 자동 펼침(선택 시스템/FLOW 가 보이게), 그 외는 마지막 수동 토글 상태(영속).
         NAV_ITEMS.forEach(function (item) {
             var link = buildNavLink(item, LINK_ACTIVE, LINK_IDLE);
             navMenu.appendChild(link);
@@ -584,19 +671,17 @@ window.dspBranch = {
             var wrap = el('div', 'flex flex-col gap-0.5');
             wrap.style.cssText = 'padding-left:18px;';
             navMenu.appendChild(wrap);
-            var open = isCurPage;
-            function applyOpen() {
-                wrap.style.display = open ? '' : 'none';
-                chev.style.transform = open ? 'rotate(90deg)' : '';
-                chev.setAttribute('aria-expanded', open ? 'true' : 'false');
-            }
+            var fold = makeFold('f:' + item.href, isCurPage, 'feature', function (o) {
+                wrap.style.display = o ? '' : 'none';
+                chev.style.transform = o ? 'rotate(90deg)' : '';
+                chev.setAttribute('aria-expanded', o ? 'true' : 'false');
+            });
             chev.addEventListener('click', function (e) {
                 e.preventDefault(); e.stopPropagation();
-                open = !open;
-                applyOpen();
+                fold.toggle();
             });
-            applyOpen();
             item._treeWrap = wrap;
+            item._treeFold = fold;
         });
 
         // ── 더티 가드 내부 구현 ──
@@ -675,6 +760,9 @@ window.dspBranch = {
         //   FLOW 행 클릭 = base?<flowParam>=. 시스템은 현재 선택 FLOW 소속이거나 현재 시스템 스코프일 때만 자동 펼침.
         function buildScopeTrees(systems) {
             systems = systems || [];
+            // 재호출 대비: 시스템/FLOW 단 fold·행 레지스트리는 비우고 기능 fold 만 남긴다.
+            navFolds = navFolds.filter(function (f) { return f.level === 'feature'; });
+            navRows = [];
             // preflight(전역 리셋) 꺼진 셸 빌드 → <button> 네이티브 테두리·배경 제거(nav 링크와 동일한 룩).
             var BTN_RESET = 'appearance:none;-webkit-appearance:none;background:transparent;border:0;cursor:pointer;font:inherit;';
             var ROW_CLS = 'w-full flex items-center gap-2 px-3 py-2 rounded transition-colors text-on-surface-variant dark:text-surface-variant';
@@ -752,6 +840,14 @@ window.dspBranch = {
 
                     var list = el('div', 'flex flex-col gap-0.5');
                     list.style.cssText = 'display:none;padding-left:16px;';
+                    // 시스템 fold — 현재 선택 FLOW 소속이거나 현재 시스템 스코프면 자동 펼침, 그 외는 영속 상태.
+                    var sysFold = makeFold('s:' + item.href + '|' + sysName, flowInSys || sysCur, 'system', function (o) {
+                        list.style.display = o ? '' : 'none';
+                        chev.style.transform = o ? 'rotate(90deg)' : '';
+                        row.setAttribute('aria-expanded', o ? 'true' : 'false');
+                    });
+                    var sysRow = { el: row, text: sysName.toLowerCase(), parents: [], folds: [item._treeFold] };
+                    navRows.push(sysRow);
                     flows.forEach(function (flowName) {
                         var brs = (useBr && fbr[flowName] && fbr[flowName].length) ? fbr[flowName] : null;
                         var flowHit = onPage && curFlow === flowName;
@@ -773,6 +869,8 @@ window.dspBranch = {
                             navigateTo(withPeriodCarry(flowHref(t, base, flowName, '')));
                         });
                         list.appendChild(fb);
+                        var flowRow = { el: fb, text: flowName.toLowerCase(), parents: [sysRow], folds: [item._treeFold, sysFold] };
+                        navRows.push(flowRow);
                         if (!brs) return;
 
                         // ── 분기 자식 행(설비효율·추이) — FLOW chevron 으로 펼침, 현재 flow 스코프면 자동 펼침. ──
@@ -784,6 +882,13 @@ window.dspBranch = {
                         var blist = el('div', 'flex flex-col gap-0.5');
                         blist.style.cssText = 'display:none;padding-left:16px;';
                         blist.setAttribute('data-branches-of', flowName);
+                        // 분기 fold — 현재 flow 스코프면 자동 펼침, 그 외는 영속 상태.
+                        var brFold = makeFold('b:' + item.href + '|' + sysName + '|' + flowName, flowHit, 'branch', function (o) {
+                            blist.style.display = o ? '' : 'none';
+                            bchev.style.transform = o ? 'rotate(90deg)' : '';
+                            fb.setAttribute('aria-expanded', o ? 'true' : 'false');
+                        });
+                        bchev.addEventListener('click', function (e) { e.stopPropagation(); brFold.toggle(); });
                         brs.forEach(function (b, bi) {
                             var bCur = flowHit && curBranch === b;
                             var bb = el('button', ROW_CLS + (bCur ? '' : HOVER_CLS));
@@ -804,32 +909,18 @@ window.dspBranch = {
                                 navigateTo(withPeriodCarry(flowHref(t, base, flowName, b)));
                             });
                             blist.appendChild(bb);
+                            navRows.push({ el: bb, text: b.toLowerCase(), parents: [sysRow, flowRow], folds: [item._treeFold, sysFold, brFold] });
                         });
-                        var bopen = flowHit;
-                        function applyBOpen() {
-                            blist.style.display = bopen ? '' : 'none';
-                            bchev.style.transform = bopen ? 'rotate(90deg)' : '';
-                            fb.setAttribute('aria-expanded', bopen ? 'true' : 'false');
-                        }
-                        bchev.addEventListener('click', function (e) { e.stopPropagation(); bopen = !bopen; applyBOpen(); });
-                        applyBOpen();
                         list.appendChild(blist);
                     });
 
-                    var open = flowInSys || sysCur;
                     // 펼칠 자식이 없으면(sysOnly, 또는 flow 가 없는 시스템) chevron 은 아무 일도 못 하므로 감춘다.
                     if (flows.length === 0) chev.style.display = 'none';
-                    function applyOpen() {
-                        list.style.display = open ? '' : 'none';
-                        chev.style.transform = open ? 'rotate(90deg)' : '';
-                        row.setAttribute('aria-expanded', open ? 'true' : 'false');
-                    }
-                    chev.addEventListener('click', function (e) { e.stopPropagation(); open = !open; applyOpen(); });
+                    chev.addEventListener('click', function (e) { e.stopPropagation(); sysFold.toggle(); });
                     row.addEventListener('click', function (e) {
                         e.stopPropagation();
                         navigateTo(withPeriodCarry(base + '?system=' + encodeURIComponent(sysName)));
                     });
-                    applyOpen();
 
                     wrap.appendChild(row);
                     wrap.appendChild(list);
@@ -868,6 +959,8 @@ window.dspBranch = {
                     crumb.appendChild(el('span', 'text-primary font-semibold', curBranch));
                 }
             }
+            // 트리가 도착하기 전에 검색어를 쳤으면 지금 적용.
+            if (navSearchInput.value) navSearch(navSearchInput.value);
         }
 
         // 푸터 (외부 바로가기[데모 게이트 활성 시] + 설정)
@@ -941,7 +1034,7 @@ window.dspBranch = {
         var agPlc = agentRow();
         var agScan = agentRow();
         var agData = agentRow();
-        agHub.text.textContent = 'PROMAKER HUB: —';
+        agHub.text.textContent = 'Agent 연결: —';
         agPlc.text.textContent = 'PLC 어댑터: —';
         // 수집 방식 — Promaker 업로드 시 선택(런타임 세팅 "PLC 읽기 방식"). 상태가 아닌 구성 정보라
         // 점 색은 중립 파랑 고정, session.json 이 없으면(업로드 이력 없음) 행 자체를 숨긴다.
@@ -1016,16 +1109,18 @@ window.dspBranch = {
                 agPlcDetail.appendChild(warn);
             }
             if (!_agAdapters.length) {
-                var noneText;
+                var noneText, noneTitle = '';
                 if (_agModelPlc.total > 0) {
                     // 모델엔 PLC 가 있는데 Agent/Edge 보고가 없고 TCP 핑도 못 함 — "미설정"이 아니라 "확인 불가".
-                    // USB 는 TCP 로 닿을 수 없어 보고가 유일한 상태 출처라는 점을 함께 적는다.
-                    noneText = '모델에 PLC ' + _agModelPlc.total + '대가 있지만 Agent/Edge 보고가 없어 상태를 확인할 수 없습니다.'
-                        + (_agModelPlc.usb > 0 ? ' USB 접속(' + _agModelPlc.usb + '대)은 TCP 로 직접 확인할 수 없습니다.' : '');
+                    //   USB 는 TCP 로 닿을 수 없어 보고가 유일한 상태 출처 — 대수만 병기하고 이유는 툴팁 한 문장.
+                    noneText = 'PLC ' + _agModelPlc.total + '대 · 보고 없음' + (_agModelPlc.usb > 0 ? ' (USB ' + _agModelPlc.usb + '대)' : '');
+                    noneTitle = 'Agent/Edge 보고가 없어 상태를 확인할 수 없습니다'
+                        + (_agModelPlc.usb > 0 ? ' — USB 접속은 TCP 로 직접 확인할 수 없습니다' : '') + '.';
                 } else {
-                    noneText = _agPlcSource === 'none' ? '대상 PLC 가 설정되어 있지 않습니다.' : 'PLC 정보 없음';
+                    noneText = _agPlcSource === 'none' ? '대상 PLC 미설정' : 'PLC 정보 없음';
                 }
                 var none = el('div', null, noneText);
+                if (noneTitle) none.title = noneTitle;
                 none.style.opacity = '0.7';
                 agPlcDetail.appendChild(none);
                 return;
@@ -1048,8 +1143,7 @@ window.dspBranch = {
                     var usbChip = el('span', null, 'USB');
                     usbChip.style.cssText = 'flex:0 0 auto;font-size:10px;line-height:1;padding:2px 6px;'
                         + 'border-radius:999px;font-weight:700;background:rgba(100,116,139,0.16);color:#475569;';
-                    usbChip.title = 'USB 로더 포트 직결 — 수집하는 PC(Agent) 또는 Edge 단말에 꽂힌 PLC 입니다. '
-                        + 'TCP 로는 확인할 수 없어 Agent/Edge 보고만 신뢰합니다. XG5000 이 온라인 접속 중이면 포트를 점유해 붙지 못합니다.';
+                    usbChip.title = 'USB 직결 PLC — TCP 로 확인할 수 없어 Agent/Edge 보고만 신뢰합니다.';
                     line.appendChild(usbChip);
                 }
                 // 매칭 시스템 — 서버가 모델 AID 접속 표기(endpoint)와 대조한 결과.
@@ -1101,34 +1195,30 @@ window.dspBranch = {
 
         headRight.appendChild(liveBadge);
 
-        // ── 콘텐츠 폭 토글(기본 1400px ↔ 넓게=전체 폭) — 1.1 의 pref 를 명시값으로 박제(auto 종료). 제외 페이지는 숨김. ──
-        var widthBtn = el('button', 'dsp-width-toggle');
-        widthBtn.type = 'button';
-        var widthIc = icon('width_full');
-        widthBtn.appendChild(widthIc);
-        function renderWidthBtn() {
-            widthBtn.style.display = widePageCapable() ? '' : 'none';
-            var w = wideEffective();
-            widthIc.textContent = w ? 'width_normal' : 'width_full';
-            widthBtn.setAttribute('aria-pressed', w ? 'true' : 'false');
-            var pref = widthPref();
-            widthBtn.title = (w ? '화면 폭: 넓게(전체 폭)' : '화면 폭: 기본(최대 1400px)')
-                + (pref === 'auto' ? ' · 자동' : '')
-                + ' — 클릭: ' + (w ? '기본 폭(1400px)으로' : '넓게(전체 폭)로') + ' 전환';
-            widthBtn.setAttribute('aria-label', widthBtn.title);
+        // ── 테마 토글(light_mode/dark_mode) — 설정 페이지 setTheme 과 같은 계약: localStorage 'dspilot-theme' +
+        //   <html>.dark-theme(+dark) 토글 + StorageEvent 재발행(같은 탭의 Alpine 페이지들이 storage 리스너로 따라온다). ──
+        var themeBtn = el('button', 'dsp-icon-btn dsp-theme-toggle');
+        themeBtn.type = 'button';
+        var themeIc = icon('dark_mode');
+        themeBtn.appendChild(themeIc);
+        function renderThemeBtn() {
+            var d = document.documentElement.classList.contains('dark-theme');
+            themeIc.textContent = d ? 'light_mode' : 'dark_mode';
+            themeBtn.title = d ? '라이트 모드로 전환' : '다크 모드로 전환';
+            themeBtn.setAttribute('aria-label', themeBtn.title);
         }
-        widthBtn.addEventListener('click', function () {
-            var next = wideEffective() ? 'fixed' : 'wide';
-            try { localStorage.setItem(WIDTH_KEY, next); } catch (e) { /* ignore */ }
-            applyWide();
-            renderWidthBtn();
+        themeBtn.addEventListener('click', function () {
+            var next = document.documentElement.classList.contains('dark-theme') ? 'light' : 'dark';
+            try { localStorage.setItem('dspilot-theme', next); } catch (e) { /* ignore */ }
+            applyTheme(next === 'dark');
+            try { window.dispatchEvent(new StorageEvent('storage', { key: 'dspilot-theme', newValue: next })); } catch (e) { /* ignore */ }
         });
-        renderWidthBtn();
-        headRight.appendChild(widthBtn);
-        // auto 모드는 창 폭에 따르므로 리사이즈 시 재평가(모니터 이동/창 축소).
-        window.addEventListener('resize', function () { applyWide(); renderWidthBtn(); });
+        renderThemeBtn();
+        headRight.appendChild(themeBtn);
+        // 콘텐츠 폭(1.1): auto 모드는 창 폭에 따르므로 리사이즈 시 재평가, 설정 페이지/타 탭 변경은 storage 로 반영(헤더 토글은 제거).
+        window.addEventListener('resize', applyWide);
         window.addEventListener('storage', function (e) {
-            if (e.key === WIDTH_KEY) { applyWide(); renderWidthBtn(); }
+            if (e.key === WIDTH_KEY) applyWide();
         });
 
         var _agPopOpen = false;
@@ -1287,11 +1377,12 @@ window.dspBranch = {
             if (_isDirty()) { e.preventDefault(); e.returnValue = ''; return ''; }
         });
 
-        // ── 7) 테마 동기화 (설정 페이지 변경 + 다른 탭 동기화) ──
-        //  헤더 토글 버튼은 제거됨. 테마는 로드 시 localStorage 에서 적용되며, 설정 페이지/타 탭 변경은 storage 이벤트로 반영.
+        // ── 7) 테마 동기화 (헤더 토글 + 설정 페이지 변경 + 다른 탭 동기화) ──
+        //  로드 시 localStorage 에서 적용(1), 이후 헤더 토글/설정 페이지/타 탭 변경은 storage 이벤트로 반영.
         function applyTheme(d) {
             document.documentElement.classList.toggle('dark', d);
             document.documentElement.classList.toggle('dark-theme', d);
+            renderThemeBtn();
         }
         window.addEventListener('storage', function (e) {
             if (e.key === 'dspilot-theme') applyTheme(e.newValue === 'dark');
@@ -1347,7 +1438,7 @@ window.dspBranch = {
             var hubLabel = hub === 'connected' ? '정상'
                 : (hub === 'connecting' ? '연결 중'
                 : (hub === 'reconnecting' ? '재연결 중' : '끊김'));
-            agHub.text.textContent = 'PROMAKER HUB: ' + hubLabel;
+            agHub.text.textContent = 'Agent 연결: ' + hubLabel;
             agHub.dot.style.background = hub === 'connected' ? AG_DOT.green
                 : ((hub === 'connecting' || hub === 'reconnecting') ? AG_DOT.orange : AG_DOT.gray);
 
@@ -1366,14 +1457,14 @@ window.dspBranch = {
                 if (plcTotal === 0) { plcLabel = noTargetLabel(); plcColor = AG_DOT.gray; }
                 else if (plcDown > 0) {
                     plcLabel = 'PLC 어댑터: ' + (plcTotal > 1
-                        ? plcDown + '/' + plcTotal + '대 응답 없음 (직접확인)'
-                        : '응답 없음 (직접확인)');
+                        ? plcDown + '/' + plcTotal + '대 응답 없음'
+                        : '응답 없음');
                     plcColor = AG_DOT.red;
                 }
                 else {
                     plcLabel = 'PLC 어댑터: ' + (plcTotal > 1
-                        ? plcTotal + '대 연결 (직접확인)'
-                        : '연결됨 (직접확인)');
+                        ? plcTotal + '대 연결'
+                        : '연결됨');
                     plcColor = AG_DOT.green;
                 }
             } else if (plcSource === 'agent') {
@@ -1388,6 +1479,9 @@ window.dspBranch = {
             }
             agPlc.text.textContent = plcLabel;
             agPlc.dot.style.background = plcColor;
+            // 출처(직접 핑 vs Agent 보고)는 라벨 접미 '(직접확인)' 대신 툴팁 한 문장으로.
+            agPlc.row.title = plcSource === 'ping' ? 'DSPilot 이 TCP 로 직접 확인한 상태입니다.'
+                : (plcSource === 'agent' ? 'Agent/Edge 가 보고한 상태입니다.' : '');
 
             // 수집 방식(Promaker 업로드 시 선택) — direct=Agent 직접 / delegated=Edge 단말 위임.
             // null(구 서버·업로드 이력 없음)이면 행을 숨겨 노이즈를 만들지 않는다.

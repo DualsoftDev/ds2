@@ -297,6 +297,12 @@
         .dash-kpi-grid { display: grid; grid-template-columns: repeat(var(--kpi-cols, 4), minmax(0, 1fr)); gap: 16px; }
         @media (max-width: 1024px) { .dash-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         @media (max-width: 480px)  { .dash-kpi-grid { grid-template-columns: 1fr; } }
+        /* KPI 행 캡션 — 기간(일간)·비교 기준(어제 대비)은 카드마다 반복하지 않고 여기 한 번만 */
+        .dash-kpi-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 0.68rem; font-weight: 800; color: var(--color-text-secondary); letter-spacing: 0.06em; }
+        /* 카드 우상단 ⚙ — cfgTip 이 있는 카드만(가동횟수: 출력 기준 Flow 지정). 카드 본체 클릭(이동)과 분리 */
+        .kpi-cfg { position: absolute; top: 8px; right: 8px; z-index: 2; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); opacity: 0.6; cursor: pointer; transition: opacity 0.15s, background 0.15s; }
+        .kpi-cfg:hover { opacity: 1; background: color-mix(in srgb, var(--color-text-primary) 8%, transparent); }
+        .kpi-cfg .material-icons { font-size: 17px; }
 
         /* ── 경로이탈 이상감지 알람 배너 (fliptext 참고: bg-yellow-400 px-6 py-4 + 경고 아이콘 + 세로 티커 + 분자/분모 인디케이터 + 상세확인 버튼) ── 데이터는 abnormals[] */
         .flow-alarm { display: flex; align-items: center; padding: 16px 24px; margin-bottom: 14px; flex-shrink: 0; overflow: hidden; border-radius: var(--radius-md); background: #facc15; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.06); }
@@ -424,8 +430,6 @@
         .ct-fb-dot { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text-primary) 12%, transparent); }
         .ct-fb-dot-mt { background: var(--dash-mt); }
         .ct-fb-dot-wt { background: var(--dash-wt); }
-        .ct-fb-hint { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.7rem; color: var(--color-text-disabled); text-align: center; }
-        .ct-fb-hint .material-icons { font-size: 16px; }
 
         /* ── 전체화면: CCTV 카드를 화면에 꽉 (헤더 숨김) ── */
         .fl-fs:fullscreen, .fl-fs:-webkit-full-screen { --fl-cap: 100vh; background: var(--color-background); position: relative; overflow: visible; }
@@ -592,14 +596,19 @@
                  각 카드는 하루 단위로 오늘(00:00~현재)을 어제 같은 시각(어제 00:00~24시간 전)과 공정 비교해 등락(▲/▼·%·시간차)을 표시한다.
                  데이터 = /api/oee/summary 오늘/어제 2회(cmp.today/yesterday, loadCompare) + TEEP 계열 카드 선택 시에만 /api/oee/teep 2회(cmpTeep).
                  색 규칙: 개선=초록 / 악화=빨강 (MTTR·정지시간은 낮을수록 개선이라 방향 반대). -->
+            <div class="dash-kpi-head"><span>일간 지표 · 어제 대비 등락</span></div>
             <div class="dash-kpi-grid" :style="'--kpi-cols:' + kpiCards.length">
                 <template x-for="c in kpiCards" :key="c.id">
                     <div class="border p-card-padding rounded-xl shadow-sm relative overflow-hidden group cursor-pointer transition-all"
                          :style="'background: color-mix(in srgb, var(' + c.color + ') 9%, var(--color-surface)); border-color: color-mix(in srgb, var(' + c.color + ') 26%, transparent);'"
                          @click="kpiClick(c)" :title="c.tip">
-                        <div class="flex items-center gap-2 mb-1 flex-wrap">
+                        <template x-if="c.cfgTip">
+                            <button type="button" class="kpi-cfg" @click.stop="kpiConfig(c)" :title="c.cfgTip">
+                                <span class="material-icons">settings</span>
+                            </button>
+                        </template>
+                        <div class="flex items-center gap-2 mb-1 flex-wrap" :style="c.cfgTip ? 'padding-right:28px;' : ''">
                             <span class="font-label-sm text-label-sm opacity-90 uppercase tracking-tighter" :style="'color:var(' + (c.labelColor || c.color) + ');'" x-text="c.label"></span>
-                            <span class="px-1.5 py-px rounded text-[10px] font-bold bg-surface-container-high text-on-surface-variant">일간</span>
                             <!-- 카드별 보조 칩 — 가동횟수: 출력 기준([자동]/선택 flow), 가용성/품질: 산출 기준 -->
                             <template x-if="kpiChip(c.id)">
                                 <span class="px-1.5 py-px rounded text-[10px] font-bold"
@@ -625,7 +634,6 @@
                     <div class="fl-fs-chrome p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low flex-wrap gap-3">
                         <div class="flex items-center gap-3">
                             <span class="font-headline-md text-headline-md text-primary">CCTV</span>
-                            <span class="text-on-surface-variant opacity-60 text-label-sm">실시간 영상벽 · 오버레이 상태</span>
                         </div>
                         <div class="flex gap-2 items-center">
                             <!-- 라이브 CCTV ⇄ 대체 이미지 보기 전환 -->
@@ -677,7 +685,6 @@
                                 <div class="cctv-wall-empty">
                                     <span class="material-icons">videocam_off</span>
                                     <div style="font-weight:700; color:var(--color-text-secondary);">등록된 카메라가 없습니다</div>
-                                    <div style="font-size:0.78rem;">상단 <b>[설정]</b> 을 눌러 CCTV 페이지에서 RTSP 카메라를 추가하세요.</div>
                                     <button class="btn btn-sm btn-outlined" @click="goCctvSettings()">
                                         <span class="material-icons" style="font-size:16px;">videocam</span> CCTV 설정 열기
                                     </button>
@@ -940,7 +947,7 @@
                                 </template>
                             </div>
                             <div style="padding:8px 12px; border-top:1px solid var(--color-lines); font-size:0.66rem; color:var(--color-text-secondary);">
-                                디바이스가 다시 가동되면 자동 해제 · 센서이상를 끄면 가동시간 비교로 돌아갑니다
+                                디바이스가 다시 가동되면 자동 해제
                             </div>
                         </div>
                     </template>
@@ -958,12 +965,17 @@
                                         </button>
                                         <button class="px-2 py-1 text-[10px] font-bold rounded-sm transition-all flex items-center gap-1"
                                                 :class="showAverage ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'"
-                                                @click="showAverage ? openAvgModal() : setDisplayMode(true)"
-                                                :title="showAverage ? avgDays + '일 기준 평균 — 클릭하여 기간 변경' : '평균값 표시'">
+                                                @click="if (!showAverage) setDisplayMode(true)"
+                                                :title="showAverage ? avgDays + '일 기준 평균' : '평균값 표시'">
                                             <span class="material-icons text-[14px]">analytics</span>
                                             <span x-text="showAverage ? '평균 · ' + avgDays + '일' : '평균'"></span>
                                         </button>
                                     </div>
+                                    <!-- 평균 기간(일수) 설정 ⚙ — 평균 모드에서만. 모드 전환 버튼과 분리 -->
+                                    <button class="p-1 hover:bg-surface-container-highest rounded transition-colors text-on-surface-variant flex items-center"
+                                            x-show="showAverage" x-cloak @click="openAvgModal()" :title="'평균 기간 설정 (현재 ' + avgDays + '일)'">
+                                        <span class="material-icons text-[18px]">settings</span>
+                                    </button>
                                 </div>
                             </div>
 
@@ -972,7 +984,7 @@
                                     <div style="position:relative; flex:1; min-height:220px; padding:10px 4px 4px;" x-effect="renderCtDonut()" @mouseleave="chartHoverFlowName = null">
                                         <canvas x-ref="ctDonut"></canvas>
                                     </div>
-                                    <!-- 도넛 아래 가로 막대: 강조(hover) flow 의 동작(MT)·대기(WT) 시간. 마우스를 떼면 안내문. -->
+                                    <!-- 도넛 아래 가로 막대: 강조(hover) flow 의 동작(MT)·대기(WT) 시간. 강조 없으면 최대 가동시간(병목) flow. -->
                                     <div class="ct-focusbar">
                                         <template x-if="focusRow">
                                             <div>
@@ -988,12 +1000,6 @@
                                                     <span class="ct-fb-li"><span class="ct-fb-dot ct-fb-dot-mt"></span>동작 <b x-text="fmt(focusRow?.mt)"></b> <em x-text="'(' + (focusRow?.ct>0 ? Math.round(focusRow?.mt*100/focusRow?.ct) : 0) + '%)'"></em></span>
                                                     <span class="ct-fb-li"><span class="ct-fb-dot ct-fb-dot-wt"></span>대기 <b x-text="fmt(focusRow?.wt)"></b> <em x-text="'(' + (focusRow?.ct>0 ? Math.round(focusRow?.wt*100/focusRow?.ct) : 0) + '%)'"></em></span>
                                                 </div>
-                                            </div>
-                                        </template>
-                                        <template x-if="!focusRow">
-                                            <div class="ct-fb-hint">
-                                                <span class="material-icons">touch_app</span>
-                                                Flow 에 마우스를 올리면 동작·대기 시간, 클릭하면 가동시간 분석으로 이동합니다
                                             </div>
                                         </template>
                                     </div>
@@ -1017,7 +1023,7 @@
                                     <div class="ds-empty" style="padding:32px 0;">
                                         <span class="material-icons">donut_large</span>
                                         <span class="ds-empty-title">Time 데이터가 없습니다</span>
-                                        <span class="ds-empty-desc">가동이 수집되면 Flow별 가동시간이 도넛으로 표시됩니다.</span>
+                                        <span class="ds-empty-desc">가동이 수집되면 표시됩니다.</span>
                                     </div>
                                 </div>
                             </template>
@@ -1062,7 +1068,7 @@
             </div>
         </div>
 
-        <!-- ════════════ 출력(생산 기준) Flow 지정 모달 — 가동횟수 카드 클릭 ════════════ -->
+        <!-- ════════════ 출력(생산 기준) Flow 지정 모달 — 가동횟수 카드 ⚙ ════════════ -->
         <!-- 미지정 = 자동(평균): 전체 flow 사이클수 합 ÷ 가동 flow 수. 지정 = 그 flow들의 사이클수 합.
              직렬 파이프라인은 같은 제품이 여러 flow를 지나 단순합이 과다 계상되므로 "완제품=1사이클" flow를 지정한다. -->
         <div class="modal-overlay" x-show="outFlowModalOpen" x-cloak style="z-index:2100;" @click="closeOutputFlowModal()">
@@ -1073,7 +1079,7 @@
                 </div>
                 <div class="sm-body">
                     <div class="form-helper" style="margin-bottom:12px;">
-                        <b>자동</b> = 전체 Flow 평균, <b>지정</b> = 해당 Flow 가동횟수(보통 마지막 공정).
+                        <b>지정</b> = 해당 Flow 의 가동횟수 (보통 마지막 공정)
                     </div>
 
                     <template x-if="outFlowLoading">
@@ -1134,7 +1140,7 @@
                     <!-- 미리보기 — 대시보드 상단이 어떻게 보일지 그대로 -->
                     <div class="form-group">
                         <label class="form-label">미리보기
-                            <span style="font-weight:600; color:var(--color-text-secondary);" x-text="'— 대시보드 상단에 이렇게 표시됩니다 (' + kpiForm.length + '/6)'"></span>
+                            <span style="font-weight:600; color:var(--color-text-secondary);" x-text="'(' + kpiForm.length + '/6)'"></span>
                         </label>
                         <div class="kcm-preview" :class="{ 'is-dense': kpiForm.length >= 5 }">
                             <template x-for="(id, i) in kpiForm" :key="i">
@@ -1175,7 +1181,7 @@
                         </template>
                     </div>
                     <div class="form-helper" style="margin-top:14px;">
-                        이 설정은 <b>이 브라우저에만 저장</b>되는 개인 설정입니다 — 다른 PC·사용자 화면에는 영향을 주지 않습니다.
+                        이 브라우저에만 저장되는 개인 설정입니다.
                     </div>
                     <div class="flex gap-2 justify-end" style="margin-top:14px;">
                         <button class="btn btn-sm btn-outlined" @click="kpiResetDefault()" title="기본 구성(가동횟수·OEE 종합·평균 고장 간격·고장 사이클 평균 시간)으로 되돌리기">기본값</button>
@@ -1215,10 +1221,11 @@
         //  · dir: 'up'=클수록 개선(초록) / 'down'=작을수록 개선(MTTR·정지시간)
         //  · color: 사이트 CSS 토큰(var 이름). 아이콘은 self-host Material Symbols 번들에 이미 쓰이는 이름만 사용.
         const KPI_CATALOG = [
-            { id: 'count',        label: '가동횟수',     group: '대시보드',      src: 'sum',  kind: 'count', dir: 'up',   color: '--color-primary', labelColor: '--color-primary-strong', icon: 'autorenew',       val: r => r.totalCount != null ? r.totalCount : 0, tip: '클릭하여 출력(생산 기준) Flow 지정' },
-            { id: 'oee',          label: 'OEE 종합',     group: '대시보드',      src: 'sum',  kind: 'pct',   dir: 'up',   color: '--green',          icon: 'insights',        val: r => r.oee,          nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동' },
-            { id: 'mtbf',         label: '평균 고장 간격(MTBF)', group: '대시보드', src: 'sum',  kind: 'dur',   dir: 'up',   color: '--rust',           icon: 'timer',           val: r => r.mtbf,         nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 평균 고장 간격(MTBF) = 연속 고장 사이클 시작 간격 평균' },
-            { id: 'mttr',         label: '고장 사이클 평균 시간', group: '대시보드', src: 'sum',  kind: 'dur',   dir: 'down', color: '--rust',           icon: 'build',           val: r => r.mttr,         nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 고장 사이클 평균 시간 = 고장으로 판정된 사이클의 전체 길이 평균(정상분 포함)' },
+            //  · nav: 카드 본체 클릭 시 이동 페이지 / cfgTip: 있으면 카드 우상단 ⚙ 표시(kpiConfig 로 분기) — 본체 클릭과 분리
+            { id: 'count',        label: '가동횟수',     group: '기본',          src: 'sum',  kind: 'count', dir: 'up',   color: '--color-primary', labelColor: '--color-primary-strong', icon: 'autorenew',       val: r => r.totalCount != null ? r.totalCount : 0, nav: '/uptime-oee', tip: '설비효율 현황 페이지로 이동', cfgTip: '출력(생산 기준) Flow 지정' },
+            { id: 'oee',          label: 'OEE 종합',     group: '기본',          src: 'sum',  kind: 'pct',   dir: 'up',   color: '--green',          icon: 'insights',        val: r => r.oee,          nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동' },
+            { id: 'mtbf',         label: '평균 고장 간격(MTBF)', group: '기본',   src: 'sum',  kind: 'dur',   dir: 'up',   color: '--rust',           icon: 'timer',           val: r => r.mtbf,         nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 평균 고장 간격(MTBF) = 연속 고장 사이클 시작 간격 평균' },
+            { id: 'mttr',         label: '고장 사이클 평균 시간', group: '기본',   src: 'sum',  kind: 'dur',   dir: 'down', color: '--rust',           icon: 'build',           val: r => r.mttr,         nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 고장 사이클 평균 시간 = 고장으로 판정된 사이클의 전체 길이 평균(정상분 포함)' },
             { id: 'availability', label: '가용성 A',     group: '설비효율 OEE',  src: 'sum',  kind: 'pct',   dir: 'up',   color: '--color-primary',  icon: 'hourglass_empty', val: r => r.availability, nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 가용성 = 실가동시간 ÷ 계획가동시간' },
             { id: 'performance',  label: '성능 P',       group: '설비효율 OEE',  src: 'sum',  kind: 'pct',   dir: 'up',   color: '--amber',          icon: 'bar_chart',       val: r => r.performance,  nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 성능 = 표준CT 기준 속도 효율' },
             { id: 'quality',      label: '품질 Q',       group: '설비효율 OEE',  src: 'sum',  kind: 'pct',   dir: 'up',   color: '--green',          icon: 'check_circle',    val: r => r.quality,      nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 품질 = 양품 ÷ 전체' },
@@ -1787,7 +1794,7 @@
             openAvgModal() { this.avgDaysForm = this.avgDays; this.avgModalOpen = true; },
             closeAvgModal() { this.avgModalOpen = false; },
 
-            // ── 출력(생산 기준) Flow 지정 — 가동횟수 카드 클릭 ──
+            // ── 출력(생산 기준) Flow 지정 — 가동횟수 카드 ⚙(kpiConfig) ──
             // 카드 배지([자동]/[선택 flow])용 — 모달 없이 현재 저장된 출력 기준만 로드.
             async loadOutputFlowSel() {
                 try {
@@ -1910,8 +1917,9 @@
                 if (this.showAverage) { if (window.dspLoading) window.dspLoading.wrap(() => this.loadHistAvg(), '평균 기간 다시 계산 중…'); else this.loadHistAvg(); }
             },
 
-            get focusFlowName() { return this.chartHoverFlowName || this.hoverFlowName || this.selectedFlowName; },
-            // 강조 flow 의 지표 행(동작·대기 막대용). 없으면 null → 안내문 표시.
+            // 강조 flow — hover/선택이 없으면 최대 가동시간(병목) flow 를 기본 강조(막대·범례 is-sel). 도넛 dimming 은 renderCtDonut 의 자체 sel 로 별도(기본 상태에선 dimming 없음).
+            get focusFlowName() { return this.chartHoverFlowName || this.hoverFlowName || this.selectedFlowName || this.maxCtName; },
+            // 강조 flow 의 지표 행(동작·대기 막대용).
             get focusRow() { const n = this.focusFlowName; return n ? (this.chartData.find(r => r.flowName === n) || null) : null; },
             hoverFlow(name) { this.hoverFlowName = name || null; },
 
@@ -2069,17 +2077,19 @@
                 }
                 return null;
             },
-            // 카드 클릭 — 가동횟수는 출력 기준 지정 모달, 나머지는 해당 상세 페이지로 이동
+            // 카드 본체 클릭 — 모든 카드 동일: 해당 상세 페이지로 이동(nav)
             kpiClick(c) {
-                if (c.id === 'count') { this.openOutputFlowModal(); return; }
                 if (c.nav) window.location = c.nav;
             },
-            // 어제 대비 등락 배지(HTML) — x-html 로 삽입. ▲/▼ + 증감량 + "어제 대비".
+            // 카드 우상단 ⚙ 클릭(cfgTip 카드만) — 가동횟수: 출력 기준 Flow 지정 모달
+            kpiConfig(c) {
+                if (c.id === 'count') this.openOutputFlowModal();
+            },
+            // 어제 대비 등락 배지(HTML) — x-html 로 삽입. ▲/▼ + 증감량. ("어제 대비" 라벨은 행 캡션 .dash-kpi-head 에 한 번만)
             // 개선=초록/악화=빨강(방향과 별개로 좋음/나쁨으로 색 결정). dir:'down'(MTTR·정지시간)은 감소가 개선.
             cmpBadge(id) {
                 const c = KPI_MAP[id]; if (!c) return '';
-                const note = '<span class="text-label-sm text-on-surface-variant opacity-70" style="margin-left:5px;">어제 대비</span>';
-                const gray = (txt) => '<span style="font-weight:700;font-size:0.82rem;color:var(--color-text-disabled);">' + txt + '</span>' + note;
+                const gray = (txt) => '<span style="font-weight:700;font-size:0.82rem;color:var(--color-text-disabled);">' + txt + '</span>';
                 // MTBF/MTTR: 비가동 0건이면 시간값이 없음 — "고장없음 유지"로 정직 표기
                 if (id === 'mtbf' || id === 'mttr') {
                     const tf = this.cmp.today ? this.cmp.today.failureCount : null;
@@ -2106,7 +2116,7 @@
                 if (c.kind === 'count') { txt = a.toLocaleString() + '회'; if (y > 0) txt += ' · ' + (a / y * 100).toFixed(1) + '%'; }
                 else if (c.kind === 'pct') txt = (a * 100).toFixed(1) + '%p';
                 else txt = this.durShort(a);
-                return '<span style="display:inline-flex;align-items:center;gap:3px;font-weight:800;font-size:0.82rem;color:' + color + ';font-variant-numeric:tabular-nums;"><span style="font-size:0.8rem;line-height:1;">' + arrow + '</span>' + txt + '</span>' + note;
+                return '<span style="display:inline-flex;align-items:center;gap:3px;font-weight:800;font-size:0.82rem;color:' + color + ';font-variant-numeric:tabular-nums;"><span style="font-size:0.8rem;line-height:1;">' + arrow + '</span>' + txt + '</span>';
             },
             // 짧은 지속시간 포맷 — 평균 고장 간격/평균 복구 시간·증감량 표기용.
             // 표기 SSOT = shell.js window.dspFmt.dur (한국식 일/시간/분/초).

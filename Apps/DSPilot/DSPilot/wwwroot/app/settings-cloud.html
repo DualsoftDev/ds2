@@ -63,6 +63,7 @@
         .cw-edge .spacer { flex: 1; }
         .cw-pill { font-size: 0.68rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--color-lines-strong); color: var(--color-text-secondary); background: var(--color-surface); }
         .cw-pill.run { color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 45%, var(--color-lines)); background: color-mix(in srgb, var(--color-success) 10%, var(--color-surface)); }
+        .cw-pill.err { color: var(--color-error); border-color: color-mix(in srgb, var(--color-error) 45%, var(--color-lines)); background: color-mix(in srgb, var(--color-error) 10%, var(--color-surface)); }
         .cw-ip { font-family: var(--font-mono, monospace); font-size: 0.74rem; color: var(--color-text-secondary); }
         .cw-empty { padding: 20px; text-align: center; color: var(--color-text-secondary); font-size: 0.82rem; }
 
@@ -97,21 +98,15 @@
                 <div class="progress-bar-fill"></div>
             </div>
 
-            <div class="cw-note">
-                <small>
-                    현장(EdgePC)을 클라우드에 등록하려면 <b>CloudWorks 계정</b>이 필요합니다. 여기서 가입·로그인하면
-                    이 DSPilot 이 해당 계정으로 클라우드(프로비저닝 서버)와 연동됩니다. 서버 주소·비밀번호는 이 PC 밖으로 나가지 않습니다.
-                </small>
+            <div class="cw-note" title="서버 주소·비밀번호는 이 PC 밖으로 나가지 않습니다.">
+                <small>현장(EdgePC)을 클라우드에 등록하려면 <b>CloudWorks 계정</b>으로 로그인해야 합니다.</small>
             </div>
 
             <!-- 서버 미구성 경고 -->
             <template x-if="!loading && !configured">
-                <div class="cw-warn">
+                <div class="cw-warn" title="설정 파일 appsettings.Secrets.json 의 CloudAuth.BaseUrl 주입이 필요합니다.">
                     <span class="material-icons">warning</span>
-                    <small>
-                        클라우드 서버 주소가 아직 구성되지 않았습니다. 설치 담당자에게 문의하세요
-                        (설정 파일 <b>appsettings.Secrets.json</b> 의 <b>CloudAuth.BaseUrl</b> 주입 필요).
-                    </small>
+                    <small>클라우드 서버 주소가 구성되지 않았습니다 — 설치 담당자에게 문의하세요.</small>
                 </div>
             </template>
 
@@ -158,10 +153,10 @@
                                             <div class="cw-edge">
                                                 <span class="material-icons" style="font-size:16px;color:var(--color-text-secondary)">memory</span>
                                                 <span class="eid" x-text="e.edgeId"></span>
-                                                <span class="cw-pill" x-text="e.status"></span>
+                                                <span class="cw-pill" :class="pillClass(e.status)" :title="e.status" x-text="statusKo(e.status)"></span>
                                                 <span class="spacer"></span>
-                                                <span class="cw-pill" :class="{ run: e.instanceStatus === 'running' }"
-                                                      x-show="e.instanceStatus" x-text="e.instanceStatus"></span>
+                                                <span class="cw-pill" :class="pillClass(e.instanceStatus)" :title="e.instanceStatus"
+                                                      x-show="e.instanceStatus" x-text="statusKo(e.instanceStatus)"></span>
                                                 <span class="cw-ip" x-show="e.publicIp" x-text="e.publicIp"></span>
                                             </div>
                                         </template>
@@ -236,9 +231,13 @@
     <script src="/app/shell.js" defer></script>
     <script defer src="/lib/alpine.min.js"></script>
     <script>
+        // 단말 상태(영문 원문) → 한글. 모르는 값은 그대로 보여 준다(원문은 title 로 유지).
+        const CW_STATUS_KO = { running: '실행 중', stopped: '정지', pending: '대기', error: '오류' };
+
         function cloudAccountApp() {
             return {
-                dark: (localStorage.getItem('dsp-theme') || 'light') === 'dark',
+                // 테마 — shell.js/settings.html 과 같은 계약: localStorage 'dspilot-theme' + storage 이벤트 동기화.
+                dark: localStorage.getItem('dspilot-theme') === 'dark',
                 loading: true,
                 busy: false,
                 configured: false,
@@ -254,9 +253,19 @@
                 toast: { show: false, msg: '', type: 'info' },
 
                 async init() {
+                    window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
                     await this.refreshStatus();
                     this.loading = false;
                     if (this.loggedIn) this.loadOverview();
+                },
+
+                statusKo(s) {
+                    const k = String(s || '').trim().toLowerCase();
+                    return CW_STATUS_KO[k] || s || '';
+                },
+                pillClass(s) {
+                    const k = String(s || '').trim().toLowerCase();
+                    return { run: k === 'running', err: k === 'error' };
                 },
 
                 async refreshStatus() {
@@ -382,9 +391,14 @@
                     }
                 },
 
+                // settings.html setTheme 과 같은 계약(shell.js 가 storage 이벤트로 <html>/레이아웃을 따라온다).
                 toggleTheme() {
                     this.dark = !this.dark;
-                    localStorage.setItem('dsp-theme', this.dark ? 'dark' : 'light');
+                    const val = this.dark ? 'dark' : 'light';
+                    localStorage.setItem('dspilot-theme', val);
+                    document.documentElement.classList.toggle('dark-theme', this.dark);
+                    document.documentElement.classList.toggle('dark', this.dark);
+                    window.dispatchEvent(new StorageEvent('storage', { key: 'dspilot-theme', newValue: val }));
                 },
 
                 showToast(msg, type = 'info') {

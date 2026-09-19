@@ -138,6 +138,10 @@
         .ude-table thead th:hover { color: var(--color-primary); }
         /* 표에서 바로 고르는 디바이스 셀렉트 — 행 높이를 키우지 않도록 작게 둔다. */
         .ut-dev-sel { min-width: 104px; max-width: 168px; padding: 2px 6px; font-size: 0.78rem; height: auto; }
+        .ut-dev-btn { background: none; border: 1px dashed transparent; border-radius: var(--radius-sm); padding: 2px 8px; font: inherit; font-size: 0.78rem; color: inherit; cursor: pointer; text-align: left; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ut-dev-btn:hover { border-color: var(--color-lines-strong); background: var(--color-surface-variant); }
+        .ut-dev-btn.is-empty { color: var(--color-text-disabled); }
+        .ut-dev-btn:disabled { cursor: default; opacity: 0.6; }
         .ude-sort { font-size: 14px; vertical-align: middle; opacity: 0.6; }
         .ude-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
         .ude-pager-info { font-size: 0.75rem; color: var(--color-text-secondary); }
@@ -168,9 +172,29 @@
         .ut-apply { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-lines); }
         .ut-apply .ut-apply-info { font-size: 0.78rem; color: var(--color-text-secondary); flex: 1 1 200px; }
         .ut-apply .ut-apply-info b { color: var(--color-text-primary); }
-        .ut-info { margin-top: 8px; font-size: 0.78rem; line-height: 1.6; color: var(--color-text-secondary); }
-        .ut-info li { margin: 2px 0; }
         .ut-warn-list { margin: 6px 0 0; padding-left: 18px; font-size: 0.8rem; line-height: 1.5; }
+        .ude-toolbar-sp { flex: 1 1 auto; }
+        .ude-toolbar .chip { white-space: nowrap; }
+        .ude-toolbar .btn-sm b { margin-left: 4px; }
+        /* 즉시 적용 배지 — 저장 버튼과 무관하게 바로 반영되는 컨트롤 표시 */
+        .ut-imm { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.06em; padding: 1px 6px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-success) 14%, transparent); color: var(--color-success); margin-left: 6px; vertical-align: middle; white-space: nowrap; }
+        /* 수식형 입력 — "중앙값 × (1 + [ ]%) + [ ]초" 처럼 컨트롤이 문장 안에 박힌다(설명문 대체) */
+        .set-formula { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.8rem; margin-top: 4px; }
+        .set-formula .form-field { width: 72px; min-width: 0; text-align: right; padding: 4px 8px; }
+        /* 사이클 판정 기준 — 규칙 문장 + 슬라이더 한 줄 */
+        .kpi-rule { display: flex; flex-direction: column; gap: 12px; }
+        .kpi-rule-row { display: grid; grid-template-columns: 56px 1fr; gap: 2px 10px; align-items: center; }
+        .kpi-rule-row input[type=range] { grid-column: 2; width: 100%; accent-color: var(--color-primary); margin: 0; }
+        .kpi-rule-tag { font-size: 0.64rem; font-weight: 800; letter-spacing: 0.04em; color: var(--color-text-secondary); font-family: var(--font-mono); }
+        .kpi-rule-tag.np { color: var(--color-warning); }
+        .kpi-rule-tag.down { color: var(--color-error); }
+        .kpi-rule-sent { font-size: 0.82rem; }
+        .kpi-rule-sent b { color: var(--color-primary); font-variant-numeric: tabular-nums; }
+        .kpi-rule-adv { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--color-lines); }
+        .kpi-adv-row { display: grid; grid-template-columns: 118px 92px 1fr; gap: 8px; align-items: center; margin-top: 8px; font-size: 0.78rem; }
+        .kpi-adv-row label { font-weight: 600; }
+        .kpi-adv-row .form-field { min-width: 0; padding: 4px 8px; text-align: right; }
+        .kpi-adv-row small { color: var(--color-text-secondary); }
         /* 모달 폼 */
         .ut-modal { max-width: min(560px, calc(100vw - 32px)); width: 100%; }
         .ut-modal h3 { margin: 0 0 14px; font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
@@ -295,8 +319,8 @@
                             <button class="btn btn-sm btn-outlined color-default" @click="reload()" :disabled="busy">
                                 <span class="material-icons">refresh</span> 되돌리기
                             </button>
-                            <button class="btn btn-sm" :class="settingsDirty ? 'btn-filled' : ''" @click="save()" :disabled="busy">
-                                <span class="material-icons">save</span> <span x-text="settingsDirty ? '저장*' : '저장'"></span>
+                            <button class="btn btn-sm" :class="(settingsDirty || kpiDirty) ? 'btn-filled' : ''" @click="save()" :disabled="busy || kpiSaving">
+                                <span class="material-icons">save</span> <span x-text="(settingsDirty || kpiDirty) ? '저장*' : '저장'"></span>
                             </button>
                         </div>
                     </div>
@@ -310,14 +334,8 @@
                                     <span>AASX 모델</span>
                                 </div>
                                 <div class="card-content">
-                                    <div class="settings-note">
-                                        <small>
-                                            Promaker 와 공유하는 AASX 모델 파일 — Promaker 저장 후 "모델 다시 불러오기"로 반영됩니다.
-                                        </small>
-                                    </div>
-
                                     <div class="form-group mb-2">
-                                        <label class="form-label">파일 경로 (고정)</label>
+                                        <label class="form-label">파일 경로 (Promaker 와 공유)</label>
                                         <input class="form-field mono" :value="s.aasxFilePath" readonly
                                                style="background:var(--color-surface-variant);" />
                                     </div>
@@ -341,29 +359,18 @@
                                               :title="reconcileTitle()" x-text="reconcileText()"></span>
                                     </div>
 
-                                    <button class="btn btn-outlined w-100" @click="downloadAasx()" :disabled="!aasx.exists">
+                                    <button class="btn btn-outlined w-100" @click="reloadAasx()" :disabled="busy || !aasx.exists" title="AASX 파일만 다시 읽습니다 — DB·통계·이력 유지">
+                                        <span class="material-icons">refresh</span>
+                                        모델 다시 불러오기
+                                    </button>
+                                    <button class="btn btn-outlined w-100" style="margin-top:8px;" @click="rebuildAasx()" :disabled="busy || !aasx.exists" title="다시 읽고, 새 모델에 없는 설비의 정의·이력을 정리">
+                                        <span class="material-icons">sync</span>
+                                        모델 동기화 — 사라진 설비 정리
+                                    </button>
+                                    <button class="btn btn-outlined color-default w-100" style="margin-top:8px;" @click="downloadAasx()" :disabled="!aasx.exists" title="공유 폴더의 project.aasx 를 그대로 내려받기(백업·이관)">
                                         <span class="material-icons">download</span>
                                         project.aasx 다운로드
                                     </button>
-                                    <small class="settings-hint">
-                                        현재 공유 폴더의 AASX 모델 파일을 그대로 내려받습니다. (Promaker 백업·이관용)
-                                    </small>
-                                    <hr class="divider my-3" />
-                                    <button class="btn btn-outlined w-100" @click="reloadAasx()" :disabled="busy || !aasx.exists">
-                                        <span class="material-icons">refresh</span>
-                                        AASX 모델 다시 불러오기
-                                    </button>
-                                    <small class="settings-hint">
-                                        AASX 파일만 다시 읽습니다(DB·통계·히스토리 유지).
-                                    </small>
-                                    <hr class="divider my-3" />
-                                    <button class="btn btn-outlined w-100" @click="rebuildAasx()" :disabled="busy || !aasx.exists">
-                                        <span class="material-icons">sync</span>
-                                        모델 정의 동기화 (Reload + Resync)
-                                    </button>
-                                    <small class="settings-hint">
-                                        AASX 재로딩 + 모델 동기화 + 사라진 Flow 정리(남은 Flow 통계는 보존).
-                                    </small>
                                 </div>
                             </div>
 
@@ -376,35 +383,18 @@
                                 <div class="card-content">
                                     <div class="form-group mb-3">
                                         <label class="form-label">DB 저장 폴더</label>
-                                        <input class="form-field mono" x-model="s.dbDir" placeholder="%ProgramData%/DualSoft/Shared" />
-                                        <small class="settings-hint">
-                                            plc.db 저장 폴더 (서비스 모드에선 <code>%APPDATA%</code> 사용 금지).
-                                        </small>
+                                        <input class="form-field mono" x-model="s.dbDir" placeholder="%ProgramData%/DualSoft/Shared" title="서비스 모드에선 %APPDATA% 를 쓸 수 없습니다" />
+                                        <small class="settings-hint">현재 DB: <span class="mono" x-text="s.dbPath"></span></small>
                                     </div>
-                                    <hr class="divider my-3" />
-                                    <button class="btn btn-outlined color-default w-100" @click="invalidateCaches()" :disabled="busy">
+                                    <button class="btn btn-outlined color-default w-100" @click="invalidateCaches()" :disabled="busy" title="평균·누적 통계만 리셋 — raw 데이터 유지">
                                         <span class="material-icons">restart_alt</span> 통계 재계산
                                     </button>
-                                    <small class="settings-hint">
-                                        평균·누적 통계만 리셋합니다(raw 데이터 유지).
-                                    </small>
-                                    <hr class="divider my-3" />
-                                    <button class="btn btn-outlined color-warning w-100" @click="openSelectiveDel()" :disabled="busy">
+                                    <button class="btn btn-outlined color-warning w-100" style="margin-top:8px;" @click="openSelectiveDel()" :disabled="busy" title="AASX 갱신일 이전 데이터 · 모델에 없는 설비 데이터 삭제">
                                         <span class="material-icons">event</span> 오래된 데이터 삭제
                                     </button>
-                                    <small class="settings-hint">
-                                        선택한 AASX 갱신일 이전의 raw 데이터 + 현재 모델에 없는 설비의 잔존 데이터를 삭제합니다.
-                                    </small>
-                                    <hr class="divider my-3" />
-                                    <button class="btn btn-outlined color-error w-100" @click="rebuildDatabase()" :disabled="busy">
-                                        <span class="material-icons">delete_forever</span> 전체 초기화
+                                    <button class="btn btn-outlined color-error w-100" style="margin-top:8px;" @click="rebuildDatabase()" :disabled="busy" title="plc.db 를 통째로 지우고 다시 만듭니다 — raw 데이터 전부 삭제">
+                                        <span class="material-icons">delete_forever</span> 전체 초기화 — raw 데이터 전부 삭제
                                     </button>
-                                    <small class="settings-hint">
-                                        ⚠️ plc.db 를 통째로 지우고 다시 만듭니다. <strong>raw 데이터가 전부 사라집니다.</strong>
-                                    </small>
-                                    <small class="settings-hint">
-                                        현재 DB: <span class="mono" x-text="s.dbPath"></span>
-                                    </small>
                                 </div>
                             </div>
 
@@ -432,11 +422,14 @@
                                         </button>
                                     </div>
                                     <div class="ut-head-actions">
-                                        <button class="btn btn-sm btn-outlined color-default" @click="utExportCsv()" :disabled="ut.busy || !ut.loaded" title="현재 탭의 목록(필터 System 기준)을 CSV 로 내려받기">
+                                        <button class="btn btn-sm btn-outlined color-default" @click="utExportCsv()" :disabled="ut.busy || !ut.loaded" title="현재 탭 목록을 CSV 로 내려받기(System 필터 반영)">
                                             <span class="material-icons">download</span> CSV 내보내기
                                         </button>
-                                        <button class="btn btn-sm btn-outlined color-default" @click="utCsvPick()" :disabled="ut.busy || !ut.loaded || !ut.systems.length" title="CSV 파일을 읽어 미리보기 후 목록에 반영(적용 전까지 저장되지 않음)">
+                                        <button class="btn btn-sm btn-outlined color-default" @click="utCsvPick()" :disabled="ut.busy || !ut.loaded || !ut.systems.length" title="CSV 를 읽어 미리보기 후 목록에 반영">
                                             <span class="material-icons">upload</span> CSV 가져오기
+                                        </button>
+                                        <button class="btn-icon btn-sm" @click="utTemplateCsv()" :disabled="ut.busy" title="CSV 양식 내려받기(Promaker 사용자 태그 양식 + System 열)">
+                                            <span class="material-icons">description</span>
                                         </button>
                                         <input type="file" accept=".csv,text/csv" x-ref="utCsvFile" @change="utCsvFile($event)" style="display:none;" />
                                         <button class="btn btn-sm btn-filled" @click="utOpenAdd()" :disabled="ut.busy || !ut.loaded || !ut.systems.length">
@@ -445,74 +438,11 @@
                                     </div>
                                 </div>
                                 <div class="card-content">
-                                    <div class="settings-note" style="display:flex; align-items:flex-start; gap:6px;">
-                                        <small style="flex:1;" x-show="ut.tab === 'Error'">
-                                            PLC 값 조건으로 <b>알람을 발화</b>하는 태그입니다. 추가·편집·삭제하고 <b>적용</b>하면 공유 project.aasx 에 저장되어 Agent 가 수집을 시작합니다 — 이력은
-                                            <a href="/uptime-alarm" style="color:var(--color-primary);">이상·알람 분석</a>에서.
-                                        </small>
-                                        <small style="flex:1;" x-show="ut.tab === 'Info'">
-                                            알람을 발화하지 않고 <b>값 변화만 기록</b>하는 태그입니다. 매칭 조건 없이 값이 바뀔 때마다 남으며, 추이·통계는
-                                            <a href="/tag-monitor" style="color:var(--color-primary);">태그 모니터링</a>에서 봅니다. 같은 태그를 알람으로 쓰려면 탭을 옮기세요(편집 창에서 종류 변경).
-                                        </small>
-                                        <button class="btn-icon btn-sm" @click="ut.showInfo = !ut.showInfo" :title="ut.showInfo ? '설명 접기' : '자세히'"><span class="material-icons" x-text="ut.showInfo ? 'expand_less' : 'info'"></span></button>
-                                    </div>
-                                    <!-- 묶음 커버리지 — 이상알람TAG 탭에서만. MTBF·MTTR 이 몇 건 위에 서 있는지 한 줄로 보여 준다.
-                                         '전역' 은 고의로 안 묶은 것이라 분모에서 빼야 진행률이 100% 에 닿는다. -->
-                                    <div class="settings-note" x-show="ut.tab === 'Error' && utDeviceCoverage.total > 0" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                                        <span class="chip" :class="utDeviceCoverage.unbound === 0 ? 'chip-success' : 'chip-warning'"
-                                              x-text="'디바이스 묶음 ' + utDeviceCoverage.bound + ' / ' + utDeviceCoverage.total"></span>
-                                        <small style="flex:1;">
-                                            <span x-show="utDeviceCoverage.unbound > 0">
-                                                <b x-text="utDeviceCoverage.unbound + '건'"></b> 이 미지정이라 MTBF·MTTR 산출에서 빠집니다 — 편집에서 디바이스를 고르세요.
-                                            </span>
-                                            <span x-show="utDeviceCoverage.unbound === 0">모두 묶였습니다 — 이상·알람 분석의 MTBF·MTTR 에 전부 반영됩니다.</span>
-                                            <span x-show="utDeviceCoverage.global > 0" style="color:var(--color-text-secondary);">
-                                                (전역 <span x-text="utDeviceCoverage.global"></span>건 제외)
-                                            </span>
-                                        </small>
-                                    </div>
-                                    <!-- 이름 기반 추천 — 이름에 디바이스 별칭이 든 태그를 한 번에 채운다.
-                                         적용해도 '수정' 대기 상태라 표에서 확인하고 행마다 되돌릴 수 있다. -->
-                                    <div class="settings-note" x-show="ut.tab === 'Error' && utSuggestions.length > 0"
-                                         style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                                        <span class="material-icons" style="font-size:18px;color:var(--color-primary);">auto_fix_high</span>
-                                        <small style="flex:1;">
-                                            태그 이름에서 디바이스를 알아낼 수 있는 항목이 <b x-text="utSuggestions.length + '건'"></b> 있습니다
-                                            <span style="color:var(--color-text-secondary);">(예: <span x-text="utSuggestions[0].row.name"></span> → <b x-text="utSuggestions[0].device"></b>)</span>
-                                        </small>
-                                        <button class="btn btn-sm" @click="utApplySuggestions()">이름으로 채우기</button>
-                                    </div>
-
-                                    <!-- 일괄 지정 — 검색으로 좁힌 뒤 한 번에. 태그를 하나씩 열지 않고 끝내는 경로다.
-                                         체크박스 선택 UI 를 새로 만들지 않고 이미 있는 검색 필터를 그대로 재사용한다. -->
-                                    <div class="settings-note" x-show="ut.tab === 'Error' && utBulkTargets.length > 1"
-                                         style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                                        <span class="material-icons" style="font-size:18px;color:var(--color-text-secondary);">playlist_add_check</span>
-                                        <small>지금 보이는 <b x-text="utBulkTargets.length + '건'"></b> 에 한 번에 지정</small>
-                                        <select class="form-field" style="max-width:220px;" x-model="ut.bulkDevice"
-                                                @change="ut.bulkDevice !== '' && utBulkAssign(ut.bulkDevice)">
-                                            <option value="">디바이스 선택…</option>
-                                            <option :value="UT_DEVICE_GLOBAL">전역</option>
-                                            <template x-for="dev in ut.devices" :key="'bulk-' + dev">
-                                                <option :value="dev" x-text="dev"></option>
-                                            </template>
-                                        </select>
-                                        <small style="color:var(--color-text-secondary);">검색·System 으로 먼저 좁히면 그 범위에만 적용됩니다.</small>
-                                    </div>
-                                    <ul class="ut-info" x-show="ut.showInfo" x-transition.opacity>
-                                        <li>적용 시 태그 주소가 그 System 의 PLC 접속 정보(AID)에 수집 대상으로 함께 등록됩니다. PLC 접속이 없는 System(<span class="material-icons ut-noep" style="cursor:default;">warning</span> 표시)은 태그는 저장되지만 수집되지 않으니 Promaker 에서 PLC 접속을 먼저 지정하세요.</li>
-                                        <li>Agent 는 파일 변경을 감지해 자동 재시작합니다(수 초 모니터링 공백). 변경을 모아 한 번에 적용하는 것을 권장합니다.</li>
-                                        <li>엣지 스캐너(Edge 위임 수집) 현장은 스캐너 설정에 주소를 따로 추가해야 수집됩니다.</li>
-                                        <li>Promaker 에서 같은 파일을 열어 둔 경우 마지막에 저장한 쪽이 남습니다.</li>
-                                        <li><b>두 탭은 한 번에 저장됩니다.</b> 종류(이상알람/모니터링)는 AASX 의 로그 레벨 칸으로 구분되며, 탭을 오가며 편집한 내용이 <b>적용</b> 한 번에 함께 반영됩니다(Agent 재시작도 1회).</li>
-                                        <li>CSV 양식은 Promaker 사용자 태그 내보내기와 같고(<code>이름, 로그 레벨, 태그 주소, 값 타입, 매칭 조건, 기준값</code>) 맨 앞에 <code>System</code> 열이 추가됩니다. Promaker 파일(System 열 없음)도 그대로 가져올 수 있습니다. 내보내기·가져오기는 <b>현재 탭</b>만 다루며, 다른 종류가 적힌 파일을 가져오면 이 탭 종류로 맞추고 알려 줍니다. <a href="#" @click.prevent="utTemplateCsv()" style="color:var(--color-primary);">양식 내려받기</a></li>
-                                    </ul>
-
                                     <div x-show="ut.loading" class="progress-bar progress-bar-indeterminate" style="margin:8px 0;"><div class="progress-bar-fill"></div></div>
                                     <div x-show="ut.error" class="alert alert-error" style="margin:8px 0;"><span class="material-icons">error</span><span x-text="ut.error"></span></div>
                                     <div x-show="ut.loaded && !ut.projectLoaded" class="alert alert-warning" style="margin:8px 0;"><span class="material-icons">warning</span><span>AASX 모델이 로드되지 않아 편집할 수 없습니다.</span></div>
                                     <div x-show="ut.loaded && ut.projectLoaded && !ut.systems.length" class="alert alert-warning" style="margin:8px 0;"><span class="material-icons">warning</span><span>편집 가능한 활성 System 이 없습니다.</span></div>
-                                    <div x-show="ut.hiddenPassiveCount > 0" class="settings-note" style="margin-top:6px;"><small>Passive(수동) System 에 정의된 <span x-text="ut.hiddenPassiveCount"></span>건은 편집 대상이 아니라 표시하지 않습니다.</small></div>
+                                    <div x-show="ut.hiddenPassiveCount > 0" class="settings-note" style="margin-top:6px;"><small>수동(Passive) System 의 <span x-text="ut.hiddenPassiveCount"></span>건은 편집 대상이 아니라 표시하지 않습니다.</small></div>
                                     <!-- 마지막 적용 결과 경고(수집 반영 주의) -->
                                     <div x-show="ut.warnings.length" class="alert alert-warning" style="margin:8px 0; display:block;">
                                         <div style="display:flex; align-items:center; gap:6px;"><span class="material-icons">warning</span><b>저장은 됐지만 수집 반영에 주의가 필요합니다</b><button class="btn-icon btn-sm" style="margin-left:auto;" @click="ut.warnings = []"><span class="material-icons">close</span></button></div>
@@ -540,10 +470,55 @@
                                                 <option :value="50">50개씩</option>
                                                 <option :value="100">100개씩</option>
                                             </select>
+                                            <span class="ude-toolbar-sp"></span>
+                                            <!-- 묶음 진행률 — '전역' 은 고의로 안 묶은 것이라 분모에서 뺀다. -->
+                                            <span class="chip" x-show="ut.tab === 'Error' && utDeviceCoverage.total > 0"
+                                                  :class="utDeviceCoverage.unbound === 0 ? 'chip-success' : 'chip-warning'"
+                                                  title="디바이스를 묶은 이상알람TAG — 미지정은 MTBF·MTTR 에서 빠집니다"
+                                                  x-text="'디바이스 ' + utDeviceCoverage.bound + ' / ' + utDeviceCoverage.total"></span>
+                                            <!-- 이름에 디바이스 별칭이 든 태그를 한 번에 지정 — 결과는 '수정' 대기라 행마다 되돌릴 수 있다. -->
+                                            <button class="btn btn-sm btn-outlined" x-show="ut.tab === 'Error' && utSuggestions.length > 0" @click="utApplySuggestions()"
+                                                    title="이름에 디바이스 별칭이 든 태그를 그 디바이스로 지정">
+                                                <span class="material-icons">auto_fix_high</span> 이름으로 채우기 <b x-text="utSuggestions.length"></b>
+                                            </button>
+                                        </div>
+                                        <!-- 선택·일괄 바(공용 .ds-selbar) — 헤더 체크 = 이 페이지, 링크 = 검색 결과 전체. 저장은 하단 '적용'. -->
+                                        <div class="ds-selbar" x-show="utSelCount > 0" x-cloak>
+                                            <span class="ds-selbar-count" x-text="utSelCount + '건 선택'"></span>
+                                            <button type="button" class="ds-selbar-link" x-show="utFiltered.length > utSelCount" @click="utSelectAllFiltered()"
+                                                    x-text="'검색 결과 ' + utFiltered.length + '건 모두 선택'"></button>
+                                            <span class="ds-selbar-sp"></span>
+                                            <template x-if="ut.tab === 'Error'">
+                                                <select class="form-field" x-model="ut.bulkDevice"
+                                                        @change="ut.bulkDevice !== '' && utBulkAssign(ut.bulkDevice === '-' ? '' : ut.bulkDevice)">
+                                                    <option value="">디바이스 지정…</option>
+                                                    <option value="-">미지정</option>
+                                                    <option :value="UT_DEVICE_GLOBAL">전역</option>
+                                                    <template x-for="dev in ut.devices" :key="'bulk-' + dev"><option :value="dev" x-text="dev"></option></template>
+                                                </select>
+                                            </template>
+                                            <template x-if="ut.tab === 'Info'">
+                                                <span style="display:inline-flex; align-items:center; gap:6px;">
+                                                    <input type="text" inputmode="decimal" class="form-field" style="min-width:0; width:96px;" placeholder="데드밴드" x-model="ut.bulkDeadband" @keydown.enter="utBulkMeta()" />
+                                                    <input type="text" inputmode="numeric" class="form-field" style="min-width:0; width:118px;" placeholder="기록 간격 ms" x-model="ut.bulkInterval" @keydown.enter="utBulkMeta()" />
+                                                    <button class="btn btn-sm" @click="utBulkMeta()" :disabled="!ut.bulkDeadband && !ut.bulkInterval">반영</button>
+                                                </span>
+                                            </template>
+                                            <button class="btn btn-sm btn-outlined" @click="utBulkLevel(ut.tab === 'Error' ? 'Info' : 'Error')">
+                                                <span class="material-icons" x-text="ut.tab === 'Error' ? 'show_chart' : 'notifications_active'"></span>
+                                                <span x-text="ut.tab === 'Error' ? '모니터링TAG 로' : '이상알람TAG 로'"></span>
+                                            </button>
+                                            <button class="btn btn-sm btn-outlined color-error" @click="utBulkDelete()"><span class="material-icons">delete</span> 삭제</button>
+                                            <button class="btn btn-sm btn-outlined" x-show="utSelChanged > 0" @click="utBulkRestore()"><span class="material-icons">undo</span> 되돌리기 <b x-text="utSelChanged"></b></button>
+                                            <button type="button" class="ds-selbar-link" @click="utSelClear()">선택 해제</button>
                                         </div>
                                         <div class="ude-scroll" style="min-height:200px;">
                                             <table class="ds-table ude-table">
                                                 <thead><tr>
+                                                    <th class="ds-check" style="cursor:default;">
+                                                        <input type="checkbox" :checked="utPageSel.all" x-effect="$el.indeterminate = utPageSel.some && !utPageSel.all"
+                                                               @change="utTogglePage($event.target.checked)" title="이 페이지 전체 선택" />
+                                                    </th>
                                                     <th @click="utSort('systemName')">System <span class="material-icons ude-sort" x-text="utSortIcon('systemName')"></span></th>
                                                     <th @click="utSort('name')">이름 <span class="material-icons ude-sort" x-text="utSortIcon('name')"></span></th>
                                                     <th @click="utSort('tagAddress')">주소 <span class="material-icons ude-sort" x-text="utSortIcon('tagAddress')"></span></th>
@@ -551,7 +526,7 @@
                                                     <!-- 매칭 조건은 이상알람TAG 에만 뜻이 있다 — 모니터링TAG 는 값이 바뀌면 그냥 기록한다. -->
                                                     <th x-show="ut.tab === 'Error'" @click="utSort('match')">매칭 조건 <span class="material-icons ude-sort" x-text="utSortIcon('match')"></span></th>
                                                     <!-- 이상알람TAG 전용: MTBF/MTTR 회복 판정이 볼 flow 집합을 정한다. 미지정 태그는 지표에서 빠진다. -->
-                                                    <th x-show="ut.tab === 'Error'" @click="utSort('device')" title="MTBF·MTTR 산출에 쓰입니다 — 묶인 디바이스가 쓰이는 설비(Flow)가 다시 도는지로 복구를 확인합니다">디바이스 <span class="material-icons ude-sort" x-text="utSortIcon('device')"></span></th>
+                                                    <th x-show="ut.tab === 'Error'" @click="utSort('device')" title="MTBF·MTTR 산출에 쓰는 설비 묶음">디바이스 <span class="material-icons ude-sort" x-text="utSortIcon('device')"></span></th>
                                                     <!-- 모니터링TAG 전용: 표시 단위 + 기록량을 줄이는 두 손잡이 -->
                                                     <th x-show="ut.tab === 'Info'" style="cursor:default;">단위</th>
                                                     <th x-show="ut.tab === 'Info'" style="cursor:default;" title="이만큼 넘게 변할 때만 기록합니다">데드밴드</th>
@@ -560,10 +535,11 @@
                                                 </tr></thead>
                                                 <tbody>
                                                     <template x-for="d in utPaged" :key="d.key">
-                                                        <tr :class="d.state ? 'ut-row-' + d.state : ''">
+                                                        <tr :class="[d.state ? 'ut-row-' + d.state : '', ut.sel[d.key] ? 'is-selected' : '']">
+                                                            <td class="ds-check"><input type="checkbox" :checked="!!ut.sel[d.key]" @change="utToggleSel(d, $event.target.checked)" /></td>
                                                             <td data-label="System">
                                                                 <span x-text="d.systemName"></span>
-                                                                <span class="material-icons ut-noep" x-show="!utSystemHasEndpoint(d.systemId)" title="이 System 에 PLC 접속(AID) 이 없어 수집되지 않습니다">warning</span>
+                                                                <span class="material-icons ut-noep" x-show="!utSystemHasEndpoint(d.systemId)" title="이 System 에 PLC 접속이 없어 수집되지 않습니다">warning</span>
                                                             </td>
                                                             <td data-label="이름">
                                                                 <strong class="ut-name" x-text="d.name"></strong>
@@ -576,16 +552,17 @@
                                                             <td data-label="매칭 조건" x-show="ut.tab === 'Error'" x-text="describeUtOp(d.matchOp, d.matchValue)"></td>
                                                             <!-- 표에서 바로 고른다 — 태그 수십 개를 모달로 하나씩 여는 것은 고역이다. -->
                                                             <td data-label="디바이스" x-show="ut.tab === 'Error'">
-                                                                <select class="form-field ut-dev-sel" :value="d.device" @change="utSetDevice(d, $event.target.value)"
-                                                                        :disabled="d.state === 'del'"
-                                                                        :style="d.device ? '' : 'color:var(--color-text-disabled);'"
-                                                                        title="MTBF·MTTR 산출에 쓰입니다 — 묶인 디바이스가 쓰이는 설비가 다시 도는지로 복구를 확인합니다">
-                                                                    <option value="">미지정</option>
-                                                                    <option :value="UT_DEVICE_GLOBAL">전역</option>
-                                                                    <template x-for="dev in ut.devices" :key="dev">
-                                                                        <option :value="dev" x-text="dev"></option>
-                                                                    </template>
-                                                                </select>
+                                                                <!-- 라벨 버튼 → 클릭한 행에만 셀렉트(옵션은 utDevOptsFill 이 문자열로 한 번에). 행×디바이스 x-for 금지(DOM 4만 개). -->
+                                                                <template x-if="ut.devEdit !== d.key">
+                                                                    <button type="button" class="ut-dev-btn" :class="d.device ? '' : 'is-empty'" :disabled="d.state === 'del'"
+                                                                            @click="utDevEditOpen(d)" x-text="utDeviceLabel(d.device)" title="클릭해서 바꾸기"></button>
+                                                                </template>
+                                                                <template x-if="ut.devEdit === d.key">
+                                                                    <select class="form-field ut-dev-sel"
+                                                                            x-init="utDevOptsFill($el); $el.value = d.device || ''; $nextTick(() => $el.focus())"
+                                                                            @change="utDevEditPick(d, $event.target.value)"
+                                                                            @blur="ut.devEdit = null" @keydown.escape="ut.devEdit = null"></select>
+                                                                </template>
                                                             </td>
                                                             <td data-label="단위" x-show="ut.tab === 'Info'" x-text="d.unit || '—'"></td>
                                                             <td data-label="데드밴드" x-show="ut.tab === 'Info'" x-text="d.deadband ? d.deadband : '모든 변화'"></td>
@@ -604,10 +581,10 @@
                                                         </tr>
                                                     </template>
                                                     <tr x-show="utFiltered.length === 0">
-                                                        <td colspan="6" style="text-align:center; color:var(--color-text-secondary); padding:18px;">
-                                                            <span x-show="utTabItems.length === 0 && ut.tab === 'Error'">정의된 이상알람TAG 가 없습니다. <b>추가</b> 또는 <b>CSV 가져오기</b>로 등록하세요.</span>
-                                                            <span x-show="utTabItems.length === 0 && ut.tab === 'Info'">정의된 모니터링TAG 가 없습니다. <b>추가</b> 로 값을 지켜볼 주소를 등록하세요.</span>
-                                                            <span x-show="utTabItems.length > 0">검색 조건에 맞는 항목이 없습니다.</span>
+                                                        <td colspan="9" style="text-align:center; color:var(--color-text-secondary); padding:18px;">
+                                                            <span x-show="utTabTotal === 0 && ut.tab === 'Error'">이상알람TAG 없음 — <b>추가</b> 또는 <b>CSV 가져오기</b></span>
+                                                            <span x-show="utTabTotal === 0 && ut.tab === 'Info'">모니터링TAG 없음 — <b>추가</b></span>
+                                                            <span x-show="utTabTotal > 0">검색 결과 없음</span>
                                                         </td>
                                                     </tr>
                                                 </tbody>
@@ -634,10 +611,9 @@
                                                     <span>미적용 변경 <b x-text="utChangeCount.total + '건'"></b>
                                                         (<span x-show="utChangeCount.add">추가 <span x-text="utChangeCount.add"></span></span><span x-show="utChangeCount.add && (utChangeCount.mod || utChangeCount.del)"> · </span><span x-show="utChangeCount.mod">수정 <span x-text="utChangeCount.mod"></span></span><span x-show="utChangeCount.mod && utChangeCount.del"> · </span><span x-show="utChangeCount.del">삭제 <span x-text="utChangeCount.del"></span></span>)
                                                         <!-- 두 탭이 한 번에 저장되므로, 지금 안 보이는 탭의 변경도 함께 나간다는 것을 알려 준다. -->
-                                                        <span x-show="utOtherTabChanges > 0">— <b x-text="ut.tab === 'Error' ? '모니터링TAG' : '이상알람TAG'"></b> 탭 <b x-text="utOtherTabChanges + '건'"></b> 포함</span>
-                                                        — 적용하면 project.aasx 에 저장되고 Agent 가 재시작됩니다.</span>
+                                                        <span x-show="utOtherTabChanges > 0">— <b x-text="ut.tab === 'Error' ? '모니터링TAG' : '이상알람TAG'"></b> 탭 <b x-text="utOtherTabChanges + '건'"></b> 포함</span></span>
                                                 </template>
-                                                <template x-if="!utDirty"><span>변경 없음 — 목록은 공유 project.aasx 와 동일합니다.</span></template>
+                                                <template x-if="!utDirty"><span>변경 없음</span></template>
                                             </span>
                                             <button class="btn btn-sm btn-outlined color-default" @click="utLoad()" :disabled="ut.busy || ut.loading" title="서버 정의를 다시 읽어 미적용 변경을 모두 버립니다">
                                                 <span class="material-icons">refresh</span> <span x-text="utDirty ? '되돌리기' : '새로고침'"></span>
@@ -658,76 +634,60 @@
                                 </div>
                                 <div class="card-content">
 
-                                    <!-- ── 0. ActionOver 판정 주체 (2026-08-25) — 재빌드 없는 롤백 안전장치 ── -->
-                                    <p style="font-size:0.78rem;font-weight:700;margin:0 0 4px;">동작 지연(ActionOver) 판정 주체</p>
-                                    <div class="segmented" role="group" aria-label="ActionOver 판정 주체" style="margin:2px 0 6px;">
-                                        <button type="button" :class="{ active: (s.autoCalibration.actionOverJudge ?? 'dspilot') !== 'agent' }"
-                                                @click="s.autoCalibration.actionOverJudge = 'dspilot'">DSPilot (내장)</button>
-                                        <button type="button" :class="{ active: (s.autoCalibration.actionOverJudge ?? 'dspilot') === 'agent' }"
-                                                @click="s.autoCalibration.actionOverJudge = 'agent'">Agent (상류)</button>
+                                    <!-- ── 0. 동작 지연 판정 주체 (2026-08-25) — 재빌드 없는 롤백 안전장치. 기본 DSPilot. ── -->
+                                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 12px;">
+                                        <span style="font-size:0.78rem;font-weight:700;">동작 지연 판정</span>
+                                        <div class="segmented" role="group" aria-label="동작 지연 판정 주체"
+                                             title="DSPilot 이 신호를 직접 보고 판정(기본). Agent 는 이전 방식으로 되돌리는 임시 스위치">
+                                            <button type="button" :class="{ active: (s.autoCalibration.actionOverJudge ?? 'dspilot') !== 'agent' }"
+                                                    @click="s.autoCalibration.actionOverJudge = 'dspilot'">DSPilot</button>
+                                            <button type="button" :class="{ active: (s.autoCalibration.actionOverJudge ?? 'dspilot') === 'agent' }"
+                                                    @click="s.autoCalibration.actionOverJudge = 'agent'">Agent</button>
+                                        </div>
                                     </div>
-                                    <small class="settings-hint" style="display:block;margin:0 0 12px;"
-                                           x-text="(s.autoCalibration.actionOverJudge ?? 'dspilot') !== 'agent'
-                                               ? 'DSPilot이 신호를 직접 관측해 판정합니다 — 알람에 실제 경과시간이 기록되고, Agent가 보낸 동작 지연은 무시합니다(이중 계상 방지).'
-                                               : 'Agent(상류)가 보낸 동작 지연을 그대로 수용하고 DSPilot 자체 판정은 멈춥니다 — 이전 방식으로 되돌리는 임시 스위치입니다.'"></small>
 
-                                    <!-- ── 1. 실측 수동 보정 (AASX 임계 산출 — 감지 무장) ── -->
-                                    <p style="font-size:0.78rem;font-weight:700;margin:0 0 4px;">1. 실측 보정 (AASX 임계 산출)</p>
-                                    <small class="settings-hint" style="display:block;margin:0 0 10px;">실제 동작 시간을 측정해 설비 모델(AASX)에 저장합니다. Head/Tail 저장이나 이력 재계산으로 자동 실행되지 않으며, 아래 버튼으로만 적용됩니다.</small>
+                                    <!-- ── 1. 실측 보정 (AASX 임계 산출 — 감지 무장). 수식이 곧 컨트롤. ── -->
+                                    <p style="font-size:0.78rem;font-weight:700;margin:0 0 4px;">1. 실측 보정 (설비 모델에 임계 기록)</p>
 
-                                    <div class="form-group" style="margin-top:12px;">
+                                    <div class="form-group" style="margin-top:10px;">
                                         <label class="form-label">최소 정상 가동 횟수</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.autoCalibration.minCleanCycles" min="1" max="1000" placeholder="10 (기본값)" />
-                                        <small class="settings-hint">이상치를 제외한 가동시간이 있는 가동을 기준으로 합니다.</small>
+                                        <input type="number" class="form-field mono" x-model.number="s.autoCalibration.minCleanCycles" min="1" max="1000" placeholder="10" title="이상치를 뺀 가동이 이만큼 쌓인 설비만 보정" />
                                     </div>
 
-                                    <!-- 동작 초과(ActionOver) — Max 임계 (상시 적용) -->
-                                    <div class="form-group" style="margin-top:14px;margin-bottom:0;">
-                                        <label class="form-label">동작 초과(ActionOver) — Max 임계 산출</label>
-                                        <div style="margin-top:4px;">
-                                            <div style="display:flex;align-items:center;gap:6px;">
-                                                <span style="font-size:0.8rem;white-space:nowrap;">여유율 +</span>
-                                                <input type="text" inputmode="decimal" class="form-field mono"
-                                                       :value="s.autoCalibration.medianMarginMaxPct == null ? '' : Math.round(s.autoCalibration.medianMarginMaxPct * 10000) / 100"
-                                                       @change="s.autoCalibration.medianMarginMaxPct = pctToFrac($event.target.value)"
-                                                       placeholder="60 (기본값)" style="width:90px;" />
-                                                <span style="font-size:0.8rem;white-space:nowrap;">%</span>
-                                            </div>
-                                            <small class="settings-hint">Max = 실측 중앙값 × (1 + 여유율%).</small>
-                                        </div>
-                                        <div style="margin-top:10px;">
-                                            <div style="display:flex;align-items:center;gap:6px;">
-                                                <span style="font-size:0.8rem;white-space:nowrap;">+ 추가 여유값</span>
-                                                <input type="text" inputmode="decimal" class="form-field mono"
-                                                       :value="(s.autoCalibration.marginMaxAbsMs ?? 5000) / 1000"
-                                                       @change="s.autoCalibration.marginMaxAbsMs = secToMs($event.target.value)"
-                                                       placeholder="5 (기본값)" style="width:90px;" />
-                                                <span style="font-size:0.8rem;white-space:nowrap;">초</span>
-                                            </div>
-                                            <small class="settings-hint">위 산출값에 더해지는 절대 여유(초).</small>
+                                    <!-- 동작 초과 — Max 임계 (상시 적용) -->
+                                    <div class="form-group" style="margin-top:12px;margin-bottom:0;">
+                                        <label class="form-label">동작 초과(Max) 임계</label>
+                                        <div class="set-formula">
+                                            <span>실측 중앙값 × (1 +</span>
+                                            <input type="text" inputmode="decimal" class="form-field mono"
+                                                   :value="s.autoCalibration.medianMarginMaxPct == null ? '' : Math.round(s.autoCalibration.medianMarginMaxPct * 10000) / 100"
+                                                   @change="s.autoCalibration.medianMarginMaxPct = pctToFrac($event.target.value)"
+                                                   placeholder="60" />
+                                            <span>%) +</span>
+                                            <input type="text" inputmode="decimal" class="form-field mono"
+                                                   :value="(s.autoCalibration.marginMaxAbsMs ?? 5000) / 1000"
+                                                   @change="s.autoCalibration.marginMaxAbsMs = secToMs($event.target.value)"
+                                                   placeholder="5" />
+                                            <span>초</span>
                                         </div>
                                     </div>
 
-                                    <!-- 동작 미달(ActionUnder) — Min 임계 (선택 / opt-in) -->
+                                    <!-- 동작 미달 — Min 임계 (선택 / opt-in) -->
                                     <div class="form-group" style="margin-top:14px;margin-bottom:0;">
                                         <label class="switch mb-2">
                                             <input type="checkbox" x-model="s.autoCalibration.fillMin" />
-                                            동작 미달(ActionUnder) 감지 — 최소값(Min)도 실측 기록
+                                            동작 미달(Min) 감지 — 최소값도 기록
                                         </label>
-                                        <small class="settings-hint">켜면 최소 동작 시간 기준을 설비 모델(AASX)에 기록해, 동작 미달을 감지합니다.</small>
                                         <div x-show="s.autoCalibration.fillMin" x-cloak>
-                                            <div class="form-group" style="margin:12px 0 0;">
-                                                <label class="form-label">Min 백분위수 (PercentileMin)</label>
-                                                <input type="number" class="form-field mono" x-model.number="s.autoCalibration.percentileMin" min="0" max="50" step="1" placeholder="5 (기본값)" />
-                                                <small class="settings-hint">Min 기준 백분위수입니다.</small>
-                                            </div>
-                                            <div class="form-group" style="margin:8px 0 0;">
-                                                <label class="form-label">최소값 추가 여유율 (%)</label>
+                                            <div class="set-formula">
+                                                <span>Min = 하위</span>
+                                                <input type="number" class="form-field mono" x-model.number="s.autoCalibration.percentileMin" min="0" max="50" step="1" placeholder="5" />
+                                                <span>백분위 × (1 −</span>
                                                 <input type="text" inputmode="decimal" class="form-field mono"
                                                        :value="s.autoCalibration.marginMinPct == null ? '' : Math.round(s.autoCalibration.marginMinPct * 10000) / 100"
                                                        @change="s.autoCalibration.marginMinPct = pctToFrac($event.target.value)"
-                                                       placeholder="3 (기본값)" />
-                                                <small class="settings-hint">Min = pN × (1 − 여유율%). 예: 3 = −3%, 10.5 = −10.5% 추가 여유.</small>
+                                                       placeholder="3" />
+                                                <span>%)</span>
                                             </div>
                                         </div>
                                     </div>
@@ -756,9 +716,7 @@
                                         </span>
                                     </div>
                                     <div x-show="calib.staleCount > 0" x-cloak style="margin-top:6px;">
-                                        <small class="settings-hint" style="color:var(--color-warning,#e67e22);">
-                                            모델이 바뀐 Work의 확정값이 어긋났습니다. "지금 실측값 채우기"를 눌러 재측정하세요.
-                                        </small>
+                                        <small class="settings-hint" style="color:var(--color-warning,#e67e22);">모델이 바뀐 Work — 아래 '지금 실측값 채우기' 로 재측정</small>
                                         <ul style="margin:6px 0 0;padding-left:18px;font-size:0.74rem;line-height:1.7;">
                                             <template x-for="w in calib.stale" :key="w.workId">
                                                 <li>
@@ -772,36 +730,28 @@
 
                                     <button id="calib-fill" x-ref="calibFill" class="btn btn-outlined w-100" :class="{ 'calib-fill-flash': flashCalibFill }" style="margin-top:12px;" @click="fillAutoCalibration()" :disabled="busy || autoCal.running">
                                         <span class="material-icons" x-text="autoCal.running ? 'refresh' : 'sync'"></span>
-                                        <span x-text="autoCal.running ? '채우는 중…' : '지금 실측값 채우기 (재시도)'"></span>
+                                        <span x-text="autoCal.running ? '채우는 중…' : '지금 실측값 채우기'"></span>
                                     </button>
-                                    <small class="settings-hint">완료 여부와 무관하게 현재 실측값으로 적합 Flow 디바이스 duration 을 즉시 재기록합니다.</small>
-
-                                    <button class="btn btn-outlined w-100" style="margin-top:10px; color:var(--color-warning, #e67e22); border-color:var(--color-warning, #e67e22);"
-                                            @click="clearCalibrationRanges()" :disabled="busy || autoCal.running">
+                                    <button class="btn btn-outlined w-100" style="margin-top:8px; color:var(--color-warning, #e67e22); border-color:var(--color-warning, #e67e22);"
+                                            @click="clearCalibrationRanges()" :disabled="busy || autoCal.running" title="모든 디바이스의 Min/Max 를 비움 — Duration 은 보존">
                                         <span class="material-icons">restart_alt</span>
-                                        <span>Min/Max 전부 초기화 </span>
+                                        <span>Min/Max 전부 초기화</span>
                                     </button>
-                                    <small class="settings-hint">모든 디바이스의 이상감지 Min/Max 를 전부 비웁니다(Duration 은 보존됩니다).</small>
 
-                                    <!-- ── 2. 실시간 학습 (Agent 자동) — 선택 ── -->
+                                    <!-- ── 2. 실시간 학습 (Agent 자동) — 선택. 토글 즉시 적용(저장 버튼 무관). ── -->
                                     <hr class="divider" style="margin:16px 0;" />
-                                    <p style="font-size:0.78rem;font-weight:700;margin:0 0 4px;">2. 실시간 학습 (Agent 자동)</p>
-                                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-                                        <input type="checkbox" x-model="autoCalibrate" @change="applyAutoCalibrate()" :disabled="!scanConnected" />
-                                        <span x-text="autoCalibrate ? 'ON — 실시간 학습 사용 (Agent 자동)' : 'OFF — 미사용'"></span>
-                                    </label>
-                                    <small class="settings-hint">
-                                        Agent가 실제 동작 시간을 계속 학습합니다.<span x-show="!scanConnected"><strong> — Agent 미연결 상태입니다.</strong></span>
-                                    </small>
-
-                                    <div x-show="autoCalibrate" style="margin-top:12px;">
-                                        <button class="btn btn-outlined w-100" @click="freezeHealthBaseline()" :disabled="!scanConnected">
-                                            <span class="material-icons">ac_unit</span> 기준선 동결 (지금 동결)
+                                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                        <label class="switch" style="margin:0;">
+                                            <input type="checkbox" x-model="autoCalibrate" @change="applyAutoCalibrate()" :disabled="!scanConnected" />
+                                            2. 실시간 학습 (Agent 자동)
+                                        </label>
+                                        <span class="ut-imm">즉시 적용</span>
+                                        <span class="chip chip-warning" x-show="!scanConnected">Agent 미연결</span>
+                                    </div>
+                                    <div x-show="autoCalibrate" style="margin-top:10px;">
+                                        <button class="btn btn-outlined w-100" @click="freezeHealthBaseline()" :disabled="!scanConnected" title="현재 학습 분포를 건강 기준선으로 고정 — 이후 드리프트 추적">
+                                            <span class="material-icons">ac_unit</span> 기준선 지금 동결
                                         </button>
-                                        <small class="settings-hint">
-                                            현재 학습 분포를 건강 기준선으로 고정합니다(이후 드리프트 추적).
-                                            <span x-show="!scanConnected"><strong> — Agent 미연결 상태입니다.</strong></span>
-                                        </small>
                                     </div>
                                 </div>
                             </div>
@@ -815,13 +765,11 @@
                                 <div class="card-content">
                                     <div style="display:flex; align-items:center; gap:10px;">
                                         <input type="range" min="10" max="500" step="10" style="flex:1"
-                                               x-model.number="scanMs" @change="applyScanInterval()" :disabled="!scanConnected" />
+                                               x-model.number="scanMs" @change="applyScanInterval()" :disabled="!scanConnected" title="Agent 의 PLC 폴링 주기 — 기본 100ms, Promaker 와 동기화" />
                                         <strong style="min-width:64px; text-align:right;" x-text="scanMs + ' ms'"></strong>
+                                        <span class="ut-imm" x-show="scanConnected">즉시 적용</span>
+                                        <span class="chip chip-warning" x-show="!scanConnected">Agent 미연결</span>
                                     </div>
-                                    <small class="settings-hint">
-                                        Agent 의 PLC 폴링 주기(기본 100ms) — 즉시 적용, Promaker 와 동기화.
-                                        <span x-show="!scanConnected"><strong> — Agent 미연결이라 변경할 수 없습니다.</strong></span>
-                                    </small>
                                 </div>
                             </div>
 
@@ -843,29 +791,18 @@
                                             <div class="hms-cell"><input type="number" class="form-field" :value="maxCycleMinutes" @input="setMaxCycle('m', $event.target.value)" min="0" max="59" /><span>분</span></div>
                                             <div class="hms-cell"><input type="number" class="form-field" :value="maxCycleSeconds" @input="setMaxCycle('s', $event.target.value)" min="0" max="59" /><span>초</span></div>
                                         </div>
-                                        <small class="settings-hint">가장 긴 Flow 의 평균 가동시간 + 여유시간을 권장합니다. 모두 0이면 비활성화됩니다.</small>
-                                        <!-- 0(무제한)이면 라인 정지로 늘어진 가동이 평균에 섞여 평균 가동시간이 실제의
-                                             수 배로 부풀고(실측: 중앙값 1.5초 라인의 평균이 8.5초), 모든 비가동·비생산
-                                             판정 기준이 그 평균의 배수라 함께 헐거워진다. 기본값이 0 이라 모르고 지나치기
-                                             쉬워 경고 + 권장값 한 번 클릭을 제공한다.
-                                             ※'가동중 고정' 해제(워치독)는 이 값이 0 이어도 flow 실측 분포(중앙값·p99)로
-                                               만든 자동 경계로 동작하므로 여기서 경고하지 않는다. -->
-                                        <div class="settings-warn" x-show="!(s?.historyView.maxCycleTimeMs > 0)" x-cloak>
+                                        <!-- 0(무제한)이면 라인 정지로 늘어진 가동이 평균에 섞여 평균이 부풀고 판정 기준이 헐거워진다.
+                                             기본값이 0 이라 모르고 지나치기 쉬워 경고 + 권장값 한 번 클릭을 제공한다(설명은 title 로). -->
+                                        <div class="settings-warn" x-show="!(s?.historyView.maxCycleTimeMs > 0)" x-cloak
+                                             title="라인 정지로 늘어진 가동이 평균에 섞여 판정 기준이 헐거워집니다">
                                             <span class="material-icons">warning</span>
                                             <span>
-                                                무제한(0) 상태입니다 — 라인 정지로 늘어진 가동이 평균에 섞여
-                                                <b>평균 가동시간이 부풀고 비가동·비생산 판정 기준이 헐거워집니다.</b>
+                                                무제한(0) — 모두 0 이면 제외하지 않습니다.
                                                 <template x-if="recMaxSec > 0">
-                                                    <span>
-                                                        이 설비 실측 분포 기준 권장값은 <b x-text="recMaxLabel"></b> 입니다.
-                                                        <button type="button" class="btn btn-sm" @click="applyRecommendedMax()"
-                                                                :title="recMaxWhy">권장값 적용</button>
+                                                    <span>권장 <b x-text="recMaxLabel"></b>
+                                                        <button type="button" class="btn btn-sm" @click="applyRecommendedMax()" :title="recMaxWhy">적용</button>
                                                     </span>
                                                 </template>
-                                                <template x-if="recMaxSec === 0">
-                                                    <span>권장값은 정상 가동시간의 5~10배입니다(실측 표본이 쌓이면 자동 제시).</span>
-                                                </template>
-                                                <br><small>'가동중' 표시 해제는 이 값 없이도 실측 분포 기반 자동 경계로 동작합니다.</small>
                                             </span>
                                         </div>
                                     </div>
@@ -876,48 +813,40 @@
                                             <div class="hms-cell"><input type="number" class="form-field" :value="minCycleMinutes" @input="setMinCycle('m', $event.target.value)" min="0" max="59" /><span>분</span></div>
                                             <div class="hms-cell"><input type="number" class="form-field" :value="minCycleSeconds" @input="setMinCycle('s', $event.target.value)" min="0" max="59" /><span>초</span></div>
                                         </div>
-                                        <small class="settings-hint">오감지·노이즈로 인한 짧은 가동을 제외합니다. 모두 0이면 비활성화됩니다.</small>
                                     </div>
 
                                     <div class="form-group" style="margin-bottom:0;">
-                                        <label class="form-label">대시보드 평균 윈도우 (최근 N회 가동)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.historyView.cycleAverageWindow" min="0" max="1000" placeholder="20 (기본값)" />
-                                        <small class="settings-hint">Flow 평균을 최근 N회 가동으로만 산출합니다(0 = 전체 이력).</small>
+                                        <label class="form-label">대시보드 평균 — 최근 N회 가동 (0 = 전체)</label>
+                                        <input type="number" class="form-field mono" x-model.number="s.historyView.cycleAverageWindow" min="0" max="1000" placeholder="20" />
                                     </div>
-
-                                    <small class="set-subnote">
-                                        가동시간이 설정 범위(최대·최소)를 벗어나면 비가동으로 처리해 통계·평균에서 제외합니다.
-                                    </small>
 
                                     <hr class="divider" style="margin:16px 0;" />
 
                                     <h6 class="set-subhead">
                                         <span class="material-icons">speed</span>
-                                        동작편차 설정
+                                        동작편차 (동작 단위)
                                     </h6>
-                                    <small class="set-subnote">
-                                        동작편차 페이지의 통계 제외 범위와 색상 등급 기준입니다.
-                                    </small>
+                                    <!-- 저장 단위는 ms 지만 화면은 초 — 같은 카드의 가동시간 입력(시·분·초)과 단위를 맞춘다. -->
                                     <div class="form-group">
-                                        <label class="form-label">최대 실행시간 (ms, 초과 시 제외)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.historyView.maxCallGoingTimeMs" min="1000" max="600000" placeholder="30000 (기본값)" />
-                                        <small class="settings-hint">라인 정지·엣지 유실로 늘어진 이상치를 통계에서 제외합니다.</small>
+                                        <label class="form-label">최대 실행시간 (초, 초과 시 제외)</label>
+                                        <input type="text" inputmode="decimal" class="form-field mono"
+                                               :value="(s.historyView.maxCallGoingTimeMs ?? 30000) / 1000"
+                                               @change="s.historyView.maxCallGoingTimeMs = Math.max(1000, secToMs($event.target.value))" placeholder="30" />
                                     </div>
                                     <div class="form-group">
-                                        <label class="form-label">최소 실행시간 (ms, 미달 시 제외)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.historyView.minCallGoingTimeMs" min="0" max="600000" placeholder="0 (기본값)" />
-                                        <small class="settings-hint">오감지·노이즈로 인한 짧은 동작을 제외합니다. 0이면 비활성화됩니다.</small>
+                                        <label class="form-label">최소 실행시간 (초, 미달 시 제외 · 0 = 없음)</label>
+                                        <input type="text" inputmode="decimal" class="form-field mono"
+                                               :value="(s.historyView.minCallGoingTimeMs ?? 0) / 1000"
+                                               @change="s.historyView.minCallGoingTimeMs = secToMs($event.target.value)" placeholder="0" />
                                     </div>
 
                                     <div class="form-group">
-                                        <label class="form-label">색상 등급 — 주의 임계 (편차 %)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.historyView.heatmapCautionPct" min="0" max="1000" step="1" placeholder="10 (기본값)" />
-                                        <small class="settings-hint">편차가 설정 값 이상이면 <b>주의(노랑)</b>로 표시합니다.</small>
+                                        <label class="form-label">색상 등급 — 주의(노랑) 편차 % 이상</label>
+                                        <input type="number" class="form-field mono" x-model.number="s.historyView.heatmapCautionPct" min="0" max="1000" step="1" placeholder="10" />
                                     </div>
                                     <div class="form-group" style="margin-bottom:0;">
-                                        <label class="form-label">색상 등급 — 위험 임계 (편차 %)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.historyView.heatmapDangerPct" min="1" max="2000" step="1" placeholder="30 (기본값)" />
-                                        <small class="settings-hint">편차가 설정 값 이상이면 <b>위험(빨강)</b> — 주의 임계보다 커야 합니다.</small>
+                                        <label class="form-label">색상 등급 — 위험(빨강) 편차 % 이상</label>
+                                        <input type="number" class="form-field mono" x-model.number="s.historyView.heatmapDangerPct" min="1" max="2000" step="1" placeholder="30" title="주의 임계보다 커야 합니다" />
                                     </div>
 
                                     <hr class="divider" style="margin:16px 0;" />
@@ -925,7 +854,6 @@
                                         <span class="material-icons">speed</span>
                                         이상 알람 배너
                                     </h6>
-                                    <small class="fa-demo-cap">미리보기 — 값을 바꾸면 즉시 반영됩니다.</small>
                                     <div class="fa-demo" aria-hidden="true">
                                         <div class="fa-demo-icon">
                                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
@@ -939,8 +867,7 @@
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">텍스트 전환 간격 (초)</label>
-                                        <input type="number" class="form-field mono" x-model.number="s.alarmTickerIntervalSec" min="1" max="30" step="1" placeholder="3 (기본값)" />
-                                        <small class="settings-hint">알람 배너에서 한 건이 머무는 시간(초).</small>
+                                        <input type="number" class="form-field mono" x-model.number="s.alarmTickerIntervalSec" min="1" max="30" step="1" placeholder="3" />
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">표시 레벨</label>
@@ -955,10 +882,10 @@
                                                 <input type="checkbox" value="Info" x-model="s.abnormalAlarmDisplayLevels" /> 정보 (Info)
                                             </label>
                                         </div>
-                                        <small class="settings-hint">배너에 표시할 알람 레벨 — 기본은 <b>위험(Error)</b>만, 모두 해제하면 전체 표시.</small>
+                                        <small class="settings-hint">비우면 전체 표시</small>
                                     </div>
                                     <div class="form-group" style="margin-bottom:0;">
-                                        <label class="form-label">알람 표시 유효 시간</label>
+                                        <label class="form-label">알람 표시 유효 시간 — 이보다 오래된 알람은 배너에서 제외</label>
                                         <select class="form-select" x-model.number="s.abnormalAlarmResetIntervalHours">
                                             <option value="1">1시간</option>
                                             <option value="4">4시간</option>
@@ -968,7 +895,6 @@
                                             <option value="48">48시간</option>
                                             <option value="0">제한 없음</option>
                                         </select>
-                                        <small class="settings-hint">이 시간보다 오래된 알람은 배너에서 자동으로 제외됩니다.</small>
                                     </div>
                                 </div>
                             </div>
@@ -980,13 +906,8 @@
                                     <span>알람 차단</span>
                                 </div>
                                 <div class="card-content">
-                                    <div class="settings-note">
-                                        <small>
-                                            알람 차단은 <a href="/uptime-alarm?blockMgr=1" style="color:var(--color-primary);">이상·알람 분석 페이지</a>의 <strong>"알람 차단"</strong>에서 관리합니다.
-                                        </small>
-                                    </div>
                                     <a class="btn btn-outlined w-100" href="/uptime-alarm?blockMgr=1">
-                                        <span class="material-icons">notifications_off</span> 이상 분석 페이지에서 차단 관리
+                                        <span class="material-icons">notifications_off</span> 이상·알람 페이지에서 차단 관리
                                     </a>
                                 </div>
                             </div>
@@ -1000,98 +921,63 @@
                                 <div class="card-header">
                                     <span class="material-icons">rule</span>
                                     <span>사이클 판정 기준</span>
+                                    <span class="chip" style="margin-left:auto;" title="기준선 = 최근 N일 이동 중앙값 · 표본 미달 설비는 판정하지 않음"
+                                          x-text="'기준선 ' + kpi.baselineWindowDays + '일 · 표본 ' + kpi.minBaselineSamples + '건↑'"></span>
                                 </div>
                                 <div class="card-content">
-                                    <div class="settings-note">
-                                        <small>
-                                            사이클 하나를 <b>가동 · 비가동 · 비생산</b> 중 하나로 가르는 기준입니다.
-                                            저장하면 과거 구간의 표시도 함께 바뀝니다 — 판정 결과를 저장하지 않고
-                                            조회할 때마다 이 계수로 다시 매기기 때문입니다. 기준 R·W 자체는 변하지 않습니다.
-                                        </small>
+                                    <!-- 규칙 문장이 곧 컨트롤 — 슬라이더 값이 문장 안에 박힌다. 설명문 없음. 저장은 상단 '저장'. -->
+                                    <div class="kpi-rule">
+                                        <div class="kpi-rule-row">
+                                            <span class="kpi-rule-tag np">비생산</span>
+                                            <span class="kpi-rule-sent">사이클이 평소의 <b x-text="(kpi.nonProdKappa || 0) + '배'"></b> 이상</span>
+                                            <input type="range" :min="kpi.nonProdMin" :max="kpi.nonProdMax" step="0.5"
+                                                   x-model.number="kpi.nonProdKappa" @input="kpiDirty = true" aria-label="비생산 배수" />
+                                        </div>
+                                        <div class="kpi-rule-row">
+                                            <span class="kpi-rule-tag down">비가동</span>
+                                            <span class="kpi-rule-sent">동작(work) 하나가 평소의 <b x-text="(kpi.downKappa || 0) + '배'"></b> 초과</span>
+                                            <input type="range" :min="kpi.downMin" :max="kpi.downMax" step="0.1"
+                                                   x-model.number="kpi.downKappa" @input="kpiDirty = true" aria-label="비가동 배수 (work)" />
+                                        </div>
+                                        <div class="kpi-rule-row">
+                                            <span class="kpi-rule-tag down">또는</span>
+                                            <span class="kpi-rule-sent">동작 구간(MT) 전체가 평소의 <b x-text="(kpi.mtKappa || 0) + '배'"></b> 초과</span>
+                                            <input type="range" :min="kpi.mtMin" :max="kpi.mtMax" step="0.1"
+                                                   x-model.number="kpi.mtKappa" @input="kpiDirty = true" aria-label="비가동 배수 (MT)" />
+                                        </div>
+                                        <div class="kpi-rule-row">
+                                            <span class="kpi-rule-tag">양품률</span>
+                                            <span class="kpi-rule-sent"><b x-text="(kpi.qualityPercent ?? 100) + '%'"></b> — OEE·TEEP 에만 곱함</span>
+                                            <input type="range" min="0" max="100" step="0.1"
+                                                   x-model.number="kpi.qualityPercent" @input="kpiDirty = true" aria-label="양품률" />
+                                        </div>
                                     </div>
-
-                                    <div class="form-group">
-                                        <label class="form-label">비생산 계수 (CT ≥ 기준 R × 이 값)</label>
-                                        <input type="number" class="form-field" step="0.5"
-                                               :min="kpi.nonProdMin" :max="kpi.nonProdMax"
-                                               x-model.number="kpi.nonProdKappa" @input="kpiDirty = true" />
-                                        <small class="settings-hint"
-                                               x-text="'평소 사이클의 ' + (kpi.nonProdKappa || 0) + '배 이상 걸린 사이클은 비생산입니다. 범위 '
-                                                     + kpi.nonProdMin + '~' + kpi.nonProdMax + ' · 기본 10. 원인은 단정하지 않습니다 — 주말 정지와 긴 정지는 시간만으로 구분할 수 없습니다.'"></small>
+                                    <div class="kpi-rule-adv" x-data="{ open: false }">
+                                        <button type="button" class="ds-selbar-link" @click="open = !open"
+                                                x-text="open ? '고급 접기' : '고급 — 신호 보존 · 게이트 · 경계'"></button>
+                                        <div x-show="open" x-cloak>
+                                            <div class="kpi-adv-row">
+                                                <label>원시 신호 보존</label>
+                                                <input type="number" class="form-field mono" min="0" max="3650" step="1" x-model.number="kpi.rawRetentionDays" @input="kpiDirty = true" />
+                                                <span>일 <small>(0 = 무제한 · 사이클·기준선은 영구)</small></span>
+                                            </div>
+                                            <div class="kpi-adv-row">
+                                                <label>work 신뢰도 게이트</label>
+                                                <input type="number" class="form-field mono" :min="kpi.workGateMin" :max="kpi.workGateMax" step="0.5" x-model.number="kpi.workGate" @input="kpiDirty = true" />
+                                                <span>배 <small>(분포가 이보다 넓은 work 는 비가동 판정 제외)</small></span>
+                                            </div>
+                                            <div class="kpi-adv-row">
+                                                <label>경계 초과 허용</label>
+                                                <input type="number" class="form-field mono" :min="kpi.overflowMin" :max="kpi.overflowMax" step="500" x-model.number="kpi.overflowToleranceMs" @input="kpiDirty = true" />
+                                                <span>ms <small>(사이클 끝을 이보다 넘긴 동작 → 모델링 확인으로 제외)</small></span>
+                                            </div>
+                                            <div class="kpi-adv-row">
+                                                <label>경계 스냅</label>
+                                                <input type="number" class="form-field mono" :min="kpi.boundarySnapMin" :max="kpi.boundarySnapMax" step="10" x-model.number="kpi.boundarySnapMs" @input="kpiDirty = true" />
+                                                <span>ms <small>(경계 직전 이 안에 시작한 동작은 다음 사이클로)</small></span>
+                                            </div>
+                                        </div>
                                     </div>
-
-                                    <div class="form-group">
-                                        <label class="form-label">비가동 계수 — work 축 (work 지속시간 &gt; 평소 W × 이 값)</label>
-                                        <input type="number" class="form-field" step="0.1"
-                                               :min="kpi.downMin" :max="kpi.downMax"
-                                               x-model.number="kpi.downKappa" @input="kpiDirty = true" />
-                                        <small class="settings-hint"
-                                               x-text="'flow 안의 work 중 하나라도 평소의 ' + (kpi.downKappa || 0) + '배를 넘으면 그 사이클은 비가동입니다(OR 조건). 범위 '
-                                                     + kpi.downMin + '~' + kpi.downMax + ' · 기본 2.5. 어느 work 가 넘었는지는 연표와 간트 리본에 표시됩니다.'"></small>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label class="form-label">비가동 계수 — MT 축 (MT &gt; 평소 MT × 이 값)</label>
-                                        <input type="number" class="form-field" step="0.1"
-                                               :min="kpi.mtMin" :max="kpi.mtMax"
-                                               x-model.number="kpi.mtKappa" @input="kpiDirty = true" />
-                                        <small class="settings-hint"
-                                               x-text="'MT(사이클 시작~마지막 work 끝)가 평소의 ' + (kpi.mtKappa || 0) + '배를 넘으면 비가동입니다. 개별 work 는 정상인데 work 사이 공백이 벌어진 정지를 잡습니다. 범위 '
-                                                     + kpi.mtMin + '~' + kpi.mtMax + ' · 기본 1.5 — MT 는 work 보다 산포가 작아 더 조입니다. 남이 멈춰 기다린 사이클(WT 만 늘어남)은 잡지 않습니다.'"></small>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label class="form-label">work 신뢰도 게이트 (3사분위 ÷ 1사분위)</label>
-                                        <input type="number" class="form-field" step="0.5"
-                                               :min="kpi.workGateMin" :max="kpi.workGateMax"
-                                               x-model.number="kpi.workGate" @input="kpiDirty = true" />
-                                        <small class="settings-hint"
-                                               x-text="'지속시간 분포가 두 갈래(3사분위가 1사분위의 ' + (kpi.workGate || 0) + '배 초과)인 work 는 비가동 판정에서 자동으로 뺍니다. 평소 0~3초인데 가끔 2분씩 걸리는 work 가 대기를 정지로 오판하는 것을 막습니다. 범위 '
-                                                     + kpi.workGateMin + '~' + kpi.workGateMax + ' · 기본 3. 다음 사이클부터 반영됩니다.'"></small>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label class="form-label">경계 초과 허용 (ms)</label>
-                                        <input type="number" class="form-field" step="500"
-                                               :min="kpi.overflowMin" :max="kpi.overflowMax"
-                                               x-model.number="kpi.overflowToleranceMs" @input="kpiDirty = true" />
-                                        <small class="settings-hint"
-                                               x-text="'call 동작이 사이클 끝을 ' + ((kpi.overflowToleranceMs || 0) / 1000) + '초 이상 넘으면 그 사이클은 모델링 이슈로 표시하고 계산에서 뺍니다. 현장 실측 초과는 0.5~3초(경계 접촉)라 기본 5000ms 면 정상은 안 걸립니다.'"></small>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label class="form-label">경계 스냅 (ms)</label>
-                                        <input type="number" class="form-field" step="10"
-                                               :min="kpi.boundarySnapMin" :max="kpi.boundarySnapMax"
-                                               x-model.number="kpi.boundarySnapMs" @input="kpiDirty = true" />
-                                        <small class="settings-hint"
-                                               x-text="'다음 사이클 경계 직전 ' + (kpi.boundarySnapMs || 0) + 'ms 안에 시작한 동작은 다음 사이클 것으로 봅니다. 같은 PLC 스캔에서 경계 신호보다 몇 ms 먼저 뜨는 형제 동작이 이전 사이클에 잘못 붙는 것을 막습니다. 기본 100(스캔 한 번). 다음 사이클부터 반영됩니다.'"></small>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label class="form-label">양품률 Q (%)</label>
-                                        <input type="number" class="form-field" step="0.1" min="0" max="100"
-                                               x-model.number="kpi.qualityPercent" @input="kpiDirty = true" />
-                                        <small class="settings-hint">라인 전체에 적용되는 단일 값입니다. OEE 와 TEEP 에만 곱해지고 가용성·성능에는 영향이 없습니다. 기본 100%.</small>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label class="form-label">원시 신호 보존 (일)</label>
-                                        <input type="number" class="form-field" step="1" min="0" max="3650"
-                                               x-model.number="kpi.rawRetentionDays" @input="kpiDirty = true" />
-                                        <small class="settings-hint">신호 로그와 알람을 며칠 보관할지. 사이클·기준선·접속 이력은 영구 보존입니다. 0 이면 삭제하지 않습니다.</small>
-                                    </div>
-
-                                    <div class="settings-note">
-                                        <small x-text="'기준선은 최근 ' + kpi.baselineWindowDays + '일 이동 중앙값이며, 완료 사이클이 '
-                                                     + kpi.minBaselineSamples + '건 미만인 설비는 판정하지 않고 계산에서 빠집니다.'"></small>
-                                    </div>
-
-                                    <button class="btn w-100" :class="kpiDirty ? 'btn-primary' : 'btn-outlined'"
-                                            @click="saveKpi()" :disabled="kpiSaving">
-                                        <span class="material-icons">save</span>
-                                        <span x-text="kpiSaving ? '저장 중…' : (kpiDirty ? '판정 기준 저장 *' : '판정 기준 저장')"></span>
-                                    </button>
                                 </div>
                             </div>
 
@@ -1151,10 +1037,6 @@
                                             <span class="material-icons theme-check">check_circle</span>
                                         </button>
                                     </div>
-                                    <small class="settings-hint">
-                                        선택은 이 브라우저에 저장되어 모든 페이지에 즉시 적용됩니다.
-                                        화면 폭은 분석 페이지(생산·설비효율, 추이, 가동시간, 동작편차, 이상·알람)에 적용되며, 각 페이지 헤더의 폭 아이콘으로도 바꿀 수 있습니다.
-                                    </small>
                                 </div>
                             </div>
 
@@ -1187,69 +1069,28 @@
                                                 <strong>인바운드</strong> 개방도 함께 필요합니다(웹 포트와 별개).
                                             </small>
                                         </div>
-                                        <div class="settings-note" x-show="s && !s.externalUrl && s.externalUrlSeed" style="margin-top:8px;" x-cloak>
-                                            <small>
-                                                설치 시 주입된 주소 <strong class="mono" x-text="s.externalUrlSeed"></strong> 를 사용 중입니다.
-                                                여기 입력하면 그 값 대신 입력값이 우선합니다.
-                                            </small>
-                                        </div>
+                                        <small class="settings-hint" x-show="s && !s.externalUrl && s.externalUrlSeed" x-cloak>
+                                            설치 시 주입된 주소 <strong class="mono" x-text="s.externalUrlSeed"></strong> 사용 중 — 입력하면 입력값 우선
+                                        </small>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- CCTV -->
+                            <!-- 다른 화면에서 관리하는 설정 바로가기 — 카드 3개(CCTV·메일·클라우드)를 하나로(2026-09-18). -->
                             <div class="card" x-show="activeTab === 'general'">
                                 <div class="card-header">
-                                    <span class="material-icons">videocam</span>
-                                    <span>CCTV (RTSP)</span>
+                                    <span class="material-icons">open_in_new</span>
+                                    <span>다른 화면의 설정</span>
                                 </div>
                                 <div class="card-content">
-                                    <div class="settings-note">
-                                        <small>
-                                            카메라 등록·편집은 <a href="/app/cctv.html" style="color:var(--color-primary);">CCTV 페이지</a>의 <strong>"카메라 설정"</strong>에서 관리합니다.
-                                        </small>
-                                    </div>
-                                    <a class="btn btn-outlined w-100" href="/app/cctv.html">
-                                        <span class="material-icons">videocam</span> CCTV 페이지에서 카메라 관리
+                                    <a class="btn btn-outlined w-100" href="/app/cctv.html" title="카메라 등록·오버레이 편집">
+                                        <span class="material-icons">videocam</span> CCTV 카메라
                                     </a>
-                                </div>
-                            </div>
-
-                            <!-- 브리핑 메일 -->
-                            <div class="card" x-show="activeTab === 'general'">
-                                <div class="card-header">
-                                    <span class="material-icons">mail</span>
-                                    <span>일일 브리핑 메일</span>
-                                </div>
-                                <div class="card-content">
-                                    <div class="settings-note">
-                                        <small>
-                                            매일 지정 시각·요일에 <strong>어제의 생산(OEE)·이상 요약</strong>을 수신자에게 자동 발송합니다.
-                                            활성 여부·수신 주소·스케줄·SMTP 는 <a href="/settings-email" style="color:var(--color-primary);">브리핑 메일 설정</a>에서 관리합니다.
-                                        </small>
-                                    </div>
-                                    <a class="btn btn-outlined w-100" href="/settings-email">
-                                        <span class="material-icons">mail</span> 브리핑 메일 설정 열기
+                                    <a class="btn btn-outlined w-100" style="margin-top:8px;" href="/settings-email" title="어제의 생산·이상 요약을 매일 자동 발송 — 수신자·시각·SMTP">
+                                        <span class="material-icons">mail</span> 일일 브리핑 메일
                                     </a>
-                                </div>
-                            </div>
-
-                            <!-- 클라우드 계정(CloudWorks 연동) -->
-                            <div class="card" x-show="activeTab === 'general'">
-                                <div class="card-header">
-                                    <span class="material-icons">cloud</span>
-                                    <span>클라우드 계정</span>
-                                </div>
-                                <div class="card-content">
-                                    <div class="settings-note">
-                                        <small>
-                                            현장(EdgePC)을 클라우드에 등록하려면 <strong>CloudWorks 계정</strong>이 필요합니다.
-                                            <a href="/settings-cloud" style="color:var(--color-primary);">클라우드 계정 설정</a>에서 가입·로그인하면
-                                            이 DSPilot 이 해당 계정으로 프로비저닝 서버와 연동됩니다.
-                                        </small>
-                                    </div>
-                                    <a class="btn btn-outlined w-100" href="/settings-cloud">
-                                        <span class="material-icons">cloud</span> 클라우드 계정 설정 열기
+                                    <a class="btn btn-outlined w-100" style="margin-top:8px;" href="/settings-cloud" title="현장(EdgePC)을 클라우드에 등록하는 CloudWorks 계정">
+                                        <span class="material-icons">cloud</span> 클라우드 계정
                                     </a>
                                 </div>
                             </div>
@@ -1279,34 +1120,23 @@
                                         <input type="checkbox" x-model="acct.form.loginEnabled" :disabled="acct.busy || !acct.loaded" />
                                         <span><b>계정 활성화</b> — 관리자 로그인 요구</span>
                                     </label>
-                                    <small class="settings-hint" style="display:block;margin:0 0 10px;">
-                                        켜면 아래 범위의 화면에 진입할 때 관리자 아이디·비밀번호를 요구합니다. 끄면 누구나 바로 진입합니다.
-                                    </small>
 
-                                    <div x-show="acct.form.loginEnabled" x-cloak>
-                                        <p style="font-size:0.78rem;font-weight:700;margin:0 0 4px;">적용 범위</p>
-                                        <div class="segmented" role="group" aria-label="로그인 적용 범위" style="margin:2px 0 6px;">
-                                            <button type="button" :class="{ active: acct.form.loginScope !== 'app' }" @click="acct.form.loginScope = 'settings'">
+                                    <div x-show="acct.form.loginEnabled" x-cloak style="margin-top:8px;">
+                                        <div class="segmented" role="group" aria-label="로그인 적용 범위" style="margin:2px 0 10px;">
+                                            <button type="button" :class="{ active: acct.form.loginScope !== 'app' }" @click="acct.form.loginScope = 'settings'" title="설정·메일·클라우드 계정 페이지만">
                                                 <span class="material-icons">settings</span> 설정만
                                             </button>
-                                            <button type="button" :class="{ active: acct.form.loginScope === 'app' }" @click="acct.form.loginScope = 'app'">
+                                            <button type="button" :class="{ active: acct.form.loginScope === 'app' }" @click="acct.form.loginScope = 'app'" title="대시보드 포함 모든 화면">
                                                 <span class="material-icons">shield</span> 첫 화면부터
                                             </button>
                                         </div>
-                                        <small class="settings-hint" style="display:block;margin:0 0 12px;"
-                                               x-text="acct.form.loginScope === 'app'
-                                                   ? '앱을 열자마자 모든 화면(대시보드 포함)에서 로그인을 요구합니다.'
-                                                   : '설정 계열 페이지(설정·메일·클라우드 계정)에 진입할 때만 로그인을 요구합니다.'"></small>
 
                                         <!-- 잠금 방지 — 세션 없이 켤 때만 현재 비밀번호 확인(서버도 동일 규칙 강제) -->
                                         <div class="form-group" x-show="!acct.saved.loginEnabled && !acct.authenticated" style="margin-bottom:10px;">
                                             <label class="form-label">현재 비밀번호 (활성화 확인)</label>
                                             <input type="password" class="form-field" x-model="acct.gatePassword" autocomplete="current-password"
-                                                   @keydown.enter.prevent="saveLoginGate()" />
-                                            <small class="settings-hint">
-                                                비밀번호를 모른 채 켜서 설정에서 잠기는 일을 막기 위해 확인합니다.
-                                                <span x-show="acct.passwordIsDefault">초기 계정은 <code>admin</code> / <code>2747</code> 입니다 — 활성화 후 아래에서 변경하세요.</span>
-                                            </small>
+                                                   @keydown.enter.prevent="saveLoginGate()" title="비밀번호를 모른 채 켜서 잠기는 일을 막습니다" />
+                                            <small class="settings-hint" x-show="acct.passwordIsDefault">초기 계정 <code>admin</code> / <code>2747</code> — 활성화 후 아래에서 변경</small>
                                         </div>
                                     </div>
 
@@ -1329,9 +1159,7 @@
                                     <!-- 2. 아이디 · 비밀번호 변경 -->
                                     <div class="set-subhead"><span class="material-icons">key</span> 아이디 · 비밀번호 변경</div>
                                     <small class="set-subnote">
-                                        현재 아이디 <b x-text="acct.adminId || '—'"></b> · 비밀번호
-                                        <b x-text="acct.passwordIsDefault ? '초기값' : '변경됨'"></b>.
-                                        변경할 항목만 입력하세요(비우면 유지). 확인을 위해 현재 비밀번호가 필요합니다.
+                                        현재 아이디 <b x-text="acct.adminId || '—'"></b> · 비밀번호 <b x-text="acct.passwordIsDefault ? '초기값' : '변경됨'"></b> — 바꿀 항목만 입력
                                     </small>
                                     <form @submit.prevent="changeCredentials()" autocomplete="off">
                                         <div class="form-group mb-2">
@@ -1369,15 +1197,8 @@
                                     <span>OPC UA 외부 클라이언트</span>
                                 </div>
                                 <div class="card-content">
-                                    <div class="settings-note">
-                                        <small>
-                                            Softing 등 외부 OPC UA 클라이언트에서 <strong>User Identity = Certificate</strong>로
-                                            사용할 PFX를 발급합니다. 개인키는 DSPilot에 저장하지 않고, 공개 인증서만 Agent 신뢰 목록에 자동 등록합니다.
-                                        </small>
-                                    </div>
-
                                     <div class="form-group mb-2">
-                                        <label class="form-label">PFX 암호</label>
+                                        <label class="form-label">PFX 암호 — Softing 등 외부 클라이언트의 Certificate 인증용</label>
                                         <div style="display:flex;gap:8px;align-items:center;">
                                             <input class="form-field mono" :type="opcUaCert.showPassword ? 'text' : 'password'"
                                                    x-model="opcUaCert.password" autocomplete="new-password"
@@ -1388,24 +1209,18 @@
                                             </button>
                                         </div>
                                     </div>
-                                    <button class="btn btn-filled w-100" @click="downloadOpcUaCertificate()" :disabled="opcUaCert.busy || !opcUaCert.password">
+                                    <button class="btn btn-filled w-100" @click="downloadOpcUaCertificate()" :disabled="opcUaCert.busy || !opcUaCert.password" title="개인키는 서버에 남지 않고 공개 인증서만 Agent 신뢰 목록에 등록">
                                         <span class="material-icons">download</span>
-                                        Softing용 PFX 발급·다운로드
+                                        PFX 발급·다운로드
                                     </button>
-                                    <small class="settings-hint">
-                                        다운로드한 <code>.pfx</code>를 Softing의 Certificate에서 선택하고 위 암호를 입력하세요.
-                                    </small>
 
                                     <hr class="divider my-3" />
                                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                                        <strong style="font-size:0.86rem;">접속 승인 대기 인증서</strong>
+                                        <strong style="font-size:0.86rem;" title="BadCertificateUntrusted 로 거부된 클라이언트를 여기서 승인">접속 승인 대기 인증서</strong>
                                         <button class="btn btn-sm btn-outlined" style="margin-left:auto;" @click="loadOpcUaRejected()" :disabled="opcUaRejected.loading">
                                             <span class="material-icons">refresh</span> 새로고침
                                         </button>
                                     </div>
-                                    <small class="settings-hint" style="display:block;margin-bottom:8px;">
-                                        PFX 적용 후 Softing이 <code>BadCertificateUntrusted</code>로 거부되면 새로고침 후 해당 클라이언트를 승인하세요.
-                                    </small>
                                     <template x-if="!opcUaRejected.loading && opcUaRejected.items.length === 0">
                                         <div class="settings-note"><small>승인 대기 중인 클라이언트 인증서가 없습니다.</small></div>
                                     </template>
@@ -1431,14 +1246,11 @@
                                 <div class="card-content">
                                     <div class="form-group" style="margin-bottom:0;">
                                         <label class="form-label">로그 수준</label>
-                                        <select class="form-select" x-model="s.logLevelDefault">
+                                        <select class="form-select" x-model="s.logLevelDefault" title="카테고리별 세부 수준은 appsettings.json">
                                             <template x-for="level in s.logLevels" :key="level">
                                                 <option :value="level" x-text="level"></option>
                                             </template>
                                         </select>
-                                        <small class="settings-hint">
-                                            세부 카테고리별 로그 수준은 <code>appsettings.json</code> 에서 직접 편집할 수 있습니다.
-                                        </small>
                                     </div>
                                 </div>
                             </div>
@@ -1457,11 +1269,6 @@
                                           x-text="svcRestartOpen ? 'expand_less' : 'expand_more'"></span>
                                 </div>
                                 <div class="card-content" x-show="svcRestartOpen" x-cloak x-transition>
-                                    <div class="settings-note">
-                                        <small>
-                                            Windows 서비스로 등록된 항목을 재시작합니다.
-                                        </small>
-                                    </div>
                                     <button class="btn btn-outlined w-100" style="margin-bottom:8px;" @click="restartService('agent')" :disabled="busy">
                                         <span class="material-icons">restart_alt</span> Promaker.Agent 재시작
                                     </button>
@@ -1475,9 +1282,7 @@
                                     <button class="btn btn-outlined color-error w-100" @click="restartService('all')" :disabled="busy">
                                         <span class="material-icons">restart_alt</span> 세 서비스 전체 재시작
                                     </button>
-                                    <small class="settings-hint">
-                                        ⚠️ 재시작 중 해당 서비스의 모니터링·수집이 수 초간 중단됩니다.
-                                    </small>
+                                    <small class="settings-hint">⚠️ 재시작 중 수 초간 수집이 멈춥니다.</small>
                                 </div>
                             </div>
 
@@ -1488,12 +1293,9 @@
                                     <span>설정 초기화</span>
                                 </div>
                                 <div class="card-content">
-                                    <button class="btn btn-outlined color-error w-100" @click="resetSettings()" :disabled="busy">
+                                    <button class="btn btn-outlined color-error w-100" @click="resetSettings()" :disabled="busy" title="PLC 데이터는 유지 · 일부 항목은 서비스 재시작 후 적용">
                                         <span class="material-icons">restart_alt</span> 모든 설정 기본값으로 초기화
                                     </button>
-                                    <small class="settings-hint">
-                                        <strong>모든 설정값</strong>을 기본값으로 되돌립니다(PLC 데이터는 유지, 일부 항목은 서비스 재시작 후 적용).
-                                    </small>
                                 </div>
                             </div>
 
@@ -1597,9 +1399,6 @@
                                                     </button>
                                                 </div>
                                             </div>
-                                            <small class="settings-hint">
-                                                지원 문의 시 "정보 복사" 로 이 내용을 그대로 붙여넣어 주세요.
-                                            </small>
                                         </div>
                                     </template>
 
@@ -1725,7 +1524,7 @@
                             <template x-for="s in ut.systems" :key="s.systemId"><option :value="s.systemId" x-text="s.systemName"></option></template>
                         </select>
                         <div class="ut-field-err" x-show="ut.modal.err.systemId" x-text="ut.modal.err.systemId"></div>
-                        <div class="ut-field-err" style="color:var(--color-warning);" x-show="utModalSystem && !utModalSystem.hasEndpoint">이 System 에 PLC 접속(AID)이 없어 저장은 되지만 수집되지 않습니다.</div>
+                        <div class="ut-field-err" style="color:var(--color-warning);" x-show="utModalSystem && !utModalSystem.hasEndpoint">이 System 에 PLC 접속이 없어 저장은 되지만 수집되지 않습니다.</div>
                         <div class="ut-field-err" style="color:var(--color-text-secondary);" x-show="ut.modal.mode === 'edit'">System 이동은 삭제 후 다시 추가하세요.</div>
                     </div>
                     <div class="ut-form-row">
@@ -1764,7 +1563,7 @@
                 </div>
                 <!-- 모니터링TAG 는 "언제 발화하나"를 묻지 않는다 — 값이 바뀌면 기록할 뿐이다. -->
                 <div class="ut-form-row" x-show="ut.modal.f.level === 'Error'">
-                    <label>매칭 조건 <span style="font-weight:400;">— 값 타입에 맞는 조건만 표시</span></label>
+                    <label>매칭 조건</label>
                     <div class="ut-chips">
                         <template x-for="op in utModalOps" :key="op">
                             <button type="button" :class="ut.modal.f.matchOp === op ? 'is-active' : ''" @click="utModalSetOp(op)" x-text="utOpLabel(op)"></button>
@@ -1773,29 +1572,17 @@
                 </div>
                 <!-- 디바이스 귀속 — MTBF·MTTR 전용. AASX 가 아니라 DSPilot 설정에 저장된다. -->
                 <div class="ut-form-row" x-show="ut.modal.f.level === 'Error'">
-                    <label>디바이스 <span style="font-weight:400;">— MTBF·MTTR 산출에만 쓰입니다</span></label>
-                    <select class="form-field" x-model="ut.modal.f.device">
+                    <label>디바이스 <span style="font-weight:400;">— MTBF·MTTR 용</span></label>
+                    <select class="form-field" x-model="ut.modal.f.device" title="알람이 해소되고 이 디바이스가 쓰이는 설비가 다시 돌면 복구로 봅니다">
                         <option value="">미지정 — 지표에서 제외</option>
                         <option :value="UT_DEVICE_GLOBAL">전역 — 라인 전체 신호(비상정지 등)</option>
                         <template x-for="dev in ut.devices" :key="dev">
                             <option :value="dev" x-text="dev"></option>
                         </template>
                     </select>
-                    <small class="settings-hint" x-show="!ut.modal.f.device">
-                        묶지 않으면 이 태그는 MTBF·MTTR 에 들어가지 않습니다. 복구 시점을 확인할 설비(Flow)를 특정할 수 없기 때문입니다.
-                    </small>
-                    <small class="settings-hint" x-show="ut.modal.f.device === UT_DEVICE_GLOBAL">
-                        디바이스로 묶을 수 없는 신호라고 표시만 합니다 — 지표에서는 제외되지만 '아직 안 묶음' 과 구분됩니다.
-                    </small>
-                    <small class="settings-hint" x-show="ut.modal.f.device && ut.modal.f.device !== UT_DEVICE_GLOBAL">
-                        알람이 해소되고 <b x-text="ut.modal.f.device"></b> 가 쓰이는 설비 중 하나가 다시 돌면 복구로 봅니다.
-                    </small>
                 </div>
                 <template x-if="ut.modal.f.level === 'Info'">
                     <div>
-                        <div class="ut-form-row">
-                            <small class="settings-hint">값이 바뀔 때마다 기록합니다 — 매칭 조건·기준값은 쓰지 않습니다. 값 타입은 표시 형식(비트/수치/문자열)을 정하는 데 쓰입니다.</small>
-                        </div>
                         <div class="ut-form-2col">
                             <div class="ut-form-row">
                                 <label>단위 <span style="font-weight:400;">— 화면 표시용</span></label>
@@ -1814,10 +1601,6 @@
                             <label>최소 기록 간격 (ms) <span style="font-weight:400;">— 비우면 제한 없음</span></label>
                             <input type="text" inputmode="numeric" class="form-field mono" x-model="ut.modal.f.minIntervalMs" placeholder="예: 1000" />
                             <div class="ut-field-err" x-show="ut.modal.err.minIntervalMs" x-text="ut.modal.err.minIntervalMs"></div>
-                            <small class="settings-hint" style="display:block; margin-top:4px;">
-                                아날로그 값은 스캔마다 흔들립니다. 두 손잡이가 없으면 신호 기록이 하루 수백만 행으로 불어납니다.
-                                데드밴드는 DSPilot 이 기록 직전에 적용하고, 값 자체는 모델(AASX)에 저장됩니다.
-                            </small>
                         </div>
                     </div>
                 </template>
@@ -1885,7 +1668,7 @@
                         </tbody>
                     </table>
                 </div>
-                <div class="settings-note" style="margin-top:8px;"><small>반영은 작업 목록에만 추가됩니다(초록 '추가' 표시). 카드 하단의 <b>적용</b>을 눌러야 project.aasx 에 저장됩니다.</small></div>
+                <small class="settings-hint" style="margin-top:8px;">반영 후 카드 하단 <b>적용</b>을 눌러야 저장됩니다.</small>
                 <div class="actions">
                     <button class="btn btn-outlined color-default" @click="ut.csv.show = false">취소</button>
                     <button class="btn btn-filled" @click="utCsvApply()" :disabled="utCsvSummary.ok === 0">
@@ -1901,6 +1684,14 @@
 
     <script src="/lib/signalr.min.js"></script>
     <script>
+        // ── 사용자 태그 편집기 파생 목록 캐시 — Alpine 반응 프록시 '밖'에 둔다 ──
+        // 현장 규모(이상알람TAG 2,900건 · 디바이스 396개)에서 getter 를 렌더마다 다시 계산하면
+        // 정렬(localeCompare)·추천(이름×디바이스 정규화 110만 회)이 화면 한 번 그릴 때 10회 넘게 반복돼
+        // 첫 표시 7.5초가 걸렸다. ut.rev(항목 변경마다 +1)와 필터/정렬 입력을 서명으로 삼아 한 번만 계산한다.
+        const UT_MEMO = { stats: {}, filtered: {}, sugg: {}, needles: {} };
+        const UT_COLL = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+        const UT_ESC = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
         function settingsApp() {
             return {
                 s: null, aasx: {}, reconcile: null, loading: true, busy: false, dark: false, contentWidth: 'auto',
@@ -1938,13 +1729,19 @@
                 //   filter/sort/page 는 클라이언트 처리. '적용' 이 변경된 System 만 통째 교체(PUT /api/user-tags/editor).
                 //   tab = 종류 축('Error' 이상알람TAG | 'Info' 모니터링TAG). items 에는 두 종류가 섞여 있고 탭은 뷰 필터다.
                 ut: {
-                    loading: false, loaded: false, projectLoaded: true, busy: false, error: '', showInfo: false,
+                    loading: false, loaded: false, projectLoaded: true, busy: false, error: '',
                     tab: 'Error',
                     systems: [], valueTypes: [], matchOpsByType: {}, hiddenPassiveCount: 0,
                     devices: [],
                     items: [], warnings: [], saveErrors: [],
-                    // 일괄 지정 셀렉트의 임시 값 — 고르는 즉시 적용하고 비운다(확인 버튼 없음).
-                    bulkDevice: '',
+                    // rev = 항목 내용 변경 카운터(파생 목록 캐시 서명) · devRev = 디바이스 목록 변경(행 셀렉트 옵션 재생성)
+                    rev: 0, devRev: 0,
+                    // 선택(체크박스) key → true. 일괄 동작의 대상.
+                    sel: {},
+                    // 디바이스 셀 편집 중인 행 key — 셀렉트는 이 행 하나에만 만든다(행마다 396옵션 셀렉트 = DOM 4만 개).
+                    devEdit: null,
+                    // 일괄 바의 임시 입력값 — 적용 즉시 비운다.
+                    bulkDevice: '', bulkDeadband: '', bulkInterval: '',
                     q: '', sys: '', sortKey: 'systemName', sortDir: 'asc', page: 0, pageSize: 20,
                     modal: { show: false, mode: 'add', key: null, f: { systemId: '', name: '', tagAddress: '', valueType: 'Bit', matchOp: 'RisingEdge', matchValue: '', level: 'Error' }, err: {} },
                     csv: { show: false, busy: false, fileName: '', rows: [], hasSystemColumn: false, encoding: '', mode: 'append', targetSystemId: '', level: 'Error', adjusted: 0 },
@@ -1991,9 +1788,9 @@
                         if (!r.ok) throw new Error('HTTP ' + r.status);
                         this.kpi = await r.json();
                         this.kpiDirty = false;
-                        if (window.dspToast) window.dspToast('판정 기준을 저장했습니다 — 조회 화면이 새 기준으로 다시 표시됩니다.');
+                        this.showToast('판정 기준 저장 — 조회 화면에 새 기준이 바로 반영됩니다.', 'success');
                     } catch (e) {
-                        if (window.dspToast) window.dspToast('판정 기준 저장 실패: ' + e.message, 'error');
+                        this.showToast('판정 기준 저장 실패: ' + e.message, 'error');
                     } finally {
                         this.kpiSaving = false;
                     }
@@ -2020,7 +1817,8 @@
                     this.loadCalibStatus();
                     // 게이트 상태 폴링 — 수동 재측정/외부 AASX 변경을 30초 내 배지에 반영.
                     this._calibTimer = setInterval(() => this.loadCalibStatus(), 30000);
-                    this.utLoad();
+                    // 사용자 태그는 '모니터링·정합' 탭을 열 때 읽는다(utEnsureLoaded) — 현장 2,900건 표를
+                    // 다른 탭에서도 매번 그리면 설정 페이지 전체가 느려진다.
                     this.loadAccount();
                     this.loadOpcUaRejected();
                     this.loadAppInfo();
@@ -2031,8 +1829,8 @@
                     // 접혀 있을 땐 틱을 멈춘다(펼칠 때 toggleAppInfo 가 서버값으로 재동기화).
                     clearInterval(this._uptimeTimer);
                     this._uptimeTimer = setInterval(() => { if (this.info.d && this.appInfoOpen) this.info.uptimeSec++; }, 1000);
-                    // 더티 가드 등록 — 미저장 설정 변경 이탈 방지
-                    window.dspDirtyRegister(() => this.settingsDirty || this.utDirty);
+                    // 더티 가드 등록 — 미저장 설정 변경 이탈 방지(판정 기준 kpiDirty 포함)
+                    window.dspDirtyRegister(() => this.settingsDirty || this.utDirty || this.kpiDirty);
                     // 딥링크: 다른 페이지(예: 이상·알람의 "설정 > 실측 duration 자동 보정")에서
                     //   ?tab=monitoring#calib-fill 로 진입하면 해당 탭을 열고 대상 버튼으로 스크롤·강조한다.
                     this.applyDeepLink();
@@ -2056,12 +1854,14 @@
                             setTimeout(() => { this.flashCalibFill = false; }, 2400);
                         });
                     }
+                    if (this.activeTab === 'monitoring') this.utEnsureLoaded();
                 },
 
                 // ══ 사용자 태그(UserTag) 편집기 ══════════════════════════════════════════
                 // 서버(GET /api/user-tags/editor)의 정의를 작업 복사본(ut.items)으로 들고 편집을 쌓는다.
                 //   state '' = 서버와 동일 / 'new' = 추가 / 'mod' = 수정(orig 보유) / 'del' = 삭제 예약(적용 전 되돌리기 가능).
                 //   적용(PUT) 은 변경이 있는 System 만 통째 교체 → 서버가 검증·AID 병합·aasx export 를 한 번에 수행.
+                utEnsureLoaded() { if (!this.ut.loaded && !this.ut.loading) this.utLoad(); },
                 async utLoad() {
                     this.ut.loading = true; this.ut.error = '';
                     try {
@@ -2072,6 +1872,11 @@
                         this.ut.hiddenPassiveCount = d.hiddenPassiveCount || 0;
                         this.ut.projectLoaded = d.projectLoaded !== false;
                         this.ut.devices = d.devices || [];
+                        // 행 셀렉트 옵션은 문자열 1개로 미리 만든다(utDevOptsFill 참조).
+                        this.utDevOptsHtml = '<option value="">미지정</option><option value="' + this.UT_DEVICE_GLOBAL + '">전역</option>'
+                            + this.ut.devices.map(x => '<option value="' + UT_ESC(x) + '">' + UT_ESC(x) + '</option>').join('');
+                        this.ut.devRev++;
+                        this.ut.sel = {};
                         this.ut.items = (d.tags || []).map((t, i) => ({
                             key: t.systemId + '|' + i, systemId: t.systemId, systemName: t.systemName,
                             name: t.name, tagAddress: t.tagAddress, valueType: t.valueType, matchOp: t.matchOp, matchValue: t.matchValue || '',
@@ -2085,10 +1890,12 @@
                         if (this.ut.sys && !this.ut.systems.some(s => s.systemId === this.ut.sys)) this.ut.sys = '';
                         this.ut.saveErrors = [];
                         this.ut.loaded = true;
+                        this.utTouch();
                         if (this.ut.page >= this.utMaxPage) this.ut.page = 0;
                     } catch (e) {
                         this.ut.error = '사용자 태그 목록을 불러오지 못했습니다: ' + e.message;
                         this.ut.items = [];
+                        this.utTouch();
                     } finally { this.ut.loading = false; }
                 },
                 // 탭 전환 = 뷰 필터만 바꾼다. 편집 중인 변경(state)은 그대로 남아 '적용' 한 번에 함께 저장된다.
@@ -2099,8 +1906,31 @@
                     // 정렬 키가 그 탭에 없는 컬럼(매칭 조건·디바이스)이면 기본으로 되돌린다.
                     if (tab === 'Info' && (this.ut.sortKey === 'match' || this.ut.sortKey === 'device')) { this.ut.sortKey = 'systemName'; this.ut.sortDir = 'asc'; }
                 },
+                // ── 파생값 캐시 갱신 신호 — 항목(items) 내용이 바뀌는 모든 경로가 부른다(utMutate·삭제·복원·추가·CSV·로드) ──
+                utTouch() { this.ut.rev++; },
+                // 한 번 훑어 모든 집계를 만든다(탭 건수·변경 건수·묶음 커버리지·반대 탭 변경).
+                // 렌더 한 번에 6~10회 읽히므로 rev|tab 서명으로 캐시(UT_MEMO — Alpine 프록시 밖).
+                get utStats() {
+                    const sig = this.ut.rev + '|' + this.ut.tab;
+                    if (UT_MEMO.stats.sig === sig) return UT_MEMO.stats.v;
+                    const tab = this.ut.tab, G = this.UT_DEVICE_GLOBAL;
+                    const v = { countError: 0, countInfo: 0, add: 0, mod: 0, del: 0, total: 0, otherTabChanges: 0, bound: 0, unbound: 0, global: 0, covTotal: 0 };
+                    for (const i of this.ut.items || []) {
+                        if (i.state === 'new') v.add++; else if (i.state === 'mod') v.mod++; else if (i.state === 'del') v.del++;
+                        if (i.state && i.level !== tab) v.otherTabChanges++;
+                        if (i.state === 'del') continue;
+                        if (i.level === 'Info') { v.countInfo++; continue; }
+                        v.countError++;
+                        // '전역' 은 고의로 안 묶은 것 — 분모에서 빼야 진행률이 100% 에 닿는다.
+                        if (i.device === G) v.global++; else if (i.device) v.bound++; else v.unbound++;
+                    }
+                    v.total = v.add + v.mod + v.del;
+                    v.covTotal = v.bound + v.unbound;
+                    UT_MEMO.stats = { sig, v };
+                    return v;
+                },
                 // 탭 배지 — 삭제 예약을 뺀 현재 목록 건수(추가 예약은 포함).
-                utTabCount(tab) { return this.ut.items.filter(i => i.level === tab && i.state !== 'del').length; },
+                utTabCount(tab) { const s = this.utStats; return tab === 'Info' ? s.countInfo : s.countError; },
                 // 되돌리기용 원본 스냅샷 + 변경 판정의 단일 소스. 칸이 늘 때 한 곳만 고치면 되도록 모아 둔다
                 // (세 곳에 흩어져 있던 때는 새 칸을 더해도 '수정' 표시가 안 뜨는 조용한 누락이 생겼다).
                 UT_FIELDS: ['name', 'tagAddress', 'valueType', 'matchOp', 'matchValue', 'level', 'unit', 'deadband', 'minIntervalMs', 'device'],
@@ -2126,74 +1956,162 @@
                 //   utSame 이 늘 참이 되고 변경이 통째로 묻힌다. :value + 새 값 전달로 순서를 고정한다.
                 utSetDevice(d, device) {
                     if (d.device === device) return;
-                    if (d.state === '') d.orig = this.utSnapshot(d);   // 바꾸기 '전' 스냅샷
-                    d.device = device;
+                    this.utMutate(d, it => { it.device = device; });
+                },
+                // 표/일괄에서 행 하나를 고치는 공통 경로 — 바꾸기 '전' 스냅샷 → 변경 → 상태 재판정 → 캐시 갱신.
+                utMutate(d, fn) {
+                    if (d.state === '') d.orig = this.utSnapshot(d);
+                    fn(d);
                     if (d.state !== 'new') {
                         const same = this.utSame(d);
                         d.state = same ? '' : 'mod';
                         if (same) d.orig = null;
                     }
+                    this.utTouch();
                 },
+                // 행 셀렉트의 옵션 — 디바이스 396개를 행마다 x-for 로 만들면 20행 = 8천, 100행 = 4만 개의 반응 스코프가
+                // 생겨 렌더가 수 초 걸린다. 문자열 한 번 만들어 innerHTML 로 꽂고(devRev 로 갱신) 값만 x-effect 로 맞춘다.
+                utDevOptsHtml: '',
+                utDevOptsFill(el) {
+                    const rev = String(this.ut.devRev);
+                    if (el.dataset.rev === rev) return;
+                    el.innerHTML = this.utDevOptsHtml;
+                    el.dataset.rev = rev;
+                },
+                // 디바이스 셀 = 라벨 버튼. 클릭한 행에만 셀렉트를 만들고, 고르면(또는 벗어나면) 다시 라벨로.
+                utDevEditOpen(d) { if (d.state !== 'del') this.ut.devEdit = d.key; },
+                utDevEditPick(d, value) { this.utSetDevice(d, value); this.ut.devEdit = null; },
                 // ── 이름 기반 추천 ──
                 // 태그 이름에 디바이스 별칭이 들어 있으면 그 디바이스로 본다. 현장 명명이 대개 그렇다
                 // ("Conveyor1_과부하", "#131 모터에러"). 구분자·대소문자는 무시하고 비교한다.
                 // ★확신이 없으면 제안하지 않는다 — 틀린 귀속은 지표를 조용히 망치므로 놓치는 쪽이 낫다.
                 UT_ALIAS_MIN: 2,
                 utNormMatch(s) { return (s || '').toString().toLowerCase().replace(/[\s_\-.#/\\]+/g, ''); },
-                utSuggestDevice(name, devices) {
-                    const hay = this.utNormMatch(name);
-                    if (!hay) return null;
-                    let best = null, bestLen = 0, tie = false;
-                    for (const dev of devices || []) {
-                        const needle = this.utNormMatch(dev);
-                        // 한두 글자 별칭은 아무 이름에나 걸린다 — 노이즈를 만들 바엔 제안하지 않는다.
-                        if (needle.length < this.UT_ALIAS_MIN || !hay.includes(needle)) continue;
-                        // 긴 쪽이 이긴다 — "Conveyor12" 가 "Conveyor1" 을 눌러야 한다.
-                        if (needle.length > bestLen) { best = dev; bestLen = needle.length; tie = false; }
-                        else if (needle.length === bestLen) tie = true;   // 같은 길이로 둘 이상 = 판단 불가
-                    }
-                    return tie ? null : best;
-                },
-                // 아직 안 묶인 이상알람TAG 중 이름으로 확정할 수 있는 것들.
+                // 아직 안 묶인 이상알람TAG 중 이름으로 확정할 수 있는 것들. 디바이스 별칭 정규화는 devRev 마다 한 번,
+                // 결과는 rev|devRev 서명으로 캐시(예전엔 렌더마다 2,900×396 정규화를 4회 반복했다).
                 get utSuggestions() {
-                    const out = [];
+                    const sig = this.ut.rev + '|' + this.ut.devRev;
+                    if (UT_MEMO.sugg.sig === sig) return UT_MEMO.sugg.list;
+                    if (UT_MEMO.needles.rev !== this.ut.devRev) {
+                        UT_MEMO.needles = { rev: this.ut.devRev,
+                            // 한두 글자 별칭은 아무 이름에나 걸린다 — 노이즈를 만들 바엔 제안하지 않는다.
+                            list: (this.ut.devices || []).map(dev => ({ dev, n: this.utNormMatch(dev) })).filter(x => x.n.length >= this.UT_ALIAS_MIN) };
+                    }
+                    const needles = UT_MEMO.needles.list, out = [];
                     for (const d of (this.ut.items || [])) {
                         if (d.level !== 'Error' || d.state === 'del' || d.device) continue;
-                        const dev = this.utSuggestDevice(d.name, this.ut.devices);
-                        if (dev) out.push({ row: d, device: dev });
+                        const hay = this.utNormMatch(d.name);
+                        if (!hay) continue;
+                        let best = null, bestLen = 0, tie = false;
+                        for (const x of needles) {
+                            if (!hay.includes(x.n)) continue;
+                            // 긴 쪽이 이긴다 — "Conveyor12" 가 "Conveyor1" 을 눌러야 한다. 같은 길이로 둘 이상 = 판단 불가.
+                            if (x.n.length > bestLen) { best = x.dev; bestLen = x.n.length; tie = false; }
+                            else if (x.n.length === bestLen) tie = true;
+                        }
+                        if (best && !tie) out.push({ row: d, device: best });
                     }
+                    UT_MEMO.sugg = { sig, list: out };
                     return out;
                 },
                 utApplySuggestions() {
                     const list = this.utSuggestions;
                     if (list.length === 0) return;
                     for (const s of list) this.utSetDevice(s.row, s.device);
-                    this.showToast(`이름으로 ${list.length}건 지정 — 표에서 확인하고 적용하세요(행마다 되돌릴 수 있습니다).`, 'info');
-                },
-
-                // 검색으로 좁힌 뒤 한 번에 지정 — 체크박스 선택 UI 를 새로 만들지 않고 기존 필터를 그대로 쓴다.
-                // 대상은 지금 목록에 보이는 이상알람TAG 중 삭제 예약이 아닌 행 전부다.
-                get utBulkTargets() {
-                    return this.utFiltered.filter(d => d.level === 'Error' && d.state !== 'del');
-                },
-                utBulkAssign(device) {
-                    const targets = this.utBulkTargets;
-                    if (targets.length === 0) return;
-                    for (const d of targets) this.utSetDevice(d, device);
-                    this.ut.bulkDevice = '';
-                    this.showToast(`${targets.length}건에 '${this.utDeviceLabel(device)}' 지정 — 적용을 누르면 저장됩니다.`, 'info');
+                    this.showToast(`이름으로 ${list.length}건 지정 — 적용을 누르면 저장됩니다.`, 'info');
                 },
                 // 묶음 진행률 — 삭제 예약 행은 빼고, '전역'(고의로 안 묶음)은 분모에서도 뺀다.
-                // 그래야 "묶을 게 남았나" 를 묻는 지표가 되고 100% 에 닿을 수 있다.
-                get utDeviceCoverage() {
-                    let bound = 0, unbound = 0, global = 0;
-                    for (const i of this.ut.items || []) {
-                        if (i.level === 'Info' || i.state === 'del') continue;
-                        if (i.device === this.UT_DEVICE_GLOBAL) global++;
-                        else if (i.device) bound++;
-                        else unbound++;
+                get utDeviceCoverage() { const s = this.utStats; return { bound: s.bound, unbound: s.unbound, global: s.global, total: s.covTotal }; },
+
+                // ── 선택(체크박스) — 헤더 체크 = 지금 표시된 행(페이지), 링크 = 검색 결과 전체. 일괄 동작의 대상. ──
+                get utSelCount() { return Object.keys(this.ut.sel).length; },
+                utToggleSel(d, on) {
+                    const sel = { ...this.ut.sel };
+                    if (on) sel[d.key] = true; else delete sel[d.key];
+                    this.ut.sel = sel;
+                },
+                get utPageSel() {
+                    const page = this.utPaged; let n = 0;
+                    for (const d of page) if (this.ut.sel[d.key]) n++;
+                    return { all: page.length > 0 && n === page.length, some: n > 0 };
+                },
+                utTogglePage(on) {
+                    const sel = { ...this.ut.sel };
+                    for (const d of this.utPaged) { if (on) sel[d.key] = true; else delete sel[d.key]; }
+                    this.ut.sel = sel;
+                },
+                utSelectAllFiltered() { const sel = {}; for (const d of this.utFiltered) sel[d.key] = true; this.ut.sel = sel; },
+                utSelClear() { this.ut.sel = {}; },
+                utSelRows() { const s = this.ut.sel; return (this.ut.items || []).filter(i => s[i.key]); },
+                get utSelChanged() { return this.utSelRows().filter(i => i.state).length; },
+
+                // ── 일괄 동작 — 대상은 선택 행. 각 동작이 뜻이 있는 종류만 걸러 처리하고 건수를 알린다. 저장은 '적용'. ──
+                utBulkAssign(device) {
+                    this.ut.bulkDevice = '';
+                    const targets = this.utSelRows().filter(d => d.level === 'Error' && d.state !== 'del');
+                    if (!targets.length) return;
+                    for (const d of targets) this.utSetDevice(d, device);
+                    this.showToast(`${targets.length}건 → '${this.utDeviceLabel(device)}' — 적용을 누르면 저장됩니다.`, 'info');
+                },
+                // 종류 전환 — 편집 모달(utModalSave)과 같은 규칙: 모니터링으로 가면 조건·귀속을 비우고, 알람으로 오면 메타를 비운다.
+                utBulkLevel(level) {
+                    const targets = this.utSelRows().filter(d => d.state !== 'del' && d.level !== level);
+                    if (!targets.length) return;
+                    for (const d of targets) this.utMutate(d, it => {
+                        it.level = level;
+                        if (level === 'Info') { it.matchOp = 'Changed'; it.matchValue = ''; it.device = ''; }
+                        else {
+                            const ops = this.ut.matchOpsByType[it.valueType] || ['Changed'];
+                            if (!ops.includes(it.matchOp)) it.matchOp = it.valueType === 'Bit' ? 'RisingEdge' : 'Changed';
+                            it.unit = ''; it.deadband = ''; it.minIntervalMs = '';
+                        }
+                    });
+                    this.ut.sel = {};
+                    this.showToast(`${targets.length}건을 ${level === 'Info' ? '모니터링TAG' : '이상알람TAG'} 로 옮겼습니다 — 그 탭에서 확인하세요.`, 'info');
+                },
+                utBulkDelete() {
+                    const targets = this.utSelRows().filter(d => d.state !== 'del');
+                    if (!targets.length) return;
+                    const newKeys = new Set();
+                    for (const d of targets) {
+                        if (d.state === 'new') { newKeys.add(d.key); continue; }
+                        if (d.state === '') d.orig = this.utSnapshot(d);
+                        d.state = 'del';
                     }
-                    return { bound, unbound, global, total: bound + unbound };
+                    if (newKeys.size) this.ut.items = this.ut.items.filter(i => !newKeys.has(i.key));
+                    this.ut.sel = {};
+                    this.utTouch();
+                    this.showToast(`${targets.length}건 삭제 예약 — 적용 전까지 되돌릴 수 있습니다.`, 'info');
+                },
+                utBulkRestore() {
+                    const targets = this.utSelRows().filter(d => d.state);
+                    if (!targets.length) return;
+                    const newKeys = new Set();
+                    for (const d of targets) {
+                        if (d.state === 'new') { newKeys.add(d.key); continue; }   // 추가 되돌리기 = 행 제거
+                        if (d.orig) Object.assign(d, d.orig);
+                        d.orig = null; d.state = '';
+                    }
+                    if (newKeys.size) this.ut.items = this.ut.items.filter(i => !newKeys.has(i.key));
+                    this.ut.sel = {};
+                    this.utTouch();
+                    this.showToast(`${targets.length}건 되돌림`, 'info');
+                },
+                // 모니터링TAG 메타 일괄 — 데드밴드는 수치 타입에만(비트·문자열은 건너뛰고 알린다). 검증은 모달과 같은 규칙.
+                utBulkMeta() {
+                    const db = String(this.ut.bulkDeadband ?? '').trim(), iv = String(this.ut.bulkInterval ?? '').trim();
+                    if (!db && !iv) return;
+                    if (db && !(isFinite(Number(db)) && Number(db) >= 0)) { this.showToast('데드밴드는 0 이상의 숫자입니다.', 'error'); return; }
+                    if (iv && !(/^\d+$/.test(iv) && Number(iv) <= 86400000)) { this.showToast('기록 간격은 0~86,400,000 정수(ms)입니다.', 'error'); return; }
+                    const targets = this.utSelRows().filter(d => d.level === 'Info' && d.state !== 'del');
+                    if (!targets.length) return;
+                    let skipped = 0;
+                    for (const d of targets) this.utMutate(d, it => {
+                        if (db) { if (it.valueType === 'Bit' || it.valueType === 'String') skipped++; else it.deadband = db; }
+                        if (iv) it.minIntervalMs = iv;
+                    });
+                    this.ut.bulkDeadband = ''; this.ut.bulkInterval = '';
+                    this.showToast(`${targets.length}건 적용${skipped ? ` (비수치 ${skipped}건은 데드밴드 제외)` : ''} — 적용을 누르면 저장됩니다.`, 'info');
                 },
                 utSnapshot(it) {
                     const o = { systemId: it.systemId, systemName: it.systemName };
@@ -2203,10 +2121,10 @@
                 utSame(it) {
                     return !!it.orig && this.UT_FIELDS.every(k => (it.orig[k] ?? '') === (it[k] ?? ''));
                 },
-                // 지금 탭의 전체 항목(검색 필터 적용 전) — 빈 목록 안내가 "검색 결과 없음"과 "정의 없음"을 구분하는 데 쓴다.
-                get utTabItems() { return (this.ut.items || []).filter(d => d.level === this.ut.tab); },
+                // 지금 탭의 항목 수(검색 필터 적용 전) — 빈 목록 안내가 "검색 결과 없음"과 "정의 없음"을 구분하는 데 쓴다.
+                get utTabTotal() { return this.utTabCount(this.ut.tab); },
                 // 보이지 않는 탭에 쌓인 미적용 변경 수 — 적용 바가 "이것도 같이 나갑니다" 를 알리는 근거.
-                get utOtherTabChanges() { return (this.ut.items || []).filter(i => i.state && i.level !== this.ut.tab).length; },
+                get utOtherTabChanges() { return this.utStats.otherTabChanges; },
                 // 매칭 조건 표기 — UserTag 는 AbnormalDetect 가 아닌 값/엣지 조건.
                 describeUtOp(op, mv) {
                     const v = (mv == null || mv === '') ? '?' : mv;
@@ -2226,43 +2144,44 @@
                     const s = this.ut.systems.find(x => x.systemId === systemId);
                     return !s || s.hasEndpoint;
                 },
-                // 검색어·System 필터 + 정렬 적용된 전체 목록(삭제 예약 행도 표시 — 되돌리기 위해)
+                // 검색어·System 필터 + 정렬 적용된 전체 목록(삭제 예약 행도 표시 — 되돌리기 위해).
+                // rev·탭·필터·정렬 서명으로 캐시. 정렬 키는 행마다 한 번만 뽑고 Collator 로 비교한다
+                // (localeCompare(…, {numeric}) 는 비교마다 Collator 를 만들어 2,900건 정렬이 수백 ms 걸렸다).
                 get utFiltered() {
-                    const q = (this.ut.q || '').trim().toLowerCase();
-                    const sys = this.ut.sys;
-                    let list = (this.ut.items || []).filter(d => {
+                    const u = this.ut;
+                    const sig = [u.rev, u.tab, u.sys, u.q, u.sortKey, u.sortDir].join('');
+                    if (UT_MEMO.filtered.sig === sig) return UT_MEMO.filtered.list;
+                    const q = (u.q || '').trim().toLowerCase(), sys = u.sys, tab = u.tab;
+                    const key = u.sortKey, dir = u.sortDir === 'asc' ? 1 : -1;
+                    const rows = [];
+                    for (const d of (u.items || [])) {
                         // ★뷰 필터 — 전송(utApply)에는 절대 걸지 않는다. 걸면 반대 탭 태그가 통째로 사라진다.
-                        if (d.level !== this.ut.tab) return false;
-                        if (sys && d.systemId !== sys) return false;
+                        if (d.level !== tab) continue;
+                        if (sys && d.systemId !== sys) continue;
                         if (q) {
                             // 디바이스는 원값으로 담는다 — 라벨('미지정')로 담으면 모니터링 행까지 걸린다.
-                            const hay = [d.systemName, d.name, d.tagAddress, d.valueType, this.describeUtOp(d.matchOp, d.matchValue), d.device]
-                                .map(x => (x || '').toString().toLowerCase()).join(' ');
-                            if (!hay.includes(q)) return false;
+                            const hay = (d.systemName + ' ' + d.name + ' ' + d.tagAddress + ' ' + (d.valueType || '') + ' '
+                                + this.describeUtOp(d.matchOp, d.matchValue) + ' ' + (d.device || '')).toLowerCase();
+                            if (!hay.includes(q)) continue;
                         }
-                        return true;
-                    });
-                    const key = this.ut.sortKey, dir = this.ut.sortDir === 'asc' ? 1 : -1;
-                    // 디바이스는 화면 라벨로 정렬한다 — 센티넬('*') 원값으로 줄세우면 '전역' 이 엉뚱한 자리에 간다.
-                    const val = (d) => key === 'match' ? this.describeUtOp(d.matchOp, d.matchValue)
-                        : key === 'device' ? this.utDeviceLabel(d.device)
-                        : (d[key] ?? '');
-                    return [...list].sort((a, b) => {
-                        const c = dir * val(a).toString().localeCompare(val(b).toString(), undefined, { numeric: true });
-                        return c !== 0 ? c : a.name.localeCompare(b.name, undefined, { numeric: true });
-                    });
+                        // 디바이스는 화면 라벨로 정렬한다 — 센티넬('*') 원값으로 줄세우면 '전역' 이 엉뚱한 자리에 간다.
+                        const k = key === 'match' ? this.describeUtOp(d.matchOp, d.matchValue)
+                                : key === 'device' ? this.utDeviceLabel(d.device)
+                                : String(d[key] ?? '');
+                        rows.push({ k, d });
+                    }
+                    rows.sort((a, b) => (dir * UT_COLL.compare(a.k, b.k)) || UT_COLL.compare(a.d.name, b.d.name));
+                    const list = rows.map(r => r.d);
+                    UT_MEMO.filtered = { sig, list };
+                    return list;
                 },
                 get utMaxPage() { return Math.max(1, Math.ceil(this.utFiltered.length / this.ut.pageSize)); },
                 get utPaged() {
                     const start = this.ut.page * this.ut.pageSize;
                     return this.utFiltered.slice(start, start + this.ut.pageSize);
                 },
-                get utChangeCount() {
-                    let add = 0, mod = 0, del = 0;
-                    for (const i of this.ut.items) { if (i.state === 'new') add++; else if (i.state === 'mod') mod++; else if (i.state === 'del') del++; }
-                    return { add, mod, del, total: add + mod + del };
-                },
-                get utDirty() { return this.utChangeCount.total > 0; },
+                get utChangeCount() { const s = this.utStats; return { add: s.add, mod: s.mod, del: s.del, total: s.total }; },
+                get utDirty() { return this.utStats.total > 0; },
                 utSort(key) {
                     if (this.ut.sortKey === key) this.ut.sortDir = this.ut.sortDir === 'asc' ? 'desc' : 'asc';
                     else { this.ut.sortKey = key; this.ut.sortDir = 'asc'; }
@@ -2393,19 +2312,22 @@
                         }
                     }
                     this.ut.modal.show = false;
+                    this.utTouch();
                     // 종류를 바꾸면 이 탭에서 사라진다 — 어디로 갔는지 말해 주지 않으면 삭제된 줄 안다.
                     if (movedTab)
                         this.showToast(`'${vals.name}' 를 ${vals.level === 'Info' ? '모니터링TAG' : '이상알람TAG'} 로 옮겼습니다 — 그 탭에서 확인하세요.`, 'info');
                 },
                 utDelete(d) {
-                    if (d.state === 'new') { this.ut.items = this.ut.items.filter(i => i.key !== d.key); return; }
+                    if (d.state === 'new') { this.ut.items = this.ut.items.filter(i => i.key !== d.key); this.utTouch(); return; }
                     if (d.state === '' ) d.orig = this.utSnapshot(d);
                     d.state = 'del';
+                    this.utTouch();
                 },
                 utRestore(d) {
-                    if (!d.orig) { d.state = ''; return; }
+                    if (!d.orig) { d.state = ''; this.utTouch(); return; }
                     Object.assign(d, d.orig);
                     d.orig = null; d.state = '';
+                    this.utTouch();
                 },
 
                 // ── 적용 — 변경된 System 만 통째 교체 ──
@@ -2416,10 +2338,9 @@
                     const noEp = changedSys.filter(id => !this.utSystemHasEndpoint(id)).map(id => this.ut.systems.find(s => s.systemId === id)?.systemName).filter(Boolean);
                     const byLevel = { Error: 0, Info: 0 };
                     for (const i of this.ut.items) if (i.state) byLevel[i.level === 'Info' ? 'Info' : 'Error']++;
-                    let msg = `추가 ${c.add} · 수정 ${c.mod} · 삭제 ${c.del} 건을 공유 project.aasx 에 저장합니다.\n` +
-                              `이상알람TAG ${byLevel.Error}건 · 모니터링TAG ${byLevel.Info}건 — 두 종류가 한 번에 반영됩니다.\n` +
-                              `Agent 가 파일 변경을 감지해 자동 재시작되며(수 초 모니터링 공백), 새 주소는 재시작 후부터 수집됩니다.`;
-                    if (noEp.length) msg += `\n\n⚠ PLC 접속(AID)이 없는 System: ${noEp.join(', ')} — 태그는 저장되지만 수집되지 않습니다.`;
+                    let msg = `추가 ${c.add} · 수정 ${c.mod} · 삭제 ${c.del} 건 (이상알람 ${byLevel.Error} · 모니터링 ${byLevel.Info})을 저장합니다.\n` +
+                              `Agent 가 재시작되어 수 초간 수집이 멈춥니다.`;
+                    if (noEp.length) msg += `\n\n⚠ PLC 접속이 없는 System: ${noEp.join(', ')} — 저장은 되지만 수집되지 않습니다.`;
                     const ok = await this.askConfirm('사용자 태그 적용', msg, '적용');
                     if (!ok) return;
 
@@ -2580,6 +2501,7 @@
                     for (const v of toAdd) {
                         this.ut.items.push({ key: 'new|' + Date.now() + '|' + (n++) + '|' + Math.random().toString(36).slice(2, 6), ...v, state: 'new', orig: null });
                     }
+                    this.utTouch();
                     csv.show = false;
                     this.showToast(`CSV ${toAdd.length}건 반영 대기 — 적용을 누르면 저장됩니다.`, 'info');
                 },
@@ -2716,9 +2638,10 @@
 
                 destroy() { this._conn?.stop(); clearTimeout(this._demoTimer); clearInterval(this._uptimeTimer); clearInterval(this._calibTimer); },
 
-                // 유형별 탭 전환 — 항상 기본 '일반'에서 시작, 위치는 저장하지 않는다.
+                // 유형별 탭 전환 — 항상 기본 '일반'에서 시작, 위치는 저장하지 않는다. 사용자 태그는 그 탭을 열 때 읽는다.
                 setTab(tab) {
                     this.activeTab = tab;
+                    if (tab === 'monitoring') this.utEnsureLoaded();
                 },
 
                 // 테마 변경: .dsp-page(Alpine) + <html> + 셸 레이아웃 + 다른 탭까지 모두 반영.
@@ -2812,6 +2735,7 @@
                 },
                 async reload() {
                     await this.load();
+                    await this.loadKpi();
                     this.showToast('설정을 다시 불러왔습니다.', 'info');
                 },
                 async refreshAasxStatus() {
@@ -2968,11 +2892,19 @@
                     this.s.historyView.minCycleTimeMs = h * 3600000 + m * 60000 + sec * 1000;
                 },
 
-                // ── 저장 ──
+                // ── 저장 — 상단 버튼 하나가 일반 설정(s)과 판정 기준(kpi)을 함께 저장한다 ──
                 async save() {
                     if (this.busy) return;
                     this.busy = true;
                     try {
+                        if (this.kpiDirty) await this.saveKpi();
+                        if (this.settingsDirty || !this.kpiDirty) await this.saveSettings();
+                    } catch (e) {
+                        this.showToast('저장 실패: ' + e.message, 'error');
+                    } finally { this.busy = false; }
+                },
+                async saveSettings() {
+                    {
                         const hv = this.s.historyView;
                         const body = {
                             dbDir: this.s.dbDir || '',
@@ -3003,9 +2935,7 @@
                         this.showToast(r.message, r.ok ? 'success' : 'error');
                         // 저장이 ConnectionString 을 정규화하므로 재로딩.
                         if (r.ok) await this.load();
-                    } catch (e) {
-                        this.showToast('저장 실패: ' + e.message, 'error');
-                    } finally { this.busy = false; }
+                    }
                 },
 
                 // ── 라이프사이클 mutation (RebuildResult { success, message } 반환) ──
@@ -3022,26 +2952,22 @@
                 },
 
                 async reloadAasx() {
-                    const ok = await this.askConfirm('AASX 모델 다시 불러오기',
-                        '디스크의 AASX 파일을 다시 읽어 메모리 모델을 갱신합니다.\n\n경로: ' + this.s.aasxFilePath + '\n\n' +
-                        '• AASX 재파싱 → 메모리 DsStore 갱신\n• DB / 통계 / 히스토리는 그대로 유지\n• 모델 정의가 바뀌었다면 이어서 "DB 재구축" 실행 필요',
+                    const ok = await this.askConfirm('모델 다시 불러오기',
+                        'AASX 파일을 다시 읽습니다. DB·통계·이력은 그대로입니다.\n' + this.s.aasxFilePath,
                         '다시 불러오기', '취소');
                     if (!ok) return;
                     await this.runLifecycle('/api/settings/reload', true);
                 },
                 async rebuildAasx() {
-                    const ok = await this.askConfirm('모델 정의 동기화',
-                        'AASX 를 다시 읽어 모델 정의를 동기화(UPSERT)하고, 새 모델에 없는 Flow 의 dspFlow/dspCall/dspFlowHistory 를 정리합니다.\n\n' +
-                        '• 살아남은 Flow 의 통계/히스토리는 보존\n• 레이아웃은 Flow 집합이 바뀐 경우 자동 재배치 (이전 layout 백업)',
+                    const ok = await this.askConfirm('모델 동기화',
+                        'AASX 를 다시 읽어 정의를 맞추고, 새 모델에 없는 설비의 정의·이력을 정리합니다.\n남은 설비의 통계·이력은 보존됩니다.',
                         '동기화', '취소');
                     if (!ok) return;
                     await this.runLifecycle('/api/settings/rebuild-aasx', true);
                 },
                 async invalidateCaches() {
                     const ok = await this.askConfirm('통계 재계산',
-                        '평균·누적 통계를 리셋합니다.\n\n' +
-                        '• raw 데이터(plcTagLog, dspFlowHistory, 알림 이력)는 그대로 보존\n' +
-                        '• 서비스 재시작 불필요 — 다음 가동부터 새 평균이 다시 쌓입니다.',
+                        '평균·누적 통계만 지우고 다음 가동부터 다시 쌓습니다. 신호·이력·알람 데이터는 그대로입니다.',
                         '재계산', '취소');
                     if (!ok) return;
                     await this.runLifecycle('/api/settings/invalidate-caches', false);
@@ -3059,11 +2985,8 @@
                 async resetSettings() {
                     // appsettings 설정값을 코드 기본값으로 — 구버전 stale 설정 복구용. PLC 데이터는 보존.
                     const ok = await this.askConfirm('모든 설정 기본값으로 초기화',
-                        '이상치 필터·대시보드 윈도우·시프트·OEE 신호·CCTV 카메라·DB 경로·로그 수준 등 모든 설정값을 기본값으로 되돌립니다.\n\n' +
-                        '• PLC 원시 데이터(plcTagLog 등)는 삭제되지 않습니다\n' +
-                        '• CCTV 카메라 목록이 비워집니다\n' +
-                        '• DB 경로·포트 등 호스트 설정은 서비스 재시작 후 적용\n\n' +
-                        '업그레이드 시 이전 설정이 보존되므로, 구버전 설정이 문제를 일으킬 때만 사용하세요.',
+                        '이상치 필터·알람·CCTV 카메라 목록·DB 경로·로그 수준 등 모든 설정값을 기본값으로 되돌립니다.\n' +
+                        'PLC 데이터는 지우지 않습니다. DB 경로 등 호스트 설정은 서비스 재시작 후 적용됩니다.',
                         '초기화', '취소');
                     if (!ok) return;
                     await this.runLifecycle('/api/settings/reset-defaults', false);

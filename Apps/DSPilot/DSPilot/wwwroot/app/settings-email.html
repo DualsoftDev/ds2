@@ -54,6 +54,11 @@
         .eb-day.is-on { background: var(--color-primary); border-color: var(--color-primary); color: #fff; box-shadow: 0 2px 5px color-mix(in srgb, var(--color-primary) 45%, transparent); }
         .eb-day.sun { color: var(--color-error); }
         .eb-day.sun.is-on { background: var(--color-error); border-color: var(--color-error); color: #fff; }
+        /* 요일 프리셋 칩(평일/주말/매일) — 현재 선택과 일치하면 is-on */
+        .eb-presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+        .eb-preset { padding: 3px 11px; border: 1px solid var(--color-lines-strong); border-radius: 999px; background: var(--color-surface); color: var(--color-text-secondary); font-family: inherit; font-size: 0.72rem; font-weight: 700; cursor: pointer; transition: all .12s; }
+        .eb-preset:hover { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-lines-strong)); color: var(--color-text-primary); }
+        .eb-preset.is-on { border-color: var(--color-primary); color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
 
         /* 발송 방식 선택 */
         .eb-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -106,11 +111,8 @@
                 <div class="progress-bar-fill"></div>
             </div>
 
-            <div class="eb-note">
-                <small>
-                    매일 지정한 시각·요일에 <b>어제의 생산 요약(OEE)</b>과 <b>이상 요약</b>을 수신자에게 HTML 메일로 자동 발송합니다.
-                    수신자는 Bcc 로 발송되어 서로의 주소가 노출되지 않습니다. 발송 계정(SMTP)의 SPF/DKIM 설정에 따라 스팸 분류될 수 있습니다.
-                </small>
+            <div class="eb-note" title="수신자는 Bcc 로 발송되어 서로의 주소가 보이지 않습니다.">
+                <small>지정한 시각·요일에 <b>어제의 생산(OEE)·이상 요약</b>을 수신자에게 자동 발송합니다.</small>
             </div>
 
             <template x-if="form">
@@ -122,7 +124,7 @@
                             <div class="card-content">
                                 <div class="eb-field">
                                     <label class="switch">
-                                        <input type="checkbox" x-model="form.enabled" @change="markDirty()">
+                                        <input type="checkbox" x-model="form.enabled">
                                         <span><b>자동 발송 사용</b></span>
                                     </label>
                                     <span class="eb-status" :class="{ on: form.enabled }" style="margin-left:14px;">
@@ -135,7 +137,7 @@
                                 <div class="eb-row">
                                     <div class="eb-field" style="max-width:160px;">
                                         <label class="form-label">발송 시각</label>
-                                        <input type="time" class="form-field" x-model="form.sendTimeLocal" @input="markDirty()">
+                                        <input type="time" class="form-field" x-model="form.sendTimeLocal">
                                     </div>
                                     <div class="eb-field">
                                         <label class="form-label">발송 요일</label>
@@ -145,7 +147,12 @@
                                                      @click="toggleDay(i)" x-text="d"></div>
                                             </template>
                                         </div>
-                                        <span class="eb-hint">요일을 눌러 발송할 날을 선택하세요.</span>
+                                        <div class="eb-presets">
+                                            <template x-for="p in dayPresets" :key="p.label">
+                                                <button type="button" class="eb-preset" :class="{ 'is-on': isDayPreset(p.days) }"
+                                                        @click="setDays(p.days)" x-text="p.label"></button>
+                                            </template>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -153,7 +160,15 @@
 
                         <!-- 수신자 -->
                         <div class="card eb-full">
-                            <div class="card-header"><span class="material-icons">group</span><span>수신 메일 주소</span></div>
+                            <div class="card-header">
+                                <span class="material-icons">group</span><span>수신 메일 주소</span>
+                                <span class="dsp-badge" x-show="form.recipients.length" x-text="form.recipients.length + '명'"></span>
+                                <div style="flex:1"></div>
+                                <button type="button" class="btn btn-sm btn-outlined color-default" x-show="form.recipients.length"
+                                        @click="clearRecipients()" title="수신자를 모두 지웁니다(저장 전까지는 반영되지 않음)">
+                                    <span class="material-icons">delete_sweep</span> 전체 삭제
+                                </button>
+                            </div>
                             <div class="card-content">
                                 <div class="eb-chips" @click="$refs.recipInput.focus()">
                                     <template x-for="(r, i) in form.recipients" :key="i">
@@ -162,14 +177,15 @@
                                             <button type="button" @click.stop="removeRecipient(i)" title="삭제"><span class="material-icons">close</span></button>
                                         </span>
                                     </template>
-                                    <input x-ref="recipInput" class="eb-chip-input" type="email" inputmode="email"
-                                           placeholder="주소 입력 후 Enter"
+                                    <!-- type=text: 여러 주소 붙여넣기(줄바꿈·쉼표·세미콜론 구분)를 브라우저 정제 없이 그대로 받아 나눈다 -->
+                                    <input x-ref="recipInput" class="eb-chip-input" type="text" inputmode="email" autocomplete="off" spellcheck="false"
+                                           placeholder="주소 입력 또는 여러 개 붙여넣기 후 Enter"
                                            x-model="newRecipient"
                                            @keydown.enter.prevent="addRecipient()"
                                            @keydown.,.prevent="addRecipient()"
+                                           @paste.prevent="pasteRecipients($event)"
                                            @blur="addRecipient()">
                                 </div>
-                                <span class="eb-hint">여러 명 등록 가능. Enter 또는 쉼표로 추가. 다양한 도메인(회사·Gmail·네이버 등) 혼용 가능합니다.</span>
                             </div>
                         </div>
 
@@ -178,19 +194,12 @@
                             <div class="card-header"><span class="material-icons">link</span><span>대시보드 바로가기 링크</span></div>
                             <div class="card-content">
                                 <div class="settings-note" style="border-left-color: var(--color-success);" x-show="form.externalUrl">
-                                    <small>
-                                        메일 하단에 <b>"DSPilot 대시보드 열기"</b> 버튼이 포함됩니다 →
-                                        <b style="font-family:var(--font-mono);" x-text="form.externalUrl"></b>
-                                    </small>
+                                    <small>메일 하단 <b>"DSPilot 대시보드 열기"</b> 버튼 → <b style="font-family:var(--font-mono);" x-text="form.externalUrl"></b></small>
                                 </div>
-                                <div class="eb-warn" x-show="!form.externalUrl" style="margin-top:0;">
+                                <div class="eb-warn" x-show="!form.externalUrl" style="margin-top:0;"
+                                     title="DSPilot 은 밖에서 접근되는 자기 주소를 알 수 없어, 수신자가 접속 가능한 주소(IP/도메인, 포트 포함)를 직접 지정해야 합니다.">
                                     <span class="material-icons">link_off</span>
-                                    <small>
-                                        <b>외부 접속 주소가 지정되지 않아</b> 메일에 바로가기 버튼이 들어가지 않습니다.
-                                        DSPilot 은 자신이 밖에서 어떤 주소로 접근되는지 스스로 알 수 없습니다 —
-                                        <a href="/settings" style="color:var(--color-primary);font-weight:700;">설정 › 외부 접속 주소</a>에서
-                                        수신자가 접속 가능한 주소(IP/도메인, 포트 포함)를 지정하세요.
-                                    </small>
+                                    <small>외부 접속 주소가 없어 바로가기 버튼이 빠집니다 — <a href="/settings" style="color:var(--color-primary);font-weight:700;">설정 › 외부 접속 주소</a>에서 지정하세요.</small>
                                 </div>
                             </div>
                         </div>
@@ -199,25 +208,18 @@
                         <div class="card eb-full" x-show="form.relayLocked">
                             <div class="card-header"><span class="material-icons">verified_user</span><span>발송 서버</span></div>
                             <div class="card-content">
-                                <div class="settings-note" style="border-left-color: var(--color-success);" x-show="form.relayMode === 'api'">
-                                    <small>
-                                        회사 중앙 발송 서버(<b x-text="form.relayEndpoint || '(미구성)'"></b>)를 통해 자동 발송됩니다.
-                                        메일 계정 정보는 회사 서버에만 있고 이 PC 에는 저장되지 않습니다 — 별도 설정이 필요 없습니다.
-                                    </small>
+                                <div class="settings-note" style="border-left-color: var(--color-success);" x-show="form.relayMode === 'api'"
+                                     title="메일 계정 정보는 회사 서버에만 있고 이 PC 에는 저장되지 않습니다.">
+                                    <small>회사 중앙 발송 서버(<b x-text="form.relayEndpoint || '(미구성)'"></b>)로 발송됩니다 — 별도 설정 불필요.</small>
                                 </div>
-                                <div class="settings-note" style="border-left-color: var(--color-success);" x-show="form.relayMode !== 'api'">
-                                    <small>
-                                        회사 메일서버(<b x-text="form.relayHost"></b>)를 통해 <b x-text="form.relayFrom || '(발신 계정)'"></b> 이름으로 자동 발송됩니다.
-                                        SMTP 설정은 설치 시 구성되어 있어 별도 입력이 필요 없습니다.
-                                    </small>
+                                <div class="settings-note" style="border-left-color: var(--color-success);" x-show="form.relayMode !== 'api'"
+                                     title="SMTP 설정은 설치 시 구성되어 별도 입력이 필요 없습니다.">
+                                    <small>회사 메일서버(<b x-text="form.relayHost"></b>)에서 <b x-text="form.relayFrom || '(발신 계정)'"></b> 으로 발송됩니다 — 별도 설정 불필요.</small>
                                 </div>
-                                <div class="eb-warn" x-show="!form.relayCredentialConfigured">
+                                <div class="eb-warn" x-show="!form.relayCredentialConfigured"
+                                     title="설정 파일 appsettings.Secrets.json 의 BriefingRelay 주입이 필요합니다.">
                                     <span class="material-icons">error</span>
-                                    <small>
-                                        <span x-show="form.relayMode === 'api'">발송 서버(API)가 아직 구성되지 않았습니다.</span>
-                                        <span x-show="form.relayMode !== 'api'">발송 계정이 아직 구성되지 않았습니다.</span>
-                                        설치 담당자/관리자에게 문의하세요(설정 파일 <b>appsettings.Secrets.json</b> 의 <b>BriefingRelay</b> 주입 필요).
-                                    </small>
+                                    <small><span x-text="form.relayMode === 'api' ? '발송 서버(API)' : '발송 계정'"></span> 미구성 — 설치 담당자에게 문의하세요.</small>
                                 </div>
                             </div>
                         </div>
@@ -228,25 +230,22 @@
                             <div class="card-content">
                                 <div class="eb-modes">
                                     <button type="button" class="eb-mode" :class="{ 'is-on': form.sendMode === 'relay' }"
-                                            @click="form.sendMode = 'relay'; markDirty()">
+                                            @click="form.sendMode = 'relay'">
                                         <span class="material-icons">dns</span>
                                         <b>SMTP 릴레이 (권장)</b>
                                         <small>사내/외부 메일서버로 위임 발송. 안정적.</small>
                                     </button>
                                     <button type="button" class="eb-mode" :class="{ 'is-on': form.sendMode === 'direct' }"
-                                            @click="form.sendMode = 'direct'; markDirty()">
+                                            @click="form.sendMode = 'direct'">
                                         <span class="material-icons">bolt</span>
                                         <b>DSPilot 직접 발송</b>
                                         <small>중계 서버 없이 수신 도메인 MX로 직접(direct-to-MX).</small>
                                     </button>
                                 </div>
-                                <div class="eb-warn" x-show="form.sendMode === 'direct'">
+                                <div class="eb-warn" x-show="form.sendMode === 'direct'"
+                                     title="SPF/DKIM·역방향 DNS(PTR)·IP 평판이 없어 Gmail·네이버·O365 에서 스팸 처리되거나 반송될 수 있습니다.">
                                     <span class="material-icons">warning</span>
-                                    <small>
-                                        직접 발송은 중계 서버가 필요 없지만, <b>SPF/DKIM·역방향 DNS(PTR)·IP 평판</b>이 없어
-                                        Gmail·네이버·O365 등에서 <b>스팸 처리되거나 반송</b>될 가능성이 높고, 사내망이 <b>아웃바운드 포트 25</b>를
-                                        막으면 아예 발송되지 않습니다. 안정적인 수신을 원하면 SMTP 릴레이를 권장합니다.
-                                    </small>
+                                    <small><b>스팸 분류·반송</b> 가능성이 높고, 아웃바운드 25번 포트가 막히면 발송되지 않습니다 — 릴레이 권장.</small>
                                 </div>
                             </div>
                         </div>
@@ -258,13 +257,13 @@
                                 <div class="eb-row">
                                     <div class="eb-field">
                                         <label class="form-label">발신 주소(From)</label>
-                                        <input type="text" class="form-field" placeholder="briefing@우리회사.com" x-model="form.fromAddress" @input="markDirty()">
-                                        <span class="eb-hint" x-show="form.sendMode === 'direct'">직접 발송은 도메인이 포함된 발신 주소가 <b>필수</b>이며, 그 도메인이 HELO/보낸사람으로 쓰입니다.</span>
-                                        <span class="eb-hint" x-show="form.sendMode === 'relay'">릴레이는 보통 계정과 동일하게 둡니다(서비스에 따라 강제).</span>
+                                        <input type="text" class="form-field" placeholder="briefing@우리회사.com" x-model="form.fromAddress">
+                                        <span class="eb-hint" x-show="form.sendMode === 'direct'" title="이 도메인이 HELO/보낸사람으로 쓰입니다.">직접 발송은 도메인이 포함된 발신 주소가 <b>필수</b>입니다.</span>
+                                        <span class="eb-hint" x-show="form.sendMode === 'relay'" title="서비스에 따라 계정 주소를 강제합니다.">보통 SMTP 계정과 동일하게 둡니다.</span>
                                     </div>
                                     <div class="eb-field">
                                         <label class="form-label">발신자 표시명</label>
-                                        <input type="text" class="form-field" placeholder="DSPilot 브리핑" x-model="form.fromName" @input="markDirty()">
+                                        <input type="text" class="form-field" placeholder="DSPilot 브리핑" x-model="form.fromName">
                                     </div>
                                 </div>
                             </div>
@@ -277,32 +276,34 @@
                                 <div class="eb-row">
                                     <div class="eb-field" style="flex:2;">
                                         <label class="form-label">호스트</label>
-                                        <input type="text" class="form-field" placeholder="smtp.office365.com / mail.우리회사.local / localhost" x-model="form.smtpHost" @input="markDirty()">
+                                        <input type="text" class="form-field" placeholder="smtp.office365.com / mail.우리회사.local / localhost" x-model="form.smtpHost">
                                     </div>
                                     <div class="eb-field" style="max-width:110px;">
                                         <label class="form-label">포트</label>
-                                        <input type="text" inputmode="numeric" class="form-field" placeholder="587" x-model="form.smtpPort" @input="markDirty()">
+                                        <input type="text" inputmode="numeric" class="form-field" placeholder="587" x-model="form.smtpPort">
                                     </div>
                                 </div>
                                 <div class="eb-field">
-                                    <label class="switch">
-                                        <input type="checkbox" x-model="form.smtpUseTls" @change="markDirty()">
-                                        <span>TLS/SSL 사용 (포트 465=SSL, 그 외=STARTTLS)</span>
+                                    <!-- 암호화 방식은 포트로 자동 결정 — 서버(SmtpMailer)가 smtpUseTls && 포트 465 → SSL(SslOnConnect),
+                                         smtpUseTls && 그 외 → STARTTLS, !smtpUseTls → 평문으로 접속한다. 저장값은 smtpUseTls 그대로, 여기선 결과만 표시. -->
+                                    <label class="switch" title="포트 465 는 SSL, 그 외 포트는 STARTTLS 로 자동 결정됩니다.">
+                                        <input type="checkbox" x-model="form.smtpUseTls">
+                                        <span>암호화 <small style="font-weight:400;color:var(--color-text-secondary);" x-text="tlsModeLabel()"></small></span>
                                     </label>
                                 </div>
                                 <div class="eb-row">
-                                    <div class="eb-field">
-                                        <label class="form-label">계정(ID) <small style="font-weight:400;color:var(--color-text-secondary);">— 비우면 무인증 릴레이</small></label>
-                                        <input type="text" class="form-field" placeholder="user@company.com" x-model="form.smtpUser" @input="markDirty()">
+                                    <div class="eb-field" title="비우면 인증 없이 릴레이합니다.">
+                                        <label class="form-label">계정(ID)</label>
+                                        <input type="text" class="form-field" placeholder="선택" x-model="form.smtpUser">
                                     </div>
                                     <div class="eb-field">
                                         <label class="form-label">비밀번호</label>
                                         <input type="password" class="form-field" autocomplete="new-password"
                                                :placeholder="form.smtpPasswordSet ? '●●●●●● (저장됨 — 변경 시에만 입력)' : '미설정'"
-                                               x-model="newPassword" @input="markDirty()">
+                                               x-model="newPassword">
                                     </div>
                                 </div>
-                                <span class="eb-hint">Gmail/O365 는 앱 비밀번호가 필요하거나 발신 주소를 계정과 일치시켜야 할 수 있습니다. 사내 릴레이는 host=localhost/사내주소로 두고 계정을 비울 수 있습니다.</span>
+                                <span class="eb-hint" title="사내 릴레이는 호스트를 localhost/사내주소로 두고 계정을 비울 수 있습니다.">Gmail/O365 는 앱 비밀번호가 필요할 수 있습니다.</span>
                             </div>
                         </div>
                     </div>
@@ -314,8 +315,8 @@
                         <button class="btn btn-outlined color-success" @click="sendTest()" :disabled="busy">
                             <span class="material-icons">send</span> 테스트 발송
                         </button>
-                        <button class="btn" :class="{ 'btn-primary': dirty }" @click="save()" :disabled="busy || !dirty">
-                            <span class="material-icons">save</span> <span x-text="dirty ? '저장 *' : '저장됨'"></span>
+                        <button class="btn" :class="{ 'btn-filled': dirty }" @click="save()" :disabled="busy || !dirty">
+                            <span class="material-icons">save</span> <span x-text="dirty ? '저장*' : '저장'"></span>
                         </button>
                     </div>
                 </div>
@@ -342,28 +343,33 @@
     <script>
         function emailBriefingApp() {
             return {
-                dark: (localStorage.getItem('dsp-theme') || 'light') === 'dark',
+                // 테마 — shell.js/settings.html 과 같은 계약: localStorage 'dspilot-theme' + storage 이벤트 동기화.
+                dark: localStorage.getItem('dspilot-theme') === 'dark',
                 loading: true,
                 busy: false,
-                dirty: false,
+                _baseline: null, // 로드·저장 직후 스냅샷(JSON) — 내용 비교식 dirty 판정 기준(값을 되돌리면 다시 clean)
                 form: null,
                 newRecipient: '',
                 newPassword: '',
                 dayLabels: ['일', '월', '화', '수', '목', '금', '토'],
+                dayPresets: [
+                    { label: '평일', days: [1, 2, 3, 4, 5] },
+                    { label: '주말', days: [0, 6] },
+                    { label: '매일', days: [0, 1, 2, 3, 4, 5, 6] }
+                ],
                 previewOpen: false,
                 previewSubject: '',
                 toast: { show: false, msg: '', type: 'info' },
 
+                // 저장 버튼 dirty 규약(중립 → 변경 시 btn-filled + '*') — 이벤트 누적이 아니라 스냅샷과 내용 비교.
+                get dirty() { return this._baseline !== null && this.snapshot() !== this._baseline; },
+
                 async init() {
+                    window.addEventListener('storage', (e) => { if (e.key === 'dspilot-theme') this.dark = e.newValue === 'dark'; });
                     try {
                         const res = await fetch('/api/email-briefing');
                         if (!res.ok) throw new Error('설정을 불러오지 못했습니다.');
-                        const d = await res.json();
-                        d.smtpPort = String(d.smtpPort ?? 587);
-                        d.recipients = d.recipients || [];
-                        d.weekdays = d.weekdays || [];
-                        d.sendMode = d.sendMode === 'direct' ? 'direct' : 'relay';
-                        this.form = d;
+                        this.adopt(await res.json());
                     } catch (e) {
                         this.showToast(e.message || '로드 실패', 'error');
                     } finally {
@@ -371,27 +377,66 @@
                     }
                 },
 
-                markDirty() { this.dirty = true; },
+                // 서버 응답 → 폼 채우기 + 스냅샷 갱신(로드·저장 공용)
+                adopt(d) {
+                    d.smtpPort = String(d.smtpPort ?? 587);
+                    d.recipients = d.recipients || [];
+                    d.weekdays = d.weekdays || [];
+                    d.sendMode = d.sendMode === 'direct' ? 'direct' : 'relay';
+                    this.form = d;
+                    this.newPassword = '';
+                    this._baseline = this.snapshot();
+                },
+
+                // 비교용 스냅샷 — 저장 payload 와 같은 필드(포트는 입력 문자열 그대로) + 새 비밀번호 입력.
+                snapshot() {
+                    if (!this.form) return null;
+                    const p = this.buildPayload();
+                    p.smtpPort = String(this.form.smtpPort ?? '');
+                    return JSON.stringify(p);
+                },
 
                 toggleDay(i) {
                     const idx = this.form.weekdays.indexOf(i);
                     if (idx >= 0) this.form.weekdays.splice(idx, 1);
                     else this.form.weekdays.push(i);
                     this.form.weekdays.sort((a, b) => a - b);
-                    this.markDirty();
+                },
+                setDays(days) { this.form.weekdays = days.slice(); },
+                isDayPreset(days) {
+                    const w = this.form.weekdays;
+                    return w.length === days.length && days.every(d => w.includes(d));
                 },
 
-                addRecipient() {
-                    const v = (this.newRecipient || '').trim().replace(/,$/, '').trim();
+                // 서버(SmtpMailer): smtpUseTls 이면 포트 465=SSL(SslOnConnect), 그 외=STARTTLS. 여기선 결과만 표시.
+                tlsModeLabel() {
+                    if (!this.form.smtpUseTls) return '(없음)';
+                    return String(this.form.smtpPort).trim() === '465' ? '(SSL)' : '(STARTTLS)';
+                },
+
+                // 입력창(또는 넘겨준 문자열)을 쉼표·세미콜론·공백·줄바꿈으로 나눠 검증·중복 제거 후 추가. 붙여넣기도 같은 경로.
+                addRecipient(text) {
+                    const raw = text != null ? text : this.newRecipient;
                     this.newRecipient = '';
-                    if (!v) return;
-                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { this.showToast('메일 주소 형식이 올바르지 않습니다: ' + v, 'error'); return; }
-                    if (this.form.recipients.some(r => r.toLowerCase() === v.toLowerCase())) return;
-                    this.form.recipients.push(v);
-                    this.markDirty();
+                    const bad = [];
+                    String(raw || '').split(/[\s,;]+/).map(v => v.trim()).filter(Boolean).forEach(v => {
+                        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { bad.push(v); return; }
+                        if (this.form.recipients.some(r => r.toLowerCase() === v.toLowerCase())) return;
+                        this.form.recipients.push(v);
+                    });
+                    if (bad.length) {
+                        const shown = bad.slice(0, 3).join(', ') + (bad.length > 3 ? ' 외 ' + (bad.length - 3) + '건' : '');
+                        this.showToast('메일 주소 형식이 올바르지 않습니다: ' + shown, 'error');
+                    }
                 },
-
-                removeRecipient(i) { this.form.recipients.splice(i, 1); this.markDirty(); },
+                pasteRecipients(e) {
+                    const cd = e.clipboardData || window.clipboardData;
+                    const t = cd ? String(cd.getData('text') || '') : '';
+                    // 여러 주소(구분자 포함)면 입력 중인 텍스트와 분리, 단일 토큰이면 이어 붙여 주소 완성 붙여넣기를 허용.
+                    this.addRecipient(/[\s,;]/.test(t.trim()) ? (this.newRecipient + ' ' + t) : (this.newRecipient + t));
+                },
+                removeRecipient(i) { this.form.recipients.splice(i, 1); },
+                clearRecipients() { this.form.recipients = []; },
 
                 buildPayload() {
                     return {
@@ -421,12 +466,7 @@
                             body: JSON.stringify(this.buildPayload())
                         });
                         if (!res.ok) throw new Error((await res.text()) || '저장 실패');
-                        const d = await res.json();
-                        d.smtpPort = String(d.smtpPort ?? 587);
-                        d.sendMode = d.sendMode === 'direct' ? 'direct' : 'relay';
-                        this.form = d;
-                        this.newPassword = '';
-                        this.dirty = false;
+                        this.adopt(await res.json());
                         this.showToast('저장되었습니다.', 'success');
                     } catch (e) {
                         this.showToast(e.message || '저장 실패', 'error');
@@ -468,9 +508,14 @@
                     }
                 },
 
+                // settings.html setTheme 과 같은 계약(shell.js 가 storage 이벤트로 <html>/레이아웃을 따라온다).
                 toggleTheme() {
                     this.dark = !this.dark;
-                    localStorage.setItem('dsp-theme', this.dark ? 'dark' : 'light');
+                    const val = this.dark ? 'dark' : 'light';
+                    localStorage.setItem('dspilot-theme', val);
+                    document.documentElement.classList.toggle('dark-theme', this.dark);
+                    document.documentElement.classList.toggle('dark', this.dark);
+                    window.dispatchEvent(new StorageEvent('storage', { key: 'dspilot-theme', newValue: val }));
                 },
 
                 showToast(msg, type = 'info') {

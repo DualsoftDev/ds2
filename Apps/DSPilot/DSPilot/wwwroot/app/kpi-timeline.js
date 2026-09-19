@@ -32,6 +32,7 @@
         NoBaseline: '기준 표본 부족',
         Unclassified: '분기 미분류',
         Overflow: '경계 초과(모델링 확인)',
+        Gap: '기록 공백',            // fillHoles 가 만드는 사이클 사이 빈 구간 — 빠져 있어 툴팁에 'Gap' 원문이 노출됐다(2026-09-18)
         None: '',
     };
 

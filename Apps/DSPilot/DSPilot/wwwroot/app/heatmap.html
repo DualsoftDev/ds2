@@ -39,14 +39,27 @@
         .dark-theme .hm-kpi-value { color: var(--color-text-primary); }
         .hm-kpi-sub { font-size: 0.66rem; color: var(--color-text-secondary); margin-top: 3px; font-weight: 600; }
 
-        /* ── 범례 행 (ds-legend 기반, swiss heatmap 스와치 재사용) ── */
-        .hm-legend-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px; }
-        .hm-legend-bar .heatmap-legend-item { margin: 0; }
-        .hm-legend-bar .lg-item { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 600; color: var(--color-text-secondary); cursor: help; }
-        /* ds.css 의 .lg-swatch 크기는 .ds-legend 스코프에만 정의 → 이 컨테이너에서도 보이도록 재정의 */
-        .hm-legend-bar .lg-swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
-        .hm-lg-label { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-disabled); }
-        .hm-lg-divider { width: 1px; height: 16px; background: var(--color-lines-strong); margin: 0 2px; }
+        /* ── 필터 행: 등급 칩(색 스와치 + 건수, 클릭=토글 필터) + Call 이름 검색 — 별도 범례 없음 ── */
+        .hm-filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+        .hm-tier-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; margin: 0; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-lg); background: var(--color-surface); color: var(--color-text-secondary); font-family: var(--font-family); font-size: 0.74rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; cursor: pointer; transition: border-color .12s ease, background .12s ease, opacity .12s ease; }
+        .hm-tier-chip .lg-swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
+        .hm-tier-chip b { color: var(--color-text-primary); font-weight: 800; }
+        .hm-tier-chip:hover { border-color: var(--color-text-secondary); color: var(--color-text-primary); }
+        .hm-tier-chip.is-on { border-color: var(--color-primary); background: rgba(var(--color-primary-rgb), 0.10); color: var(--color-text-primary); box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.18); }
+        .hm-filter-bar.has-tier .hm-tier-chip:not(.is-on) { opacity: 0.55; }
+        .hm-tier-chip:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+        /* 스와치 색 = 카드/표 tier 색과 동일 토큰 */
+        .hm-sw-normal  { background: rgba(var(--color-success-rgb), 0.30); border: 1px solid rgba(var(--color-success-rgb), 0.6); }
+        .hm-sw-steady  { background: rgba(var(--color-primary-rgb), 0.22); border: 1px solid rgba(var(--color-primary-rgb), 0.5); }
+        .hm-sw-caution { background: rgba(var(--color-warning-rgb), 0.40); border: 1px solid rgba(var(--color-warning-rgb), 0.7); }
+        .hm-sw-danger  { background: rgba(var(--color-error-rgb), 0.30); border: 1px solid rgba(var(--color-error-rgb), 0.6); }
+        .hm-search { position: relative; display: inline-flex; align-items: center; }
+        .hm-search .form-field { width: 220px; height: 30px; padding: 2px 28px 2px 10px; font-size: 0.76rem; }
+        .hm-search .btn-icon { position: absolute; right: 2px; width: 24px; height: 24px; min-width: 0; padding: 0; }
+        .hm-search .btn-icon .material-icons { font-size: 15px; }
+        .hm-filter-right { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .hm-expand-ctl { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; color: var(--color-text-disabled); }
+        .hm-n-pill { color: var(--color-text-disabled); font-weight: 700; font-size: 0.66rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
         /* 보기 전환 세그먼트는 상단 .ds-topbar 로 이동(swiss.css 공용 .segmented 룩 사용) */
 
@@ -55,7 +68,6 @@
         .hm-flow-block-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 2px 12px; flex-wrap: wrap; }
         .hm-flow-block-head .hm-fb-title { font-size: 0.95rem; font-weight: 800; letter-spacing: -0.01em; margin: 0; color: var(--navy); }
         .dark-theme .hm-flow-block-head .hm-fb-title { color: var(--color-text-primary); }
-        .hm-flow-block-head .hm-fb-sub { font-size: 0.7rem; color: var(--color-text-secondary); font-weight: 600; }
 
         .hm-block-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
         .hm-block {
@@ -73,7 +85,7 @@
         .hm-block.is-active { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.22); transform: scale(1.035); }
 
         /* 4단계 진단 배경/테두리 — 색 = "평소 대비 악화" 여부(로버스트 CV 기준). ds.css 토큰만 사용.
-           steady = "변동 공정": 편차는 크지만 평소 수준(사람 개입 등 공정 특성) → 정보색(파랑), 경보 아님. */
+           steady = "변동": 편차는 크지만 평소 수준(사람 개입 등 공정 특성) → 정보색(파랑), 경보 아님. */
         .hm-block.tier-normal  { background: rgba(var(--color-success-rgb), 0.14); border-color: rgba(var(--color-success-rgb), 0.45); }
         .hm-block.tier-steady  { background: rgba(var(--color-primary-rgb), 0.10); border-color: rgba(var(--color-primary-rgb), 0.40); }
         .hm-block.tier-caution { background: rgba(var(--color-warning-rgb), 0.16); border-color: rgba(var(--color-warning-rgb), 0.55); }
@@ -161,9 +173,11 @@
             .hm-kpi-label { font-size: 0.56rem; letter-spacing: 0.06em; }
             .hm-kpi-sub { font-size: 0.6rem; }
 
-            /* 범례 행 간격 정리 (줄바꿈 시 촘촘하게) */
-            .hm-legend-bar { gap: 8px 12px; }
-            .ds-legend { gap: 6px 12px; }
+            /* 필터 행: 칩 줄바꿈 촘촘하게 + 검색창 꽉 채움(16px = iOS 포커스 확대 방지) */
+            .hm-filter-bar { gap: 6px 8px; }
+            .hm-search { width: 100%; }
+            .hm-search .form-field { width: 100%; font-size: 16px; }
+            .hm-filter-right { margin-left: 0; width: 100%; justify-content: space-between; }
 
             /* 진단 블럭 그리드: 1열 단일 컬럼 */
             .hm-block-grid { grid-template-columns: 1fr; gap: 10px; }
@@ -176,9 +190,9 @@
             /* 상세 차트 박스: 280px → 200px (responsive 캔버스가 추종) */
             .hm-chart-box { height: 200px; }
 
-            /* 기간 버튼(전체/오늘/7일/30일): 2열 그리드로 깔끔하게 줄바꿈 */
-            .hm-period-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; }
-            .hm-period-btns .btn { width: 100%; justify-content: center; }
+            /* 기간 세그먼트(전체/오늘/7일/30일): 폭 꽉 채워 4등분 */
+            .hm-period-btns { display: flex; width: 100%; }
+            .hm-period-btns > button { flex: 1 1 0; padding-left: 6px; padding-right: 6px; }
 
             /* 매트릭스 표(swiss.css) 오버라이드 — 클립 대신 가로 스크롤 + 폰트 축소.
                .table-container 는 이미 overflow:auto 라 스크롤되므로 -webkit 관성 스크롤만 보강. */
@@ -212,18 +226,18 @@
                  uptime-oee / uptime-alarm 과 동일한 .ds-topbar 패턴(푸른 선 위 메뉴/다운로드, 아래 UI). -->
             <div class="ds-topbar">
                 <div class="ds-topbar-actions">
-                    <!-- 보기 전환: flow-call 매트릭스 ⇄ 테이블 나열 (한 번에 하나만) -->
+                    <!-- 보기 전환: 테이블(기본, 첫 항목) ⇄ flow-call 매트릭스 (한 번에 하나만) -->
                     <div class="segmented" role="tablist" aria-label="보기 전환">
-                        <button type="button" role="tab" :aria-selected="viewMode === 'matrix'"
-                                :class="viewMode === 'matrix' ? 'is-active' : ''" @click="viewMode = 'matrix'">
-                            <span class="material-icons">grid_view</span> 매트릭스
-                        </button>
                         <button type="button" role="tab" :aria-selected="viewMode === 'table'"
                                 :class="viewMode === 'table' ? 'is-active' : ''" @click="viewMode = 'table'">
                             <span class="material-icons">table_rows</span> 테이블
                         </button>
+                        <button type="button" role="tab" :aria-selected="viewMode === 'matrix'"
+                                :class="viewMode === 'matrix' ? 'is-active' : ''" @click="viewMode = 'matrix'">
+                            <span class="material-icons">grid_view</span> 매트릭스
+                        </button>
                     </div>
-                    <label class="switch" title="동작편차 시간을 ms(밀리초) 단위로 표시합니다. 해제 시 초 단위로 표시.">
+                    <label class="switch" title="시간을 ms 단위로 표시(해제 시 초)">
                         <input type="checkbox" x-model="showMs" @change="onUnitChange()" /> ms로 보기
                     </label>
                 </div>
@@ -232,13 +246,13 @@
                 <div class="ds-topbar-actions" style="justify-content:flex-end;">
                     <template x-if="flowScope">
                         <span class="chip chip-info"
-                              :title="flowScope.branch ? '동작편차는 flow(설비) 단위로 집계됩니다 — 분기 \'' + flowScope.branch + '\' 진입이라 부모 flow \'' + flowScope.flow + '\' 의 call 을 표시합니다(분기 공통 call 포함).' : ''">
+                              :title="flowScope.branch ? '분기는 부모 flow \'' + flowScope.flow + '\' 단위로 집계됩니다.' : ''">
                             설비: <b x-text="flowScope.flow"></b>
                             <template x-if="flowScope.branch"><span> · 분기 <b x-text="flowScope.branch"></b></span></template>
                         </span>
                     </template>
                     <template x-if="!flowParam && systemParam">
-                        <span class="chip chip-info" title="이 시스템 소속 flow 의 call 만 표시합니다(좌측 메뉴 동작편차 트리의 시스템 행).">시스템: <b x-text="systemParam"></b></span>
+                        <span class="chip chip-info" title="이 시스템 소속 flow 의 call 만 표시합니다.">시스템: <b x-text="systemParam"></b></span>
                     </template>
                     <template x-if="flowParam || systemParam">
                         <a class="btn btn-sm btn-outlined color-default" href="/heatmap">
@@ -247,7 +261,7 @@
                     </template>
                 </div>
                 <template x-teleport="#dsp-header-actions">
-                    <button class="btn btn-sm btn-outlined color-default" @click="exportExcel()" :disabled="excelExporting || filteredGroups.length === 0"
+                    <button class="btn btn-sm btn-outlined color-default" @click="exportExcel()" :disabled="excelExporting || visibleGroups.length === 0"
                             title="동작편차 데이터를 Excel(.xlsx) 로 내보냅니다">
                         <span class="material-icons" style="font-size:15px;">download</span>
                         <span x-text="excelExporting ? 'Excel 생성 중…' : 'Excel 다운로드'"></span>
@@ -276,26 +290,42 @@
 
             <template x-if="!loading && filteredGroups.length > 0">
                 <div>
-                    <!-- 범례 — 이상 진단(4색) / 편차 표기 두 그룹만. 정의·기준은 툴팁(title)으로. -->
-                    <div class="card mb-4" style="padding:12px 16px;">
-                        <div class="hm-legend-bar">
-                            <span class="hm-lg-label">이상 진단</span>
-                            <div class="lg-item" :title="'최근 편차 ±' + cautionPct + '% 미만'"><span class="lg-swatch" style="background:rgba(var(--color-success-rgb),0.30); border:1px solid rgba(var(--color-success-rgb),0.6);"></span> 안정</div>
-                            <div class="lg-item" title="편차는 크지만 평소 수준 — 공정 특성"><span class="lg-swatch" style="background:rgba(var(--color-primary-rgb),0.22); border:1px solid rgba(var(--color-primary-rgb),0.5);"></span> 변동 공정</div>
-                            <div class="lg-item" title="평소 대비 1.3배 이상 악화"><span class="lg-swatch" style="background:rgba(var(--color-warning-rgb),0.40); border:1px solid rgba(var(--color-warning-rgb),0.7);"></span> 주의</div>
-                            <div class="lg-item" :title="'악화 + 최근 편차 ±' + dangerPct + '% 이상'"><span class="lg-swatch" style="background:rgba(var(--color-error-rgb),0.30); border:1px solid rgba(var(--color-error-rgb),0.6);"></span> 위험</div>
-                            <template x-if="dangerCalls > 0">
-                                <span class="ds-status bad" x-text="'위험 ' + dangerCalls + ' Call'"></span>
+                    <!-- 필터 행 — 등급 칩(색 스와치 · 건수 · 클릭=토글, 복수 선택, 없음=전체) + Call/Flow 이름 검색.
+                         기준은 칩 title 한 구절로만. 표 보기에선 그룹 모두 펼치기/접기 제공. -->
+                    <div class="card mb-4" style="padding:10px 16px;">
+                        <div class="hm-filter-bar" :class="tierFilter.length ? 'has-tier' : ''">
+                            <template x-for="t in tierChips" :key="'tc-' + t.key">
+                                <button type="button" class="hm-tier-chip" :class="tierFilter.includes(t.key) ? 'is-on' : ''"
+                                        :aria-pressed="tierFilter.includes(t.key)" :title="t.title" @click="toggleTier(t.key)">
+                                    <span :class="'lg-swatch hm-sw-' + t.key"></span><span x-text="t.label"></span><b x-text="tierCounts[t.key]"></b>
+                                </button>
                             </template>
-                            <span class="hm-lg-divider"></span>
-                            <span class="hm-lg-label">편차 표기</span>
-                            <div class="lg-item" title="중앙값 대비 로버스트 편차 — 대기·개입 표본 영향 최소화"><span class="hm-b-dev tone-normal" style="align-self:center;">±%</span> 편차</div>
-                            <div class="lg-item" title="정상(중앙값)의 3배 초과 실행 수 — 대기·개입 추정"><span class="hm-delay-badge"><span class="material-icons">hourglass_empty</span>n</span> 지연</div>
-                            <template x-if="totalGoingCount > 0">
-                                <span style="margin-left:auto; color:var(--color-text-disabled); font-weight:700; font-size:0.66rem;"
-                                      x-text="'N = ' + totalGoingCount.toLocaleString() + '회'"></span>
-                            </template>
+                            <div class="hm-search">
+                                <input type="text" class="form-field" placeholder="Call · Flow 이름 검색" aria-label="Call · Flow 이름 검색"
+                                       x-model.debounce.200ms="callQuery" />
+                                <button type="button" class="btn-icon" x-show="callQuery" @click="callQuery = ''" title="검색 지우기"><span class="material-icons">clear</span></button>
+                            </div>
+                            <button type="button" class="ds-selbar-link" x-show="filterActive" @click="clearFilters()">필터 초기화</button>
+                            <div class="hm-filter-right">
+                                <template x-if="viewMode === 'table'">
+                                    <div class="hm-expand-ctl">
+                                        <button type="button" class="ds-selbar-link" :disabled="allExpanded" @click="setAllExpanded(true)">모두 펼치기</button>
+                                        <span>·</span>
+                                        <button type="button" class="ds-selbar-link" :disabled="noneExpanded" @click="setAllExpanded(false)">모두 접기</button>
+                                    </div>
+                                </template>
+                                <template x-if="totalGoingCount > 0">
+                                    <span class="hm-n-pill" x-text="'N = ' + totalGoingCount.toLocaleString() + '회'"></span>
+                                </template>
+                            </div>
                         </div>
+                    </div>
+
+                    <!-- 필터 결과 없음 (데이터는 있음) -->
+                    <div class="ds-empty mb-4" x-show="visibleGroups.length === 0">
+                        <span class="material-icons">grid_off</span>
+                        <div class="ds-empty-title">조건에 맞는 Call 이 없습니다</div>
+                        <button type="button" class="btn btn-sm btn-outlined color-default" style="margin-top:8px;" @click="clearFilters()">필터 초기화</button>
                     </div>
 
                     <!-- ════ Flow 그룹 루프: 매트릭스/테이블 카드 + (선택 Call 소속 그룹) 인라인 상세 ════
@@ -303,7 +333,7 @@
                          매트릭스/테이블 카드 바로 아래"에 렌더(페이지 맨 끝 단일 패널 폐지).
                          상세 패널은 viewMode x-if 바깥(소속 그룹 기준)이라 보기 전환 시 캔버스가
                          유지됨 → 매트릭스⇄테이블 전환에도 차트 재그리기 불필요. -->
-                    <template x-for="group in filteredGroups" :key="'grp-' + group.flowName">
+                    <template x-for="group in visibleGroups" :key="'grp-' + group.flowName">
                         <div>
                             <!-- 매트릭스 보기 카드 -->
                             <template x-if="viewMode === 'matrix'">
@@ -311,10 +341,9 @@
                                     <div class="hm-flow-block-head">
                                         <div style="min-width:0; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                                             <h6 class="hm-fb-title" x-text="group.flowName"></h6>
-                                            <span class="chip chip-info" x-text="group.callCount + ' Calls'"></span>
+                                            <span class="chip chip-info" x-text="groupCountText(group)"></span>
                                             <span class="ds-status bad" x-show="flowDangerCount(group) > 0" x-text="'위험 ' + flowDangerCount(group)"></span>
                                         </div>
-                                        <span class="hm-fb-sub">대표 실행시간(중앙값) · 정상범위 · 편차% · 지연 — 클릭으로 상세</span>
                                     </div>
 
                                     <div class="hm-block-grid">
@@ -331,7 +360,7 @@
                                                 </div>
                                                 <div class="hm-b-avg">
                                                     <span class="hm-b-val" x-text="fmtShortAvg(callMedianVal(call))"></span>
-                                                    <span class="hm-b-unit" x-text="call.medianGoingTime != null ? '중앙값' : 'avg'"></span>
+                                                    <span class="hm-b-unit" x-text="call.medianGoingTime != null ? '중앙값' : '평균'"></span>
                                                 </div>
                                                 <span class="hm-b-range" x-show="call.p10GoingTime != null" x-text="'보통 ' + rangeText(call)"></span>
                                                 <div class="hm-b-foot">
@@ -355,7 +384,7 @@
                                                 <span class="material-icons" x-text="group.isExpanded ? 'expand_more' : 'chevron_right'"></span>
                                             </button>
                                             <h6 class="hm-flow-title" x-text="group.flowName"></h6>
-                                            <span class="chip chip-info" x-text="group.callCount + ' Calls'"></span>
+                                            <span class="chip chip-info" x-text="groupCountText(group)"></span>
                                             <span class="chip chip-error" x-show="flowDangerCount(group) > 0" x-text="'위험 ' + flowDangerCount(group)"></span>
                                         </div>
                                         <div class="d-flex" style="align-items:center; gap:4px;">
@@ -382,7 +411,7 @@
                                                         <span title="P10 ~ P90 — 실행의 80%가 이 범위 안에 들어옵니다" class="hm-help">정상범위</span>
                                                     </th>
                                                     <th class="sortable heatmap-col-header" @click="sortBy('cv')">
-                                                        <span :title="'중앙값 대비 로버스트 편차(%). 대기·개입 표본의 영향 최소화. 색 = 평소 대비 악화 여부(' + cautionPct + '/' + dangerPct + '% 임계)'" class="hm-help">편차 <span x-html="sortIcon('cv')"></span></span>
+                                                        <span :title="'중앙값 대비 로버스트 편차(%) — 색은 평소 대비 악화 여부(임계 ' + cautionPct + '/' + dangerPct + '%)'" class="hm-help">편차 <span x-html="sortIcon('cv')"></span></span>
                                                     </th>
                                                     <th class="sortable heatmap-col-header" @click="sortBy('delay')">
                                                         <span title="정상(중앙값)의 3배를 초과한 실행 수 — 대기·사람 개입 추정 (편차와 분리 집계)" class="hm-help">지연 <span x-html="sortIcon('delay')"></span></span>
@@ -439,7 +468,6 @@
                                     <div>
                                         <div class="ds-card-h" style="margin-bottom:6px;"><h4>기본 정보</h4></div>
                                         <table class="hm-info-table">
-                                            <tr><th>Call ID</th><td class="hm-info-mono" x-text="selectedCall.callId"></td></tr>
                                             <tr><th>Flow / Work</th><td x-text="selectedCall.flowName + ' / ' + (selectedCall.workName || '—')"></td></tr>
                                             <tr><th>대표 시간 (중앙값)</th><td class="hm-info-mono hm-info-strong" x-text="detailStats ? formatMs(detailStats.med) : '—'"></td></tr>
                                             <tr>
@@ -462,16 +490,8 @@
                                                 <th>최소 / 최대</th>
                                                 <td class="hm-info-mono" x-text="displayedMin === null ? '—' : (formatMs(displayedMin) + ' / ' + formatMs(displayedMax))"></td>
                                             </tr>
-                                            <tr>
-                                                <th>평균 / 표준편차 (참고)</th>
-                                                <td class="hm-info-mono" x-text="formatMs(chartCount > 0 ? chartAvg : selectedCall.averageGoingTime) + ' / ' + formatMs(chartCount > 0 ? chartStdDev : selectedCall.stdDevGoingTime)"></td>
-                                            </tr>
-                                            <tr><th>변동계수 CV (참고)</th><td class="hm-info-mono" x-text="(chartCount > 0 ? chartCV : selectedCall.coefficientOfVariation).toFixed(2)"></td></tr>
                                             <tr><th>N (실행횟수)</th><td class="hm-info-mono" x-text="(chartCount > 0 ? chartCount : selectedCall.goingCount).toLocaleString() + '회'"></td></tr>
                                         </table>
-                                        <div class="typo-caption" style="color:var(--color-text-disabled); margin-top:8px;">
-                                            ※ 편차 = 중앙값 대비 로버스트 편차(1.4826×MAD/중앙값) — 대기·사람 개입 표본이 섞여도 동작 자체의 안정성만 측정합니다. 평균·σ·CV는 참고용.
-                                        </div>
                                     </div>
 
                                     <!-- 우: 실행 시간 추이 차트 -->
@@ -481,11 +501,11 @@
                                             <span class="typo-subtitle2">실행 시간 추이</span>
                                             <span class="typo-caption" x-show="isChartLoading" style="color:var(--color-text-secondary);">로딩 중...</span>
                                             <div class="d-flex" style="align-items:center; gap:8px; margin-left:auto; flex-wrap:wrap;">
-                                                <div class="d-flex hm-period-btns" style="gap:4px;" title="표시할 실행 이력의 기간을 선택합니다.">
-                                                    <button class="btn btn-sm" :class="historyPeriod === 'all' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('all')">전체</button>
-                                                    <button class="btn btn-sm" :class="historyPeriod === 'today' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('today')">오늘</button>
-                                                    <button class="btn btn-sm" :class="historyPeriod === '7d' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('7d')">지난 7일</button>
-                                                    <button class="btn btn-sm" :class="historyPeriod === '30d' ? 'btn-primary' : 'btn-outlined color-default'" @click="setHistoryPeriod('30d')">지난 30일</button>
+                                                <div class="segmented hm-period-btns" role="tablist" aria-label="기간" title="표시할 실행 이력의 기간">
+                                                    <button type="button" role="tab" :aria-selected="historyPeriod === 'all'" :class="historyPeriod === 'all' ? 'is-active' : ''" @click="setHistoryPeriod('all')">전체</button>
+                                                    <button type="button" role="tab" :aria-selected="historyPeriod === 'today'" :class="historyPeriod === 'today' ? 'is-active' : ''" @click="setHistoryPeriod('today')">오늘</button>
+                                                    <button type="button" role="tab" :aria-selected="historyPeriod === '7d'" :class="historyPeriod === '7d' ? 'is-active' : ''" @click="setHistoryPeriod('7d')">지난 7일</button>
+                                                    <button type="button" role="tab" :aria-selected="historyPeriod === '30d'" :class="historyPeriod === '30d' ? 'is-active' : ''" @click="setHistoryPeriod('30d')">지난 30일</button>
                                                 </div>
                                                 <label class="switch" title="이동평균의 0.5배~2배 범위를 벗어나는 회차(위·아래 이상치)를 제외합니다.">
                                                     <input type="checkbox" x-model="excludeDeviation" @change="onExcludeDeviationChange()" /> 이상치 제외
@@ -499,9 +519,6 @@
                                         <div x-show="callHistory.length === 0 && !isChartLoading" class="typo-body2 hm-chart-empty">
                                             <span class="material-icons" style="font-size:32px; display:block; margin-bottom:8px; opacity:0.5;">timeline</span>
                                             실행 이력이 없습니다.
-                                        </div>
-                                        <div class="typo-caption" style="color:var(--color-text-secondary); margin-top:6px;">
-                                            녹색 밴드 = 중앙값 ± 2×로버스트σ (정상 동작 구간) · 빨간선 = 실행시간
                                         </div>
                                     </div>
                                 </div>
@@ -550,6 +567,9 @@
                 // 시간 단위 표시: false=초(기본) / true=ms. Flow 필터란의 "ms로 보기" 토글로 전환(localStorage 영속).
                 showMs: false,
                 excelExporting: false,   // Excel 내보내기 진행 상태(중복 클릭 방지)
+                // 등급 칩 필터(복수 선택, 빈 배열=전체) + Call/Flow 이름 검색 — 매트릭스·표·Excel 에 공통 적용.
+                tierFilter: [],
+                callQuery: '',
 
                 // 색상 등급 임계(CV=σ/평균). 설정 페이지(동작편차 설정)에서 사용자가 조정 → /api/heatmap/config 로 로드.
                 // 기본 0.10/0.30(±10%/±30%). fetch 실패 시 이 기본값 유지.
@@ -686,7 +706,7 @@
                 // ── 4단계 진단 등급 — 색 = "평소(전체 이력) 대비 최근이 악화됐는가" ──
                 // 편차의 절대 크기(공정 특성일 수 있음)와 이상 여부(조치 필요)를 분리:
                 //   normal  = 최근 편차 < 주의임계 (지금 안정)
-                //   steady  = 편차 ≥ 주의임계지만 평소 수준 (변동 공정 — 정보색, 경보 아님)
+                //   steady  = 편차 ≥ 주의임계지만 평소 수준 (변동 — 정보색, 경보 아님)
                 //   caution = 평소 대비 1.3배 이상 악화
                 //   danger  = 악화 + 최근 편차 ≥ 위험임계
                 // robust 통계 미산출(서버 부팅 직후 등) Call 은 기존 CV 절대 임계로 폴백.
@@ -709,7 +729,16 @@
                 get dangerPct() { return Math.round(this.dangerCv * 100); },
                 blockTier(call) { return call._tier != null ? call._tier : this.tierOf(call); },
                 tierLabel(tier) {
-                    return { normal: '안정', steady: '변동 공정', caution: '주의', danger: '위험' }[tier] || '안정';
+                    return { normal: '안정', steady: '변동', caution: '주의', danger: '위험' }[tier] || '안정';
+                },
+                // 필터 칩 정의(위험 → 안정 순). title = 판정 기준 한 구절(임계는 설정값 반영).
+                get tierChips() {
+                    return [
+                        { key: 'danger',  label: '위험', title: '악화 + 최근 편차 ±' + this.dangerPct + '% 이상' },
+                        { key: 'caution', label: '주의', title: '평소 대비 1.3배 이상 악화' },
+                        { key: 'steady',  label: '변동', title: '편차 ±' + this.cautionPct + '% 이상이지만 평소 수준(악화 없음)' },
+                        { key: 'normal',  label: '안정', title: '최근 편차 ±' + this.cautionPct + '% 미만' },
+                    ];
                 },
                 tierStatusClass(tier) {
                     return { normal: 'ok', steady: 'info', caution: 'warn', danger: 'bad' }[tier] || 'info';
@@ -737,8 +766,8 @@
                 },
                 delayTooltip(c) {
                     const thr = c.medianGoingTime != null ? Math.max(3 * c.medianGoingTime, 2000) : null;
-                    return '지연 ' + (c.delayCount || 0) + '회 — 정상(중앙값)의 3배'
-                        + (thr ? ' (>' + this.fmtShortAvg(thr) + ')' : '') + ' 초과 실행.\n대기·사람 개입으로 추정되는 표본으로, 편차 계산과 분리해 집계합니다.';
+                    return '지연 ' + (c.delayCount || 0) + '회 — 중앙값의 3배'
+                        + (thr ? ' (>' + this.fmtShortAvg(thr) + ')' : '') + ' 초과 실행(대기·개입 추정, 편차와 분리 집계)';
                 },
                 // 선형 보간 백분위수(sorted 오름차순 전제) — 상세 패널 robust 재계산용(서버 정의와 동일)
                 pctl(sorted, p) {
@@ -747,11 +776,12 @@
                     const lo = Math.floor(rank), hi = Math.ceil(rank);
                     return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo);
                 },
-                // 블럭 그리드용 정렬: 편차 큰 순 → 진단 카드가 위험부터 보이도록
+                // 블럭 그리드용 정렬: 편차 큰 순 → 진단 카드가 위험부터 보이도록 (칩/검색 필터 적용)
                 blockCalls(group) {
-                    return group._blockCalls || group.calls.slice().sort((a, b) =>
+                    const sorted = group._blockCalls || group.calls.slice().sort((a, b) =>
                         ((b.robustCv != null ? b.robustCv : b.coefficientOfVariation) - (a.robustCv != null ? a.robustCv : a.coefficientOfVariation))
                         || (a.callName || '').localeCompare(b.callName || ''));
+                    return this.filterActive ? sorted.filter(c => this.matchesFilter(c)) : sorted;
                 },
                 flowDangerCount(group) { return group._dangerCount != null ? group._dangerCount : group.calls.filter(c => this.blockTier(c) === 'danger').length; },
                 // Flow 대표 tier = 소속 Call 중 가장 나쁜 등급(danger > caution > steady > normal) — 헤더 상태 칩용.
@@ -766,11 +796,46 @@
                 },
 
                 get totalCalls() { return this.filteredGroups.reduce((s, g) => s + g.callCount, 0); },
-                get dangerCalls() { return this.filteredGroups.reduce((s, g) => s + this.flowDangerCount(g), 0); },
-                get totalGoingCount() { return this.filteredGroups.flatMap(g => g.calls).reduce((s, c) => s + (c.goingCount || 0), 0); },
+                get totalGoingCount() { return this.visibleGroups.flatMap(g => this.visibleCalls(g)).reduce((s, c) => s + (c.goingCount || 0), 0); },
+
+                // ── 등급 칩 + 이름 검색 필터 ──
+                //   filteredGroups(URL 스코프) → visibleGroups(칩·검색 적용, 빈 그룹 숨김). 그룹 객체는 원본 그대로 두고
+                //   call 만 걸러서 isExpanded 등 그룹 상태가 필터 전환에도 유지되게 한다.
+                get filterActive() { return this.tierFilter.length > 0 || this.callQuery.trim() !== ''; },
+                matchesQuery(c) {
+                    const q = this.callQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return (c.callName || '').toLowerCase().includes(q) || (c.flowName || '').toLowerCase().includes(q);
+                },
+                matchesFilter(c) {
+                    return (this.tierFilter.length === 0 || this.tierFilter.includes(this.blockTier(c))) && this.matchesQuery(c);
+                },
+                visibleCalls(group) {
+                    const calls = group.calls || [];
+                    return this.filterActive ? calls.filter(c => this.matchesFilter(c)) : calls;
+                },
+                get visibleGroups() {
+                    return this.filterActive ? this.filteredGroups.filter(g => this.visibleCalls(g).length > 0) : this.filteredGroups;
+                },
+                // 칩 건수 = 스코프 + 검색 적용, 등급 필터는 미적용(다른 칩의 건수도 보이도록)
+                get tierCounts() {
+                    const n = { danger: 0, caution: 0, steady: 0, normal: 0 };
+                    for (const g of this.filteredGroups) for (const c of (g.calls || [])) if (this.matchesQuery(c)) n[this.blockTier(c)]++;
+                    return n;
+                },
+                toggleTier(t) { this.tierFilter = this.tierFilter.includes(t) ? this.tierFilter.filter(x => x !== t) : [...this.tierFilter, t]; },
+                clearFilters() { this.tierFilter = []; this.callQuery = ''; },
+                groupCountText(group) {
+                    const total = group.callCount != null ? group.callCount : (group.calls || []).length;
+                    return this.filterActive ? this.visibleCalls(group).length + ' / ' + total + ' Calls' : total + ' Calls';
+                },
+                // 표 보기 그룹 모두 펼치기/접기
+                setAllExpanded(v) { for (const g of this.visibleGroups) g.isExpanded = v; },
+                get allExpanded() { return this.visibleGroups.every(g => g.isExpanded); },
+                get noneExpanded() { return this.visibleGroups.every(g => !g.isExpanded); },
 
                 sortedCalls(group) {
-                    const calls = group.calls.slice();
+                    const calls = this.visibleCalls(group).slice();
                     const f = this.sortField, asc = this.sortAsc;
                     const cmp = (a, b) => (a || '').localeCompare(b || '');
                     if (f === 'callName') calls.sort((a, b) => asc ? cmp(a.callName, b.callName) : cmp(b.callName, a.callName));
@@ -801,7 +866,7 @@
                             + `정상범위(P10~P90): ${this.rangeText(call)}\n`
                             + `편차(전체 이력): ±${this.deviationPct(call)}%\n`
                             + (call.recentRobustCv != null ? `편차(최근 ~200회): ±${this.deviationPctFromCv(call.recentRobustCv)}%\n` : '')
-                            + `진단: ${this.tierLabel(tier)} — 색은 최근이 평소 대비 악화됐는지 기준\n`
+                            + `진단: ${this.tierLabel(tier)}\n`
                             + `지연(중앙값×3 초과): ${call.delayCount || 0}회\n`
                             + `평균 / σ (참고): ${this.formatMs(call.averageGoingTime)} / ${this.formatMs(call.stdDevGoingTime)}\n`;
                     } else {
@@ -824,9 +889,6 @@
                     }
                     return result;
                 },
-                get chartAvg() { const d = this.displayedHistory; return d.length ? d.reduce((s, r) => s + r.goingTimeMs, 0) / d.length : 0; },
-                get chartStdDev() { const d = this.displayedHistory; if (!d.length) return 0; const a = this.chartAvg; return Math.sqrt(d.reduce((s, r) => s + Math.pow(r.goingTimeMs - a, 2), 0) / d.length); },
-                get chartCV() { return this.chartAvg > 0 ? this.chartStdDev / this.chartAvg : 0; },
                 get chartCount() { return this.displayedHistory.length; },
                 // 상세 패널 로버스트 요약 — 로드된 기간 이력(원본, 이상치 제외 미적용)에서 재계산해
                 // 매트릭스와 같은 지표 정의(중앙값/MAD/P10~P90/지연)를 기간 스코프로 제공(검산 가능).
@@ -938,9 +1000,9 @@
                     a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
                 },
 
-                // Excel = 동작편차 데이터 테이블. 서버(HeatmapExcelExporter)가 렌더 → 화면과 동일 컬럼 + tier 색상.
+                // Excel = 동작편차 데이터 테이블(칩·검색 필터 적용된 화면 그대로). 서버(HeatmapExcelExporter)가 렌더 → 화면과 동일 컬럼 + tier 색상.
                 async exportExcel() {
-                    const groups = this.filteredGroups;
+                    const groups = this.visibleGroups;
                     if (groups.length === 0 || this.excelExporting) return;
                     this.excelExporting = true; this.error = null;
                     try {
@@ -952,7 +1014,9 @@
                                 cv: c.coefficientOfVariation, goingCount: c.goingCount,
                                 // 로버스트 표시값 + 화면 tier 그대로(WYSIWYG — 등급은 "평소 대비 악화" 판정이라 서버가 재산출 불가)
                                 medianMs: c.medianGoingTime, p10Ms: c.p10GoingTime, p90Ms: c.p90GoingTime,
-                                robustCv: c.robustCv, delayCount: c.delayCount || 0, tier: this.tierLabel(this.blockTier(c))
+                                // 서버 TierBg 가 라벨 문자열("변동 공정")로 셀 색을 고르므로 steady 만 구 라벨 유지(화면은 '변동').
+                                robustCv: c.robustCv, delayCount: c.delayCount || 0,
+                                tier: this.blockTier(c) === 'steady' ? '변동 공정' : this.tierLabel(this.blockTier(c))
                             });
                         }
                         const model = { title: this.flowParam || this.systemParam || '전체', cautionCv: this.cautionCv, dangerCv: this.dangerCv, rows };

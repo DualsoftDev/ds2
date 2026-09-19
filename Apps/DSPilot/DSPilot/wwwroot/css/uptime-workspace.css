@@ -71,6 +71,10 @@
         .up-oee.is-na .up-oee-value { color: var(--color-text-disabled); }
         .up-oee .up-oee-note { margin-top: 5px; font-size: 0.62rem; color: var(--color-text-secondary); line-height: 1.35; }
         .up-oee.is-na .up-oee-note { color: var(--color-text-disabled); }
+        /* KPI 카드 안 작은 동작 버튼(품질 Q [입력]) — 카드 전체 클릭 대신 눈에 보이는 진입점 */
+        .up-oee-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; padding: 1px 7px 1px 5px; border-radius: 999px; border: 1px solid var(--color-lines-strong); background: var(--color-surface); color: var(--color-primary); font: inherit; font-size: 0.6rem; font-weight: 700; letter-spacing: 0; text-transform: none; line-height: 1.5; cursor: pointer; }
+        .up-oee-btn:hover { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
+        .up-oee-btn .material-icons { font-size: 12px; }
         /* 가정값/자동값 표식 칩 — 실측과 시각적으로 구분(정직성), 점선 보더로 "확정 아님" 뉘앙스 */
         .up-oee-chip, .up-auto-chip { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 0.56rem; font-weight: 700; letter-spacing: 0.04em; line-height: 1.5; vertical-align: 1px; color: var(--color-text-secondary); background: var(--color-surface-variant); border: 1px dashed var(--color-lines-strong); text-transform: none; }
 
@@ -141,9 +145,14 @@
         .seg-inprog { background-color: color-mix(in srgb, var(--color-text-secondary) 30%, var(--color-surface)); }
         /* 누적 막대(가용성 정산 / TEEP 시간 분해) 세그먼트 내부 % 라벨 — 폭이 넉넉한 구간에만 x-show 로 노출.
            .up-bar-seg 는 라벨을 중앙 정렬하고 좁을 때 clip. 어두운 구간=흰 글자+그림자 / 밝은 구간(미계측·잔여)=진한 글자. */
-        .up-bar-seg { display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .up-bar-seg { display: flex; align-items: center; justify-content: center; overflow: hidden; container-type: inline-size; }
         .up-bar-lbl { font-family: var(--font-mono); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.02em; white-space: nowrap; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5); pointer-events: none; }
         .up-bar-lbl-dark { color: var(--color-text); text-shadow: 0 1px 2px rgba(255,255,255,0.4); }
+        /* 세그먼트 안 라벨 2단(2026-09-18, 범례·값 행 대체) — 넓으면 "가동 12h · 78%", 좁으면 "78%", 아주 좁으면 없음(hover title 만).
+           컨테이너 쿼리라 뷰포트/설비 수와 무관하게 실제 세그먼트 폭으로 결정. 미지원 브라우저는 % 만 보인다. */
+        .up-bar-lbl.is-long { display: none; }
+        @container (min-width: 190px) { .up-bar-lbl.is-long { display: inline; } .up-bar-lbl.is-short { display: none; } }
+        @container (max-width: 42px) { .up-bar-lbl.is-short { display: none; } }
         .up-legend-name { font-weight: 700; flex: 1; }
         .up-legend-share { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-secondary); }
         /* 정지 구성 범례 값 — 라인 스코프는 설비 합산이라 '68시간 12분'까지 길어진다(폭 여유 + 설비당 평균 2행). */
@@ -396,16 +405,7 @@
         .up-hist .b.edge { background: color-mix(in srgb, var(--mt) 55%, var(--color-text-secondary)); }
         .up-hist-axis { display: flex; justify-content: space-between; font-size: 0.58rem; color: var(--color-text-secondary); margin-top: 4px; font-family: var(--font-mono); }
 
-        /* 설계 노트 */
-        .up-dn summary { cursor: pointer; font-weight: 800; font-size: 0.78rem; color: var(--color-text-secondary); list-style: none; display: flex; align-items: center; gap: 8px; padding: 4px 0; }
-        .up-dn summary::-webkit-details-marker { display: none; }
-        .up-dn summary .material-icons { font-size: 18px; color: var(--color-primary); }
-        .up-dn-body { margin-top: 12px; }
-        .up-dn-body table { width: 100%; border-collapse: collapse; }
-        .up-dn-body td { padding: 8px 9px; border-bottom: 1px solid var(--color-lines); font-size: 0.78rem; vertical-align: top; }
-        .up-dn-body tr:last-child td { border-bottom: 0; }
-        .up-dn-body td:first-child { font-weight: 700; white-space: nowrap; color: var(--color-text-primary); width: 150px; }
-        .up-dn code { font-family: var(--font-mono); font-size: 0.92em; background: color-mix(in srgb, var(--color-text-primary) 7%, transparent); padding: 0 4px; border-radius: 3px; }
+        /* (설계 노트 .up-dn 스타일은 2026-09-18 마크업 제거와 함께 삭제) */
 
         /* ════ 비생산 시간대 — 24시간 연표(타임라인) 에디터 (doc/22) ════
            트랙 = 하루 0~24시. 블록 = 비생산 윈도(보라=계획정비 색과 통일). 빈 곳 클릭=추가, 블록 클릭=선택→수정/삭제. */
@@ -508,33 +508,13 @@
         .up-ptl-win:hover .up-ptl-handle, .up-ptl-win.sel .up-ptl-handle { display: block; }
 
         /* ── 정지·비생산·고장 판정 기준 카드 (doc/27, 2026-09-09 WT/MT 2축) ──
-           ① 사이클 해부도(동작 MT + 대기 WT) ② 판정 순서 4단계 ③ 축별 레인(밴드 + 슬라이더) ④ flow 환산 칩.
+           축별 레인(밴드 + 슬라이더) + flow 환산 칩 + 재분류 미리보기 표. (해부도·판정 순서 블록은 2026-09-18 제거.)
            색은 OEE 색 SSOT(--oee-run/--oee-fault/--nonprod, 유발=--oee-cause, 대기=--oee-wait 폴백) 재사용,
            정지 계열은 다른 화면과 동일하게 대각선 빗금으로 신호. 슬라이더 thumb 색 = 담당 세그먼트 색. */
         :root { --oee-cause: #7E1D12; --oee-wait-c: #6B7280; }
         .dark-theme { --oee-cause: #E8695B; --oee-wait-c: #9CA3AF; }
         .c-fault { color: var(--oee-cause) !important; }
         .c-np { color: var(--nonprod) !important; }
-        .up-cm-anatomy { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin: 2px 0 12px; font-size: 0.72rem; color: var(--color-text-secondary); }
-        .up-cm-anatomy .lbl { font-weight: 800; color: var(--color-text-primary); white-space: nowrap; }
-        .up-cm-anatomy .bar { display: flex; align-items: stretch; border: 1px solid var(--color-lines); border-radius: 8px; overflow: hidden; min-width: 300px; flex: 1 1 320px; }
-        .up-cm-anatomy .bar > span { display: flex; flex-direction: column; justify-content: center; padding: 6px 12px; line-height: 1.3; }
-        .up-cm-anatomy .bar .mt { flex: 0 0 36%; background: color-mix(in srgb, var(--oee-cause) 12%, var(--color-surface)); }
-        .up-cm-anatomy .bar .wt { flex: 1; background: color-mix(in srgb, var(--oee-fault) 10%, var(--color-surface)); }
-        .up-cm-anatomy .bar .plus { flex: 0 0 auto; padding: 0 6px; font-weight: 900; color: var(--color-text-secondary); align-self: center; }
-        .up-cm-anatomy .bar b { font-size: 0.76rem; color: var(--color-text-primary); }
-        .up-cm-anatomy .bar b em { font-style: normal; font-family: var(--font-mono); font-weight: 700; opacity: 0.8; }
-        .up-cm-anatomy .bar small { font-size: 0.62rem; color: var(--color-text-secondary); white-space: nowrap; }
-        .up-cm-anatomy .rule { white-space: nowrap; }
-        .up-cm-anatomy .rule b { font-weight: 800; }
-        .up-cm-steps { list-style: none; margin: 0 0 16px; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-        @media (max-width: 1100px) { .up-cm-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        @media (max-width: 560px) { .up-cm-steps { grid-template-columns: 1fr; } }
-        .up-cm-steps li { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--color-lines); border-radius: 8px; background: var(--color-surface-variant); font-size: 0.7rem; line-height: 1.45; color: var(--color-text-secondary); }
-        .up-cm-steps li .n { flex: 0 0 20px; width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 900; font-size: 0.66rem; border: 2px solid currentColor; margin-top: 1px; }
-        .up-cm-steps li b { color: var(--color-text-primary); font-weight: 800; }
-        .up-cm-steps li i { font-style: normal; font-family: var(--font-mono); font-weight: 800; color: var(--color-text-primary); }
-        .up-cm-steps li small { display: block; font-size: 0.62rem; margin-top: 2px; color: var(--color-text-secondary); }
         .up-cm-lane { border: 1px solid var(--color-lines); border-radius: 10px; padding: 12px 14px 10px; margin-bottom: 12px; background: color-mix(in srgb, var(--color-surface-variant) 40%, transparent); }
         .up-cm-lane.fault { border-left: 4px solid var(--oee-cause); }
         .up-cm-lane.wt { border-left: 4px solid var(--oee-fault); }
@@ -542,7 +522,6 @@
         .up-cm-lane-head b { font-size: 0.8rem; }
         .up-cm-info { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; font-size: 0.7rem; color: var(--color-text-secondary); cursor: help; }
         .up-cm-info:hover { color: var(--color-primary); }
-        .up-cm-band .seg .badge { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 0.56rem; font-weight: 800; padding: 2px 7px; border-radius: 999px; background: var(--color-surface); border: 1px solid var(--oee-cause); color: var(--oee-cause); white-space: nowrap; }
         .up-cm-band .seg.fault { background-color: color-mix(in srgb, var(--oee-cause) 14%, var(--color-surface)); background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var(--oee-cause) 26%, transparent) 0 1.4px, transparent 1.4px 7px); }
         .up-cm-lane .up-cm-band { margin: 4px 0 12px; }
         .up-cm-flowchip .base { color: var(--color-text-secondary); padding-right: 6px; border-right: 1px solid var(--color-lines); }
@@ -583,10 +562,18 @@
         .up-dt-sel { font-size: 0.66rem; padding: 2px 6px; border: 1px solid var(--color-lines); border-radius: 6px; background: var(--color-surface); color: var(--color-text-primary); margin-left: 6px; }
         .up-cm-flowchip .th.np i { color: var(--nonprod); }
         .up-cm-flowchip .th.fault i { color: var(--oee-cause); }
-        .up-cm-preview { display: flex; align-items: center; gap: 8px; margin-top: 13px; padding: 9px 12px; border: 1px dashed color-mix(in srgb, var(--color-primary) 45%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--color-primary) 6%, transparent); font-size: 0.72rem; color: var(--color-text-secondary); line-height: 1.55; }
+        .up-cm-preview { display: flex; align-items: flex-start; gap: 8px; margin-top: 13px; padding: 9px 12px; border: 1px dashed color-mix(in srgb, var(--color-primary) 45%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--color-primary) 6%, transparent); font-size: 0.72rem; color: var(--color-text-secondary); line-height: 1.55; }
         .up-cm-preview .material-icons { color: var(--color-primary); flex-shrink: 0; }
         .up-cm-preview b { font-family: var(--font-mono); color: var(--color-text-primary); font-weight: 800; }
         .up-cm-preview b.to { color: var(--color-primary); }
+        /* 재분류 미리보기 — 2열 표(현재 → 제안). 축별 세부 건수는 제안 칸 title 로. */
+        .up-cm-pv { border-collapse: collapse; font-size: 0.7rem; }
+        .up-cm-pv th, .up-cm-pv td { padding: 1px 14px 1px 0; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .up-cm-pv th { font-size: 0.62rem; font-weight: 700; color: var(--color-text-secondary); }
+        .up-cm-pv th:first-child, .up-cm-pv td:first-child { text-align: left; }
+        .up-cm-pv td { font-family: var(--font-mono); font-weight: 800; color: var(--color-text-primary); }
+        .up-cm-pv td:first-child { font-family: inherit; font-weight: 600; color: var(--color-text-secondary); }
+        .up-cm-pv td.to { color: var(--color-primary); }
 
         /* ─────────────────────────────────────────────────────────────
            모바일 (≤480px) — 데이터테이블 = 카드 리스트 리플로우 + 전체 reflow.
@@ -781,10 +768,6 @@
         .up-mq-val { font-size: 1.5rem; font-weight: 800; line-height: 1.25; margin-top: 2px; }
         .up-mq-note { font-size: 0.63rem; color: var(--color-text-secondary); margin-top: 1px; }
 
-        .up-mq-link { margin-top: 12px; padding: 9px 12px; border-radius: 9px; background: var(--color-surface-variant);
-                      font-size: 0.7rem; line-height: 1.55; color: var(--color-text-secondary); }
-        .up-mq-link a { color: var(--color-primary); font-weight: 700; }
-
         .up-mq-toggle { margin-top: 12px; width: 100%; justify-content: center; }
 
         /* 설비별 상세 — 5열(설비 / 비중바 / 제외율 / 미검출 / 가동수). 바 열만 가변폭. */
@@ -804,8 +787,6 @@
         .up-mq-bar .seg.ex.is-warn { background: var(--amber); }
         .up-mq-bar .seg.ex.is-bad { background: var(--red); }
         .up-mq-rate { font-weight: 800; }
-
-        .up-mq-foot { margin-top: 12px; font-size: 0.62rem; line-height: 1.6; color: var(--color-text-secondary); }
 
         @media (max-width: 720px) {
             .up-mq-top { grid-template-columns: 1fr; }
@@ -828,10 +809,12 @@
         .up-acct-sum a { color: var(--color-primary); font-weight: 700; }
 
         /* 측정 불가 설비 — 임계 미보유(클린샘플 0). 경고색이 아니라 '비어 있음'으로 표현한다(고장이 아니라 미측정). */
-        .up-mq-unmeas { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; padding: 11px 13px; border-radius: 10px;
+        .up-mq-unmeas { display: flex; gap: 8px 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; padding: 9px 13px; border-radius: 10px;
                         background: var(--color-surface-variant); border: 1px dashed var(--color-lines-strong);
                         font-size: 0.72rem; line-height: 1.55; color: var(--color-text-primary); }
         .up-mq-unmeas .material-icons { font-size: 19px; color: var(--color-text-secondary); flex-shrink: 0; }
+        .up-mq-unmeas a { font-weight: 700; color: var(--color-primary); text-decoration: none; }
+        .up-mq-unmeas a:hover { text-decoration: underline; }
         .up-mq-row.is-unmeas { background: repeating-linear-gradient(45deg, var(--color-surface-variant) 0 6px, transparent 6px 12px); }
         .up-mq-row.is-unmeas .up-mq-name { color: var(--color-text-secondary); }
         .up-mq-unmeas-tag { font-size: 0.63rem; color: var(--color-text-secondary); border: 1px dashed var(--color-lines-strong);

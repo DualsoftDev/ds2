@@ -120,12 +120,20 @@
     //   종전엔 Work 이름·IN/OUT 태그 주소·ApiCall 이름까지 한 덩어리로 매칭해 'y/q' 검색이 Work "…동작 회로 - Y/Q" 소속
     //   Q300/Y450 call 전부를 통과시켰고(신호 정렬 모드는 Work 헤더가 없어 "상관없는 call" 로 보임), 그 상태에서
     //   '표시된 행 선택 → 선택 제외' 를 누르면 의도치 않은 call 이 일괄 제외되는 사고 경로가 됐다.
-    //   다른 필드는 접두어로만 검색: `work:회로` (Work 이름) · `tag:%QW40` (IN/OUT·ApiCall 태그 주소) · `api:lock` (ApiCall 이름).
+    //   다른 필드는 접두어로 검색: `work:회로` (Work 이름) · `tag:%QW40` (IN/OUT·ApiCall 태그 주소) · `api:lock` (ApiCall 이름).
+    //   접두어 없는 토큰이 보는 필드는 target(2026-09-18 대상 칩): 'call'(기본) | 'work' | 'tag' | 'all'(전 필드).
     //   공백으로 나눈 토큰은 AND(각 토큰이 자기 대상 필드에 맞아야 표시). 대소문자 무시. 빈 질의 = 전체 표시.
-    function laneMatches(lane, q) {
+    function laneMatches(lane, q, target) {
         var terms = String(q || '').toLowerCase().split(/\s+/).filter(function (t) { return t; });
         if (!terms.length) return true;
         var apis = lane.apiCalls || [];
+        var hayOf = function (field) {
+            if (field === 'work') return [lane.workName];
+            if (field === 'tag') { var h = [lane.inTag, lane.outTag]; apis.forEach(function (ac) { h.push(ac.inTag, ac.outTag); }); return h; }
+            if (field === 'api') return apis.map(function (ac) { return ac.name; });
+            if (field === 'all') return [lane.callName].concat(hayOf('work'), hayOf('tag'), hayOf('api'));
+            return [lane.callName];
+        };
         for (var i = 0; i < terms.length; i++) {
             var term = terms[i];
             var m = /^(work|tag|api):(.*)$/.exec(term);
@@ -133,11 +141,9 @@
             if (m) {
                 needle = m[2];
                 if (!needle) continue;                       // 접두어만 입력 중 = 아직 조건 없음
-                if (m[1] === 'work') hay = [lane.workName];
-                else if (m[1] === 'tag') { hay = [lane.inTag, lane.outTag]; apis.forEach(function (ac) { hay.push(ac.inTag, ac.outTag); }); }
-                else { hay = apis.map(function (ac) { return ac.name; }); }
+                hay = hayOf(m[1]);
             } else {
-                needle = term; hay = [lane.callName];
+                needle = term; hay = hayOf(target || 'call');
             }
             var joined = hay.filter(function (h) { return h; }).join('\n').toLowerCase();
             if (joined.indexOf(needle) === -1) return false;
@@ -154,7 +160,7 @@
         if (!q && !hidden) return s.callLanes;
         return s.callLanes.filter(function (l) {
             if (hidden && hidden[l.callName]) return false;
-            return !q || laneMatches(l, q);
+            return !q || laneMatches(l, q, s.laneFilterTarget);
         });
     }
 
@@ -778,7 +784,7 @@
             var x = LEFT_PAD + (a - cs) * xScale, wd = Math.max(1.5, (b - a) * xScale);
             var over = w.e > spans[i].end;
             var tip = workName + ' · work 구간 ' + formatMs(w.e - w.s) + '  ' + hms(new Date(w.s)) + ' ~ ' + hms(new Date(w.e))
-                + (gated ? '\n판정 제외 — 지속시간 분포가 두 갈래(3사분위 ÷ 1사분위 > 게이트)라 비가동 판정에 쓰지 않습니다' : '')
+                + (gated ? '\n판정 제외 — 지속시간 분포가 두 갈래라 비가동 판정에 쓰지 않습니다' : '')
                 + (over ? '\n경계 초과 ' + formatMs(w.e - spans[i].end) + ' — 사이클 끝을 넘었습니다' : '');
             sb += '<g><title>' + esc(tip) + '</title><rect x="' + f(x) + '" y="' + f(y) + '" width="' + f(wd) + '" height="' + f(h) + '" rx="2"'
                 + ' fill="' + (gated ? WORK_BAR_GATED : WORK_BAR_FILL) + '" opacity="' + (gated ? 0.55 : 0.78) + '"'
@@ -918,6 +924,8 @@
         var barH = Math.max(14, ribbonH - 20);
         var barCY = barY + barH / 2.0;
         var mono = 'Inter,ui-monospace,Cascadia Code,Consolas,monospace';
+        // 보라 점선(MT/WT 경계)의 유일한 설명 — 범례 대신 첫 번째로 온전히 보이는 스팬 하나에만 작게 찍는다.
+        var mtwtLabeled = false;
 
         sb += '<rect x="' + f(LEFT_PAD) + '" y="' + ribbonTop + '" width="' + f(plotRight - LEFT_PAD) + '" height="' + ribbonH + '" fill="#fafbfc"/>';
         sb += '<line x1="0" y1="' + f(ribbonTop + ribbonH) + '" x2="' + f(plotRight) + '" y2="' + f(ribbonTop + ribbonH) + '" stroke="#cfd8dc" stroke-width="1"/>';
@@ -986,6 +994,12 @@
                 g += '<rect x="' + f(tailX) + '" y="' + barY + '" width="' + f(iw) + '" height="' + barH + '" fill="#AEB9C6" opacity="' + (0.9 * dim) + '"/>';
                 if (aw > 54) g += '<text x="' + f(sx + aw / 2.0) + '" y="' + f(barCY) + '" text-anchor="middle" dominant-baseline="central" font-size="9.5" font-weight="700" fill="#5a3200" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">' + esc(formatMs(atMs)) + '</text>';
                 if (iw > 54) g += '<text x="' + f(tailX + iw / 2.0) + '" y="' + f(barCY) + '" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#37474f" font-family="Inter,ui-monospace,Cascadia Code,Consolas,monospace">' + esc(formatMs(idleMs)) + '</text>';
+                if (!mtwtLabeled && sx >= LEFT_PAD - 0.5 && ex <= plotRight + 0.5 && aw > 44 && iw > 28) {
+                    mtwtLabeled = true;
+                    // 바 아랫변에 걸쳐 경계선 위에 — 윗 여백은 분기 색 바(appendBranchOverlay)가 덮으므로 피한다.
+                    g += '<text x="' + f(tailX) + '" y="' + f(barY + barH - 3) + '" text-anchor="middle" font-size="7.5" font-weight="800" fill="#6a1b9a"'
+                        + ' style="paint-order:stroke" stroke="#ffffff" stroke-width="2" font-family="' + mono + '" pointer-events="none">MT│WT</text>';
+                }
             } else {
                 var bfill = isEven ? '#9fa8da' : '#ce93d8';
                 g += '<rect x="' + f(sx) + '" y="' + barY + '" width="' + f(bandW) + '" height="' + barH + '" fill="' + bfill + '" opacity="' + (0.85 * dim) + '"/>';

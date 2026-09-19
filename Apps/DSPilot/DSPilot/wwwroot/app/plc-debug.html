@@ -47,21 +47,21 @@
         /* ── PlcDebug 페이지 고유 클래스 — 스위스(평면/헤어라인/토큰/모노 수치/작은 라운드) ── */
         .plc-debug-page { display: flex; flex-direction: column; gap: 16px; min-height: calc(100vh - 120px); }
 
-        /* 히어로: 그라데이션 제거 → 헤어라인 패널 + eyebrow */
-        .plc-debug-hero { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 20px 22px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
-        .plc-debug-title { margin: 8px 0 0; font-weight: 700; color: var(--color-text-primary); font-size: 1.45rem; line-height: 1.15; letter-spacing: -0.015em; }
-        .plc-debug-subtitle { margin: 6px 0 0; color: var(--color-text-secondary); font-size: 0.85rem; line-height: 1.5; }
-        .plc-debug-upload { min-width: 200px; justify-content: center; }
+        /* 업로드 버튼 — 페이지 헤더 우측(제목을 되풀이하던 히어로 패널은 제거) */
+        .plc-debug-upload { justify-content: center; }
 
         .plc-debug-toolbar { padding: 18px 20px; background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: var(--radius-md); }
-        .plc-debug-toolbar-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)) minmax(420px, 2fr); gap: 12px; align-items: stretch; }
+        .plc-debug-toolbar-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(420px, 2fr); gap: 12px; align-items: stretch; }
 
         /* 통계 = 모노 readout */
         .plc-debug-stat { padding: 12px 14px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines); background: var(--color-surface-variant); display: flex; flex-direction: column; gap: 6px; }
+        .plc-debug-stat.is-wide { grid-column: span 2; }
         .plc-debug-stat-label { font-size: 0.64rem; font-weight: 700; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.12em; }
         .plc-debug-stat-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 1.05rem; font-weight: 700; color: var(--color-text-primary); word-break: break-word; line-height: 1.15; letter-spacing: -0.01em; }
 
-        .plc-debug-actions { display: grid; grid-template-columns: 160px minmax(180px, 1fr) 180px; gap: 12px; align-content: start; }
+        /* 고정 px 열(160/180)은 최소 544px 라 420px 트랙에서 우측이 잘렸다 → 줄어들 수 있는 열로 */
+        .plc-debug-actions { display: grid; grid-template-columns: minmax(0, 160px) minmax(0, 1fr) minmax(0, 180px); gap: 12px; align-content: start; }
+        .plc-debug-actions .form-select, .plc-debug-actions .form-field { width: 100%; min-width: 0; box-sizing: border-box; }
         .plc-debug-button-row { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
         .plc-debug-time-range { margin-top: 14px; display: grid; grid-template-columns: repeat(2, minmax(220px, 280px)); gap: 12px; }
 
@@ -93,7 +93,6 @@
             .plc-debug-actions { grid-template-columns: minmax(0, 1fr); }
         }
         @media (max-width: 900px) {
-            .plc-debug-hero { flex-direction: column; align-items: stretch; }
             .plc-debug-time-range { grid-template-columns: 1fr; }
         }
 
@@ -108,10 +107,8 @@
             .pd-pagehead .pd-title { font-size: 1.1rem; }
             .pd-state { font-size: 0.6rem; padding: 4px 9px; }
 
-            /* 히어로: 세로 적층 + 풀폭 업로드 버튼 */
-            .plc-debug-hero { flex-direction: column; align-items: stretch; padding: 16px; }
-            .plc-debug-title { font-size: 1.2rem; }
-            .plc-debug-upload { min-width: 0; width: 100%; min-height: 44px; }
+            /* 업로드 버튼: 풀폭 + 터치 타깃 44px */
+            .plc-debug-upload { width: 100%; min-height: 44px; }
 
             /* 툴바: 6개 stat 카드가 65px 로 찌부러지는 문제 → 2열 */
             .plc-debug-toolbar { padding: 14px; }
@@ -164,7 +161,7 @@
 
         <main class="dsp-main">
 
-            <!-- 콘텐츠 페이지 헤더: 번호 인덱스 + 제목 + DB 로드 상태 칩 -->
+            <!-- 콘텐츠 페이지 헤더: 제목(셸 헤더 'PLC 디버그' 아래 한 번만) + DB 로드 상태 칩 + 업로드 -->
             <div class="pd-pagehead">
                 <div class="pd-head">
                     <span class="pd-title">PLC 로그 타임라인</span>
@@ -175,27 +172,15 @@
                     <span class="pd-state-dot"></span>
                     <span x-text="dbLoaded ? 'DB · 로드됨' : 'DB · 대기'"></span>
                 </span>
+                <label class="btn btn-filled plc-debug-upload">
+                    <span class="material-icons" style="font-size:20px;">upload_file</span>
+                    DB 파일 선택
+                    <input type="file" accept=".db,.sqlite,.sqlite3" style="display:none;"
+                           @change="onDbFileSelected($event)" x-ref="dbFile" />
+                </label>
             </div>
 
             <div class="plc-debug-page">
-                <!-- 히어로 + 업로드 -->
-                <section class="plc-debug-hero">
-                    <div>
-                        <span class="eyebrow">SQLite · 전체 타임라인</span>
-                        <h5 class="plc-debug-title">PLC DB 전체 타임라인</h5>
-                        <p class="plc-debug-subtitle">
-                            DB 파일을 선택하면 전체 태그를 자동 선택하고 전체 기간으로 바로 그립니다.
-                        </p>
-                    </div>
-
-                    <label class="btn btn-filled plc-debug-upload">
-                        <span class="material-icons" style="font-size:20px;">upload_file</span>
-                        DB 파일 선택
-                        <input type="file" accept=".db,.sqlite,.sqlite3" style="display:none;"
-                               @change="onDbFileSelected($event)" x-ref="dbFile" />
-                    </label>
-                </section>
-
                 <!-- 업로드 중 -->
                 <div class="alert alert-info" x-show="uploading">
                     <div style="display:flex; align-items:center; gap:10px;">
@@ -213,21 +198,15 @@
                                     <span class="plc-debug-stat-label">파일</span>
                                     <strong class="plc-debug-stat-value" x-text="currentDbFileName"></strong>
                                 </div>
-                                <div class="plc-debug-stat">
+                                <!-- 태그 셀 하나에 선택/전체/데이터 있음(마지막 렌더에서 로그가 있던 태그) -->
+                                <div class="plc-debug-stat is-wide">
                                     <span class="plc-debug-stat-label">태그</span>
-                                    <strong class="plc-debug-stat-value" x-text="totalTags.toLocaleString()"></strong>
+                                    <strong class="plc-debug-stat-value"
+                                            x-text="'선택 ' + selectedTagIds.size.toLocaleString() + ' / 전체 ' + totalTags.toLocaleString() + ' · 데이터 있음 ' + activeTagCount.toLocaleString()"></strong>
                                 </div>
                                 <div class="plc-debug-stat">
                                     <span class="plc-debug-stat-label">로그</span>
                                     <strong class="plc-debug-stat-value" x-text="totalLogs.toLocaleString()"></strong>
-                                </div>
-                                <div class="plc-debug-stat">
-                                    <span class="plc-debug-stat-label">선택</span>
-                                    <strong class="plc-debug-stat-value" x-text="selectedTagIds.size.toLocaleString()"></strong>
-                                </div>
-                                <div class="plc-debug-stat">
-                                    <span class="plc-debug-stat-label">활성 태그</span>
-                                    <strong class="plc-debug-stat-value" x-text="activeTagCount.toLocaleString()"></strong>
                                 </div>
                                 <div class="plc-debug-stat">
                                     <span class="plc-debug-stat-label">기간</span>
@@ -236,7 +215,7 @@
                                 <div class="plc-debug-actions">
                                     <div class="form-group">
                                         <label class="form-label">Flow</label>
-                                        <select class="form-select" x-model="selectedFlow" @change="onFlowChanged()"
+                                        <select class="form-select" x-model="selectedFlow"
                                                 :disabled="flowNames.length === 0">
                                             <option value="">전체</option>
                                             <template x-for="flow in flowNames" :key="flow">
@@ -246,24 +225,23 @@
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">검색</label>
-                                        <input class="form-field" x-model="tagFilter" @input="onTagFilterChanged()"
-                                               placeholder="주소 또는 이름" />
+                                        <input class="form-field" x-model="tagFilter" placeholder="주소 또는 이름" />
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">최대 포인트/태그</label>
-                                        <select class="form-select" x-model.number="maxPointsPerTag">
-                                            <option value="120">120 (전체 보기)</option>
-                                            <option value="240">240 (기본)</option>
-                                            <option value="500">500 (상세)</option>
-                                            <option value="1000">1,000 (고해상도)</option>
+                                        <select class="form-select" x-model.number="maxPointsPerTag" @change="markStale()">
+                                            <option value="120">120 · 빠름</option>
+                                            <option value="240">240 · 기본</option>
+                                            <option value="500">500 · 상세</option>
+                                            <option value="1000">1,000 · 정밀</option>
                                         </select>
                                     </div>
                                     <div class="plc-debug-button-row">
-                                        <button class="btn btn-outlined color-default" @click="selectAllFilteredTags()">
+                                        <button class="btn btn-outlined color-default" @click="selectAllFilteredTags()" title="보이는 태그를 모두 선택">
                                             <span class="material-icons" style="font-size:18px;">done_all</span>
                                             전체 선택
                                         </button>
-                                        <button class="btn btn-outlined color-default" @click="clearSelection()">
+                                        <button class="btn btn-outlined color-default" @click="clearSelection()" title="보이는 태그를 모두 해제">
                                             <span class="material-icons" style="font-size:18px;">clear_all</span>
                                             전체 해제
                                         </button>
@@ -271,10 +249,11 @@
                                             <span class="material-icons" style="font-size:18px;">history</span>
                                             전체 기간
                                         </button>
-                                        <button class="btn btn-filled" @click="loadChartData()"
+                                        <!-- dirty 규약: 평소 중립 .btn, 그려진 차트와 조건이 어긋나면(chartStale) PRIMARY + '*' -->
+                                        <button class="btn" :class="chartStale ? 'btn-primary' : ''" @click="loadChartData()"
                                                 :disabled="loadingChart || selectedTagIds.size === 0">
                                             <span class="material-icons" style="font-size:18px;" x-text="loadingChart ? 'hourglass_empty' : 'refresh'"></span>
-                                            <span x-text="loadingChart ? '로딩 중...' : '다시 그리기'"></span>
+                                            <span x-text="loadingChart ? '로딩 중...' : (chartStale ? '다시 그리기*' : '다시 그리기')"></span>
                                         </button>
                                     </div>
                                 </div>
@@ -283,16 +262,16 @@
                             <div class="plc-debug-time-range">
                                 <div class="form-group">
                                     <label class="form-label">시작 시간</label>
-                                    <input type="datetime-local" class="form-field" step="1" x-model="startTime" />
+                                    <input type="datetime-local" class="form-field" step="1" x-model="startTime" @change="markStale()" />
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">종료 시간</label>
-                                    <input type="datetime-local" class="form-field" step="1" x-model="endTime" />
+                                    <input type="datetime-local" class="form-field" step="1" x-model="endTime" @change="markStale()" />
                                 </div>
                             </div>
                         </section>
 
-                        <details class="expansion-panel plc-debug-selector">
+                        <details class="expansion-panel plc-debug-selector" open>
                             <summary x-text="'태그 선택(' + selectedTagIds.size + ' / ' + tags.length + ')'"></summary>
                             <div class="plc-debug-selector-body">
                                 <div class="plc-debug-tag-grid">
@@ -365,6 +344,7 @@
             return {
                 dark: false,
                 uploading: false, dbLoaded: false, loadingChart: false, chartLoaded: false,
+                chartStale: false,                   // 그려진 차트 ≠ 현재 조건(선택·기간·포인트 상한) — '다시 그리기*' 표시
                 currentDbFileName: '',
                 tags: [], flowNames: [],
                 selectedTagIds: new Set(),
@@ -489,7 +469,9 @@
                     }
                     this.tagFilter = '';
 
-                    this.syncSelectionToCurrentFilter();
+                    // 첫 로드 = 전체 선택. 이후 검색·Flow 는 보이는 칩만 걸러내고 선택은 칩 클릭·전체 선택/해제로만 바뀐다.
+                    this.selectedTagIds = new Set(this.tags.map(t => t.id));
+                    this.chartStale = false;
 
                     // 자동 렌더 (Blazor _pendingAutoRender)
                     if (this.dbLoaded && this.selectedTagIds.size > 0) {
@@ -497,26 +479,47 @@
                     }
                 },
 
-                // ── 필터/선택 (Blazor) ──
-                onFlowChanged() { this.syncSelectionToCurrentFilter(); this.markChartAsFilterChanged(); },
-                onTagFilterChanged() { this.syncSelectionToCurrentFilter(); this.markChartAsFilterChanged(); },
+                // ── 필터/선택 ──
+                //   검색·Flow 는 보이는 칩만 걸러낸다(선택 불변). 선택은 칩 클릭 / 전체 선택 / 전체 해제(보이는 칩 대상)로만 바뀐다.
+                //   차트는 선택 전체를 그리므로 필터 변경은 stale 이 아니고, 선택·기간·포인트 상한 변경만 stale 이다.
                 toggleTag(id) {
                     if (this.selectedTagIds.has(id)) this.selectedTagIds.delete(id);
                     else this.selectedTagIds.add(id);
                     // Set 변경 반응성 트리거
                     this.selectedTagIds = new Set(this.selectedTagIds);
+                    this.afterSelectionChange();
                 },
-                selectAllFilteredTags() { this.syncSelectionToCurrentFilter(); this.markChartAsFilterChanged(); },
+                // 보이는 칩(현재 검색·Flow 통과) 전부를 선택에 더한다 — 가려진 선택은 건드리지 않는다.
+                selectAllFilteredTags() {
+                    const s = new Set(this.selectedTagIds);
+                    this.filteredTags.forEach(t => s.add(t.id));
+                    this.selectedTagIds = s;
+                    this.afterSelectionChange();
+                },
+                // 보이는 칩만 선택에서 뺀다(필터 없음 = 전체 해제).
                 clearSelection() {
-                    this.selectedTagIds = new Set();
-                    this.chartLoaded = false;
-                    this.samplingInfo = '선택된 태그가 없습니다.';
-                    try { window.plcDebug.destroyChart(); } catch (e) {}
+                    const s = new Set(this.selectedTagIds);
+                    this.filteredTags.forEach(t => s.delete(t.id));
+                    this.selectedTagIds = s;
+                    this.afterSelectionChange();
                 },
+                afterSelectionChange() {
+                    if (!this.dbLoaded) return;
+                    if (this.selectedTagIds.size === 0) {
+                        // 그릴 것이 없다 — 차트를 지우고 빈 상태로(stale 아님).
+                        this.chartLoaded = false; this.chartStale = false; this.activeTagCount = 0; this.samplingInfo = '';
+                        try { window.plcDebug.destroyChart(); } catch (e) {}
+                        return;
+                    }
+                    this.markStale();
+                },
+                // 그려진 차트와 현재 조건이 어긋남 — '다시 그리기' 버튼이 PRIMARY + '*' 로 바뀐다(차트는 그대로 둔다).
+                markStale() { if (this.dbLoaded) this.chartStale = true; },
                 resetTimeRange() {
                     this.startTime = this.isoToLocalInput(this.oldestLog);
                     this.endTime = this.isoToLocalInput(this.latestLog);
                     this.clampTimeRange(); // '전체 기간'도 상한(2개월) 적용 — 최신 기준으로 시작을 당김
+                    this.markStale();
                 },
                 // 시간창 상한(2개월) — 종료 기준으로 시작을 당기고 안내(shell.js dspClampRange SSOT).
                 clampTimeRange() {
@@ -530,28 +533,14 @@
                     this.endTime = fmt(r.end);
                     this.showToast(window.dspRangeClampMsg || '기간은 최대 2개월까지 선택할 수 있어 자동으로 조정했습니다.', 'warning');
                 },
-                syncSelectionToCurrentFilter() {
-                    this.selectedTagIds = new Set(this.filteredTags.map(t => t.id));
-                },
-                markChartAsFilterChanged() {
-                    if (!this.dbLoaded) return;
-                    this.chartLoaded = false;
-                    this.activeTagCount = 0;
-                    this.samplingInfo = this.selectedTagIds.size === 0
-                        ? '현재 필터 조건에 맞는 태그가 없습니다.'
-                        : '현재 필터로 ' + this.selectedTagIds.size.toLocaleString() + '개 태그가 선택되었습니다. 다시 그리기를 눌러 반영하세요.';
-                },
 
                 // ── 차트 로드 (Blazor LoadChartData — 서버에서 datasets/lanes 계산) ──
                 async loadChartData() {
                     this.clampTimeRange(); // 직접 입력한 시간창도 상한(2개월) 적용
-                    const filteredIds = new Set(this.filteredTags.map(t => t.id));
-                    if (filteredIds.size === 0) { this.showToast('필터 조건에 맞는 태그가 없습니다.', 'warning'); return; }
                     if (this.selectedTagIds.size === 0) { this.showToast('태그를 선택하세요.', 'warning'); return; }
 
-                    // 필터 ∩ 선택 (서버가 주소순 정렬·검증하므로 ID 만 전달)
-                    const tagIds = [...this.selectedTagIds].filter(id => filteredIds.has(id));
-                    if (tagIds.length === 0) { this.showToast('현재 필터에서 선택된 태그가 없습니다.', 'warning'); return; }
+                    // 선택 전체를 그린다(검색·Flow 는 칩 표시용 필터). 서버가 주소순 정렬·검증하므로 ID 만 전달.
+                    const tagIds = [...this.selectedTagIds];
 
                     this.loadingChart = true;
                     this.chartLoaded = false;
@@ -569,6 +558,7 @@
 
                         this.activeTagCount = result.activeTagCount || 0;
                         this.samplingInfo = result.samplingInfo || '';
+                        this.chartStale = false;   // 지금 조건으로 그렸다(데이터 0건이어도 조건은 반영됨)
 
                         if (this.activeTagCount === 0 || !result.rangeStart || !result.rangeEnd) {
                             try { window.plcDebug.destroyChart(); } catch (e) {}
@@ -612,11 +602,8 @@
                     const s = this.parseInput(this.startTime), e = this.parseInput(this.endTime);
                     if (!s || !e) return '-';
                     const ms = e.getTime() - s.getTime();
-                    const days = ms / 86400000, hrs = ms / 3600000, mins = ms / 60000, secs = ms / 1000;
-                    if (days >= 1) return days.toFixed(1) + ' day';
-                    if (hrs >= 1) return hrs.toFixed(1) + ' hr';
-                    if (mins >= 1) return mins.toFixed(1) + ' min';
-                    return secs.toFixed(1) + ' sec';
+                    // 지속시간 표기 SSOT = shell.js window.dspFmt.dur ('1.5 day' 류 영문 단위 금지).
+                    return (window.dspFmt && typeof window.dspFmt.dur === 'function') ? window.dspFmt.dur(ms, '-') : Math.round(ms / 1000) + '초';
                 },
 
                 // ── 시간 변환 헬퍼 ──

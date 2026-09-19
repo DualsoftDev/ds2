@@ -50,6 +50,9 @@
         .tm-item { display: flex; align-items: center; gap: 8px; padding: 6px 7px; border-radius: var(--radius-sm); cursor: pointer; border: 1px solid transparent; }
         .tm-item:hover { background: var(--color-surface-variant); }
         .tm-item.is-on { border-color: color-mix(in srgb, var(--color-primary) 45%, transparent); background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
+        /* 미수집(tagId 없음) — 고를 수 없으니 흐리게 + 칩으로 이유를 보인다(툴팁에만 숨기지 않는다) */
+        .tm-item.is-off { opacity: 0.55; cursor: default; }
+        .tm-chip-mini { display: inline-block; padding: 0 5px; border: 1px solid var(--color-lines-strong); border-radius: 3px; font-family: var(--font-family); font-size: 0.6rem; font-weight: 700; line-height: 1.45; color: var(--color-text-secondary); vertical-align: 1px; margin-left: 4px; }
         .tm-item input { flex: 0 0 auto; }
         .tm-item-body { min-width: 0; flex: 1; }
         .tm-item-name { font-size: 0.8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -76,13 +79,10 @@
 
         /* ── 차트 ── */
         .tm-chart-wrap { position: relative; height: 320px; }
-        .tm-axis-note { font-size: 0.68rem; color: var(--color-text-secondary); margin-top: 6px; }
 
         /* ── 표 ── */
         .tm-table-scroll { max-height: 420px; overflow: auto; }
         .tm-num { font-family: var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; }
-        .tm-trunc { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: var(--color-warning); margin-top: 6px; }
-        .tm-trunc .material-icons { font-size: 15px; }
 
         .dsp-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2500; padding: 11px 18px; border-radius: var(--radius-sm); border: 1px solid var(--color-lines-strong); color: var(--color-surface); background: var(--color-text-primary); font-size: 0.82rem; font-weight: 600; box-shadow: var(--shadow-4); }
         .dsp-toast.error { border-left: 3px solid var(--color-error); }
@@ -171,20 +171,24 @@
                                 <button type="button" :class="{ active: kind === 'all' }" @click="kind = 'all'">전체</button>
                             </div>
                             <div style="display:flex; gap:6px;">
-                                <button class="btn btn-sm btn-outlined color-default" style="flex:1;" @click="selectVisible()">보이는 것 선택</button>
+                                <button class="btn btn-sm btn-outlined color-default" style="flex:1;" @click="selectVisible()"
+                                        :disabled="visibleSelectable === 0"
+                                        :title="visibleSelectable > maxSel ? ('한 번에 최대 ' + maxSel + '개까지 볼 수 있습니다') : null"
+                                        x-text="visibleSelectable > maxSel ? ('처음 ' + maxSel + '개 선택') : '보이는 것 선택'"></button>
                                 <button class="btn btn-sm btn-outlined color-default" style="flex:1;" @click="clearSelection()">해제</button>
                             </div>
                         </div>
 
                         <div class="tm-list">
                             <template x-for="t in filteredTags" :key="t.key">
-                                <label class="tm-item" :class="{ 'is-on': isSelected(t) }">
+                                <label class="tm-item" :class="{ 'is-on': isSelected(t), 'is-off': !t.tagId }">
                                     <input type="checkbox" :checked="isSelected(t)" @change="toggle(t)" :disabled="!t.tagId" />
                                     <span class="tm-dot" :style="'background:' + colorOf(t)"></span>
                                     <span class="tm-item-body">
                                         <span class="tm-item-name" x-text="t.name"></span>
                                         <span class="tm-item-sub">
-                                            <span x-text="t.address"></span> · <span x-text="t.valueType"></span>
+                                            <span x-text="t.address"></span> · <span x-text="fmtType(t.valueType)"></span>
+                                            <span x-show="!t.tagId" class="tm-chip-mini" title="아직 수집된 값이 없어 고를 수 없습니다">미수집</span>
                                             <span x-show="t.level === 'Error'" title="이상알람TAG — 조건에 걸리면 알람도 발화합니다">· 알람</span>
                                             <span x-show="!t.inModel" title="지금 모델에 없는 주소입니다 — 과거 이력만 남아 있습니다">· 모델 없음</span>
                                         </span>
@@ -231,18 +235,12 @@
                                 <div class="card-header">
                                     <span class="material-icons">timeline</span><span>값 추이</span>
                                     <span class="chip" x-text="numericSeries.length + '개 태그'"></span>
+                                    <!-- 상시 설명문 대신 경고일 때만 칩 — 축 규칙(계단·둘째 축)은 차트 자체가 보여 준다 -->
+                                    <span class="chip chip-warning" x-show="unitsMixed" title="단위가 셋 이상이라 일부는 왼쪽 축에 함께 그려집니다">단위 혼합</span>
+                                    <span class="chip chip-warning" x-show="anyTruncated" title="포인트가 많아 일부를 솎아 그렸습니다 — 통계는 전체 기록으로 계산됩니다">솎음</span>
                                 </div>
                                 <div class="card-content">
                                     <div class="tm-chart-wrap"><canvas x-ref="numChart"></canvas></div>
-                                    <div class="tm-axis-note">
-                                        값이 바뀐 시점만 기록되므로 계단으로 잇습니다. 구간 시작값은 구간 직전 마지막 기록에서 가져옵니다.
-                                        단위가 둘이면 오른쪽에 두 번째 축을 세웁니다.
-                                        <span x-show="unitsMixed" style="color:var(--color-warning);">— 단위가 셋 이상이라 일부는 왼쪽 축에 함께 그려집니다. 나눠 보세요.</span>
-                                    </div>
-                                    <div class="tm-trunc" x-show="anyTruncated">
-                                        <span class="material-icons">warning</span>
-                                        <span>포인트가 많아 일부를 솎아 그렸습니다 — 통계는 전체 기록으로 계산됩니다. 정확한 파형은 기간을 좁혀 보세요.</span>
-                                    </div>
                                 </div>
                             </div>
 
@@ -285,7 +283,7 @@
                                                 <tr>
                                                     <td data-label="태그"><span x-text="s.name"></span>
                                                         <span style="color:var(--color-text-disabled); font-family:var(--font-mono); font-size:0.7rem;" x-text="' ' + s.address"></span></td>
-                                                    <td data-label="타입" x-text="s.valueType"></td>
+                                                    <td data-label="타입" x-text="fmtType(s.valueType)"></td>
                                                     <td data-label="변화" class="tm-num" x-text="s.stats.changes"></td>
                                                     <td data-label="최소" class="tm-num" x-text="fmtNum(s.stats.min)"></td>
                                                     <td data-label="최대" class="tm-num" x-text="fmtNum(s.stats.max)"></td>

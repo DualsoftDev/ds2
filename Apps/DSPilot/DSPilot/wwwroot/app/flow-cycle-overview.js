@@ -52,8 +52,11 @@ function overviewCycleApp() {
         // 카드 간트 표시 — Call 막대 / IN·OUT 파형 각각 토글(둘 다 가능). 모든 카드 일괄, 브라우저 기억.
         showCall: loadShow().call, showIo: loadShow().io,
         dataLatestAt: null,
-        dataAnchorHint: '',
+        dataAnchorHint: '',      // "~ HH:MM:SS"(+ " · N분 전" 지연 1분 이상) — 단일 페이지와 같은 규약
+        dataAnchorLag: false,
         msg: '', msgError: false,
+        // 카드 필터(2026-09-18) — 이름 검색 + '문제만'(CT 중복·정상 CT 없음·정보 없음 > 0, 오류 카드 포함). x-show 로 숨긴다(DOM·관찰자 유지).
+        ovQuery: '', ovProblemOnly: false,
         exportingAll: false,
         // 공유 이동/확대 — 상단 슬라이더가 모든 카드 간트에 일괄 적용(Ctrl+휠 = 커서 앵커 줌).
         zoom: 1,
@@ -148,6 +151,21 @@ function overviewCycleApp() {
 
         get loadingAny() { return this.flows.some(s => s.loading); },
         get loadedFlowCount() { return this.flows.filter(s => !s.loading && !s.error && s.callLanes.length).length; },
+        // ── 카드 필터 ── 로딩 중인 카드는 판정 전이라 '문제만'에서도 남긴다.
+        isProblem(s) { return !!s.error || (!!s.bp && (s.bp.dup > 0 || s.bp.un > 0)) || s.unmeasuredMs > 0; },
+        isVisible(s) {
+            const q = this.ovQuery.trim().toLowerCase();
+            return (!q || s.flowName.toLowerCase().includes(q)) && (!this.ovProblemOnly || s.loading || this.isProblem(s));
+        },
+        get problemCount() { return this.flows.filter(s => !s.loading && this.isProblem(s)).length; },
+        get visibleFlows() { return this.flows.filter(s => this.isVisible(s)); },
+        // 숨겨진 동안 창 폭이 바뀌었을 수 있어 다시 보이는 카드는 폭을 재측정(변했을 때만 SVG 재생성).
+        onOvFilter() {
+            this.$nextTick(() => {
+                for (const s of this.visibleFlows) { const w = s.baseWidth; this.measurePlotWidth(s); if (s.callLanes.length && s.baseWidth !== w) s.svgMarkup = CG.buildSvg(s); }
+                this.syncPanAllSoon();
+            });
+        },
         // 페이지 상단 합계 — 로드된 카드 기준(분기 flow 의 사이클 = 판별 스팬 수).
         get totals() {
             const t = { flows: this.flows.length, loaded: 0, cycles: 0, branched: 0, dup: 0, un: 0, minViol: 0, unmeasured: 0 };
@@ -623,14 +641,14 @@ function overviewCycleApp() {
         },
         refreshAnchorHint() {
             const d = this.dataLatestAt;
-            if (!d) { this.dataAnchorHint = ''; return; }
+            if (!d) { this.dataAnchorHint = ''; this.dataAnchorLag = false; return; }
             const lagSec = Math.floor((Date.now() - d.getTime()) / 1000);
             const hhmmss = d.toTimeString().slice(0, 8);
-            if (lagSec < 60) { this.dataAnchorHint = ''; return; }
+            this.dataAnchorLag = lagSec >= 60;
             const lag = lagSec < 3600
                 ? Math.floor(lagSec / 60) + '분 전'
                 : Math.floor(lagSec / 3600) + '시간 ' + Math.floor((lagSec % 3600) / 60) + '분 전';
-            this.dataAnchorHint = '기준: 신호 마지막 ' + hhmmss + ' (' + lag + ')';
+            this.dataAnchorHint = '~ ' + hhmmss + (this.dataAnchorLag ? ' · ' + lag : '');
         },
 
         toInputValue(iso) { return iso ? iso.slice(0, 19) : ''; },

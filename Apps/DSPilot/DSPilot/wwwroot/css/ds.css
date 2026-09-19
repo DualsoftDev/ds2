@@ -477,3 +477,34 @@
     .modal-content, .dialog { width: calc(100vw - 24px); max-width: calc(100vw - 24px); max-height: 88vh; overflow-y: auto; }
     .modal-content { padding: 18px; }
 }
+
+/* ============================================================================
+   선택·일괄 바 (공용) — 2026-09-18
+   ----------------------------------------------------------------------------
+   목록/표에서 여러 건을 골라 한 번에 처리하는 표준 UI. 페이지마다 따로 만들지 말고 이 클래스를 쓴다.
+     <td class="ds-check"><input type="checkbox"></td>          행 체크박스 셀(헤더도 동일, indeterminate 는 JS)
+     <div class="ds-selbar" x-show="selCount > 0">
+        <span class="ds-selbar-count">N건 선택</span>
+        <button class="ds-selbar-link">검색 결과 M건 모두 선택</button>   ← 필터 결과가 표시분보다 많을 때만
+        <span class="ds-selbar-sp"></span>
+        [.btn.btn-sm 액션들 / .form-field 셀렉트]  <button class="ds-selbar-link">선택 해제</button>
+     </div>
+   규약: 헤더 체크 = 지금 표시된 행 전부(페이지 단위), "모두 선택" 링크 = 필터 결과 전체.
+   일괄 동작은 선택 건수를 라벨에 붙인다("삭제 12"). 되돌리기 가능한 동작은 확인 없이, 파괴적 동작만 확인.
+   ============================================================================ */
+.ds-selbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; margin: 8px 0;
+    font-size: 0.76rem; border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+    border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--color-lines));
+    border-left: 3px solid var(--color-primary); }
+.ds-selbar-count { font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--color-primary-strong); }
+.dark-theme .ds-selbar-count { color: var(--color-primary); }
+.ds-selbar-link { background: none; border: none; padding: 0; margin: 0; cursor: pointer; font: inherit; font-size: 0.74rem;
+    color: var(--color-primary); text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+.ds-selbar-link:disabled { opacity: 0.45; cursor: default; text-decoration: none; }
+.ds-selbar-sp { flex: 1 1 auto; }
+.ds-selbar .btn.btn-sm .material-icons { font-size: 16px; }
+.ds-selbar .form-field, .ds-selbar .form-select { height: 30px; padding: 2px 8px; font-size: 0.76rem; width: auto; min-width: 140px; }
+.ds-check { width: 34px; padding-left: 10px !important; padding-right: 4px !important; text-align: center; }
+.ds-check input[type=checkbox] { width: 15px; height: 15px; margin: 0; vertical-align: middle; cursor: pointer; accent-color: var(--color-primary); }
+.ds-table tbody tr.is-selected { background: color-mix(in srgb, var(--color-primary) 9%, transparent); }

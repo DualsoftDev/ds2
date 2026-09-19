@@ -103,6 +103,10 @@
                 _utDrillSeq: 0,
                 // 알람 이력 테이블 — 페이지 크기 / 정렬(서버 처리). sort 키는 서버 화이트리스트와 일치.
                 utPageSize: 10, utSort: 'occurredAt', utSortDir: 'desc', _utSearchTimer: null,
+                // 알림 이력 행 선택(공용 .ds-selbar, 2026-09-18) — 키 = histRowKey(a). 현재 페이지에 있는 행만 선택으로 센다(histSelRows).
+                histSel: {},
+                // 고장 지표 건별 표 표시 한도 — '더보기' 로 +50.
+                relLimit: 50,
                 _focusAt: null, // 피드에서 at 으로 진입 시 스크롤·하이라이트할 알람 행 키(occurredAtLocal 초단위)
                 _charts: null,
                 dailyData: null,
@@ -642,10 +646,10 @@
                 cmChipTitle(f) {
                     const parts = [f.flowName + ' · 14일 실측', '평균 CT ' + this.cmFmtMs(f.avgCtMs), '중앙 CT ' + this.cmFmtMs(f.medianCtMs), '완료 표본 ' + (f.sampleCount || 0) + '건'];
                     if (f.hasMtBaseline) {
-                        parts.push('평소 동작(MT) ' + this.cmFmtMs(f.medianMtMs) + ' · 평소 대기(WT) ' + this.cmFmtMs(f.medianWtMs));
+                        parts.push('평소 동작 ' + this.cmFmtMs(f.medianMtMs) + ' · 평소 대기 ' + this.cmFmtMs(f.medianWtMs));
                         parts.push('완료 신호 없는 사이클: 고장 > ' + this.cmFmtMs(this.cmBound(f, 'faultCt')) + ' · 비생산 ≥ ' + this.cmFmtMs(this.cmBound(f, 'nonprodCt')) + ' (사이클 길이 기준)');
                     } else {
-                        parts.push('동작(MT) 기준 없음 — 완료 신호 미정의 → 고장 판별 불가, 비생산은 사이클 길이 ≥ ' + this.cmFmtMs(this.cmBound(f, 'nonprodCt')));
+                        parts.push('동작 기준 없음 — 완료 신호 미정의 → 고장 판별 불가, 비생산은 사이클 길이 ≥ ' + this.cmFmtMs(this.cmBound(f, 'nonprodCt')));
                     }
                     if (this.cmGated(f)) parts.push('표본 ' + (f.sampleCount || 0) + '건 < ' + this.cm.minSamples + ' — 판정 불가(라인 집계 제외)');
                     return parts.join('\n');
@@ -819,7 +823,9 @@
                     }
                 },
                 // 상태 칩 클릭 = 그 상태만 보기(같은 칩 다시 누르면 해제).
-                setRelState(s) { this.relState = this.relState === s ? '' : s; },
+                setRelState(s) { this.relState = this.relState === s ? '' : s; this.relLimit = 50; },
+                // 건별 표는 50건씩 — 잘린 건수를 숨기지 않고 "N건 중 50건 표시 · 더보기" 로 밝힌다.
+                relMore() { this.relLimit += 50; },
                 get relRows() {
                     const rows = this.rel?.alerts || [];
                     return this.relState ? rows.filter(a => a.state === this.relState) : rows;
@@ -917,25 +923,26 @@
                 // 검색어 입력 — 키 입력마다 서버 재조회를 피하려 300ms 디바운스 후 첫 페이지부터 재조회.
                 onUtSearchInput() {
                     if (this._utSearchTimer) clearTimeout(this._utSearchTimer);
-                    this._utSearchTimer = setTimeout(() => { this.utPage = 0; this.load(); }, 300);
+                    this._utSearchTimer = setTimeout(() => { this.utPage = 0; this.histSelClear(); this.load(); }, 300);
                 },
-                clearUtSearch() { this.utSearch = ''; this.utPage = 0; this.load(); },
+                clearUtSearch() { this.utSearch = ''; this.utPage = 0; this.histSelClear(); this.load(); },
                 // 페이지 크기 변경 — 첫 페이지로 리셋 후 재조회.
-                setUtPageSize(n) { this.utPageSize = +n || 10; this.utPage = 0; this.load(); },
+                setUtPageSize(n) { this.utPageSize = +n || 10; this.utPage = 0; this.histSelClear(); this.load(); },
                 // 정렬 헤더 클릭 — 같은 컬럼이면 방향 토글, 다른 컬럼이면 내림차순 시작. 서버 정렬이라 재조회.
                 setUtSort(col) {
                     if (this.utSort === col) this.utSortDir = this.utSortDir === 'asc' ? 'desc' : 'asc';
                     else { this.utSort = col; this.utSortDir = 'desc'; }
-                    this.utPage = 0; this.load();
+                    this.utPage = 0; this.histSelClear(); this.load();
                 },
                 utSortIcon(col) {
                     if (this.utSort !== col) return 'unfold_more';
                     return this.utSortDir === 'asc' ? 'arrow_upward' : 'arrow_downward';
                 },
-                prevUtPage() { if (this.utPage === 0) return; this.utPage--; this.load(); },
-                nextUtPage() { if (!this.ut || this.utPage + 1 >= this.ut.maxPage) return; this.utPage++; this.load(); },
-                firstUtPage() { if (this.utPage === 0) return; this.utPage = 0; this.load(); },
-                lastUtPage() { if (!this.ut || this.utPage + 1 >= this.ut.maxPage) return; this.utPage = this.ut.maxPage - 1; this.load(); },
+                // 페이지 이동은 선택을 비운다(선택 = 현재 페이지 한정 규약).
+                prevUtPage() { if (this.utPage === 0) return; this.utPage--; this.histSelClear(); this.load(); },
+                nextUtPage() { if (!this.ut || this.utPage + 1 >= this.ut.maxPage) return; this.utPage++; this.histSelClear(); this.load(); },
+                firstUtPage() { if (this.utPage === 0) return; this.utPage = 0; this.histSelClear(); this.load(); },
+                lastUtPage() { if (!this.ut || this.utPage + 1 >= this.ut.maxPage) return; this.utPage = this.ut.maxPage - 1; this.histSelClear(); this.load(); },
                 // Excel(.xlsx) 다운로드 — 서버(/api/user-tags/excel)가 현재 필터로 조회해 xlsx 를 반환(Content-Disposition attachment).
                 // utQs() 가 기간·검색·System·구분·설비(flow) 필터를 그대로 담는다.
                 exportUtExcel() {
@@ -946,6 +953,53 @@
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
+                },
+
+                // ── 알림 이력 행 선택 → 일괄 차단 (2026-09-18, 공용 .ds-selbar 규약: 헤더 체크 = 표시된 행 전부) ──
+                // 행에 id 가 없어 키 = 발생시각(ms)+주소+이름. histSelRows 가 표시 중인 행과의 교집합이라 10초 폴링으로
+                // ut 가 교체돼도 선택이 유지되고, 기간 변경 등으로 남은 잔여 키는 보이지 않는다(페이지·정렬·검색 이동 시 비움).
+                histRowKey(a) { return (a.occurredAtLocal || '') + '|' + (a.tagAddress || '') + '|' + (a.name || ''); },
+                histIsSel(a) { return !!this.histSel[this.histRowKey(a)]; },
+                histToggleSel(a, on) {
+                    const sel = { ...this.histSel }, k = this.histRowKey(a);
+                    if (on) sel[k] = true; else delete sel[k];
+                    this.histSel = sel;
+                },
+                get histSelRows() { return ((this.ut && this.ut.alerts) || []).filter(a => this.histSel[this.histRowKey(a)]); },
+                get histSelCount() { return this.histSelRows.length; },
+                get histAllSel() { const rows = (this.ut && this.ut.alerts) || []; return rows.length > 0 && rows.every(a => this.histSel[this.histRowKey(a)]); },
+                histSelectAll(on) {
+                    const sel = { ...this.histSel };
+                    for (const a of ((this.ut && this.ut.alerts) || [])) { const k = this.histRowKey(a); if (on) sel[k] = true; else delete sel[k]; }
+                    this.histSel = sel;
+                },
+                histSelClear() { if (Object.keys(this.histSel).length) this.histSel = {}; },
+                // 선택 행 → 차단 대상(중복 제거): 자동감지 = 디바이스 + 그 행들의 유형, 이상알람TAG = 주소.
+                get histSelTargets() {
+                    const devices = new Set(), kinds = new Set(), tags = new Set();
+                    for (const a of this.histSelRows) {
+                        if (a.matchOp === 'AbnormalDetect') { const d = this.rowDevice(a); if (d) { devices.add(d); if (a.matchValue) kinds.add(a.matchValue); } }
+                        else if (a.tagAddress) tags.add(a.tagAddress);
+                    }
+                    return { devices: [...devices], kinds: [...kinds], tags: [...tags] };
+                },
+                get histSelBlockCount() { const t = this.histSelTargets; return t.devices.length + t.tags.length; },
+                // 선택 행 전부를 미리 선택한 채 차단 모달 열기 — 두 탭 모두 채우고, 자동감지 대상이 있으면 자동알람 탭부터.
+                async openBlockMgrForHistSel() {
+                    const t = this.histSelTargets;
+                    if (!t.devices.length && !t.tags.length) return;
+                    const m = this.blockMgr;
+                    m.show = true; m.tab = t.devices.length ? 'auto' : 'user'; m.msg = ''; m.err = ''; m.ut.msg = ''; m.ut.err = '';
+                    await Promise.all([this.loadBlockState(), this.loadUserTagBlockState()]);
+                    if (t.devices.length) this.blkPreset(t.devices, t.kinds);
+                    m.ut.selected = Object.fromEntries(t.tags.map(addr => [addr, true]));
+                    this.utBlkHoistSelected();
+                },
+                // 미리 선택된 이상알람TAG 를 목록 맨 위로(1회, 안정 정렬) — 2천 행 사이에서 체크된 행을 찾게 하지 않는다.
+                utBlkHoistSelected() {
+                    const u = this.blockMgr.ut, sel = u.selected || {};
+                    if (!Object.keys(sel).length) return;
+                    u.tags = [...u.tags].sort((a, b) => (sel[b.tagAddress] ? 1 : 0) - (sel[a.tagAddress] ? 1 : 0));
                 },
                 // ── 생산효율(TEEP) 로드 (/api/oee/teep) — 생산효율 페이지(/uptime-teep) 전용 ──
                 async loadTeep() {
@@ -1769,6 +1823,7 @@
                     if (this.utCategory === next) return;
                     this.utCategory = next;
                     this.utPage = 0;
+                    this.histSelClear();
                     this.load();
                 },
                 // 현재 조회 중인 구분 문구 — 시계열/Top10 부제가 요약 카드 필터와 어긋나지 않게 한다.
@@ -1821,8 +1876,9 @@
                         case 'Eq': return '= ' + v; case 'Neq': return '≠ ' + v; case 'Gt': return '> ' + v; case 'Gte': return '≥ ' + v;
                         case 'Lt': return '< ' + v; case 'Lte': return '≤ ' + v;
                         case 'AbnormalDetect': {
+                            // 내부 토큰(SensorOpen 등)은 화면에 내지 않는다 — 검색은 서버가 matchValue 로도 잡는다.
                             const m = { SensorShort: '예상치 않은 시점에 완료 신호 감지', SensorOpen: '유지돼야 할 센서 신호 끊김', ActionOver: '허용 시간 초과', ActionUnder: '허용 시간 미만' };
-                            return (m[mv] || '이상 감지') + (mv ? ' (' + mv + ')' : '');
+                            return m[mv] || '이상 감지';
                         }
                         default: return op || '?';
                     }
@@ -1880,6 +1936,8 @@
                 blkKindLabel(kind) { const o = this.blockMgr.kindOptions.find(k => k.kind === kind); return o ? o.label : String(kind); },
                 get blkSelectedCount() { return Object.values(this.blockMgr.selected).filter(Boolean).length; },
                 get blkAllSelected() { const fd = this.blkFilteredDevices; return fd.length > 0 && fd.every(d => this.blockMgr.selected[d.device]); },
+                // 헤더 체크 indeterminate — 표시(필터) 중인 행 일부만 선택.
+                get blkSomeSelected() { return this.blkFilteredDevices.some(d => this.blockMgr.selected[d.device]); },
                 get blockedDeviceCount() { return this.blockMgr.devices.filter(d => (d.blockedKinds || []).length > 0).length; },
                 // 툴바 버튼 배지 = 자동알람(디바이스) + 사용자지정(UserTag) 차단 수 합계.
                 get blockedUserTagCount() { return this.blockMgr.ut.tags.filter(t => t.blocked).length; },
@@ -1918,25 +1976,30 @@
                     const i = seg.lastIndexOf('.');
                     return i > 0 ? seg.slice(0, i) : '';
                 },
-                // presetDevice/presetKindName: 알림 행 바로가기 — 해당 디바이스+유형이 선택된 채 자동알람 탭으로 열림.
-                async openBlockMgr(presetDevice, presetKindName) {
+                // presetDevices/presetKindNames(문자열 또는 배열): 알림 행 바로가기(단건)·선택 바(복수) — 해당 디바이스+유형이
+                // 선택된 채 자동알람 탭으로 열림. 인수 없음(툴바 버튼)이면 선택은 그대로, 유형은 비어 있을 때만 전체.
+                async openBlockMgr(presetDevices, presetKindNames) {
                     const m = this.blockMgr;
                     m.show = true; m.tab = 'auto'; m.msg = ''; m.err = '';
                     await Promise.all([this.loadBlockState(), this.loadUserTagBlockState()]);
-                    if (presetDevice) {
-                        m.selected = { [presetDevice]: true };
-                        const opt = m.kindOptions.find(k => k.name === presetKindName);
-                        m.selKinds = opt ? [opt.kind] : m.kindOptions.map(k => k.kind);
-                    } else if (!m.selKinds.length) {
-                        m.selKinds = m.kindOptions.map(k => k.kind); // 기본 = 전체 유형
-                    }
+                    const devs = [].concat(presetDevices || []).filter(Boolean);
+                    if (devs.length) this.blkPreset(devs, [].concat(presetKindNames || []).filter(Boolean));
+                    else if (!m.selKinds.length) m.selKinds = m.kindOptions.map(k => k.kind); // 기본 = 전체 유형
                 },
-                // presetTagAddress: UserTag 알림 행 바로가기 — 해당 태그가 선택된 채 사용자지정 탭으로 열림.
-                async openUserTagBlockMgr(presetTagAddress) {
+                // 미리 선택 — 디바이스 체크 + 유형은 그 행들에 뜬 유형만(kindOptions.name = matchValue). 하나도 못 대응시키면 전체.
+                blkPreset(devices, kindNames) {
+                    const m = this.blockMgr;
+                    m.selected = Object.fromEntries(devices.map(d => [d, true]));
+                    const kinds = m.kindOptions.filter(k => kindNames.includes(k.name)).map(k => k.kind);
+                    m.selKinds = kinds.length ? kinds : m.kindOptions.map(k => k.kind);
+                },
+                // presetTagAddresses(문자열 또는 배열): UserTag 알림 행 바로가기 — 해당 태그가 선택된 채 사용자지정 탭으로 열림.
+                async openUserTagBlockMgr(presetTagAddresses) {
                     const m = this.blockMgr;
                     m.show = true; m.tab = 'user'; m.ut.msg = ''; m.ut.err = '';
                     await Promise.all([this.loadBlockState(), this.loadUserTagBlockState()]);
-                    if (presetTagAddress) m.ut.selected = { [presetTagAddress]: true };
+                    const addrs = [].concat(presetTagAddresses || []).filter(Boolean);
+                    if (addrs.length) { m.ut.selected = Object.fromEntries(addrs.map(a => [a, true])); this.utBlkHoistSelected(); }
                 },
                 async loadBlockState() {
                     const m = this.blockMgr;
@@ -1985,6 +2048,7 @@
                     return list;
                 },
                 get utAllSelected() { const ft = this.utFilteredTags; return ft.length > 0 && ft.every(t => this.blockMgr.ut.selected[t.tagAddress]); },
+                get utSomeSelected() { return this.utFilteredTags.some(t => this.blockMgr.ut.selected[t.tagAddress]); },
                 utSelectAll(on) {
                     const sel = { ...this.blockMgr.ut.selected };
                     for (const t of this.utFilteredTags) sel[t.tagAddress] = on;
@@ -2118,8 +2182,8 @@
                 // 판정 축 라벨(doc/28) — "mt" 완료 행 동작 초과 / "wt" 완료 행 대기 초과 / "ct" 완료 신호 없는 사이클 길이.
                 axisLabel(a) { return a === 'mt' ? '동작' : a === 'wt' ? '대기' : a === 'ct' ? '미완료' : a === 'gap' ? '공백' : ''; },
                 axisTitle(a) {
-                    return a === 'mt' ? '판정 축: 동작(MT)이 평소 × 고장배수를 넘음 — 고장'
-                        : a === 'wt' ? '판정 축: 대기(WT)가 평소 × 비생산배수 이상 — 비생산'
+                    return a === 'mt' ? '판정 축: 동작이 평소 × 고장배수를 넘음 — 고장'
+                        : a === 'wt' ? '판정 축: 대기가 평소 × 비생산배수 이상 — 비생산'
                         : a === 'ct' ? '판정 축: 완료 신호 없는 사이클(시작 → 다음 시작) — 사이클 전체 길이를 평소 사이클(중앙 CT) × 배수에 댐'
                         : a === 'gap' ? '판정 축: 기록 공백 — 이 구간에 사이클 행이 아예 없습니다(동작 중 멈춘 채 마감되지 않은 정지). 동작/대기를 알 수 없어 구간 길이만으로 판정합니다.'
                         : '';
@@ -2151,7 +2215,7 @@
                 clueHtml(c) {
                     if (!c) return '<span class="clue-none">—</span>';
                     const cls = c.src === 'abnormal' ? 'abn' : 'ut';
-                    const tag = c.src === 'abnormal' ? 'ABN' : 'UT';
+                    const tag = c.src === 'abnormal' ? '자동' : '사용자';   // 표시 문구만(class 식별자 abn/ut 는 유지)
                     return `<span class="clue-chip ${cls}"><span class="material-icons">troubleshoot</span>${this.esc(c.label)}<span class="csrc">${tag}</span></span>`;
                 },
                 // 표준 가동시간(가동시간 이상치) 출처 칩 — 수동 고정 vs 14일 평균(자동). p10/중앙값 자동기입은 사이클 OEE 미사용.

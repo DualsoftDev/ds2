@@ -11,8 +11,6 @@
             // (stack overflow / 레이아웃 box undefined / 옵션 resolver 의 `.includes` of undefined).
             // 구버전이 매번 destroy()+new Chart() 라 update() 를 안 해서 안 터졌을 뿐 → 클로저 보관으로 근본 차단.
             let _charts = { trend: null, count: null };   // 추이 탭 (trend/count)
-            let _cycleChart = null;   // 사이클 분석 탭
-            let _histChart = null;    // 최근 히스토리 탭
             // 간트 슬라이스(2026-09-06 2간트) — 상단=flow 항상, 하단=분기(있을 때, 탭으로 활성 분기 1개).
             // lane 배열·스팬을 통째로 들고 있어 Alpine 깊은 Proxy 를 피하려 클로저에 둔다(템플릿용 요약은 flowAct/brAct).
             let _flowAct = null, _brAct = null;
@@ -59,9 +57,10 @@
                 // CALL 정렬 모드 — 'work'(기본: Work 그룹 = 모델 순, Work 헤더 행에 사이클별 work 구간 막대)
                 //                 | 'signal'(시작 맨 위·나머지 첫 신호 시각 순, Work 헤더 없음). localStorage 보존. 끝(tail)은 없다(doc/30 §2.4).
                 sortMode: 'work',
-                laneFilter: '',          // 간트 내부 검색(사이드바 행 필터) — 기본 call 이름만, work:/tag:/api: 접두어로 다른 필드, 공백 AND
-                // 복수 선택 모드(분기 탭) — 체크한 call 들을 '선택 제외/해제' 로 일괄 적용. selCalls = callName → true
-                selMode: false, selCalls: {}, selMsg: '', _selAnchor: null,
+                laneFilter: '',          // 간트 내부 검색(사이드바 행 필터) — 대상은 laneFilterTarget, work:/tag:/api: 접두어로 다른 필드, 공백 AND
+                laneFilterTarget: 'call',// 검색 대상 칩 — 'all'(전 필드) | 'call'(기본) | 'work' | 'tag'(IN/OUT·ApiCall 주소)
+                // 복수 선택(분기 탭) — 행 체크는 항상 보이고, 체크한 call 들을 '제외/제외 해제' 로 일괄 적용. selCalls = callName → true
+                selCalls: {}, selMsg: '', _selAnchor: null,
                 branchMsg: '',
                 branchError: '',
                 tab: 'trend',   // 'trend' | 'cycle' | 'history' — 콘텐츠 탭 전환
@@ -134,12 +133,12 @@
                 isOverride: false,
                 exporting: false,
                 avgCycleMs: null, avgActiveMs: null,
-                cycleView: 'chart',   // 사이클 목록: 'table' | 'chart' (기본=차트)
                 cyclePreset: null,    // 활성 사이클-기준 프리셋(최근 N 사이클) — 시간 프리셋/수동 변경 시 해제
                 timePreset: null,     // 활성 시간 프리셋('m1'|'m5'|'m30'|'h1'|'h24'|'today') — 사이클/수동 변경 시 해제
                 rangePopupOpen: false, // 시작·종료 직접 지정 팝업 표시
                 dataLatestAt: null,   // 프리셋 앵커 = DB 최신 로그 시각(벽시계 now 아님) — effectiveLatest() 가 채움
-                dataAnchorHint: '',   // 그 앵커의 지연 안내 문구(1분 미만이면 빈 문자열 = 표시 안 함)
+                dataAnchorHint: '',   // 그 앵커를 값으로 표시("~ HH:MM:SS", 1분 이상 지연이면 " · N분 전" 덧붙임). 빈 문자열 = 표시 안 함
+                dataAnchorLag: false, // 지연 1분 이상 — 앵커 값을 경고색으로
                 callLanesRaw: [],
                 unmeasuredRegions: [],   // [{startMs,endMs,cause}] — 서버 미계측(수신 공백) 구간, 간트 회색 오버레이
                 expandedCalls: {},   // callId → bool : Call lane 행 확장(소속 ApiCall + 실측 duration 표시) 상태
@@ -161,7 +160,6 @@
                 flowHistory: [],
                 histAvgCt: 0, histStdCt: 0,
                 _histShownFor: null,
-                histView: 'chart',
                 histLimit: 200,
                 rangeByFlow: {},
                 rangeModalOpen: false,
@@ -261,7 +259,6 @@
                     clearTimeout(this._trendRangeTimer);
                     this._conn?.stop();
                     Object.values(_charts).forEach(c => { if (c) c.destroy(); });
-                    if (_histChart) _histChart.destroy();
                 },
 
                 toggleTheme() { this.dark = !this.dark; localStorage.setItem('dspilot-theme', this.dark ? 'dark' : 'light'); },
@@ -313,17 +310,6 @@
                 async refreshAll() {
                     if (this.allMode) { await this.reloadTrend(); return; }
                     await this.loadFlow(); if (this.flow) { await this.reloadTrend(); this.syncHistory(); }
-                },
-
-                // 탭 전환 — 숨겨진 탭(display:none)에서 0 크기로 렌더된 차트/간트를 보일 때 다시 맞춘다.
-                setTab(t) {
-                    if (this.tab === t) return;
-                    this.tab = t;
-                    this.$nextTick(() => {
-                        if (t === 'trend') { if (this.trend.cycleCount > 0) this.drawCharts(); }
-                        else if (t === 'cycle') { if (this.callLanes.length) { this.measurePlotWidth(); this.render(); } if (this.cycleView === 'chart') this.renderCycleChart(); }
-                        else if (t === 'history') { if (this.histView === 'chart') this.renderHistChart(); }
-                    });
                 },
 
                 kpi(field) { return (this.flow && this.flow.kpi) ? this.flow.kpi[field] : null; },
@@ -1086,17 +1072,17 @@
                         return d;
                     } catch (e) { this.dataLatestAt = null; this.dataAnchorHint = ''; return new Date(); }
                 },
-                // "기준: 신호 마지막 10:19:43 (6분 전)" — 지연 1분 미만이면 표시 생략(실시간과 다름없음).
+                // 프리셋 끝점을 값으로 — "~ 10:19:43", 지연 1분 이상이면 "~ 10:19:43 · 6분 전"(경고색).
                 refreshAnchorHint() {
                     const d = this.dataLatestAt;
-                    if (!d) { this.dataAnchorHint = ''; return; }
+                    if (!d) { this.dataAnchorHint = ''; this.dataAnchorLag = false; return; }
                     const lagSec = Math.floor((Date.now() - d.getTime()) / 1000);
                     const hhmmss = d.toTimeString().slice(0, 8);
-                    if (lagSec < 60) { this.dataAnchorHint = ''; return; }
+                    this.dataAnchorLag = lagSec >= 60;
                     const lag = lagSec < 3600
                         ? Math.floor(lagSec / 60) + '분 전'
                         : Math.floor(lagSec / 3600) + '시간 ' + Math.floor((lagSec % 3600) / 60) + '분 전';
-                    this.dataAnchorHint = '기준: 신호 마지막 ' + hhmmss + ' (' + lag + ')';
+                    this.dataAnchorHint = '~ ' + hhmmss + (this.dataAnchorLag ? ' · ' + lag : '');
                 },
                 // 사이클-기준 프리셋 — 최근 N 사이클을 포함하는 시간창을 히스토리(recordedAt=완료시각)로 역산해 로드.
                 // rows[0]=최신·완료(비가동) 사이클. 원하는 N개=rows[0..N-1]; 그 직전 완료(rows[N])를 창 시작으로 잡아
@@ -1357,17 +1343,22 @@
                 /// 사람이 읽는 경계 설명 — 카드 부제와 툴팁에 그대로 쓴다.
                 boundaryText(role) {
                     const b = this.boundaryOf(role);
-                    if (!b.address) return 'Call 기준 — ' + (b.callName || '미지정') + ' 의 OUT(명령) 상승';
+                    if (!b.address) return this.boundaryAddrLabel(role);
                     const info = this.tagInfo(b.address);
                     const dir = b.edge === 'falling' ? '하강(활성→0)' : '상승(0→활성)';
                     return b.address + ' ' + dir + (info ? ' · ' + info.workName + ' ▸ ' + info.callName + ' ▸ ' + (info.io === 'in' ? 'IN' : 'OUT') : ' · 모델에 없는 주소');
                 },
                 boundaryEdgeOf(role) { return this.boundaryOf(role).edge || 'rising'; },
                 boundaryAddrOf(role) { return this.boundaryOf(role).address || null; },
-                /// 카드 우측의 짧은 맥락 — 태그면 'Work ▸ Call ▸ IO', Call 기준이면 어떤 규칙으로 읽히는지.
+                /// 선택 버튼의 주 표시 — 주소가 있으면 주소, 없으면 서버가 실제로 쓰는 기본값("기본 — <시작 call> OUT↑").
+                boundaryAddrLabel(role) {
+                    const b = this.boundaryOf(role);
+                    return b.address || ('기본 — ' + (b.callName || '미지정') + ' OUT↑');
+                },
+                /// 카드 우측의 짧은 맥락 — 태그면 'Work ▸ Call ▸ IO'. 기본값이면 라벨이 이미 다 말하므로 비운다.
                 boundaryCtx(role) {
                     const b = this.boundaryOf(role);
-                    if (!b.address) return (b.callName || '미지정') + ' · OUT 상승';
+                    if (!b.address) return '';
                     const info = this.tagInfo(b.address);
                     if (!info) return '모델에 없는 주소 — 다시 지정하세요';
                     return info.workName + ' ▸ ' + info.callName + ' ▸ ' + (info.io === 'in' ? 'IN(응답)' : 'OUT(명령)');
@@ -1460,11 +1451,9 @@
                     }
                     const wantBranches = this.branchesDirty || !wantBoundary;  // 분기만 있고 dirty 없음 = 재저장(재계산 강제)
                     const lines = [];
-                    if (wantBoundary) lines.push('· 시작 경계');
-                    if (wantBranches) lines.push(disable
-                        ? '· 분기 해제 → 단일 시작 분석으로 복귀(과거 이력의 분기 라벨 제거)'
-                        : '· 분기 ' + this.branches.length + '개 → 설비효율 현황에 "' + this.flowName + '_분기이름" 단위로 표시');
-                    if (!window.confirm('저장합니다.\n' + lines.join('\n') + '\n\n이 Flow 의 과거 이력 전체가 새 기준으로 재계산됩니다(백그라운드). 계속할까요?')) return;
+                    if (wantBoundary) lines.push('시작 경계');
+                    if (wantBranches) lines.push(disable ? '분기 해제(단일 시작 분석으로 복귀)' : '분기 ' + this.branches.length + '개');
+                    if (!window.confirm('저장 — ' + lines.join(' · ') + '\n과거 이력 전체를 새 기준으로 다시 계산합니다. 계속할까요?')) return;
 
                     if (wantBoundary) {
                         const headName = this.headName;
@@ -1519,16 +1508,20 @@
                     return parts.join(' · ') + ' — 클릭하면 그 분기 간트로 이동';
                 },
 
-                // ═══ 복수 선택 → 일괄 제외/해제 (2026-09-06) — 분기 탭 전용 ═══
-                // 행마다 '제외' 를 하나씩 누르는 대신, 선택 모드에서 체크(행 클릭 · Work 헤더 = 그 Work 전체 · 표시된 행 전체 ·
-                // 반전 · Shift+클릭 범위)한 뒤 '선택 제외 / 제외 해제' 로 한 번에 적용한다. 시작 call 은 적용 시 자동 제외.
-                toggleSelMode() {
-                    this.selMode = !this.selMode;
-                    if (!this.selMode) this.selClear();
-                    this.selMsg = '';
-                },
+                // ═══ 복수 선택 → 일괄 제외/해제 (2026-09-06 · 상시 체크박스 2026-09-18) — 분기 탭 전용 ═══
+                // 행마다 '제외' 를 하나씩 누르는 대신 체크(행 클릭 · Work 헤더 = 그 Work 전체 · 사이드바 헤더 = 표시된 행 전부 ·
+                // 반전 · Shift+클릭 범위)한 뒤 '제외 / 제외 해제' 로 한 번에 적용한다. 시작 call 은 적용 시 자동 제외.
                 selIsOn(name) { return !!this.selCalls[name]; },
                 get selCount() { return Object.keys(this.selCalls).length; },
+                _visibleCallNames() { return this.brRows.filter(r => r.kind === 'call').map(r => r.lane.callName); },
+                // 사이드바 헤더 체크 상태 — 표시된 행 기준 'all' | 'some' | 'none'
+                get selHdrState() {
+                    const names = this._visibleCallNames();
+                    if (!names.length) return 'none';
+                    const n = names.filter(c => this.selIsOn(c)).length;
+                    return n === 0 ? 'none' : (n === names.length ? 'all' : 'some');
+                },
+                selToggleVisible() { this._selSet(this._visibleCallNames(), this.selHdrState !== 'all'); },
                 _selSet(names, on) {
                     const next = { ...this.selCalls };
                     names.forEach(n => { if (on) next[n] = true; else delete next[n]; });
@@ -1567,8 +1560,8 @@
                     this._selSet(calls, this.selWorkState(workName) !== 'all');
                 },
                 selAll() { this._selSet(this.callLanesRaw.map(l => l.callName), true); },
-                // 표시된 행(검색 필터 통과분)만 선택 — 검색으로 좁힌 뒤 한 번에 제외하는 흐름
-                selVisible() { this._selSet(this.brRows.filter(r => r.kind === 'call').map(r => r.lane.callName), true); },
+                // 표시된 행(검색 필터 통과분·접힌 제외 call 제외)만 선택 — 검색으로 좁힌 뒤 한 번에 제외하는 흐름
+                selVisible() { this._selSet(this._visibleCallNames(), true); },
                 selInvert() {
                     const next = {};
                     this.callLanesRaw.forEach(l => { if (!this.selIsOn(l.callName)) next[l.callName] = true; });
@@ -1636,7 +1629,7 @@
                         showCall: this.showCall, showIo: this.showIo, expandedCalls: this.expandedCalls,
                         topGaps: this.topGaps, showMaxGap: this.showMaxGap, selectedGapIndex: this.selectedGapIndex,
                         unmeasuredRegions: this.unmeasuredRegions || [],
-                        laneFilter: this.laneFilter, noWorkRows: this.sortMode !== 'work',
+                        laneFilter: this.laneFilter, laneFilterTarget: this.laneFilterTarget, noWorkRows: this.sortMode !== 'work',
                     };
                 },
                 // 상단 flow 간트 슬라이스 — 분기 없으면 종전(편집 가능), 분기 있으면 잠금 + 분기별 CT 합산 리본.
@@ -1775,6 +1768,15 @@
                 },
                 onLaneFilter() { this.render(); },
                 clearLaneFilter() { this.laneFilter = ''; this.render(); },
+                // 검색 대상 칩(전체 | call | Work | 주소) — 접두어 없는 토큰이 어느 필드를 보는지. 접두어(work:/tag:/api:)는 칩과 무관하게 동작.
+                setLaneFilterTarget(t) {
+                    if (this.laneFilterTarget === t) return;
+                    this.laneFilterTarget = t;
+                    if (this.laneFilter) this.render();
+                },
+                get laneFilterPlaceholder() {
+                    return { all: '검색', call: 'call 이름 검색', work: 'Work 검색', tag: '주소 검색' }[this.laneFilterTarget] || '검색';
+                },
                 // 분기 간트 lane 버튼(하단) — 항상 활성 분기 대상. 상단 flow 는 템플릿에서 toggle시작 경계 직접 호출.
                 isBoundRow(row) { const b = this.curBranch; return !!b && row.lane.callName === b.startCallName; },
                 isExcludedRow(row) { return this.brAct.excluded.indexOf(row.lane.callName) !== -1; },
@@ -1784,7 +1786,7 @@
                 flowRowClass(row) { return window.CycleGantt.rowClass(this.flowAct, row); },
                 brRowClass(row) {
                     const c = window.CycleGantt.rowClass(this.brAct, row);
-                    return (this.selMode && row.kind === 'call' && this.selIsOn(row.lane.callName)) ? c + ' is-sel' : c;
+                    return (row.kind === 'call' && this.selIsOn(row.lane.callName)) ? c + ' is-selected' : c;
                 },
                 async loadBranches() {
                     if (!this.flowName) return;
@@ -1923,10 +1925,10 @@
                     if (!this.flowName || this.branchBusy) return;
                     const skipConfirm = !!(opts && opts.skipConfirm);
                     if (disable) {
-                        if (!skipConfirm && !window.confirm('분기를 해제하고 단일 시작 경계 분석으로 되돌립니다.\n과거 이력의 분기 라벨이 제거되도록 전체 재계산이 실행됩니다. 계속할까요?')) return;
+                        if (!skipConfirm && !window.confirm('분기 해제 — 단일 시작 분석으로 되돌립니다.\n과거 이력 전체를 다시 계산합니다. 계속할까요?')) return;
                     } else {
                         if (!this.branches.length) return;
-                        if (!skipConfirm && !window.confirm('분기 정의를 저장합니다.\n이 Flow 의 과거 이력 전체가 새 분기 기준으로 재분류됩니다(백그라운드).\n설비효율 현황에는 "' + this.flowName + '_분기이름" 단위로 표시됩니다. 계속할까요?')) return;
+                        if (!skipConfirm && !window.confirm('분기 ' + this.branches.length + '개 저장 — 설비효율 현황에 "' + this.flowName + '_분기이름" 으로 표시됩니다.\n과거 이력 전체를 다시 분류합니다. 계속할까요?')) return;
                     }
                     this.recomputeError = false; this.errorMessage = null;
                     this.recomputeMsg = disable ? '분기 해제 저장 중…' : '분기 저장 중…';
@@ -2146,7 +2148,6 @@
                         this.measurePlotWidth(); this.render();
                         // svgMarkup 은 다음 틱에 DOM 에 붙는다 → 스크롤 폭이 확정된 뒤 이동 슬라이더 동기화.
                         this.syncPanSoon();
-                        if (this.tab === 'cycle' && this.cycleView === 'chart') this.renderCycleChart();
                     });
                 },
 
@@ -2225,34 +2226,10 @@
                     }
                     return gaps;
                 },
+                // topGaps 는 Excel 내보내기 모델(buildExportModel)이 그대로 실어 보낸다 — 화면의 최대 Gap 선택 UI 는 없다(2026-09-18 정리).
                 recomputeTopGaps() {
                     this.topGaps = this.computeAllGaps().sort((a, b) => b.durMs - a.durMs).slice(0, 5);
                     if (this.selectedGapIndex >= this.topGaps.length) this.selectedGapIndex = 0;
-                },
-                activeGap() {
-                    if (!this.showMaxGap || !this.topGaps.length) return null;
-                    const i = (this.selectedGapIndex >= 0 && this.selectedGapIndex < this.topGaps.length) ? this.selectedGapIndex : 0;
-                    return this.topGaps[i];
-                },
-                onGapPicked() {
-                    this.render();
-                    const g = this.activeGap();
-                    if (g) this.$nextTick(() => this.scrollToGap(g));
-                },
-                focusMaxGap() {
-                    if (!this.topGaps.length) return;
-                    this.showMaxGap = true; this.selectedGapIndex = 0;
-                    this.render();
-                    this.$nextTick(() => this.scrollToGap(this.topGaps[0]));
-                },
-                scrollToGap(gap) {
-                    const area = this.chartAreaEl();
-                    if (!area || !this._flowGeo || !gap) return;
-                    const { cs, xScale } = this._flowGeo;
-                    const midX = LEFT_PAD + ((gap.startMs + gap.endMs) / 2 - cs) * xScale;
-                    const target = Math.max(0, midX - area.clientWidth / 2);
-                    try { area.scrollTo({ left: target, behavior: 'smooth' }); }
-                    catch (_) { area.scrollLeft = target; }
                 },
 
                 // 사이클 목록 = 상단(flow) 슬라이스의 행(CycleGantt.cycleRows) — MT 는 tail 이 아니라 그 사이클 안 마지막 work 끝(doc/30 §2.4).
@@ -2504,7 +2481,6 @@
                         this.avgCycleMs = d.avgCycleMs ?? null;
                         this.applySort();   // head 변경 → 시작 행 맨 위 즉시 반영
                         this.render();
-                        if (this.cycleView === 'chart') this.$nextTick(() => this.renderCycleChart());
                     } catch (e) {
                         this.errorMessage = '오버레이 갱신 실패: ' + e.message;
                     } finally {
@@ -2577,7 +2553,7 @@
                         }
                     return out;   // 같은 Work 중복은 백엔드가 distinct 처리
                 },
-                get hasApplicableDurations() { return this.collectAllDurationChanges().length > 0; },
+                get applicableDurationCount() { return this.collectAllDurationChanges().length; },
                 async applyApiCallDuration(row) {
                     const ch = this.buildDurationChange(row.lane, row.ac);
                     if (!ch) return;
@@ -2643,10 +2619,11 @@
                         { min, max });
                     if (ok) this.closeDurEdit();
                 },
+                // 카드 헤더 '실측 일괄 적용 N' — 이 구간 실측이 있는 ApiCall 전부(평균→Duration, min→Min, max→Max).
                 async applyAllDurations() {
                     const changes = this.collectAllDurationChanges();
                     if (!changes.length) return;
-                    await this._applyDurations(changes, `실측 duration ${changes.length}건을 AASX 에 일괄 적용`);
+                    await this._applyDurations(changes, `실측 ${changes.length}건을 AASX 에 일괄 적용`);
                 },
                 // returns true on success (커밋됨), false on cancel/error. min/max=null 은 해당 임계 해제(clear).
                 async _applyDurations(changes, label, cleared) {
@@ -2656,9 +2633,9 @@
                         const c = [];
                         if (cleared.min === null) c.push('min');
                         if (cleared.max === null) c.push('max');
-                        if (c.length) note = `\n\n비워둔 ${c.join('·')} 값은 해제(미설정)됩니다.`;
+                        if (c.length) note = `비워둔 ${c.join('·')} 값은 해제됩니다. `;
                     }
-                    if (!window.confirm(`${label}합니다.${note}\n\n공유 project.aasx 의 Device Work(Duration/Min/Max)를 덮어씁니다 — Promaker 와 공유되는 파일입니다. 계속할까요?`)) return false;
+                    if (!window.confirm(`${label} — project.aasx(Promaker 공유)의 Duration/Min/Max 를 덮어씁니다.\n${note}계속할까요?`)) return false;
                     this.applyDurBusy = true; this.applyDurMsg = 'AASX 적용 중…'; this.errorMessage = null;
                     try {
                         const r = await this.apiPost('/api/call-test/apply-durations', { changes });
@@ -2807,184 +2784,6 @@
                             : null;
                         h._wt = ct > 0 ? (wt * 100 / ct).toFixed(1) + '%' : '--';
                     }
-                    // 활성 탭이 history 일 때만 렌더 — 숨겨진(off-tab) 차트를 SignalR 틱마다 재생성하던 churn 차단.
-                    // (setTab('history') 가 탭 진입 시 렌더하므로 off-tab 갱신은 통계만 하고 시각 렌더는 생략)
-                    if (this.tab === 'history' && this.histView === 'chart') this.$nextTick(() => this.renderHistChart());
-                },
-                setHistView(v) {
-                    this.histView = v;
-                    if (v === 'chart') this.$nextTick(() => this.renderHistChart());
-                },
-                setCycleView(v) {
-                    this.cycleView = v;
-                    if (v === 'chart') this.$nextTick(() => this.renderCycleChart());
-                },
-                // 사이클 목록 차트 — 히스토리 차트와 동일 형태/용어(MT/WT 스택 + 평균선).
-                // MT(가동)=atMs(완료−시작), WT(대기)=CT−MT. Tail 미지정(atMs=null) 사이클은 CT 단일 막대.
-                renderCycleChart() {
-                    // $refs 가 중첩 x-if mount 시 간헐적으로 비는 문제 → DOM 에서 직접 조회
-                    const cv = (this.$root || document).querySelector('canvas[x-ref="cycleChart"]') || this.$refs.cycleChart;
-                    if (!cv || !window.Chart) return;
-                    const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-                    const rows = this.visibleCycleList;
-                    if (!rows.length) { if (_cycleChart) { _cycleChart.destroy(); _cycleChart = null; } return; }
-                    const labels = rows.map(c => '#' + c.number + (c.isOpen ? ' ↻' : ''));
-                    const times = rows.map(c => this.hms(new Date(c.startMs)));
-                    const ratios = rows.map(c => c.ratio);
-                    const toS = (ms) => Math.round((ms ?? 0) / 100) / 10;
-                    const hasTail = rows.some(c => c.atMs !== null);
-                    const at = rows.map(c => c.atMs !== null ? toS(c.atMs) : null);
-                    const idle = rows.map(c => c.atMs !== null ? toS(Math.max(0, c.ctMs - c.atMs)) : null);
-                    const ctOnly = rows.map(c => c.atMs === null ? toS(c.ctMs) : null);
-                    // work 동작이 하나도 안 잡힌 사이클(atMs=null) = 미완료(회색). MT 는 마지막 work 끝(doc/30 §2.4).
-                    const incompleteFallback = true;
-                    // 평균 CT = 현재 표시 중인 '완료' 사이클 평균. 미완료는 CT 가 부정확하므로 보이더라도 평균에서 제외.
-                    const completed = rows.filter(c => !c.isOpen && c.ctMs > 0 && c.atMs !== null);
-                    const avgMs = completed.length ? completed.reduce((s, c) => s + c.ctMs, 0) / completed.length : (this.avgCycleMs || 0);
-                    const avg = avgMs > 0 ? toS(avgMs) : null;
-                    const cAt = css('--dash-mt') || css('--color-primary') || '#12A594';
-                    const cIdle = css('--dash-wt') || '#AEB9C6';
-                    const cIncomplete = '#5b6675';   // 어두운 회색 — 미완료(완료신호 없음)
-                    const cRed = css('--red') || css('--color-error') || '#D8392B';
-                    const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
-                    const txt = css('--color-text-secondary') || '#51637A';
-                    const datasets = [];
-                    if (hasTail) {
-                        datasets.push({ label: '동작시간', data: at, backgroundColor: cAt, stack: 'ct', borderWidth: 0 });
-                        datasets.push({ label: '대기시간', data: idle, backgroundColor: cIdle, stack: 'ct', borderWidth: 0 });
-                    }
-                    // 완료신호 없는 사이클: Tail 지정 Flow 면 '미완료'(회색), Tail 미지정 Flow 면 'CT (사이클)' 단일막대
-                    if (ctOnly.some(v => v !== null)) {
-                        datasets.push({ label: incompleteFallback ? '미완료 (완료신호 없음)' : '가동시간',
-                            data: ctOnly, backgroundColor: incompleteFallback ? cIncomplete : cAt, stack: 'ct', borderWidth: 0 });
-                    }
-                    if (avg != null) {
-                        datasets.push({ type: 'line', label: '평균 가동시간', data: labels.map(() => avg),
-                            borderColor: cRed, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false });
-                    }
-                    // 차트 1개만 유지하고 update('none') 로 갱신 — destroy()+new Chart() canvas/GPU churn 제거.
-                    // 가변 데이터셋 수(MT/WT vs CT단일 + 평균선)는 datasets 재할당으로 reconcile. 툴팁은 chart.$ctx 로 최신값.
-                    const dctx = { labels, times, at, idle, ratios, avg };
-                    const themeSig = cAt + '|' + cIdle + '|' + cRed + '|' + grid + '|' + txt + '|' + (incompleteFallback ? 1 : 0);
-                    const ex = _cycleChart;
-                    if (ex && ex.canvas === cv && ex._themeSig === themeSig) {
-                        ex.$ctx = dctx;
-                        ex.data.labels = labels;
-                        ex.data.datasets = datasets;
-                        ex.update('none');
-                        return;
-                    }
-                    if (ex) { ex.destroy(); _cycleChart = null; }
-                    const self = this;
-                    const fmtMs = (s) => self.fmt(s * 1000);
-                    const ch = new Chart(cv, {
-                        type: 'bar',
-                        data: { labels, datasets },
-                        options: {
-                            responsive: true, maintainAspectRatio: false, animation: false,
-                            interaction: { mode: 'index', intersect: false },
-                            plugins: {
-                                legend: { position: 'top', labels: { color: txt, boxWidth: 12, font: { size: 11 } } },
-                                tooltip: {
-                                    filter: (it) => it.dataset.type !== 'line' && (it.parsed.y || 0) > 0,
-                                    callbacks: {
-                                    title: (items) => { const x = items[0].chart.$ctx, i = items[0].dataIndex; return x.labels[i] + ' · ' + (x.times[i] || ''); },
-                                    label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
-                                    afterBody: (items) => {
-                                        const x = items[0].chart.$ctx, idx = items[0].dataIndex;
-                                        const atVal = x.at[idx] ?? 0;
-                                        const idleVal = x.idle[idx] ?? 0;
-                                        const ctVal = atVal + idleVal;
-                                        const r = x.ratios[idx];
-                                        const lines = ['가동시간 (전체): ' + fmtMs(ctVal)];
-                                        if (x.avg != null) lines.push('평균 가동시간: ' + fmtMs(x.avg));
-                                        if (r !== null) lines.push('가동률: ' + r + '%');
-                                        return lines;
-                                    },
-                                } },
-                            },
-                            scales: {
-                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '가동', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } },
-                                y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
-                            },
-                        },
-                    });
-                    ch.$ctx = dctx;
-                    ch._themeSig = themeSig;
-                    _cycleChart = ch;
-                },
-                renderHistChart() {
-                    // $refs 가 중첩 x-if mount 시 간헐적으로 비는 문제 → DOM 에서 직접 조회
-                    const cv = (this.$root || document).querySelector('canvas[x-ref="histChart"]') || this.$refs.histChart;
-                    if (!cv || !window.Chart) return;
-                    const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-                    const rows = this.visibleHistory.slice().reverse();
-                    const times = rows.map(h => h._time || '');
-                    const labels = rows.map(h => h._time ? h._time.slice(6) : '');
-                    const toS = (ms) => Math.round((ms ?? 0) / 100) / 10;
-                    const mt = rows.map(h => toS(h.mt));
-                    const wt = rows.map(h => toS(h.wt));
-                    const avg = this.histAvgCt > 0 ? toS(this.histAvgCt) : null;
-                    const cMt = css('--dash-mt') || css('--color-primary') || '#12A594';
-                    const cWt = css('--dash-wt') || '#AEB9C6';
-                    const cRed = css('--red') || css('--color-error') || '#D8392B';
-                    const grid = css('--color-lines') || 'rgba(14,27,42,0.10)';
-                    const txt = css('--color-text-secondary') || '#51637A';
-                    const datasets = [
-                        { label: '동작시간', data: mt, backgroundColor: cMt, stack: 'ct', borderWidth: 0 },
-                        { label: '대기시간', data: wt, backgroundColor: cWt, stack: 'ct', borderWidth: 0 },
-                    ];
-                    if (avg != null) {
-                        datasets.push({ type: 'line', label: '평균 가동시간', data: labels.map(() => avg),
-                            borderColor: cRed, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false });
-                    }
-                    // 차트 1개만 유지하고 update('none') 로 갱신 — destroy()+new Chart() 의 canvas/GPU churn 제거(dashboard2 와 동일 정책).
-                    // 툴팁 콜백이 렌더별 배열을 클로저로 캡처하면 stale 되므로, 최신 컨텍스트는 chart.$ctx 에 실어 콜백이 거기서 읽는다.
-                    const dctx = { times, mt, wt, avg };
-                    const themeSig = txt + '|' + cMt + '|' + cWt + '|' + cRed + '|' + grid;  // 테마 바뀌면 색 갱신 위해 recreate
-                    const ex = _histChart;
-                    if (ex && ex.canvas === cv && ex._themeSig === themeSig) {
-                        ex.$ctx = dctx;
-                        ex.data.labels = labels;
-                        ex.data.datasets = datasets;
-                        ex.update('none');
-                        return;
-                    }
-                    if (ex) { ex.destroy(); _histChart = null; }
-                    const self = this;
-                    const fmtMs = (s) => self.fmt(s * 1000);
-                    const ch = new Chart(cv, {
-                        type: 'bar',
-                        data: { labels, datasets },
-                        options: {
-                            responsive: true, maintainAspectRatio: false, animation: false,
-                            interaction: { mode: 'index', intersect: false },
-                            plugins: {
-                                legend: { position: 'top', labels: { color: txt, boxWidth: 12, font: { size: 11 } } },
-                                tooltip: {
-                                    filter: (it) => it.dataset.type !== 'line',
-                                    callbacks: {
-                                        title: (items) => (items[0].chart.$ctx.times[items[0].dataIndex]) || '',
-                                        label: (c) => `${c.dataset.label}: ${fmtMs(c.parsed.y || 0)}`,
-                                        afterBody: (items) => {
-                                            const x = items[0].chart.$ctx, idx = items[0].dataIndex;
-                                            const ctVal = (x.mt[idx] ?? 0) + (x.wt[idx] ?? 0);
-                                            const lines = ['가동시간 (전체): ' + fmtMs(ctVal)];
-                                            if (x.avg != null) lines.push('평균 가동시간: ' + fmtMs(x.avg));
-                                            return lines;
-                                        },
-                                    }
-                                },
-                            },
-                            scales: {
-                                x: { stacked: true, grid: { display: false }, title: { display: true, text: '가동 발생 시각', color: txt }, ticks: { color: txt, font: { size: 10 }, maxRotation: 0, autoSkip: false, callback: edgeTickCallback } },
-                                y: { stacked: true, beginAtZero: true, min: 0, grid: { color: grid }, ticks: { color: txt, font: { size: 10 }, callback: (v) => fmtMs(v) }, title: { display: true, text: '시간', color: txt } },
-                            },
-                        },
-                    });
-                    ch.$ctx = dctx;
-                    ch._themeSig = themeSig;
-                    _histChart = ch;
                 },
                 // ── 이상치 필터: 이 Flow 의 최소·최대 CT 범위 (팝업으로 입력) ──
                 _rangeFieldSec(field) {
@@ -3021,15 +2820,10 @@
                     else { this.rangeForm.max = conv; this.rangeForm.maxUnit = u; }
                 },
                 closeRangeModal() { this.rangeModalOpen = false; },
-                // 이상치 범위 변경 후 사이클 차트(보이면)도 갱신 — 목록/요약은 getter 라 자동 반영
-                _afterExclusionChange() {
-                    if (this.tab === 'cycle' && this.cycleView === 'chart') this.$nextTick(() => this.renderCycleChart());
-                },
-                // 미완료 제외 토글 — 로컬 선호 저장 + 차트(사이클/히스토리) 재렌더. 테이블/요약/배지는 getter 자동 반영.
+                // 미완료 제외 토글 — 로컬 선호 저장 + 히스토리 평균/상태 재계산. 요약/배지는 getter 자동 반영.
                 onExcludeIncompleteChanged() {
                     localStorage.setItem('dspilot-flow-exclude-incomplete', this.excludeIncomplete ? '1' : '0');
-                    this.recomputeHist();           // 히스토리 평균/상태 재계산 + (보이면) 히스토리 차트 재렌더
-                    this._afterExclusionChange();    // 사이클 차트(보이면) 재렌더
+                    this.recomputeHist();
                 },
                 async applyRange() {
                     const flow = this.histFlowName;
@@ -3043,7 +2837,6 @@
                         this.rangeByFlow = { ...this.rangeByFlow, [flow]: { min, max } };
                     }
                     this.recomputeHist();
-                    this._afterExclusionChange();
                     this.rangeModalOpen = false;
                     await this.saveExclusion(flow, min, max);
                 },
@@ -3053,7 +2846,6 @@
                     const { [flow]: _drop, ...rest } = this.rangeByFlow;
                     this.rangeByFlow = rest;
                     this.recomputeHist();
-                    this._afterExclusionChange();
                     await this.saveExclusion(flow, null, null);
                 },
                 _exclusionsToMap(rows) {
@@ -3069,7 +2861,6 @@
                         const rows = await this.apiGet('/api/dashboard/exclusions');
                         this.rangeByFlow = this._exclusionsToMap(rows);
                         this.recomputeHist();
-                        this._afterExclusionChange();
                     } catch (e) { /* 미수신 시 기존값 유지 */ }
                 },
                 async saveExclusion(flowName, minSec, maxSec) {
