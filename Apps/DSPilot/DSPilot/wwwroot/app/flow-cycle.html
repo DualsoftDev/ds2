@@ -542,8 +542,10 @@
                                                             </template>
                                                         </div>
                                                     </template>
-                                                    <!-- 주소 단위 경계 지정(2026-09-17) — Call 을 고르는 게 아니라 이 Call 이 가진 **주소**를 고른다.
-                                                         칩 하나 = 주소 하나(OUT/IN 무관). 방향(상승/하강)은 위 경계 카드에서 바꾼다.
+                                                    <!-- 주소 단위 경계 지정(2026-09-17 — 2026-09-21 좁은 사이드바 대응).
+                                                         경계는 flow 당 **1개**라 행마다 버튼을 두면 라디오를 lane 수만큼 그린 꼴이 된다.
+                                                         행의 기본 조작 = 태그 아이콘 1개(선택기를 이 call 로 검색 걸어 연다, 26px 고정).
+                                                         주소 칩은 사이드바를 넓혔을 때만 컨테이너 쿼리로 되살아난다(flow-workspace.css @container ct-side).
                                                          분기 사용 중(flowAct.editable=false)이면 숨긴다 — 경계는 분기 탭에서 정의. -->
                                                     <template x-if="row.kind === 'call' && flowAct.editable">
                                                         <div class="ct-lane-tags fb-lane-tags">
@@ -555,10 +557,12 @@
                                                                             :title="'가동 시작을 이 주소로: ' + t.address + ' 의 ' + (boundaryEdgeOf('start') === 'falling' ? '하강' : '상승')">시작</button>
                                                                 </span>
                                                             </template>
-                                                            <button type="button" class="fb-lane-more" x-show="laneTagChoices(row.lane).length > 2" x-cloak
-                                                                    @click="openTagPickerFor('start', row.lane)"
-                                                                    :title="'이 Call 의 주소 ' + laneTagChoices(row.lane).length + '개 — 선택기에서 전체 보기'"
-                                                                    x-text="'+' + (laneTagChoices(row.lane).length - 2)"></button>
+                                                            <button type="button" class="fb-lane-pick"
+                                                                    :class="flowAct.headCallId === row.lane.callId ? 'is-on' : ''"
+                                                                    :disabled="overlayBusy" @click="openTagPickerFor('start', row.lane)"
+                                                                    :title="(flowAct.headCallId === row.lane.callId ? '지금 가동 시작 — ' : '가동 시작 주소 고르기 — ') + '이 Call 의 주소 ' + laneTagChoices(row.lane).length + '개'">
+                                                                <span class="material-icons">sell</span>
+                                                            </button>
                                                         </div>
                                                     </template>
                                                     <template x-if="row.kind === 'api'">
@@ -765,10 +769,12 @@
                                                                                     :title="'이 분기의 시작을 이 주소로: ' + t.address + ' 의 ' + (boundaryEdgeOf('start') === 'falling' ? '하강' : '상승')">시작</button>
                                                                         </span>
                                                                     </template>
-                                                                    <button type="button" class="fb-lane-more" x-show="laneTagChoices(row.lane).length > 2" x-cloak
+                                                                    <button type="button" class="fb-lane-pick"
+                                                                            :class="brAct.headCallId === row.lane.callId ? 'is-on' : ''"
                                                                             @click="openTagPickerFor('start', row.lane)"
-                                                                            :title="'이 Call 의 주소 ' + laneTagChoices(row.lane).length + '개 — 선택기에서 전체 보기'"
-                                                                            x-text="'+' + (laneTagChoices(row.lane).length - 2)"></button>
+                                                                            :title="(brAct.headCallId === row.lane.callId ? '지금 이 분기의 시작 — ' : '이 분기의 시작 주소 고르기 — ') + '이 Call 의 주소 ' + laneTagChoices(row.lane).length + '개'">
+                                                                        <span class="material-icons">sell</span>
+                                                                    </button>
                                                                     <button class="ct-tag-btn fb-excl-btn"
                                                                             :class="isExcludedRow(row) ? 'active' : ''"
                                                                             :disabled="isBoundRow(row)"

@@ -137,7 +137,9 @@
         .ct-gantt-layout, .ct-gantt-layout * { overflow-anchor: none; }
         /* 사이드바 폭 = 전역 CSS 변수(--ct-side-w, 기본 330px). 리사이저 드래그(gantt-sidebar.js)가 :root 에 세팅 + localStorage 보존
            — 한 페이지의 모든 간트(단일/분기 카드/전체 편집)가 같은 폭을 공유한다. */
-        .ct-lane-sidebar { flex: 0 0 var(--ct-side-w, 330px); width: var(--ct-side-w, 330px); background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow: visible; z-index: 1; }
+        .ct-lane-sidebar { flex: 0 0 var(--ct-side-w, 330px); width: var(--ct-side-w, 330px); background: var(--color-surface); border-right: 1px solid var(--color-lines); overflow: visible; z-index: 1;
+                           /* 리사이저로 넓히면 lane 행의 주소 칩이 되살아나게 하는 기준점(2026-09-21). inline-size 만 가두므로 overflow:visible·툴팁(body 직속 fixed)에 영향 없음. */
+                           container: ct-side / inline-size; }
         /* 사이드바↔본체 경계 리사이저(세로 손잡이). 사이드바 border 위에 겹치도록 음수 마진.
            평상시 = 사이드바 경계선 위 1px 선(살짝 진하게) + 세로 점 3개 그립(sticky, 스크롤해도 보이는 높이 가운데) — 잡을 수 있는 곳임을 알린다(2026-09-18).
            호버/드래그 = 악센트 띠 + 그립 진하게. 동작(gantt-sidebar.js)은 그대로. */
@@ -173,7 +175,9 @@
         .ct-ribbon-side .rs-t { font-size: 0.7rem; font-weight: 800; color: var(--color-text-primary); }
         .ct-ribbon-side .rs-sub { font-size: 0.58rem; color: var(--color-text-secondary); white-space: nowrap; }
         .dark-theme .ct-ribbon-side { background: var(--color-surface-variant); }
-        .ct-lane-row { display: flex; align-items: center; padding: 0 10px; gap: 8px; border-bottom: 1px solid var(--color-lines); background: var(--color-surface); }
+        /* height 는 SVG lane(LANE_HEIGHT 44px)과 1:1 로 묶여 있어 늘릴 수 없다 → 넘치면 잘라낸다.
+           종전엔 overflow 가 없어 wrap 된 주소 칩이 옆 행 위로 떠올랐다(2026-09-21). */
+        .ct-lane-row { display: flex; align-items: center; padding: 0 10px; gap: 8px; border-bottom: 1px solid var(--color-lines); background: var(--color-surface); overflow: hidden; }
         .ct-lane-row.is-head { background: color-mix(in srgb, #4caf50 12%, var(--color-surface)); box-shadow: inset 3px 0 0 #4caf50; }
         .ct-lane-name-block { flex: 1; min-width: 0; overflow: hidden; }
         .ct-lane-name { font-size: 0.78rem; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
@@ -596,15 +600,25 @@
 .fb-bd-x { border: none; background: transparent; cursor: pointer; color: var(--color-text-secondary); font-size: 0.78rem; padding: 2px 5px; line-height: 1; flex: 0 0 auto; }
 .fb-bd-x:hover { color: #c62828; }
 
-/* ── lane 행의 주소 칩(2026-09-17) — 종전 [시작][끝] Call 버튼을 대체. 칩 하나 = 주소 하나 + 그 주소를 경계로 쓰는 두 버튼 ── */
-.fb-lane-tags { gap: 3px; flex-wrap: wrap; justify-content: flex-end; }
-/* 기본 사이드바 폭(330px)에서 call 이름이 사라지지 않게(상시 체크박스 2026-09-18) — 이름은 최소 폭을 지키고 칩 묶음이 줄어들어 두 줄로 접힌다.
-   접힌(제외) 행은 26px 라 두 줄이 안 들어가므로 종전대로 둔다. */
+/* ── lane 행의 시작 경계 지정 — 2026-09-17 주소 칩 도입, 2026-09-21 좁은 사이드바 대응으로 재설계 ──
+   경계는 flow/분기당 **1개**다. 행마다 [시작] 버튼을 두면 라디오 하나를 lane 수만큼 그린 꼴이라,
+   행의 기본 조작은 태그 아이콘 1개(.fb-lane-pick, 26px 고정 — 선택기를 이 call 로 검색 걸어 연다)로 되돌렸다.
+   실측: 기본 폭 330px 에서 칩 슬롯에 남는 폭은 153px(310 − 체크박스 19 − ▸ 18 − 이름블록 96 − gap 24)인데
+   칩2(276) + 선택기(28) + 제외(35) ≈ 348px → wrap 3줄(66px)이 44px 행을 뚫고 옆 행을 덮었다.
+   → 여기서는 절대 줄바꿈하지 않고(nowrap), 주소 칩은 사이드바를 넓혔을 때만 @container 로 되살아난다. */
+.fb-lane-tags { gap: 3px; flex-wrap: nowrap; justify-content: flex-end; }
+/* 기본 사이드바 폭(330px)에서 call 이름이 사라지지 않게(상시 체크박스 2026-09-18) — 이름은 최소 폭을 지킨다. */
 .ct-lane-row:not(.is-collapsed) .ct-lane-name-block { min-width: 96px; }
 .ct-lane-row:not(.is-collapsed) .ct-lane-tags.fb-lane-tags { flex: 0 1 auto; min-width: 0; }
-/* 주소 칩이 있는 행에서는 이름 아래 OUT/IN 주소 줄이 같은 주소의 반복이라 숨긴다 — 44px 행에 4줄이 들어가 옆 행을 덮던 일 방지. */
-.ct-lane-row:has(.fb-lane-tags) .ct-lane-row-leg { display: none; }
-.fb-lane-tag { display: inline-flex; align-items: center; gap: 2px; padding: 1px 2px 1px 5px; border: 1px solid var(--color-lines); border-radius: 999px; background: var(--color-surface); max-width: 100%; }
+/* 칩이 숨은 좁은 폭에서는 이름 아래 OUT/IN 줄이 유일한 주소 표시라 되살린다(종전엔 통째로 display:none 이었다).
+   44px 에 3줄만 들어가도록 leg 의 줄바꿈을 막고 줄간격을 좁힌다 — 종전에 4줄이 되던 원인이 leg 자체의 wrap 이었다.
+   합계 ≈ 이름 15.4 + Work 12.7 + leg 12.5 ≈ 41px < 44px. */
+.ct-lane-row:has(.fb-lane-tags) .ct-lane-name,
+.ct-lane-row:has(.fb-lane-tags) .ct-lane-work { line-height: 1.2; }
+.ct-lane-row:has(.fb-lane-tags) .ct-lane-row-leg { margin-top: 1px; flex-wrap: nowrap; min-width: 0; gap: 0 8px; }
+.ct-lane-row:has(.fb-lane-tags) .ct-lane-row-leg span { flex: 0 1 auto; min-width: 0; max-width: none; }
+/* 주소 칩 = 기본 숨김. 아래 @container 에서 폭이 허락할 때만 등장한다. */
+.fb-lane-tag { display: none; align-items: center; gap: 2px; min-width: 0; padding: 1px 2px 1px 5px; border: 1px solid var(--color-lines); border-radius: 999px; background: var(--color-surface); max-width: 100%; }
 .fb-lane-tag > b { font-family: var(--font-mono); font-size: 0.62rem; font-weight: 800; color: var(--color-text-secondary);
                    max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fb-lane-tag > b.io-out { color: #1565c0; }
@@ -615,10 +629,29 @@
 .fb-lane-tag > button:disabled { opacity: 0.45; cursor: not-allowed; }
 .fb-lane-tag > button.active { background: var(--color-primary); color: #fff; }
 .fb-lane-tag.is-start { border-color: #1E9BE8; }
-.fb-lane-more { border: 1px dashed var(--color-lines-strong); background: transparent; font: inherit; font-size: 0.6rem; font-weight: 800;
-                color: var(--color-text-secondary); border-radius: 999px; padding: 2px 7px; cursor: pointer; }
-.fb-lane-more:hover { color: var(--color-primary); border-color: var(--color-primary); }
-.ct-lane-row.is-collapsed .fb-lane-tag > b { max-width: 60px; }
+/* 행의 상시 조작 — 태그 선택기(검색 + 이 창의 관측 횟수)를 이 call 로 걸어 연다. 폭 고정이라 어떤 사이드바 폭에서도 안 깨진다.
+   지금 시작 경계인 call 이면 초록(= .ct-badge.head 와 같은 색)으로 채워 행만 봐도 알 수 있게. */
+.fb-lane-pick { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0;
+                border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface);
+                color: var(--color-text-secondary); cursor: pointer; transition: background-color 0.12s, color 0.12s, border-color 0.12s; }
+.fb-lane-pick .material-icons { font-size: 15px; line-height: 1; }
+.fb-lane-pick:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+.fb-lane-pick:disabled { opacity: 0.45; cursor: not-allowed; }
+.fb-lane-pick.is-on { background: #4caf50; border-color: #2e7d32; color: #fff; }
+.ct-lane-row.is-collapsed .fb-lane-pick { width: 20px; height: 20px; }
+.ct-lane-row.is-collapsed .fb-lane-pick .material-icons { font-size: 13px; }
+
+/* 사이드바를 넓히면 주소 칩이 돌아온다(리사이저 → --ct-side-w → 컨테이너 폭). 접힌(제외 26px) 행은 제외.
+   약 440px = 칩1 + 선택기 + 제외 ≈ 205px ≤ 253px 여유 / 약 580px = 칩2 포함 ≈ 346px ≤ 383px 여유.
+   ★ 질의값은 사이드바의 **content box** 라 border-right 1px 이 빠진다 — 440/580 으로 쓰면 딱 그 폭에서 안 걸린다(실측). */
+@container ct-side (min-width: 438px) {
+    .ct-lane-row:not(.is-collapsed) .fb-lane-tags .fb-lane-tag:first-of-type { display: inline-flex; }
+}
+@container ct-side (min-width: 578px) {
+    .ct-lane-row:not(.is-collapsed) .fb-lane-tags .fb-lane-tag { display: inline-flex; }
+    /* 칩 둘이 다 보이면 leg 는 같은 주소의 반복이라 접는다 */
+    .ct-lane-row:not(.is-collapsed):has(.fb-lane-tags) .ct-lane-row-leg { display: none; }
+}
 
 /* ── 태그 선택기(모달) — 이 간트의 주소만, 검색 + 소속 Work/Call/IO + 이 창의 관측 횟수 ── */
 .fb-tp { width: min(720px, 94vw); max-height: 82vh; display: flex; flex-direction: column; }
