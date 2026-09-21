@@ -44,6 +44,7 @@ public sealed class CycleIngestService : BackgroundService
     private readonly AppSettingsService _settings;
     private readonly IDatabasePathResolver _paths;
     private readonly IServiceScopeFactory _scopes;
+    private readonly PlcToCallMapperService _mapper;
     private readonly ILogger<CycleIngestService> _logger;
 
     public CycleIngestService(
@@ -52,6 +53,7 @@ public sealed class CycleIngestService : BackgroundService
         AppSettingsService settings,
         IDatabasePathResolver paths,
         IServiceScopeFactory scopes,
+        PlcToCallMapperService mapper,
         ILogger<CycleIngestService> logger)
     {
         _repo = repo;
@@ -59,6 +61,7 @@ public sealed class CycleIngestService : BackgroundService
         _settings = settings;
         _paths = paths;
         _scopes = scopes;
+        _mapper = mapper;
         _logger = logger;
     }
 
@@ -119,13 +122,21 @@ public sealed class CycleIngestService : BackgroundService
             var branchSet = _settings.GetFlowBranchSet(flow);
             bool hasBranches = branchSet is { Branches.Count: > 0 };
 
+            // 경계를 IN 전용 call 의 주소로 고른 분기/flow 만 값이 있다(그 work 의 시작점 시드). 분기마다 경계가 다르므로 캐시한다.
+            var seedWorkByBranch = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var src in rows)
             {
                 // 분기가 있는 flow 에서 어느 분기도 아니면 미분류 — 계산·표본 밖. 구간은 재서 보여 주되 기준선은 박제하지 않는다.
                 bool unclassified = hasBranches && string.IsNullOrWhiteSpace(src.Branch);
                 var excl = unclassified ? EmptyNames : ExcludedCallsOf(branchSet, src.Branch);
 
-                var (measured, mt, overflow) = MeasureCycle(callSpans, excl, src.StartMs, src.EndMs, boundaries, snapMs);
+                var seedKey = src.Branch ?? "";
+                if (!seedWorkByBranch.TryGetValue(seedKey, out var seedWork))
+                    seedWorkByBranch[seedKey] = seedWork = ResolveBoundarySeedWork(flow, branchSet, src.Branch);
+
+                var (measured, mt, overflow) = MeasureCycle(
+                    callSpans, excl, src.StartMs, src.EndMs, boundaries, snapMs, seedWork);
 
                 if (unclassified)
                 {
@@ -194,7 +205,54 @@ public sealed class CycleIngestService : BackgroundService
     // ── 측정 ──────────────────────────────────────────────────────────────────
 
     /// <summary>한 call 의 이름·소속 work·구간 목록(§2.2 규칙으로 만든 것).</summary>
-    private sealed record CallSpanSet(string CallName, string Work, List<Span> Spans);
+    public sealed record CallSpanSet(string CallName, string Work, List<Span> Spans);
+
+    /// <summary>
+    /// 이 flow(분기)의 사이클 경계가 <b>IN 전용 call</b> 의 주소일 때 그 call 이 속한 work 이름, 아니면 null.
+    /// <para>
+    /// 경계는 주소+에지 하나가 정본이고 IN/OUT 을 가리지 않는다(<see cref="CycleBoundaryEdges"/>). 그런데 §2.2 의
+    /// call 구간은 OUT 상승에서만 열리므로, 경계로 지목된 call 에 OUT 이 없으면 그 call 은 구간을 하나도 못 만들고
+    /// 소속 work 가 통째로 사라진다. 그 경우에만 <see cref="MeasureCycle"/> 에 시작점을 시드한다 —
+    /// OUT 을 가진 call 이면 이미 그 구간이 경계에서 열리므로 시드할 것이 없다(null).
+    /// </para>
+    /// 모델이 아직 안 섰거나 주소가 이 flow 에 없으면 null — 판단 근거가 없으면 종전 동작을 유지한다.
+    /// </summary>
+    private string? ResolveBoundarySeedWork(string flow, FlowBranchSet? branchSet, string? branch)
+    {
+        try
+        {
+            string? address = null;
+            if (!string.IsNullOrWhiteSpace(branch))
+            {
+                // 분기 행은 그 분기의 경계가 정본. 정의를 못 찾으면(이름 변경 등) 시드하지 않는다.
+                address = branchSet?.Branches
+                    .FirstOrDefault(b => string.Equals(b.Name, branch, StringComparison.OrdinalIgnoreCase))
+                    ?.StartTagAddress;
+            }
+            else if (branchSet is not { Branches.Count: > 0 })
+            {
+                address = _settings.GetFlowCycleOverride(flow)?.StartTagAddress;
+            }
+
+            if (!CycleBoundaryEdges.HasTagSpec(address)) return null;
+
+            if (!_mapper.IsInitialized) _mapper.Initialize();
+            var hit = _mapper.GetFlowTagCatalog(flow)
+                .FirstOrDefault(t => string.Equals(t.Address, address, StringComparison.OrdinalIgnoreCase));
+            if (hit is null) return null;
+
+            // OUT 이 하나라도 있는 call 이면 §2.2 가 이미 구간을 만든다 — 시드 불필요.
+            var pairs = _mapper.GetCallTagPairsByCallId(hit.CallId);
+            if (pairs.Any(p => !string.IsNullOrWhiteSpace(p.OutTag))) return null;
+
+            return string.IsNullOrWhiteSpace(hit.WorkName) ? hit.CallName : hit.WorkName;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[Kpi] 경계 시드 work 해석 실패 — flow={Flow} branch={Branch}", flow, branch);
+            return null;
+        }
+    }
 
     private static readonly HashSet<string> EmptyNames = new(StringComparer.OrdinalIgnoreCase);
 
@@ -223,14 +281,25 @@ public sealed class CycleIngestService : BackgroundService
     ///   <item>MT = 경계 → 마지막 work 끝(사이클 끝에서 자름). work 사이 공백을 포함한다.</item>
     ///   <item>초과 = call 구간 끝이 사이클 끝을 넘은 최대량. 허용치 비교는 조회 시(κ).</item>
     /// </list>
+    /// <para>
+    /// <paramref name="seedWork"/> = 사이클 경계를 <b>IN 전용 call</b> 의 주소로 고른 경우 그 call 이 속한 work
+    /// (<see cref="ResolveBoundarySeedWork"/>). §2.2 는 "시작점은 언제나 OUT 상승" 이라 IN 전용 call 은 구간을 만들지
+    /// 못하는데, 사용자가 그 센서를 사이클 시작으로 지목했다면 적어도 <b>시작점</b>은 인정해야 한다 — 그 work 를
+    /// cs 에서 열어 두면 뒤따르는 형제 call 이 붙을 때 work 구간이 사이클 시작부터 측정된다.
+    /// 끝(<c>lastEnd</c>)에는 기여하지 않는다: MT 끝은 "마지막 work 끝"(§2.4)이고 맨 IN 상승 하나를 동작 종료로
+    /// 인정할지는 별개 결정이다. 그래서 그 work 에 다른 call 이 없으면 폭 0 으로 남아 아래 <c>e &gt; s</c> 에서
+    /// 제외된다 — 지속시간이 원리상 없는 관측 전용 work 는 판정 대상이 아니다.
+    /// </para>
     /// </summary>
-    private static (List<(string Work, long DurationMs)> Works, long? MtMs, long OverflowMs) MeasureCycle(
+    public static (List<(string Work, long DurationMs)> Works, long? MtMs, long OverflowMs) MeasureCycle(
         IReadOnlyList<CallSpanSet> calls, HashSet<string> excluded, long cs, long ce,
-        IReadOnlyList<long> boundaries, long snapMs)
+        IReadOnlyList<long> boundaries, long snapMs, string? seedWork = null)
     {
         var env = new Dictionary<string, (long S, long E)>(StringComparer.Ordinal);
         long lastEnd = long.MinValue;
         long overflow = 0;
+
+        if (!string.IsNullOrEmpty(seedWork)) env[seedWork] = (cs, cs);
 
         foreach (var call in calls)
         {
