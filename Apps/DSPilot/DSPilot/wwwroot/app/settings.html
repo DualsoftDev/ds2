@@ -219,6 +219,41 @@
         .ut-csv-bad td { color: var(--color-error); }
         .ut-csv-opts { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 10px; }
         .ut-csv-opts .ut-form-row { margin: 0; flex: 1 1 180px; }
+        /* ── 디바이스로 묶기(ut-map-*) — 왼쪽 디바이스 목록 · 오른쪽 후보 태그 ── */
+        .ut-map-modal { max-width: min(980px, calc(100vw - 32px)); width: 100%; }
+        .ut-map { display: grid; grid-template-columns: 236px 1fr; gap: 12px; align-items: start; }
+        .ut-map-side { border: 1px solid var(--color-lines); border-radius: var(--radius-sm); overflow: hidden; }
+        .ut-map-sidehead { padding: 6px 8px; border-bottom: 1px solid var(--color-lines); }
+        .ut-map-only { display: flex; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--color-text-secondary); cursor: pointer; }
+        .ut-map-devlist { overflow: auto; max-height: 46vh; }
+        .ut-map-dev { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; font: inherit; font-size: 0.78rem;
+            padding: 6px 10px; background: none; border: 0; border-left: 3px solid transparent; cursor: pointer; color: inherit; }
+        .ut-map-dev:hover { background: var(--color-surface-variant); }
+        .ut-map-dev.is-active { border-left-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 10%, transparent); font-weight: 700; }
+        .ut-map-dev-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ut-map-n { flex: 0 0 auto; font-size: 0.66rem; font-variant-numeric: tabular-nums; padding: 0 6px; border-radius: 9999px; }
+        .ut-map-n.is-sugg { background: color-mix(in srgb, var(--color-primary) 16%, transparent); color: var(--color-primary); font-weight: 800; }
+        .ut-map-n.is-bound { color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-text-secondary) 12%, transparent); }
+        .ut-map-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .ut-map-head .ut-map-dev-cur { font-size: 0.92rem; font-weight: 800; }
+        .ut-map-head .ut-map-dev-cur.is-empty { color: var(--color-text-disabled); font-weight: 600; }
+        .ut-map-scopes { gap: 6px; }
+        .ut-map-scopes b { margin-left: 4px; font-variant-numeric: tabular-nums; }
+        .ut-map-list { overflow: auto; max-height: 38vh; border: 1px solid var(--color-lines); border-radius: var(--radius-sm); }
+        .ut-map-row { display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 0.78rem; border-bottom: 1px solid var(--color-lines); cursor: pointer; }
+        .ut-map-row:last-of-type { border-bottom: 0; }
+        .ut-map-row:hover { background: var(--color-surface-variant); }
+        .ut-map-row.is-selected { background: color-mix(in srgb, var(--color-primary) 9%, transparent); }
+        .ut-map-row .nm { flex: 2 1 40%; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ut-map-row .ad { flex: 2 1 30%; min-width: 0; font-family: var(--font-mono); font-size: 0.72rem; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ut-map-row .dv { flex: 0 1 auto; min-width: 0; font-size: 0.7rem; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ut-map-more { font-size: 0.72rem; color: var(--color-text-secondary); margin-top: 6px; }
+        .ut-map-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+        .ut-map-foot .ut-map-foot-sp { flex: 1 1 auto; }
+        @media (max-width: 720px) {
+            .ut-map { grid-template-columns: 1fr; }
+            .ut-map-devlist { max-height: 24vh; }
+        }
         @media (max-width: 480px) {
             .ut-form-2col { grid-template-columns: 1fr; }
             .ut-head-actions { margin-left: 0; width: 100%; }
@@ -465,6 +500,13 @@
                                                 <input type="text" class="form-field" placeholder="이름·주소·조건 검색" x-model="ut.q" @input="utResetPage()" />
                                                 <button x-show="ut.q" class="btn-icon" @click="ut.q=''; utResetPage()" title="지우기"><span class="material-icons">close</span></button>
                                             </div>
+                                            <!-- 디바이스 필터 — 검색창은 원값 텍스트만 걸려 '미지정'(빈 값)을 고를 수 없다.
+                                                 남은 미지정만 골라 한 번에 묶는 경로라 셀렉트로 따로 둔다. 옵션은 행 셀렉트와 같은 이유로 문자열 주입. -->
+                                            <select class="form-field ude-sel" x-show="ut.tab === 'Error'" style="min-width:132px;"
+                                                    title="디바이스로 좁히기 — 미지정만 골라 일괄 지정할 수 있습니다"
+                                                    x-init="utDevFilterFill($el); $el.value = ut.dev"
+                                                    x-effect="utDevFilterFill($el); $el.value = ut.dev"
+                                                    @change="ut.dev = $event.target.value; utResetPage()"></select>
                                             <select class="form-field ude-sel" x-model.number="ut.pageSize" @change="utResetPage()">
                                                 <option :value="20">20개씩</option>
                                                 <option :value="50">50개씩</option>
@@ -472,14 +514,20 @@
                                             </select>
                                             <span class="ude-toolbar-sp"></span>
                                             <!-- 묶음 진행률 — '전역' 은 고의로 안 묶은 것이라 분모에서 뺀다. -->
-                                            <span class="chip" x-show="ut.tab === 'Error' && utDeviceCoverage.total > 0"
+                                            <span class="chip" x-show="ut.tab === 'Error' && utDeviceCoverage.total > 0" style="cursor:pointer;"
                                                   :class="utDeviceCoverage.unbound === 0 ? 'chip-success' : 'chip-warning'"
-                                                  title="디바이스를 묶은 이상알람TAG — 미지정은 MTBF·MTTR 에서 빠집니다"
+                                                  role="button" tabindex="0" @click="utFilterUnbound()" @keydown.enter="utFilterUnbound()"
+                                                  title="디바이스를 묶은 이상알람TAG — 미지정은 MTBF·MTTR 에서 빠집니다. 누르면 남은 미지정만 봅니다"
                                                   x-text="'디바이스 ' + utDeviceCoverage.bound + ' / ' + utDeviceCoverage.total"></span>
                                             <!-- 이름에 디바이스 별칭이 든 태그를 한 번에 지정 — 결과는 '수정' 대기라 행마다 되돌릴 수 있다. -->
                                             <button class="btn btn-sm btn-outlined" x-show="ut.tab === 'Error' && utSuggestions.length > 0" @click="utApplySuggestions()"
                                                     title="이름에 디바이스 별칭이 든 태그를 그 디바이스로 지정">
                                                 <span class="material-icons">auto_fix_high</span> 이름으로 채우기 <b x-text="utSuggestions.length"></b>
+                                            </button>
+                                            <!-- 표(태그 먼저 → 디바이스 나중)의 역방향 — 디바이스를 고르고 후보를 걸러 한 번에 묶는다. -->
+                                            <button class="btn btn-sm btn-outlined" x-show="ut.tab === 'Error' && ut.devices.length > 0" @click="utMapOpen()"
+                                                    title="디바이스를 고르고 그 디바이스의 후보 태그를 한 번에 지정">
+                                                <span class="material-icons">hub</span> 디바이스로 묶기
                                             </button>
                                         </div>
                                         <!-- 선택·일괄 바(공용 .ds-selbar) — 헤더 체크 = 이 페이지, 링크 = 검색 결과 전체. 저장은 하단 '적용'. -->
@@ -490,9 +538,9 @@
                                             <span class="ds-selbar-sp"></span>
                                             <template x-if="ut.tab === 'Error'">
                                                 <select class="form-field" x-model="ut.bulkDevice"
-                                                        @change="ut.bulkDevice !== '' && utBulkAssign(ut.bulkDevice === '-' ? '' : ut.bulkDevice)">
+                                                        @change="ut.bulkDevice !== '' && utBulkAssign(ut.bulkDevice === UT_DEVICE_NONE ? '' : ut.bulkDevice)">
                                                     <option value="">디바이스 지정…</option>
-                                                    <option value="-">미지정</option>
+                                                    <option :value="UT_DEVICE_NONE">미지정</option>
                                                     <option :value="UT_DEVICE_GLOBAL">전역</option>
                                                     <template x-for="dev in ut.devices" :key="'bulk-' + dev"><option :value="dev" x-text="dev"></option></template>
                                                 </select>
@@ -1678,6 +1726,110 @@
             </div>
         </div>
 
+        <!-- 디바이스로 묶기 모달 — 디바이스를 먼저 고르고 후보를 걸러 한 번에 귀속(표의 역방향).
+             왼쪽 = 디바이스(+N 은 이름으로 확정되는 미지정 수), 오른쪽 = 그 디바이스의 후보.
+             여기서 바뀌는 것도 작업 복사본뿐이라 저장은 카드 하단 '적용' 하나다. -->
+        <div class="modal-overlay" x-show="ut.map.show" style="display:none; z-index:3000;" @click.self="ut.map.show = false"
+             @keydown.escape.window="ut.map.show && (ut.map.show = false)">
+            <div class="modal-content ut-modal ut-map-modal" @click.stop>
+                <h3><span class="material-icons">hub</span>디바이스로 묶기
+                    <span style="margin-left:auto; font-size:0.74rem; font-weight:600; color:var(--color-text-secondary);">
+                        태그 <b x-text="utDeviceCoverage.bound"></b>/<span x-text="utDeviceCoverage.total"></span>
+                        · 디바이스 <b x-text="utDevStats.boundDevices"></b>/<span x-text="ut.devices.length"></span>
+                    </span>
+                </h3>
+                <div class="ut-map">
+                    <!-- 디바이스 목록 -->
+                    <div class="ut-map-side">
+                        <div class="ut-map-sidehead">
+                            <div class="ude-search">
+                                <span class="material-icons">search</span>
+                                <input type="text" class="form-field" placeholder="디바이스 검색" x-model="ut.map.q" />
+                                <button x-show="ut.map.q" class="btn-icon" @click="ut.map.q = ''" title="지우기"><span class="material-icons">close</span></button>
+                            </div>
+                            <label class="ut-map-only" style="margin-top:6px;">
+                                <input type="checkbox" x-model="ut.map.only" /> 후보 있는 것만
+                            </label>
+                        </div>
+                        <div class="ut-map-devlist">
+                            <template x-for="dv in utMapDevices" :key="'md-' + dv.name">
+                                <button type="button" class="ut-map-dev" :class="ut.map.device === dv.name ? 'is-active' : ''" @click="utMapPick(dv.name)">
+                                    <span class="ut-map-dev-name" x-text="dv.name"></span>
+                                    <span class="ut-map-n is-sugg" x-show="dv.sugg > 0" x-text="'+' + dv.sugg" title="이름으로 확정할 수 있는 미지정 태그"></span>
+                                    <span class="ut-map-n is-bound" x-show="dv.bound > 0" x-text="dv.bound" title="이미 묶인 태그"></span>
+                                </button>
+                            </template>
+                            <div x-show="utMapDevices.length === 0" style="padding:14px; font-size:0.76rem; color:var(--color-text-secondary); text-align:center;"
+                                 x-text="ut.map.only ? '후보가 남은 디바이스가 없습니다.' : '디바이스 없음'"></div>
+                        </div>
+                    </div>
+                    <!-- 후보 태그 -->
+                    <div class="ut-map-main">
+                        <div class="ut-map-head">
+                            <span class="ut-map-dev-cur" :class="ut.map.device ? '' : 'is-empty'" x-text="ut.map.device || '왼쪽에서 디바이스를 고르세요'"></span>
+                            <span style="flex:1 1 auto;"></span>
+                            <select class="form-field ude-sel" x-show="ut.systems.length > 1" x-model="ut.map.sys" title="System 으로 후보 좁히기">
+                                <option value="">모든 System</option>
+                                <template x-for="sy in ut.systems" :key="'ms-' + sy.systemId"><option :value="sy.systemId" x-text="sy.systemName"></option></template>
+                            </select>
+                        </div>
+                        <div class="ut-chips ut-map-scopes">
+                            <button type="button" :class="ut.map.scope === 'suggest' ? 'is-active' : ''" @click="utMapSetScope('suggest')"
+                                    title="이름에 이 디바이스 별칭이 든 미지정 태그 — 열면 미리 선택돼 있습니다">추천 <b x-text="utMapCounts.suggest"></b></button>
+                            <button type="button" :class="ut.map.scope === 'unbound' ? 'is-active' : ''" @click="utMapSetScope('unbound')"
+                                    title="아직 어느 디바이스에도 안 묶인 태그">미지정 <b x-text="utMapCounts.unbound"></b></button>
+                            <button type="button" :class="ut.map.scope === 'mine' ? 'is-active' : ''" @click="utMapSetScope('mine')"
+                                    title="이미 이 디바이스로 묶인 태그 — 잘못 묶인 것을 풀 수 있습니다">이 디바이스 <b x-text="utMapCounts.mine"></b></button>
+                            <button type="button" :class="ut.map.scope === 'all' ? 'is-active' : ''" @click="utMapSetScope('all')"
+                                    title="다른 디바이스에 묶인 것까지 전부">전체 <b x-text="utMapCounts.all"></b></button>
+                        </div>
+                        <div class="ude-search" style="margin:8px 0;">
+                            <span class="material-icons">search</span>
+                            <input type="text" class="form-field" placeholder="이름·주소 검색" x-model="ut.map.q2" />
+                            <button x-show="ut.map.q2" class="btn-icon" @click="ut.map.q2 = ''" title="지우기"><span class="material-icons">close</span></button>
+                        </div>
+                        <div class="ds-selbar" style="margin:0 0 8px;" x-show="utMapCandidates.all.length > 0">
+                            <span class="ds-selbar-count" x-text="utMapSelCount + ' / ' + utMapCandidates.all.length + '건 선택'"></span>
+                            <button type="button" class="ds-selbar-link" x-show="utMapSelCount < utMapCandidates.all.length" @click="utMapSelectAll()"
+                                    x-text="'보이는 ' + utMapCandidates.all.length + '건 모두 선택'"></button>
+                            <button type="button" class="ds-selbar-link" x-show="utMapSelCount > 0" @click="utMapClearSel()">선택 해제</button>
+                        </div>
+                        <div class="ut-map-list">
+                            <template x-for="d in utMapCandidates.rows" :key="'mc-' + d.key">
+                                <label class="ut-map-row" :class="ut.map.sel[d.key] ? 'is-selected' : ''">
+                                    <input type="checkbox" :checked="!!ut.map.sel[d.key]" @change="utMapToggle(d, $event.target.checked)" />
+                                    <span class="nm" x-text="d.name"></span>
+                                    <span class="ad" x-text="d.tagAddress"></span>
+                                    <span class="dv" x-show="ut.systems.length > 1" x-text="d.systemName"></span>
+                                    <span class="dv" x-text="utDeviceLabel(d.device)" :style="d.device ? '' : 'color:var(--color-text-disabled);'"></span>
+                                </label>
+                            </template>
+                            <div x-show="utMapCandidates.all.length === 0" style="padding:18px; text-align:center; font-size:0.78rem; color:var(--color-text-secondary);">
+                                <span x-show="!ut.map.device">왼쪽에서 디바이스를 고르세요.</span>
+                                <span x-show="ut.map.device">이 범위에 남은 태그가 없습니다.</span>
+                            </div>
+                        </div>
+                        <!-- 상한을 넘으면 그리지 않은 몫이 있다는 것을 알린다 — '모두 선택' 은 안 그린 것까지 고른다. -->
+                        <div class="ut-map-more" x-show="utMapCandidates.all.length > utMapCandidates.rows.length"
+                             x-text="'앞 ' + utMapCandidates.rows.length + '건만 표시합니다 — 검색으로 좁히거나 모두 선택으로 한 번에 다루세요.'"></div>
+                    </div>
+                </div>
+                <div class="ut-map-foot">
+                    <small class="settings-hint" style="margin:0;">고른 것은 <b>수정</b> 대기 상태입니다 — 카드 하단 <b>적용</b>을 눌러야 저장됩니다.</small>
+                    <span class="ut-map-foot-sp"></span>
+                    <button class="btn btn-outlined color-error" x-show="ut.map.scope === 'mine' || ut.map.scope === 'all'"
+                            :disabled="utMapSelCount === 0" @click="utMapAssign('')" title="선택한 태그의 디바이스 귀속을 풉니다(미지정)">
+                        <span class="material-icons" style="font-size:18px;">link_off</span> 귀속 해제
+                    </button>
+                    <button class="btn btn-outlined color-default" @click="ut.map.show = false">닫기</button>
+                    <button class="btn btn-filled" :disabled="utMapSelCount === 0 || !ut.map.device" @click="utMapAssign(ut.map.device)">
+                        <span class="material-icons" style="font-size:18px;">check</span>
+                        <span x-text="utMapSelCount + '건을 ' + (ut.map.device || '') + ' 로 지정'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- 토스트 -->
         <div class="dsp-toast" :class="toast.type" x-show="toast.show" x-transition style="display:none;" x-text="toast.msg"></div>
     </div>
@@ -1688,7 +1840,7 @@
         // 현장 규모(이상알람TAG 2,900건 · 디바이스 396개)에서 getter 를 렌더마다 다시 계산하면
         // 정렬(localeCompare)·추천(이름×디바이스 정규화 110만 회)이 화면 한 번 그릴 때 10회 넘게 반복돼
         // 첫 표시 7.5초가 걸렸다. ut.rev(항목 변경마다 +1)와 필터/정렬 입력을 서명으로 삼아 한 번만 계산한다.
-        const UT_MEMO = { stats: {}, filtered: {}, sugg: {}, needles: {} };
+        const UT_MEMO = { stats: {}, filtered: {}, sugg: {}, needles: {}, devStats: {}, mapDev: {}, mapCand: {}, mapCnt: {} };
         const UT_COLL = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
         const UT_ESC = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -1742,7 +1894,11 @@
                     devEdit: null,
                     // 일괄 바의 임시 입력값 — 적용 즉시 비운다.
                     bulkDevice: '', bulkDeadband: '', bulkInterval: '',
-                    q: '', sys: '', sortKey: 'systemName', sortDir: 'asc', page: 0, pageSize: 20,
+                    // dev = 표의 디바이스 필터('' 전체 | '-' 미지정 | '*' 전역 | 이름) — 이상알람TAG 탭에서만 뜻이 있다.
+                    q: '', sys: '', dev: '', sortKey: 'systemName', sortDir: 'asc', page: 0, pageSize: 20,
+                    // 디바이스로 묶기(모달) — device 를 맥락으로 고정하고 scope/q2 로 후보를 좁혀 sel 을 한 번에 지정한다.
+                    //   scope = 'suggest' 추천 | 'unbound' 미지정 | 'mine' 이 디바이스 | 'all' 전체
+                    map: { show: false, device: '', q: '', q2: '', only: false, scope: 'suggest', sys: '', sel: {} },
                     modal: { show: false, mode: 'add', key: null, f: { systemId: '', name: '', tagAddress: '', valueType: 'Bit', matchOp: 'RisingEdge', matchValue: '', level: 'Error' }, err: {} },
                     csv: { show: false, busy: false, fileName: '', rows: [], hasSystemColumn: false, encoding: '', mode: 'append', targetSystemId: '', level: 'Error', adjusted: 0 },
                 },
@@ -1875,6 +2031,10 @@
                         // 행 셀렉트 옵션은 문자열 1개로 미리 만든다(utDevOptsFill 참조).
                         this.utDevOptsHtml = '<option value="">미지정</option><option value="' + this.UT_DEVICE_GLOBAL + '">전역</option>'
                             + this.ut.devices.map(x => '<option value="' + UT_ESC(x) + '">' + UT_ESC(x) + '</option>').join('');
+                        // 필터 셀렉트는 '전체' 가 빈 값이라 '미지정' 에 별도 센티넬이 필요하다(행 셀렉트와 값 공간이 다름).
+                        this.utDevFilterOptsHtml = '<option value="">모든 디바이스</option>'
+                            + '<option value="' + this.UT_DEVICE_NONE + '">미지정</option><option value="' + this.UT_DEVICE_GLOBAL + '">전역</option>'
+                            + this.ut.devices.map(x => '<option value="' + UT_ESC(x) + '">' + UT_ESC(x) + '</option>').join('');
                         this.ut.devRev++;
                         this.ut.sel = {};
                         this.ut.items = (d.tags || []).map((t, i) => ({
@@ -1888,6 +2048,10 @@
                             state: '', orig: null,
                         }));
                         if (this.ut.sys && !this.ut.systems.some(s => s.systemId === this.ut.sys)) this.ut.sys = '';
+                        // AASX 가 바뀌어 사라진 디바이스로 걸러 두면 빈 표만 남는다 — 필터·맥락을 함께 푼다.
+                        const devGone = (v) => v && v !== this.UT_DEVICE_NONE && v !== this.UT_DEVICE_GLOBAL && !this.ut.devices.includes(v);
+                        if (devGone(this.ut.dev)) this.ut.dev = '';
+                        if (devGone(this.ut.map.device)) { this.ut.map.device = ''; this.ut.map.sel = {}; }
                         this.ut.saveErrors = [];
                         this.ut.loaded = true;
                         this.utTouch();
@@ -1941,6 +2105,9 @@
                 // ''(미지정) · UT_DEVICE_GLOBAL(전역) · 이름 세 문자열로 구분하고 경계에서만 환산한다.
                 // 센티넬은 DevicesAlias 로 쓰일 수 없는 글자를 골랐다(Call 이름 "{alias}.{api}" 의 앞부분).
                 UT_DEVICE_GLOBAL: '*',
+                // 필터 전용 센티넬 — 필터는 ''(전체)를 이미 쓰므로 '미지정' 에 값이 하나 더 필요하다.
+                // 일괄 바의 '미지정' 옵션과 같은 값으로 맞춰 둔다(둘 다 DevicesAlias 로 쓸 수 없는 글자).
+                UT_DEVICE_NONE: '-',
                 utDeviceFromWire(v) { return v == null ? '' : (v === '' ? this.UT_DEVICE_GLOBAL : v); },
                 utDeviceToWire(v) {
                     if (!v) return null;                                   // 미지정 — 항목 자체를 만들지 않는다
@@ -1977,6 +2144,18 @@
                     if (el.dataset.rev === rev) return;
                     el.innerHTML = this.utDevOptsHtml;
                     el.dataset.rev = rev;
+                },
+                // 툴바 디바이스 필터도 같은 이유로 문자열 주입(x-for 396개 = 반응 스코프 낭비).
+                // 값 공간이 행 셀렉트와 다르다 — ''=전체, '-'=미지정, '*'=전역, 나머지는 이름.
+                utDevFilterOptsHtml: '',
+                utDevFilterFill(el) {
+                    const rev = String(this.ut.devRev);
+                    if (el.dataset.rev !== rev) { el.innerHTML = this.utDevFilterOptsHtml; el.dataset.rev = rev; }
+                },
+                // 커버리지 칩에서 바로 — 남은 미지정만 보고 골라 묶는 것이 이 화면의 주된 일이다.
+                utFilterUnbound() {
+                    this.ut.dev = this.ut.dev === this.UT_DEVICE_NONE ? '' : this.UT_DEVICE_NONE;
+                    this.utResetPage();
                 },
                 // 디바이스 셀 = 라벨 버튼. 클릭한 행에만 셀렉트를 만들고, 고르면(또는 벗어나면) 다시 라벨로.
                 utDevEditOpen(d) { if (d.state !== 'del') this.ut.devEdit = d.key; },
@@ -2022,6 +2201,128 @@
                 },
                 // 묶음 진행률 — 삭제 예약 행은 빼고, '전역'(고의로 안 묶음)은 분모에서도 뺀다.
                 get utDeviceCoverage() { const s = this.utStats; return { bound: s.bound, unbound: s.unbound, global: s.global, total: s.covTotal }; },
+
+                // ── 디바이스로 묶기(모달) — 표의 역방향 ──────────────────────────────────
+                // 표는 '태그를 찾아 → 디바이스를 고른다'. 여기는 '디바이스를 고정하고 → 후보를 걸러 한 번에 묶는다'.
+                // 디바이스 396개를 순회하며 채우는 현장 작업에는 이쪽이 맞는다. 바뀌는 것은 작업 복사본뿐이고
+                // 저장 경로는 그대로 '적용'(utApply) 하나다 — ★여기서 전송 경로를 따로 만들면 안 된다.
+                UT_MAP_CAP: 400,   // 한 번에 그리는 후보 행 상한 — 나머지는 검색으로 좁히거나 '모두 선택' 으로 다룬다
+                // 디바이스별 집계(묶인 수 · 추천 수). 추천은 utSuggestions(확신 있는 이름 일치)를 그대로 쪼개 쓴다.
+                get utDevStats() {
+                    const sig = this.ut.rev + '|' + this.ut.devRev;
+                    if (UT_MEMO.devStats.sig === sig) return UT_MEMO.devStats.v;
+                    const G = this.UT_DEVICE_GLOBAL, bound = {}, sugg = {};
+                    for (const d of this.ut.items || []) {
+                        if (d.level !== 'Error' || d.state === 'del') continue;
+                        if (d.device && d.device !== G) bound[d.device] = (bound[d.device] || 0) + 1;
+                    }
+                    for (const x of this.utSuggestions) sugg[x.device] = (sugg[x.device] || 0) + 1;
+                    const v = { bound, sugg, boundDevices: Object.keys(bound).length };
+                    UT_MEMO.devStats = { sig, v };
+                    return v;
+                },
+                // 왼쪽 목록 — 모달이 닫혀 있으면 빈 배열이라 페이지 로드 때 396행을 만들지 않는다.
+                get utMapDevices() {
+                    const m = this.ut.map;
+                    if (!m.show) return [];
+                    const sig = [this.ut.rev, this.ut.devRev, m.q, m.only ? 1 : 0].join('|');
+                    if (UT_MEMO.mapDev.sig === sig) return UT_MEMO.mapDev.list;
+                    const st = this.utDevStats, q = this.utNormMatch(m.q), list = [];
+                    for (const dev of this.ut.devices || []) {
+                        if (q && !this.utNormMatch(dev).includes(q)) continue;
+                        const sugg = st.sugg[dev] || 0;
+                        if (m.only && sugg === 0) continue;
+                        list.push({ name: dev, bound: st.bound[dev] || 0, sugg });
+                    }
+                    list.sort((a, b) => UT_COLL.compare(a.name, b.name));
+                    UT_MEMO.mapDev = { sig, list };
+                    return list;
+                },
+                // 범위별 건수 — 세그먼트 라벨. 어느 범위에 일이 남았는지 눌러 보기 전에 알 수 있어야 한다.
+                get utMapCounts() {
+                    const m = this.ut.map;
+                    if (!m.show) return { suggest: 0, unbound: 0, mine: 0, all: 0 };
+                    const sig = [this.ut.rev, m.device, m.sys].join('|');
+                    if (UT_MEMO.mapCnt.sig === sig) return UT_MEMO.mapCnt.v;
+                    const v = { suggest: 0, unbound: 0, mine: 0, all: 0 };
+                    for (const d of this.ut.items || []) {
+                        if (d.level !== 'Error' || d.state === 'del') continue;
+                        if (m.sys && d.systemId !== m.sys) continue;
+                        v.all++;
+                        if (!d.device) v.unbound++;
+                        if (m.device && d.device === m.device) v.mine++;
+                    }
+                    for (const x of this.utSuggestions)
+                        if (x.device === m.device && (!m.sys || x.row.systemId === m.sys)) v.suggest++;
+                    UT_MEMO.mapCnt = { sig, v };
+                    return v;
+                },
+                // 후보 — all 은 선택·일괄의 대상(전체), rows 는 그리는 몫(상한). 두 수가 다르면 안내를 띄운다.
+                get utMapCandidates() {
+                    const m = this.ut.map;
+                    if (!m.show) return { all: [], rows: [] };
+                    const sig = [this.ut.rev, m.device, m.scope, m.q2, m.sys].join(String.fromCharCode(1));
+                    if (UT_MEMO.mapCand.sig === sig) return UT_MEMO.mapCand.v;
+                    const q = (m.q2 || '').trim().toLowerCase(), all = [];
+                    // 추천 범위의 풀에는 이미 '미지정 + 이 디바이스로 확정' 만 들어 있다(utSuggestions 규칙 그대로).
+                    const pool = m.scope === 'suggest'
+                        ? this.utSuggestions.filter(x => x.device === m.device).map(x => x.row)
+                        : (this.ut.items || []);
+                    for (const d of pool) {
+                        if (d.level !== 'Error' || d.state === 'del') continue;
+                        if (m.sys && d.systemId !== m.sys) continue;
+                        if (m.scope === 'unbound' && d.device) continue;
+                        if (m.scope === 'mine' && d.device !== m.device) continue;
+                        if (q && !(d.name + ' ' + d.tagAddress + ' ' + d.systemName).toLowerCase().includes(q)) continue;
+                        all.push(d);
+                    }
+                    all.sort((a, b) => UT_COLL.compare(a.name, b.name) || UT_COLL.compare(a.tagAddress, b.tagAddress));
+                    const v = { all, rows: all.slice(0, this.UT_MAP_CAP) };
+                    UT_MEMO.mapCand = { sig, v };
+                    return v;
+                },
+                get utMapSelCount() { return Object.keys(this.ut.map.sel).length; },
+                utMapOpen() {
+                    const m = this.ut.map;
+                    m.sys = this.ut.sys || '';
+                    m.q = ''; m.only = false; m.show = true;
+                    // 남은 일이 있는 디바이스로 열어 준다 — 목록 맨 앞은 대개 이미 끝난 디바이스다.
+                    const first = this.utSuggestions[0]?.device || this.ut.devices[0] || '';
+                    this.utMapPick(m.device && this.ut.devices.includes(m.device) ? m.device : first);
+                    // 고른 디바이스가 396개 목록의 한참 아래일 수 있다 — 안 보이면 고른 줄 모른다.
+                    this.$nextTick(() => document.querySelector('.ut-map-dev.is-active')?.scrollIntoView({ block: 'nearest' }));
+                },
+                utMapPick(dev) {
+                    const m = this.ut.map;
+                    m.device = dev; m.q2 = ''; m.sel = {};
+                    // 추천이 없는 디바이스는 빈 목록부터 보여 주지 않고 '미지정' 으로 연다.
+                    m.scope = (this.utDevStats.sugg[dev] || 0) > 0 ? 'suggest' : 'unbound';
+                    if (m.scope === 'suggest') this.utMapSelectAll();
+                },
+                // 범위를 바꾸면 선택을 비운다 — 안 보이는 범위의 선택이 건수에만 남아 같이 나가면 사고다.
+                utMapSetScope(scope) {
+                    const m = this.ut.map;
+                    if (m.scope === scope) return;
+                    m.scope = scope; m.sel = {};
+                    if (scope === 'suggest') this.utMapSelectAll();
+                },
+                utMapToggle(d, on) {
+                    const sel = { ...this.ut.map.sel };
+                    if (on) sel[d.key] = true; else delete sel[d.key];
+                    this.ut.map.sel = sel;
+                },
+                utMapSelectAll() { const sel = {}; for (const d of this.utMapCandidates.all) sel[d.key] = true; this.ut.map.sel = sel; },
+                utMapClearSel() { this.ut.map.sel = {}; },
+                // 선택한 후보를 지금 디바이스로(device='' 면 귀속 해제) 한 번에. 표의 일괄 지정과 같은 경로(utSetDevice)라
+                // '수정' 대기로 쌓이고 행마다 되돌릴 수 있다. 모달은 열어 둔 채 다음 디바이스로 이어 갈 수 있다.
+                utMapAssign(device) {
+                    const sel = this.ut.map.sel;
+                    const targets = this.utMapCandidates.all.filter(d => sel[d.key]);
+                    if (!targets.length) return;
+                    for (const d of targets) this.utSetDevice(d, device);
+                    this.ut.map.sel = {};
+                    this.showToast(targets.length + "건 → '" + this.utDeviceLabel(device) + "' — 적용을 누르면 저장됩니다.", 'info');
+                },
 
                 // ── 선택(체크박스) — 헤더 체크 = 지금 표시된 행(페이지), 링크 = 검색 결과 전체. 일괄 동작의 대상. ──
                 get utSelCount() { return Object.keys(this.ut.sel).length; },
@@ -2149,15 +2450,20 @@
                 // (localeCompare(…, {numeric}) 는 비교마다 Collator 를 만들어 2,900건 정렬이 수백 ms 걸렸다).
                 get utFiltered() {
                     const u = this.ut;
-                    const sig = [u.rev, u.tab, u.sys, u.q, u.sortKey, u.sortDir].join('');
+                    const sig = [u.rev, u.tab, u.sys, u.dev, u.q, u.sortKey, u.sortDir].join('');
                     if (UT_MEMO.filtered.sig === sig) return UT_MEMO.filtered.list;
-                    const q = (u.q || '').trim().toLowerCase(), sys = u.sys, tab = u.tab;
+                    const q = (u.q || '').trim().toLowerCase(), sys = u.sys, tab = u.tab, dev = u.dev;
                     const key = u.sortKey, dir = u.sortDir === 'asc' ? 1 : -1;
                     const rows = [];
                     for (const d of (u.items || [])) {
                         // ★뷰 필터 — 전송(utApply)에는 절대 걸지 않는다. 걸면 반대 탭 태그가 통째로 사라진다.
                         if (d.level !== tab) continue;
                         if (sys && d.systemId !== sys) continue;
+                        // 디바이스 축은 이상알람TAG 에만 있다 — 모니터링TAG 탭에서는 걸지 않는다.
+                        if (dev && tab === 'Error') {
+                            const cur = d.device || '';
+                            if (dev === this.UT_DEVICE_NONE ? cur !== '' : cur !== dev) continue;
+                        }
                         if (q) {
                             // 디바이스는 원값으로 담는다 — 라벨('미지정')로 담으면 모니터링 행까지 걸린다.
                             const hay = (d.systemName + ' ' + d.name + ' ' + d.tagAddress + ' ' + (d.valueType || '') + ' '
