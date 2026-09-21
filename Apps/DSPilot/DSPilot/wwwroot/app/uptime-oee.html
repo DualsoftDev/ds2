@@ -130,7 +130,7 @@
                                       :title="'14일 완료 사이클 10건 미만으로 판정 불가한 설비 — 그 시간 ' + durSum(oee ? oee.unjudgedWallMs : 0) + ' 은 A·P 어디에도 넣지 않음: ' + ((oee && oee.unjudgedFlows) || []).join(', ')"></span>
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.availability) : '—'"></div>
-                            <div class="up-oee-note" x-text="oee ? (oee.availability != null ? '가동 ÷ 생산가능(캘린더 − 비생산 − 미계측) · 비가동 = 고장 + 유지보수 + 짧은 멈춤' : (oee.availabilityNote || '산출 불가')) : ''"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.availability != null ? '가동 ÷ 생산가능(캘린더 − 비생산 − 미계측) · 비가동 = 생산가능 − 가동' : (oee.availabilityNote || '산출 불가')) : ''"></div>
                         </div>
                         <!-- 성능 P (사이클기반: N × 표준 CT ÷ Σ실측 CT) — 표준 CT = 최근 14일 중앙값 -->
                         <div class="up-oee" :class="oeeTone('performance')" title="표준 가동시간 = 최근 14일 중앙 CT(평균은 정지 사이클에 끌려 중앙값 사용) — 정상상태 P≈100% 수렴.">
@@ -175,33 +175,33 @@
                         </div>
                         <!-- MTBF (연속 비가동 onset 간격 평균; 무비가동 = 가짜수치 대신 배지) -->
                         <div class="up-oee" :class="oee && oee.failureCount === 0 ? 'is-good' : (oee && oee.mtbf != null ? 'is-warn' : 'is-na')">
-                            <div class="up-oee-label">평균 고장 간격(MTBF)</div>
+                            <div class="up-oee-label">평균 고장 간격(MTBF) <span class="up-cm-info" title="근거는 비가동 구간입니다(doc/30 §7.1) — 원인을 선언한 고장이 아니라 사이클 길이로 판정한 것입니다.">ⓘ</span></div>
                             <template x-if="oee && oee.failureCount === 0">
                                 <div>
-                                    <div class="up-nofault"><span class="led"></span>고장 없음</div>
-                                    <div class="up-oee-note">기간 고장 0건 — 산출 대상 없음(유지보수는 제외).</div>
+                                    <div class="up-nofault"><span class="led"></span>비가동 없음</div>
+                                    <div class="up-oee-note">기간 비가동 0건 — 산출 대상 없음.</div>
                                 </div>
                             </template>
                             <template x-if="!oee || oee.failureCount !== 0">
                                 <div>
                                     <div class="up-oee-value up-oee-mono" x-text="oee ? durShort(oee.mtbf) : '—'"></div>
-                                    <div class="up-oee-note" x-text="oee ? (oee.mtbf != null ? ('고장 ' + oee.failureCount + '건 · 고장 사이클 시작 간격 평균') : (oee.mtbfNote || '산출 불가')) : ''"></div>
+                                    <div class="up-oee-note" x-text="oee ? (oee.mtbf != null ? ('비가동 ' + oee.failureCount + '건 · 비가동 사이클 시작 간격 평균') : (oee.mtbfNote || '산출 불가')) : ''"></div>
                                 </div>
                             </template>
                         </div>
                         <!-- 고장 사이클 평균 시간 (doc/28 §2.1 — 종전 MTTR 자리, API 필드 mttr 유지). 고장 행 ct 평균(정상분 포함). 고장 0 = 배지 -->
                         <div class="up-oee" :class="oee && oee.failureCount === 0 ? 'is-good' : (oee && oee.mttr != null ? 'is-warn' : 'is-na')">
-                            <div class="up-oee-label">고장 사이클 평균 시간 <span class="up-cm-info" title="고장 사이클의 전체 길이 평균 — 정상분이 포함되므로 '수리 시간'이 아닙니다.">ⓘ</span></div>
+                            <div class="up-oee-label">비가동 사이클 평균 시간 <span class="up-cm-info" title="비가동 사이클의 전체 길이 평균 — 정상분이 포함되므로 '수리 시간'이 아닙니다.">ⓘ</span></div>
                             <template x-if="oee && oee.failureCount === 0">
                                 <div>
-                                    <div class="up-nofault"><span class="led"></span>고장 없음</div>
-                                    <div class="up-oee-note">기간 고장 0건 — 산출 대상 없음(유지보수는 제외).</div>
+                                    <div class="up-nofault"><span class="led"></span>비가동 없음</div>
+                                    <div class="up-oee-note">기간 비가동 0건 — 산출 대상 없음.</div>
                                 </div>
                             </template>
                             <template x-if="!oee || oee.failureCount !== 0">
                                 <div>
                                     <div class="up-oee-value up-oee-mono" x-text="oee ? durShort(oee.mttr) : '—'"></div>
-                                    <div class="up-oee-note" x-text="oee ? (oee.mttr != null ? ('고장 ' + oee.failureCount + '건 · 사이클 전체 길이 평균(정상분 포함)') : (oee.mttrNote || '산출 불가')) : ''"></div>
+                                    <div class="up-oee-note" x-text="oee ? (oee.mttr != null ? ('비가동 ' + oee.failureCount + '건 · 사이클 전체 길이 평균(정상분 포함)') : (oee.mttrNote || '산출 불가')) : ''"></div>
                                 </div>
                             </template>
                         </div>
@@ -266,7 +266,7 @@
                             <span class="up-oee-chip" x-show="!curFlow && oee && oee.cycleFlowCount > 1" x-text="'설비 합산 ×' + (oee ? oee.cycleFlowCount : '')"
                                   title="라인(전체)은 설비별로 합산해 축이 24h × 설비 수까지 올라갑니다. 설비를 하나 고르면 24h 기준.">설비 합산</span>
                         </h4>
-                        <span class="ds-card-h-sub">가동 · 고장 · 유지보수 · 비생산(제외) · 미계측</span>
+                        <span class="ds-card-h-sub">가동 · 비가동 · 비생산(제외) · 미계측</span>
                     </div>
                     <template x-if="dailyData && dailyData.slots && dailyData.slots.length > 0">
                         <div style="position:relative; height:220px;">
@@ -305,18 +305,13 @@
                                 <div class="up-bar-seg" :style="`width:${availComp.runPct}%; background:var(--oee-run);`"
                                      :title="'가동(정상 사이클) ' + durSum(availComp.runMs) + ' · ' + availComp.runPct + '% · ' + availComp.runNote">
                                     <span class="up-bar-lbl is-long" x-text="'가동 ' + durSum(availComp.runMs) + ' · ' + availComp.runPct + '%'"></span><span class="up-bar-lbl is-short" x-text="availComp.runPct + '%'"></span></div>
-                                <div class="up-bar-seg hatch-fault" x-show="availComp.faultPct > 0" @click="openDtPattern('all')" :style="`width:${availComp.faultPct}%; cursor:pointer;`"
-                                     :title="'고장(사이클 전체) ' + durSum(availComp.faultMs) + ' · ' + availComp.faultPct + '% · ' + availComp.stopNote + ' — 클릭 → 날짜별 비가동 패턴'">
-                                    <span class="up-bar-lbl is-long" x-text="'고장 ' + durSum(availComp.faultMs) + ' · ' + availComp.faultPct + '%'"></span><span class="up-bar-lbl is-short" x-text="availComp.faultPct + '%'"></span></div>
-                                <div class="up-bar-seg hatch-maint" x-show="availComp.maintMs > 0" @click="openDtPattern('maintenance')" :style="`width:${availComp.maintPct}%; cursor:pointer;`"
-                                     :title="'유지보수 ' + durSum(availComp.maintMs) + ' · ' + availComp.maintPct + '% — 클릭 → 날짜별 비가동 패턴'">
-                                    <span class="up-bar-lbl is-long" x-text="'유지보수 ' + durSum(availComp.maintMs) + ' · ' + availComp.maintPct + '%'"></span><span class="up-bar-lbl is-short" x-text="availComp.maintPct + '%'"></span></div>
-                                <!-- 짧은 멈춤(원인 미기록) = 잔여 조각. 이걸 그려야 막대가 100% 로 닫힌다 — 빈칸은 '화면 고장'으로 읽힌다.
-                                     이름을 '미귀속'(만든 사람 언어)에서 현장 언어로 바꿨다. 클릭 대상은 없다(구간이 어디에도 기록되지 않음). -->
-                                <div class="up-bar-seg hatch-idle" x-show="availComp.idlePct > 0" :style="`width:${availComp.idlePct}%;`"
-                                     :title="'짧은 멈춤(원인 미기록) ' + durSum(availComp.idleMs) + ' · ' + availComp.idlePct + '% — 이 구간에는 사이클 기록이 없습니다(설비가 멈춰 있던 시간).'
-                                             + (availComp.npBoundary ? (' 비생산 기준 ' + availComp.npBoundary + ' 을 넘지 않아 계산에서 빼지 않았습니다.') : '')">
-                                    <span class="up-bar-lbl is-long" x-text="'짧은 멈춤 ' + durSum(availComp.idleMs) + ' · ' + availComp.idlePct + '%'"></span><span class="up-bar-lbl is-short" x-text="availComp.idlePct + '%'"></span></div>
+                                <!-- 비가동 한 조각(2026-09-21) — 종전 고장·유지보수·짧은 멈춤 셋. 길이로만 판정하면서
+                                     원인을 단정하는 이름이라 합쳤다(doc/30 §11.1). 셋의 합이 곧 생산가능 − 가동이라 A 는 그대로다.
+                                     원인별 내역은 클릭 → 날짜별 비가동 패턴과 아래 정지 로그가 맡는다. -->
+                                <div class="up-bar-seg hatch-fault" x-show="availComp.downPct > 0" @click="openDtPattern('all')" :style="`width:${availComp.downPct}%; cursor:pointer;`"
+                                     :title="'비가동 ' + durSum(availComp.downMs) + ' · ' + availComp.downPct + '% — 생산가능에서 가동을 뺀 나머지. 클릭 → 날짜별 비가동 패턴'
+                                             + (availComp.unattributedMs > 0 ? (' · 이 중 ' + durSum(availComp.unattributedMs) + ' 은 사이클 기록이 없어 원인을 모릅니다(아래 계측 품질).') : '')">
+                                    <span class="up-bar-lbl is-long" x-text="'비가동 ' + durSum(availComp.downMs) + ' · ' + availComp.downPct + '%'"></span><span class="up-bar-lbl is-short" x-text="availComp.downPct + '%'"></span></div>
                             </div>
                             <!-- 계산에 들어가는 것(위 막대)과 빠지는 것(아래 줄)을 질감으로 가른다 — 비생산 · 진행 중(열린 사이클, doc/26)
                                  · 판정 불가(표본 게이트). '짧은 멈춤'은 <b>분모 안</b>이라 여기서 빼고 막대로 옮겼다(2026-09-21):
@@ -328,7 +323,7 @@
                                 <span x-show="oee && oee.unjudgedWallMs > 0" style="color:var(--amber,#b7791f);" :title="'14일 완료 사이클 10건 미만으로 판정 불가한 설비의 시간 — A·P 어디에도 넣지 않음. 대상: ' + ((oee && oee.unjudgedFlows) || []).join(', ')">판정 불가 <b class="is-short" x-text="oee ? (durSum(oee.unjudgedWallMs) + ' · ' + oee.unjudgedFlowCount + '대') : ''"></b></span>
                                 <!-- 판정 경계를 드러낸다 — 이 한 줄이 없으면 어떤 정지는 빠지고 어떤 정지는 분모에 남는 이유를 알 수 없다. -->
                                 <span class="up-acct-rule" x-show="availComp.npBoundary"
-                                      :title="'설비의 14일 중앙 사이클 길이 × 비생산배수(하한 ' + cm.nonProdFloor + '사이클)로 정해집니다. 설정 ▸ 고장·비생산 판정 기준에서 조절하세요.'"
+                                      :title="'설비의 14일 중앙 사이클 길이 × 비생산배수(하한 ' + cm.nonProdFloor + '사이클)로 정해집니다. 설정 ▸ 비가동·비생산 판정 기준에서 조절하세요.'"
                                       x-text="'비생산 기준 ' + availComp.npBoundary + ' — 이보다 긴 멈춤은 계산에서 빠집니다'"></span>
                             </div>
                             <!-- 한 줄 요약 — 위 숫자들을 사람 문장으로 잇는다. 상시 문단 금지 규약에 맞춰 정확히 한 줄. -->
@@ -748,15 +743,16 @@
                     </div>
                 </section>
 
-                <!-- ════ 고장·비생산 판정 기준 (doc/28, 2026-09-11 두 규칙 · 사이클 단위) —
+                <!-- ════ 비가동·비생산 판정 기준 (doc/28, 2026-09-11 두 규칙 · 사이클 단위) —
+                     어휘: '고장' 은 쓰지 않는다(2026-09-21) — 길이로만 판정하면서 원인을 단정하는 이름이라 doc/30 §11.1 폐기 대상.
                      축별 2레인(동작 MT / 대기 WT, 각 경계 1개) 슬라이더 2개 + flow별 기준선·환산 칩 + 저장 전 재분류 미리보기(서버 what-if, 저장·기록 없음).
                      라인 전역 설정. 화면 환산식은 서버 경계 함수(OeeMath.Resolve*BoundaryMs)와 동일해야 한다. ════ -->
                 <section class="card up-section" id="ct-mult-section" x-show="!curFlow" x-cloak>
                     <div class="ds-card-h">
-                        <h4>고장·비생산 판정 기준</h4>
+                        <h4>비가동·비생산 판정 기준</h4>
                         <span style="flex:1;"></span>
                         <span class="up-oee-chip" :class="cmDirty() ? 'warn' : 'auto'"
-                              x-text="cmDirty() ? '미적용 변경 — [적용]을 눌러 저장' : ('고장 ' + cm.fault + '× 동작 · 비생산 ' + cm.nonProd + '× 대기')"></span>
+                              x-text="cmDirty() ? '미적용 변경 — [적용]을 눌러 저장' : ('비가동 ' + cm.fault + '× 동작 · 비생산 ' + cm.nonProd + '× 대기')"></span>
                     </div>
 
                     <!-- 축별 레인 — 스케일이 다른 두 축을 한 막대에 그리지 않는다. 레인마다 밴드(경계 1개) + 담당 슬라이더.
@@ -764,24 +760,27 @@
                     <div class="up-cm-lane fault">
                         <div class="up-cm-lane-head">
                             <b title="기준선 = 14일 중앙 동작시간(평균은 정지 사이클에 끌려 중앙값 사용) · 완료 신호 없는 사이클은 전체 길이를 중앙 CT × 같은 배수에 댑니다.">동작시간 축</b>
-                            <span class="up-codeish">고장 판정</span>
+                            <span class="up-codeish">비가동 판정</span>
                         </div>
+                        <!-- 밴드에 라인 환산을 함께 적는다 — 배수만 보이면 "10배가 몇 초인지" 를 알 수 없다.
+                             슬라이더를 끌면 이 시간이 같이 움직여, 조절 결과가 현장 시간으로 즉시 읽힌다. -->
                         <div class="up-cm-band mt">
                             <div class="seg normal" :style="'width:' + cmBandW('mt-normal')">
                                 <span class="nm">정상</span><span class="rg">≤ <b x-text="cm.fault"></b>× 평소 동작</span>
                             </div>
-                            <div class="seg fault" :style="'width:' + cmBandW('mt-fault')" title="동작 초과 고장이라도 사이클 길이가 비생산 기준 이상이면 비생산으로 내려갑니다(비생산 우선).">
-                                <span class="nm">고장</span><span class="rg">&gt; <b x-text="cm.fault"></b>×</span>
+                            <div class="seg fault" :style="'width:' + cmBandW('mt-fault')" title="동작이 이 경계를 넘으면 비가동입니다. 다만 사이클 길이가 비생산 기준 이상이면 비생산으로 내려갑니다(비생산 우선).">
+                                <span class="nm">비가동</span>
+                                <span class="rg">&gt; <b x-text="cm.fault"></b>×<span x-show="cmDownRange()" x-text="' · ' + cmDownRange()"></span></span>
                             </div>
                         </div>
                         <div class="up-cm-row">
                             <div class="up-cm-head">
-                                <b>고장 배수</b>
+                                <b>비가동 배수</b>
                                 <span>평소 동작(14일 중앙값) 대비</span>
                             </div>
                             <input class="up-cm-slider fault" type="range" min="1" max="20" step="0.1"
                                    :value="cm.fault" @input="cmSetFault($event.target.value)" :disabled="cm.busy"
-                                   aria-label="고장 판정 배수">
+                                   aria-label="비가동 판정 배수">
                             <span class="up-cm-val" x-text="cm.fault.toFixed(1) + '×'"></span>
                         </div>
                     </div>
@@ -796,7 +795,8 @@
                                 <span class="nm">정상</span><span class="rg">&lt; <b x-text="cm.nonProd"></b>× 평소 대기</span>
                             </div>
                             <div class="seg nonprod" :style="'width:' + cmBandW('wt-nonprod')">
-                                <span class="nm">비생산 (제외)</span><span class="rg">≥ <b x-text="cm.nonProd"></b>×</span>
+                                <span class="nm">비생산 (제외)</span>
+                                <span class="rg">≥ <b x-text="cm.nonProd"></b>×<span x-show="cmNpRange()" x-text="' · ' + cmNpRange()"></span></span>
                             </div>
                         </div>
                         <div class="up-cm-row">
@@ -813,8 +813,21 @@
 
                     <!-- ④ flow별 환산 — "이 배수가 우리 라인에선 몇 초/분인가". 기준선(평소 MT/WT)과 경계, 표본 상태를 함께 보인다.
                          완료 신호 없는 사이클(불인정 행)의 CT 축 경계는 툴팁으로(칩이 길어지지 않게). -->
+                    <!-- 상태 한 줄 — 설명이 아니라 관측값이다. 문제가 없으면 그렇다고 말한다(빈 줄을 두면 "안 센 것" 처럼 읽힌다). -->
+                    <div class="up-cm-flows-head" x-show="cm.flows.length" x-cloak>
+                        <b x-text="'설비 ' + cmStats.total + '대'"></b>
+                        <span class="warn" x-show="cmStats.gated > 0"
+                              title="14일 완료 사이클이 최소 표본에 못 미쳐 어떤 판정도 하지 않습니다 — 라인 A·P 분모·분자 밖."
+                              x-text="'판정 불가 ' + cmStats.gated"></span>
+                        <span class="warn" x-show="cmStats.noMt > 0"
+                              title="완료 신호가 정의되지 않아 동작 시간을 나눌 수 없습니다 — 비생산(사이클 길이)만 판정합니다."
+                              x-text="'비가동 판별 불가 ' + cmStats.noMt"></span>
+                        <span x-show="cmStats.gated === 0 && cmStats.noMt === 0">모두 판정 가능</span>
+                        <span style="flex:1;"></span>
+                        <span class="hint">경계 짧은 순</span>
+                    </div>
                     <div class="up-cm-flows" x-show="cm.flows.length" x-cloak>
-                        <template x-for="f in cm.flows" :key="f.flowName">
+                        <template x-for="f in cmFlowsSorted" :key="f.flowName">
                             <span class="up-cm-flowchip" :class="{ fb: !f.hasMtBaseline, gated: cmGated(f) }" :title="cmChipTitle(f)">
                                 <b x-text="f.flowName"></b>
                                 <span class="base" x-show="f.hasMtBaseline">동작 <i x-text="cmFmtMs(f.medianMtMs)"></i> · 대기 <i x-text="cmFmtMs(f.medianWtMs)"></i> · 표본 <i x-text="f.sampleCount"></i></span>
@@ -824,8 +837,8 @@
                                 </template>
                                 <template x-if="!cmGated(f)">
                                     <span style="display:contents;">
-                                        <span class="th fault" x-show="f.hasMtBaseline">고장 &gt; <i x-text="cmFmtMs(cmBound(f, 'fault'))"></i></span>
-                                        <span class="th fault" x-show="!f.hasMtBaseline" title="완료 신호가 정의되지 않아 동작 시간을 알 수 없습니다 — 고장은 판정하지 않습니다">고장 판별 불가</span>
+                                        <span class="th fault" x-show="f.hasMtBaseline">비가동 &gt; <i x-text="cmFmtMs(cmBound(f, 'fault'))"></i></span>
+                                        <span class="th fault" x-show="!f.hasMtBaseline" title="완료 신호가 정의되지 않아 동작 시간을 알 수 없습니다 — 비가동은 판정하지 않습니다">비가동 판별 불가</span>
                                         <span class="th np">비생산 ≥ <i x-text="cmFmtMs(cmBound(f, f.hasMtBaseline ? 'nonprod' : 'nonprodCt'))"></i></span>
                                     </span>
                                 </template>
@@ -842,11 +855,11 @@
                             <table class="up-cm-pv">
                                 <thead><tr><th>이 기간 재분류</th><th>현재</th><th>→ 제안</th></tr></thead>
                                 <tbody>
-                                    <tr><td>고장</td><td x-text="cm.preview.current.downtimeCount + '건'"></td>
+                                    <tr><td>비가동</td><td x-text="cm.preview.current.downtimeCount + '건'"></td>
                                         <td class="to" x-text="cm.preview.proposed.downtimeCount + '건'" :title="'동작 초과 ' + cm.preview.proposed.faultMtCount + ' · 미완료 사이클 ' + cm.preview.proposed.faultCtCount"></td></tr>
                                     <tr><td>비생산</td><td x-text="cm.preview.current.nonProdCount + '건'"></td>
                                         <td class="to" x-text="cm.preview.proposed.nonProdCount + '건'" :title="'대기 초과 ' + cm.preview.proposed.nonProdWtCount + ' · 미완료 사이클 ' + cm.preview.proposed.nonProdCtCount + ' · 길이로 강등 ' + cm.preview.proposed.nonProdMtCount"></td></tr>
-                                    <tr><td>고장 시간</td><td x-text="cmFmtH(cm.preview.current.idleCtMs)"></td><td class="to" x-text="cmFmtH(cm.preview.proposed.idleCtMs)"></td></tr>
+                                    <tr><td>비가동 시간</td><td x-text="cmFmtH(cm.preview.current.idleCtMs)"></td><td class="to" x-text="cmFmtH(cm.preview.proposed.idleCtMs)"></td></tr>
                                     <tr><td>비생산 시간</td><td x-text="cmFmtH(cm.preview.current.nonProdWallMs)"></td><td class="to" x-text="cmFmtH(cm.preview.proposed.nonProdWallMs)"></td></tr>
                                     <tr><td>가용성</td><td x-text="cmFmtPct(cm.preview.current.availability)"></td><td class="to" x-text="cmFmtPct(cm.preview.proposed.availability)"></td></tr>
                                     <tr><td>성능</td><td x-text="cmFmtPct(cm.preview.current.performance)"></td><td class="to" x-text="cmFmtPct(cm.preview.proposed.performance)"></td></tr>
@@ -861,7 +874,7 @@
                         <span class="up-blk-msg err" x-show="cm.err" x-text="cm.err"></span>
                         <span style="flex:1;"></span>
                         <button class="btn btn-sm btn-outlined" @click="cmReset()" :disabled="cm.busy"
-                                title="기본값(고장 5× 동작 · 비생산 30× 대기)으로 되돌린 뒤 [적용]으로 저장">기본값</button>
+                                title="기본값(비가동 5× 동작 · 비생산 30× 대기)으로 되돌린 뒤 [적용]으로 저장">기본값</button>
                         <button class="btn btn-sm" :class="cmDirty() ? 'btn-primary' : ''" @click="cmApply()" :disabled="cm.busy || !cmDirty()">
                             <span class="material-icons" style="font-size:15px;">save</span>
                             <span x-text="cmDirty() ? '적용 *' : '적용'"></span>
@@ -968,16 +981,17 @@
                                 </div>
                             </div>
 
-                            <!-- 짧은 멈춤(원인 미기록, 종전 '미귀속', doc/28 §2.7) — 비가동 − 유지보수 − 고장 잔여.
-                                 가용성 정산 막대의 앰버 조각과 같은 시간을 설비별로 쪼갠 것이다(용어 통일, 2026-09-21). -->
+                            <!-- 원인 미기록 시간(종전 '짧은 멈춤'·'미귀속') — 비가동 중 사이클 기록이 아예 없는 구간.
+                                 2026-09-21: 정산 막대에서는 비가동에 합치고 여기서만 따로 보인다. 멈췄다는 것은 설비 상태고,
+                                 왜인지 모른다는 것은 데이터 품질이라 한 막대에 섞으면 둘 다 안 읽힌다. -->
                             <div class="up-mq-bnd" x-show="mqUnattributedRows.length > 0" x-cloak>
                                 <span class="material-icons">schedule</span>
                                 <div>
-                                    <b title="이 구간에는 사이클 기록이 없습니다 — 설비가 멈춰 있었지만 고장·유지보수로 기록되지 않았고, 비생산 기준을 넘기지도 않아 가용성 계산에는 손실로 남아 있습니다.">멈춰 있었지만 원인이 기록되지 않은 시간</b>
+                                    <b title="이 구간에는 사이클 기록이 없습니다 — 설비는 멈춰 있었고 비가동으로 계산되지만, 그 이상은 알 수 없습니다. 경계(시작·완료 동작) 지정을 확인하세요.">멈춰 있었지만 원인이 기록되지 않은 시간</b>
                                     <template x-for="f in mqUnattributedRows" :key="'ua-' + f.flowName">
                                         <div class="up-mq-bnd-row">
                                             <a :href="'/flow-cycle?name=' + encodeURIComponent(f.flowName)" x-text="f.flowName"></a>
-                                            <span class="tag" x-text="'짧은 멈춤 ' + durShort(f.unattributedWallMs)"></span>
+                                            <span class="tag" x-text="'원인 미기록 ' + durShort(f.unattributedWallMs)"></span>
                                         </div>
                                     </template>
                                 </div>
@@ -987,7 +1001,7 @@
                             <div class="up-mq-unmeas" x-show="mq.unmeasurableFlowCount > 0" x-cloak>
                                 <span class="material-icons">report_off</span>
                                 <span class="up-oee-chip warn" style="margin-left:0;" x-text="'측정 불가 ' + mq.unmeasurableFlowCount + '대'"
-                                      title="표준 가동시간(14일 중앙 CT) 미학습 — 고장/비생산 판정도, 가용성·OEE 도 산출되지 않습니다(근사값 없음)."></span>
+                                      title="표준 가동시간(14일 중앙 CT) 미학습 — 비가동/비생산 판정도, 가용성·OEE 도 산출되지 않습니다(근사값 없음)."></span>
                                 <template x-for="f in mqRows.filter(r => r.measurable === false)" :key="'um-' + f.flowName">
                                     <a :href="'/flow-cycle?name=' + encodeURIComponent(f.flowName)" x-text="f.flowName"
                                        title="사이클이 0건이면 설비 경계(시작/완료 동작) 지정을 먼저 확인 — 사이클 분석으로 이동"></a>
@@ -1014,7 +1028,7 @@
                                         <a class="up-mq-name" :href="'/uptime-oee?flow=' + encodeURIComponent(f.flowName)"
                                            :title="f.measurable === false
                                                    ? (f.flowName + ' — 측정 불가: 표준 가동시간(14일 중앙 CT) 미학습. 설비 경계(시작/완료 동작) 지정을 확인하세요.')
-                                                   : (f.flowName + ' — 고장 경계(동작) ' + (f.thresholdMs > 0 ? durShort(f.thresholdMs) : '판별 불가(완료 신호 미정의)') + (f.baselineGated ? ' · 판정 불가 · 라인 집계 제외(완료 표본 ' + f.baselineSampleCount + '건)' : '') + (f.unattributedWallMs > 60000 ? ' · 짧은 멈춤(원인 미기록) ' + durShort(f.unattributedWallMs) : ''))"
+                                                   : (f.flowName + ' — 비가동 경계(동작) ' + (f.thresholdMs > 0 ? durShort(f.thresholdMs) : '판별 불가(완료 신호 미정의)') + (f.baselineGated ? ' · 판정 불가 · 라인 집계 제외(완료 표본 ' + f.baselineSampleCount + '건)' : '') + (f.unattributedWallMs > 60000 ? ' · 원인 미기록 ' + durShort(f.unattributedWallMs) : ''))"
                                            x-text="f.flowName"></a>
                                         <span class="up-mq-bnd-chip" x-show="!!f.boundaryIssue" x-cloak
                                               :title="mqIssueText(f)" x-text="mqIssueLabel(f)"></span>

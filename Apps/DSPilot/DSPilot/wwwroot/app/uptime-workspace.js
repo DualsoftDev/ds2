@@ -611,7 +611,8 @@
                     finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 5000); }
                 },
 
-                // ── 고장·비생산 판정 기준 (GET/PUT /api/oee/ct-multipliers, doc/28 두 규칙) — 레인 밴드 + 슬라이더 2개 + flow 환산 + 저장 전 재분류 미리보기 ──
+                // ── 비가동·비생산 판정 기준 (GET/PUT /api/oee/ct-multipliers, doc/28 두 규칙) — 레인 밴드 + 슬라이더 2개 + flow 환산 + 저장 전 재분류 미리보기 ──
+                //    어휘: '고장' 은 쓰지 않는다(2026-09-21). 길이로만 판정하면서 원인을 단정하는 이름이라 doc/30 §11.1 에서 폐기됐다.
                 cmDirty() {
                     return this.cm.nonProd !== this.cm.origNonProd || this.cm.fault !== this.cm.origFault;
                 },
@@ -645,10 +646,15 @@
                 //   가용성 정산 카드에 드러내기 위한 것(2026-09-21). 경계를 감추면 어떤 정지는 빠지고 어떤 정지는
                 //   분모에 남는 이유를 알 방법이 없어 모든 숫자가 임의로 보인다.
                 //   설비 하나면 그 설비 값, 라인/시스템이면 최소~최대 — 중앙 CT 가 설비마다 달라 하나로 줄일 수 없다.
-                npBoundaryText() {
+                npBoundaryText() { return this.cmRangeText(this.cmScopeFlows().map(f => this.cmBound(f, 'nonprodCt'))); },
+                // 현재 스코프의 설비들 — 설비 하나를 보고 있으면 그 설비, 라인/시스템이면 전부.
+                cmScopeFlows() {
                     const fl = (this.cm && this.cm.flows) || [];
-                    const rows = this.curFlow ? fl.filter(f => this.flowMatches(f.flowName)) : fl;
-                    const vals = rows.map(f => this.cmBound(f, 'nonprodCt')).filter(v => v > 0);
+                    return this.curFlow ? fl.filter(f => this.flowMatches(f.flowName)) : fl;
+                },
+                // 경계 ms 목록 → "4.0초~29분". 중앙값이 설비마다 달라 하나로 줄일 수 없으므로 최소~최대로 보인다.
+                cmRangeText(list) {
+                    const vals = (list || []).filter(v => v > 0);
                     if (vals.length === 0) return '';
                     const lo = Math.min(...vals), hi = Math.max(...vals);
                     if (lo === hi) return this.cmFmtMs(lo);
@@ -657,15 +663,43 @@
                     const unit = b.replace(/^[\d.]+/, '');
                     return (a.endsWith(unit) ? a.slice(0, -unit.length) : a) + '~' + b;
                 },
+                // 밴드에 붙는 라인 환산 — 배수만 보이면 "10배가 몇 초인지" 를 알 수 없다. 판정 불가 설비는 빼고 잰다.
+                //   슬라이더를 끌면 이 숫자가 같이 움직여, 배수 조절이 현장 시간으로 무엇을 뜻하는지 즉시 보인다.
+                cmDownRange() { return this.cmRangeText(this.cmScopeFlows().filter(f => !this.cmGated(f)).map(f => this.cmBound(f, 'fault'))); },
+                cmNpRange() { return this.cmRangeText(this.cmScopeFlows().filter(f => !this.cmGated(f)).map(f => this.cmBound(f, f.hasMtBaseline ? 'nonprod' : 'nonprodCt'))); },
+                // 설비 칩 정렬 — 손볼 것이 앞에 온다: ① 판정 불가(표본 부족) ② 비가동 판별 불가(완료 신호 미정의)
+                //   ③ 비가동 경계가 짧은 순. 이름순으로 두면 20여 개 칩에서 문제를 눈으로 찾아야 한다.
+                //   ③ 은 "짧으면 나쁘다" 가 아니라 민감한 순서다 — 평소 동작 0.4초 설비의 경계 4초가 맨 앞에 온다.
+                get cmFlowsSorted() {
+                    const rank = (f) => this.cmGated(f) ? 0 : (!f.hasMtBaseline ? 1 : 2);
+                    return ((this.cm && this.cm.flows) || []).slice().sort((a, b) => {
+                        const ra = rank(a), rb = rank(b);
+                        if (ra !== rb) return ra - rb;
+                        if (ra === 2) {
+                            const d = this.cmBound(a, 'fault') - this.cmBound(b, 'fault');
+                            if (d !== 0) return d;
+                        }
+                        return String(a.flowName).localeCompare(String(b.flowName), 'ko');
+                    });
+                },
+                // 한 줄 상태 — 문제 개수만. 설명이 아니라 관측값이라 상시 노출해도 된다.
+                get cmStats() {
+                    const fl = (this.cm && this.cm.flows) || [];
+                    return {
+                        total: fl.length,
+                        gated: fl.filter(f => this.cmGated(f)).length,
+                        noMt: fl.filter(f => !this.cmGated(f) && !f.hasMtBaseline).length,
+                    };
+                },
                 // 표본 게이트 — 14일 완료 사이클이 minSamples 미만이면 판정 불가(라인 A·P 분모·분자 밖, 2026-09-14). 서버 OeeMath.MinBaselineSamples 와 동일.
                 cmGated(f) { return (f.sampleCount || 0) < (this.cm.minSamples || 10); },
                 cmChipTitle(f) {
                     const parts = [f.flowName + ' · 14일 실측', '평균 CT ' + this.cmFmtMs(f.avgCtMs), '중앙 CT ' + this.cmFmtMs(f.medianCtMs), '완료 표본 ' + (f.sampleCount || 0) + '건'];
                     if (f.hasMtBaseline) {
                         parts.push('평소 동작 ' + this.cmFmtMs(f.medianMtMs) + ' · 평소 대기 ' + this.cmFmtMs(f.medianWtMs));
-                        parts.push('완료 신호 없는 사이클: 고장 > ' + this.cmFmtMs(this.cmBound(f, 'faultCt')) + ' · 비생산 ≥ ' + this.cmFmtMs(this.cmBound(f, 'nonprodCt')) + ' (사이클 길이 기준)');
+                        parts.push('완료 신호 없는 사이클: 비가동 > ' + this.cmFmtMs(this.cmBound(f, 'faultCt')) + ' · 비생산 ≥ ' + this.cmFmtMs(this.cmBound(f, 'nonprodCt')) + ' (사이클 길이 기준)');
                     } else {
-                        parts.push('동작 기준 없음 — 완료 신호 미정의 → 고장 판별 불가, 비생산은 사이클 길이 ≥ ' + this.cmFmtMs(this.cmBound(f, 'nonprodCt')));
+                        parts.push('동작 기준 없음 — 완료 신호 미정의 → 비가동 판별 불가, 비생산은 사이클 길이 ≥ ' + this.cmFmtMs(this.cmBound(f, 'nonprodCt')));
                     }
                     if (this.cmGated(f)) parts.push('표본 ' + (f.sampleCount || 0) + '건 < ' + this.cm.minSamples + ' — 판정 불가(라인 집계 제외)');
                     return parts.join('\n');
@@ -1496,8 +1530,8 @@
                     return rows[0];
                 },
                 // 경계 문제가 있는 설비 목록 — 카드 상단 배너용.
-                // 짧은 멈춤(원인 미기록, 종전 '미귀속', doc/28 §2.7) ≥ 1분인 설비 — 비가동 − 유지보수 − 고장 잔여.
-                //   가용성 정산 막대의 앰버 조각을 설비별로 쪼갠 것이므로 화면 용어를 같게 쓴다(2026-09-21).
+                // 원인 미기록(종전 '짧은 멈춤'·'미귀속', doc/28 §2.7) ≥ 1분인 설비 — 비가동 중 사이클 기록이 없는 몫.
+                //   정산 막대에서는 비가동에 합쳐 보이고(2026-09-21), "왜인지 모른다" 는 데이터 품질이라 이 카드가 맡는다.
                 get mqUnattributedRows() {
                     const rows = (this.mq && this.mq.flows) ? this.mq.flows : [];
                     return rows.filter(f => (f.unattributedWallMs || 0) > 60000)
@@ -1593,7 +1627,7 @@
                                 normalCycleCount: o.normalCycleCount, failureCount: o.failureCount,
                                 goodCount: o.goodCount, totalCount: o.totalCount,
                             },
-                            availComp: (ac && ac.hasData) ? { runLabel: ac.runLabel, runMs: ac.runMs, runPct: ac.runPct, stopLabel: ac.stopLabel, stopMs: ac.stopMs, stopPct: ac.stopPct, maintMs: ac.maintMs, maintPct: ac.maintPct } : null,
+                            availComp: (ac && ac.hasData) ? { runLabel: ac.runLabel, runMs: ac.runMs, runPct: ac.runPct, stopLabel: ac.stopLabel, stopMs: ac.downMs, stopPct: ac.downPct } : null,
                             // 무결성 — 내보낸 표만 봐도 "얼마나 수집된 근거 위의 수치인지" 알 수 있게 동봉.
                             integrity: this.mq ? {
                                 totalCycles: this.mq.totalCycles, normalCycles: this.mq.normalCycles,
@@ -1687,8 +1721,9 @@
                     const datasets = [
                         // 가동 = 솔리드(파랑) / 정지 3종(고장·유지보수·비생산) = 빗금 → "가동이 아님"을 직관적으로 표시
                         { label: '가동(실측)', data: runData, backgroundColor: cRun, stack: 's', order: 2 },   // 잔여 재구성이 아니라 서버 실측(runMs)
-                        { label: '고장', data: failureData, backgroundColor: faultHatch, stack: 's', order: 2 },
-                        { label: '유지보수', data: plannedData, backgroundColor: maintHatch, stack: 's', order: 2 },
+                        // 비가동 한 계열(2026-09-21) — 종전 고장·유지보수 두 스택. 시간마다 "어느 통인가"를 말하는
+                        //   차트라 원인 축을 섞지 않는다. 원인별 내역은 아래 정지 로그·도넛이 맡는다.
+                        { label: '비가동', data: failureData.map((v, i) => (v || 0) + (plannedData[i] || 0)), backgroundColor: faultHatch, stack: 's', order: 2 },
                         // 기본 숨김(2026-07-08 사용자 결정) — 비생산은 A 분모 밖이라 추이에선 기본으로 감추고,
                         //   보고 싶으면 범례 클릭으로 켠다. hidden 은 생성 시에만 지정 — update-in-place 루프가
                         //   hidden 을 건드리지 않으므로 사용자의 범례 토글이 라이브 갱신에도 유지된다.
@@ -2291,32 +2326,29 @@
                     const failCount = Math.max(0, o.failureCount || 0);
                     const cycles = Math.max(0, o.normalCycleCount || 0);
                     const bound = this.npBoundaryText();
-                    // 한 줄 요약 — 막대의 숫자 네 개를 사람 문장 하나로 잇는다. 상시 문단은 금지라 정확히 한 줄.
-                    //   "고장 없음"과 "비가동 46%"가 모순처럼 보이던 자리를 이 문장이 메운다.
-                    //   조사(은/는·이/가)는 시간 표기의 끝 글자에 따라 달라지므로 문장을 조사 없이 em 대시로 잇는다.
+                    // 한 줄 요약 — 막대의 두 숫자를 사람 문장 하나로 잇는다. 상시 문단은 금지라 정확히 한 줄.
+                    //   조각이 둘뿐이라(가동·비가동) 문장도 짧아졌다. 원인을 여기서 설명하지 않는다 —
+                    //   길이로만 판정한 결과라 원인을 아는 척하면 안 된다(2026-09-21).
                     const head = denom <= 0 ? '' : '생산하기로 한 ' + this.durSum(denom) + ' 중 ' + this.durSum(run) + ' 돌았습니다(' + pct(run) + '%). ';
-                    const story = denom <= 0 ? '' : head + (
-                        down <= 0 ? '멈춘 시간은 없습니다.'
-                        : idle <= 0 ? ('멈춘 ' + this.durSum(down) + ' — 전부 고장·유지보수로 기록돼 있습니다.')
-                        : ('멈춘 ' + this.durSum(down) + ' 가운데 ' + this.durSum(idle)
-                           + ' — 사이클 기록이 없는 짧은 멈춤입니다'
-                           + (bound ? ('(비생산 기준 ' + bound + ' 미달이라 계산에서 빼지 않습니다).') : '(원인이 기록되지 않았습니다).')));
+                    const story = denom <= 0 ? '' : head
+                        + (down <= 0 ? '멈춘 시간은 없습니다.' : ('멈춘 시간은 ' + this.durSum(down) + '입니다.'));
                     return {
                         hasData: denom > 0,
                         runMs: run, runPct: pct(run),
-                        faultMs: fault, faultPct: pct(fault),
-                        maintMs: maint, maintPct: pct(maint),
-                        // 짧은 멈춤 = 잔여. 폭은 반올림 오차를 흡수해 100% 를 맞춘다(조각 셋의 % 합을 뺀 값).
-                        idleMs: idle, idlePct: idle > 0 ? r1(100 - pct(run) - pct(fault) - pct(maint)) : 0,
+                        // 비가동 한 덩어리(2026-09-21) — 고장·유지보수·짧은 멈춤 세 조각을 합쳤다. 길이로만 판정하면서
+                        //   원인을 단정하는 이름이라 doc/30 §11.1 폐기 대상이다. <b>값은 그대로다</b> — 세 조각의 합이
+                        //   곧 비가동(= 생산가능 − 가동)이라 A 가 움직이지 않는다. 폭은 반올림 오차를 흡수해 100% 를 맞춘다.
+                        //   원인 미기록분(종전 '짧은 멈춤')은 설비 상태가 아니라 데이터 품질이므로 계측 품질 카드가 맡는다.
+                        downMs: down, downPct: down > 0 ? r1(100 - pct(run)) : 0,
                         unattributedMs: idle,
-                        stopMs: fault + maint, stopPct: r1(pct(fault) + pct(maint)),
-                        denomMs: denom, downMs: down,
+                        faultMs: fault, maintMs: maint,
+                        denomMs: denom,
                         npBoundary: bound,
                         story,
                         runLabel: '가동 (정상 사이클)',
-                        stopLabel: '고장 (사이클 전체)',
+                        stopLabel: '비가동 (생산가능 − 가동)',
                         runNote: cycles + '회', stopNote: failCount + '건',
-                        subtitle: '가동 ÷ 생산가능 — 비가동 = 고장 + 유지보수 + 짧은 멈춤',
+                        subtitle: '가동 ÷ 생산가능 — 비가동 = 생산가능 − 가동',
                     };
                 },
                 // 계획시간 폴백 체인 3단계 (활성/건너뜀/대기)

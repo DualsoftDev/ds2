@@ -558,7 +558,12 @@
         /* 고장 유발(MT축) — 정지 슬라이더(--oee-fault)와 구분되는 진홍(--oee-cause, 위에서 정의). 별도 레인임을 색으로도 표시 */
         .up-cm-slider.fault::-webkit-slider-thumb { background: var(--oee-cause); }
         .up-cm-slider.fault::-moz-range-thumb { background: var(--oee-cause); }
-        .up-cm-flows { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 13px; }
+        /* 설비 칩 위 상태 한 줄 — 무엇이 손볼 것인지와 정렬 기준을 말한다(2026-09-21). */
+        .up-cm-flows-head { display: flex; align-items: center; gap: 10px; margin-top: 15px; font-size: 0.66rem; color: var(--color-text-secondary); }
+        .up-cm-flows-head b { font-size: 0.7rem; font-weight: 800; color: var(--color-text-primary); }
+        .up-cm-flows-head .warn { color: var(--amber, #b7791f); font-weight: 800; cursor: help; }
+        .up-cm-flows-head .hint { font-size: 0.6rem; opacity: 0.75; }
+        .up-cm-flows { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
         .up-cm-flowchip { display: inline-flex; align-items: center; gap: 8px; padding: 3px 10px; border: 1px solid var(--color-lines); border-radius: 999px; background: var(--color-surface-variant); font-size: 0.64rem; white-space: nowrap; }
         .up-cm-flowchip b { font-weight: 800; color: var(--color-text-primary); }
         .up-cm-flowchip .th { color: var(--color-text-secondary); }
