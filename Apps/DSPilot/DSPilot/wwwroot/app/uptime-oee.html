@@ -130,7 +130,7 @@
                                       :title="'14일 완료 사이클 10건 미만으로 판정 불가한 설비 — 그 시간 ' + durSum(oee ? oee.unjudgedWallMs : 0) + ' 은 A·P 어디에도 넣지 않음: ' + ((oee && oee.unjudgedFlows) || []).join(', ')"></span>
                             </div>
                             <div class="up-oee-value up-oee-mono" x-text="oee ? pct(oee.availability) : '—'"></div>
-                            <div class="up-oee-note" x-text="oee ? (oee.availability != null ? '가동 ÷ 생산가능(캘린더 − 비생산 − 미계측) · 비가동 = 고장 + 유지보수' : (oee.availabilityNote || '산출 불가')) : ''"></div>
+                            <div class="up-oee-note" x-text="oee ? (oee.availability != null ? '가동 ÷ 생산가능(캘린더 − 비생산 − 미계측) · 비가동 = 고장 + 유지보수 + 짧은 멈춤' : (oee.availabilityNote || '산출 불가')) : ''"></div>
                         </div>
                         <!-- 성능 P (사이클기반: N × 표준 CT ÷ Σ실측 CT) — 표준 CT = 최근 14일 중앙값 -->
                         <div class="up-oee" :class="oeeTone('performance')" title="표준 가동시간 = 최근 14일 중앙 CT(평균은 정지 사이클에 끌려 중앙값 사용) — 정상상태 P≈100% 수렴.">
@@ -283,8 +283,10 @@
                 </section>
 
                 <!-- ════ 가용성 누적 정산 — 벽시계 단일모델(doc/28 §2.7): 가동 ÷ 생산가능(캘린더 − 비생산 − 미계측 − 진행 중).
-                      비가동 = 생산가능 − 가동 = 고장 + 유지보수 (2분할 — 종전 '가동간 공백' 세그먼트는 삭제, 잔여는 '미귀속' 진단).
-                      조각이 항상 100% 로 닫히고 상단 KPI(A)와 같은 값이다 ════ -->
+                      비가동 = 생산가능 − 가동 = 고장 + 유지보수 + 짧은 멈춤(원인 미기록) — 3분할로 <b>항상 100% 로 닫는다</b>.
+                      2026-09-21: 종전엔 잔여(미귀속)를 그리지 않아 고장·유지보수 0 인 설비에서 막대 절반이 빈칸이었다.
+                      "고장 없음"과 "비가동 46%"가 아무 설명 없이 나란히 놓여 숫자가 틀린 것처럼 읽혔다 — 모르는 시간도
+                      이름을 붙여 그리고, 판정 경계와 한 줄 요약을 함께 낸다. 상단 KPI(A)와 같은 값이다 ════ -->
                 <section class="card up-section" id="availability-section">
                     <div class="ds-card-h">
                         <h4>가용성 누적 정산
@@ -309,15 +311,28 @@
                                 <div class="up-bar-seg hatch-maint" x-show="availComp.maintMs > 0" @click="openDtPattern('maintenance')" :style="`width:${availComp.maintPct}%; cursor:pointer;`"
                                      :title="'유지보수 ' + durSum(availComp.maintMs) + ' · ' + availComp.maintPct + '% — 클릭 → 날짜별 비가동 패턴'">
                                     <span class="up-bar-lbl is-long" x-text="'유지보수 ' + durSum(availComp.maintMs) + ' · ' + availComp.maintPct + '%'"></span><span class="up-bar-lbl is-short" x-text="availComp.maintPct + '%'"></span></div>
+                                <!-- 짧은 멈춤(원인 미기록) = 잔여 조각. 이걸 그려야 막대가 100% 로 닫힌다 — 빈칸은 '화면 고장'으로 읽힌다.
+                                     이름을 '미귀속'(만든 사람 언어)에서 현장 언어로 바꿨다. 클릭 대상은 없다(구간이 어디에도 기록되지 않음). -->
+                                <div class="up-bar-seg hatch-idle" x-show="availComp.idlePct > 0" :style="`width:${availComp.idlePct}%;`"
+                                     :title="'짧은 멈춤(원인 미기록) ' + durSum(availComp.idleMs) + ' · ' + availComp.idlePct + '% — 이 구간에는 사이클 기록이 없습니다(설비가 멈춰 있던 시간).'
+                                             + (availComp.npBoundary ? (' 비생산 기준 ' + availComp.npBoundary + ' 을 넘지 않아 계산에서 빼지 않았습니다.') : '')">
+                                    <span class="up-bar-lbl is-long" x-text="'짧은 멈춤 ' + durSum(availComp.idleMs) + ' · ' + availComp.idlePct + '%'"></span><span class="up-bar-lbl is-short" x-text="availComp.idlePct + '%'"></span></div>
                             </div>
-                            <!-- 분모 밖 항목(바에 없는 정보만) — 비생산 · 진행 중(열린 사이클, doc/26) · 미귀속(doc/28 §2.7, >1분이면 데이터 결함) · 판정 불가(표본 게이트). 있을 때만 -->
-                            <div class="up-acct-sum" x-show="oee && (oee.plannedDownMs > 0 || oee.inProgressWallMs > 0 || oee.unattributedWallMs > 60000 || oee.unjudgedWallMs > 0)">
-                                <span class="up-codeish">분모 밖</span>
-                                <span x-show="oee && oee.plannedDownMs > 0" :title="(oee && oee.plannedStopSource === 'both' ? '당일 자동 감지 + 수동 지정' : '당일 자동 감지') + (oee ? (' · ' + sumFlowNote(oee.plannedDownMs)) : '')">비생산 <b x-text="oee ? durSum(oee.plannedDownMs) : ''"></b></span>
+                            <!-- 계산에 들어가는 것(위 막대)과 빠지는 것(아래 줄)을 질감으로 가른다 — 비생산 · 진행 중(열린 사이클, doc/26)
+                                 · 판정 불가(표본 게이트). '짧은 멈춤'은 <b>분모 안</b>이라 여기서 빼고 막대로 옮겼다(2026-09-21):
+                                 분모에 남아 A 를 깎는 항목을 "분모 밖"이라 적어 원인을 정확히 틀린 방향으로 안내하고 있었다. -->
+                            <div class="up-acct-sum is-out" x-show="oee && (oee.plannedDownMs > 0 || oee.inProgressWallMs > 0 || oee.unjudgedWallMs > 0)">
+                                <span class="up-codeish" title="아래 시간은 가용성 계산(분모)에서 아예 빠집니다 — 위 막대의 100% 에도 포함되지 않습니다.">계산 제외</span>
+                                <span x-show="oee && oee.plannedDownMs > 0" :title="'생산하지 않기로 한 시간 — ' + (oee && oee.plannedStopSource === 'both' ? '당일 자동 감지 + 수동 지정' : '당일 자동 감지') + (oee ? (' · ' + sumFlowNote(oee.plannedDownMs)) : '')">비생산 <b x-text="oee ? durSum(oee.plannedDownMs) : ''"></b></span>
                                 <span x-show="oee && oee.inProgressWallMs > 0" title="마지막 완료 사이클 이후 다음 시작 신호가 없는 시간 — 다음 사이클이 시작되면 확정·분류됩니다.">진행 중 <b x-text="oee ? durSum(oee.inProgressWallMs) : ''"></b></span>
-                                <span x-show="oee && oee.unattributedWallMs > 60000" style="color:var(--amber,#b7791f);" title="고장·유지보수 어디에도 귀속되지 않은 비가동 — 0 이어야 정상, 데이터 결함 신호(데이터 무결성 카드 참조).">미귀속 <b class="is-short" x-text="oee ? durSum(oee.unattributedWallMs) : ''"></b></span>
                                 <span x-show="oee && oee.unjudgedWallMs > 0" style="color:var(--amber,#b7791f);" :title="'14일 완료 사이클 10건 미만으로 판정 불가한 설비의 시간 — A·P 어디에도 넣지 않음. 대상: ' + ((oee && oee.unjudgedFlows) || []).join(', ')">판정 불가 <b class="is-short" x-text="oee ? (durSum(oee.unjudgedWallMs) + ' · ' + oee.unjudgedFlowCount + '대') : ''"></b></span>
+                                <!-- 판정 경계를 드러낸다 — 이 한 줄이 없으면 어떤 정지는 빠지고 어떤 정지는 분모에 남는 이유를 알 수 없다. -->
+                                <span class="up-acct-rule" x-show="availComp.npBoundary"
+                                      :title="'설비의 14일 중앙 사이클 길이 × 비생산배수(하한 ' + cm.nonProdFloor + '사이클)로 정해집니다. 설정 ▸ 고장·비생산 판정 기준에서 조절하세요.'"
+                                      x-text="'비생산 기준 ' + availComp.npBoundary + ' — 이보다 긴 멈춤은 계산에서 빠집니다'"></span>
                             </div>
+                            <!-- 한 줄 요약 — 위 숫자들을 사람 문장으로 잇는다. 상시 문단 금지 규약에 맞춰 정확히 한 줄. -->
+                            <div class="up-acct-story" x-show="availComp.story" x-text="availComp.story"></div>
                         </div>
                     </template>
                     <template x-if="!availComp.hasData">
@@ -953,15 +968,16 @@
                                 </div>
                             </div>
 
-                            <!-- 미귀속 시간(doc/28 §2.7) — 비가동 − 유지보수 − 고장. 행이 연속이라 0 이어야 정상. 0 이 아니면 데이터 결함 위치. -->
+                            <!-- 짧은 멈춤(원인 미기록, 종전 '미귀속', doc/28 §2.7) — 비가동 − 유지보수 − 고장 잔여.
+                                 가용성 정산 막대의 앰버 조각과 같은 시간을 설비별로 쪼갠 것이다(용어 통일, 2026-09-21). -->
                             <div class="up-mq-bnd" x-show="mqUnattributedRows.length > 0" x-cloak>
                                 <span class="material-icons">schedule</span>
                                 <div>
-                                    <b title="사이클 행은 연속이라 0 이어야 합니다 — 행 겹침·누락·재시작 조각 같은 데이터 결함 위치(지표 손실에는 이미 포함).">고장·유지보수 어디에도 귀속되지 않은 비가동 시간</b>
+                                    <b title="이 구간에는 사이클 기록이 없습니다 — 설비가 멈춰 있었지만 고장·유지보수로 기록되지 않았고, 비생산 기준을 넘기지도 않아 가용성 계산에는 손실로 남아 있습니다.">멈춰 있었지만 원인이 기록되지 않은 시간</b>
                                     <template x-for="f in mqUnattributedRows" :key="'ua-' + f.flowName">
                                         <div class="up-mq-bnd-row">
                                             <a :href="'/flow-cycle?name=' + encodeURIComponent(f.flowName)" x-text="f.flowName"></a>
-                                            <span class="tag" x-text="'미귀속 ' + durShort(f.unattributedWallMs)"></span>
+                                            <span class="tag" x-text="'짧은 멈춤 ' + durShort(f.unattributedWallMs)"></span>
                                         </div>
                                     </template>
                                 </div>
@@ -998,7 +1014,7 @@
                                         <a class="up-mq-name" :href="'/uptime-oee?flow=' + encodeURIComponent(f.flowName)"
                                            :title="f.measurable === false
                                                    ? (f.flowName + ' — 측정 불가: 표준 가동시간(14일 중앙 CT) 미학습. 설비 경계(시작/완료 동작) 지정을 확인하세요.')
-                                                   : (f.flowName + ' — 고장 경계(동작) ' + (f.thresholdMs > 0 ? durShort(f.thresholdMs) : '판별 불가(완료 신호 미정의)') + (f.baselineGated ? ' · 판정 불가 · 라인 집계 제외(완료 표본 ' + f.baselineSampleCount + '건)' : '') + (f.unattributedWallMs > 60000 ? ' · 미귀속 ' + durShort(f.unattributedWallMs) : ''))"
+                                                   : (f.flowName + ' — 고장 경계(동작) ' + (f.thresholdMs > 0 ? durShort(f.thresholdMs) : '판별 불가(완료 신호 미정의)') + (f.baselineGated ? ' · 판정 불가 · 라인 집계 제외(완료 표본 ' + f.baselineSampleCount + '건)' : '') + (f.unattributedWallMs > 60000 ? ' · 짧은 멈춤(원인 미기록) ' + durShort(f.unattributedWallMs) : ''))"
                                            x-text="f.flowName"></a>
                                         <span class="up-mq-bnd-chip" x-show="!!f.boundaryIssue" x-cloak
                                               :title="mqIssueText(f)" x-text="mqIssueLabel(f)"></span>

@@ -62,15 +62,23 @@
                    display:flex; flex-direction:column; gap:8px; }
         .dark-theme .kt-wrap, .dark .kt-wrap { --kt-run:#52C4FF; --kt-down:#D14738; --kt-nonprod:#41608F; --kt-excluded:#4A5160; }
         .kt-chips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:12px; }
+        /* 색 토큰 정정(2026-09-21) — 종전엔 --surface-2/--border-color/--text-muted 를 썼는데 이 앱에 그런 토큰이
+           없다. 즉 다크 테마에서도 배경이 폴백 #fff(흰색)로 고정되고 글자만 밝아져 칩 전체가 안 읽혔다(실측).
+           실제로 존재하는 ds.css 토큰(--color-surface/--color-lines/--color-text-*)으로 바꾸고 글자색도 명시한다. */
         .kt-chip { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px;
-                   border:1px solid var(--border-color,#d7dbe0); background:var(--surface-2,#fff); white-space:nowrap; }
+                   border:1px solid var(--color-lines,#d7dbe0); background:var(--color-surface,#fff);
+                   color:var(--color-text-primary,#0E1B2A); white-space:nowrap; }
         .kt-chip b { font-weight:600; font-variant-numeric:tabular-nums; }
         .kt-dot { width:9px; height:9px; border-radius:2px; flex:none; }
         .kt-chip.kt-muted { opacity:.72; }
-        .kt-axis { position:relative; height:14px; font-size:10px; color:var(--text-muted,#6b7280); }
+        /* 전부 제외된 구간의 안내 칩(kt-why) — 이 줄이 카드의 유일한 내용이 되므로 흐리게 두면 안 된다.
+           kt-muted 의 opacity 를 물려받으면 다크에서 거의 안 읽힌다(2026-09-21 실측). 정상 대비로 되돌리고
+           줄바꿈을 허용한다(문장이라 nowrap 이면 좁은 폭에서 잘린다). */
+        .kt-chip.kt-why { opacity:1; white-space:normal; line-height:1.45; }
+        .kt-axis { position:relative; height:14px; font-size:10px; color:var(--color-text-secondary,#6b7280); }
         .kt-axis span { position:absolute; transform:translateX(-50%); white-space:nowrap; }
         .kt-strip { position:relative; height:34px; border-radius:6px; overflow:hidden;
-                    background:var(--surface-3,#eef1f4); border:1px solid var(--border-color,#d7dbe0); }
+                    background:var(--color-surface-variant,#eef1f4); border:1px solid var(--color-lines,#d7dbe0); }
         .kt-seg { position:absolute; top:0; bottom:0; cursor:pointer; }
         .kt-seg.kt-run { background:var(--kt-run); }
         .kt-seg.kt-down { background:var(--kt-down);
@@ -80,14 +88,14 @@
         .kt-seg.kt-excluded { background:var(--kt-excluded);
                               background-image:repeating-linear-gradient(90deg, rgba(255,255,255,.7) 0 2px, transparent 2px 5px); }
         .kt-seg:hover { filter:brightness(1.12); outline:1px solid rgba(0,0,0,.25); outline-offset:-1px; }
-        .kt-seg.kt-sel { outline:2px solid var(--primary,#1E9BE8); outline-offset:-2px; }
+        .kt-seg.kt-sel { outline:2px solid var(--color-primary,#1E9BE8); outline-offset:-2px; }
         .kt-seg-n { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
                     font-size:10px; font-weight:600; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.45);
                     pointer-events:none; overflow:hidden; }
         .kt-links { position:relative; height:7px; margin-top:-1px; }
         .kt-link { position:absolute; top:0; bottom:0; background:repeating-linear-gradient(45deg,
                    rgba(180,60,60,.85) 0 3px, rgba(255,255,255,.25) 3px 6px); border-radius:2px; }
-        .kt-empty { padding:14px; text-align:center; color:var(--text-muted,#6b7280); font-size:13px; }
+        .kt-empty { padding:14px; text-align:center; color:var(--color-text-secondary,#6b7280); font-size:13px; }
         .kt-tip { position:fixed; z-index:9999; pointer-events:none; max-width:320px; padding:8px 10px;
                   border-radius:6px; background:rgba(17,24,39,.96); color:#fff; font-size:12px; line-height:1.5;
                   box-shadow:0 6px 20px rgba(0,0,0,.28); }
@@ -197,20 +205,35 @@
             const total = c.run + c.down + c.nonProd;
             const chip = (cls, label, n, extra) =>
                 `<span class="kt-chip ${extra || ''}"><i class="kt-dot" style="background:var(--${cls})"></i>${label} <b>${n}</b>회</span>`;
+            const why = [];
+            if (ex.cut) why.push('잘림 ' + ex.cut);
+            if (ex.unknown) why.push('미상 ' + ex.unknown);
+            if (ex.inProgress) why.push('진행 중 ' + ex.inProgress);
+            if (ex.noBaseline) why.push('기준 없음 ' + ex.noBaseline);
+
+            // 전부 제외된 구간(2026-09-21) — '0회' 칩 넷을 나란히 두면 화면이 고장난 것처럼 읽힌다.
+            //   숫자 대신 "왜 비었는지"를 말한다. 이건 오류가 아니라 대기 상태라는 것을 사용자가 알아야 한다.
+            if (total === 0 && ex.total > 0) {
+                // 사유가 섞여 있어도 '가장 많은 사유'로 말한다 — 진행 중 1건이 섞였다고 해서 본론(기준 미학습)을
+                //   숫자 나열로 되돌리면 사용자는 다시 아무것도 알 수 없다.
+                const top = Math.max(ex.noBaseline || 0, ex.inProgress || 0, ex.cut || 0, ex.unknown || 0, ex.overflow || 0);
+                const msg = top === (ex.noBaseline || 0)
+                    ? `표준 사이클 길이를 아직 학습하지 못해 판정을 시작하지 못했습니다 — 사이클 <b>${ex.noBaseline}</b>개 대기 중`
+                    : (top === (ex.inProgress || 0)
+                        ? `사이클이 아직 진행 중입니다 — 완료되면 가동·비가동으로 확정됩니다`
+                        : `판정된 사이클이 없습니다 — 제외 <b>${ex.total}</b>개(${why.join(' · ')})`);
+                elChips.innerHTML = `<span class="kt-chip kt-why" title="설비마다 최근 14일 완료 사이클이 일정 건수 이상 쌓이면 표준 길이(중앙값)가 정해지고, 그때부터 가동·비가동·비생산 판정이 시작됩니다.">${msg}</span>`;
+                return;
+            }
+
             const parts = [
                 `<span class="kt-chip"><b>${total}</b>개 CT</span>`,
                 chip('kt-run', '가동', c.run),
                 chip('kt-down', '비가동', c.down),
                 chip('kt-nonprod', '비생산', c.nonProd),
             ];
-            if (ex.total > 0) {
-                const why = [];
-                if (ex.cut) why.push('잘림 ' + ex.cut);
-                if (ex.unknown) why.push('미상 ' + ex.unknown);
-                if (ex.inProgress) why.push('진행 중 ' + ex.inProgress);
-                if (ex.noBaseline) why.push('기준 없음 ' + ex.noBaseline);
+            if (ex.total > 0)
                 parts.push(`<span class="kt-chip kt-muted" title="계산에서 빠진 구간">제외 <b>${ex.total}</b> · ${why.join(' · ')}</span>`);
-            }
             elChips.innerHTML = parts.join('');
         }
 

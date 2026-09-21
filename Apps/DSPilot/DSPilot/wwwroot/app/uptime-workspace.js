@@ -641,6 +641,22 @@
                     if (kind === 'nonprodCt') return medCt > 0 ? Math.max(medCt * this.cm.nonProd, medCt * this.cm.nonProdFloor) : 0;
                     return 0;
                 },
+                // 현재 스코프의 비생산 경계(사이클 길이 기준) 문구 — "이 길이를 넘는 멈춤은 계산에서 빠진다"는 규칙을
+                //   가용성 정산 카드에 드러내기 위한 것(2026-09-21). 경계를 감추면 어떤 정지는 빠지고 어떤 정지는
+                //   분모에 남는 이유를 알 방법이 없어 모든 숫자가 임의로 보인다.
+                //   설비 하나면 그 설비 값, 라인/시스템이면 최소~최대 — 중앙 CT 가 설비마다 달라 하나로 줄일 수 없다.
+                npBoundaryText() {
+                    const fl = (this.cm && this.cm.flows) || [];
+                    const rows = this.curFlow ? fl.filter(f => this.flowMatches(f.flowName)) : fl;
+                    const vals = rows.map(f => this.cmBound(f, 'nonprodCt')).filter(v => v > 0);
+                    if (vals.length === 0) return '';
+                    const lo = Math.min(...vals), hi = Math.max(...vals);
+                    if (lo === hi) return this.cmFmtMs(lo);
+                    // 단위가 같으면 앞쪽 단위를 떼어 "16.7~33.6분" 으로 — "16.7분~33.6분" 은 눈이 두 번 걸린다.
+                    const a = this.cmFmtMs(lo), b = this.cmFmtMs(hi);
+                    const unit = b.replace(/^[\d.]+/, '');
+                    return (a.endsWith(unit) ? a.slice(0, -unit.length) : a) + '~' + b;
+                },
                 // 표본 게이트 — 14일 완료 사이클이 minSamples 미만이면 판정 불가(라인 A·P 분모·분자 밖, 2026-09-14). 서버 OeeMath.MinBaselineSamples 와 동일.
                 cmGated(f) { return (f.sampleCount || 0) < (this.cm.minSamples || 10); },
                 cmChipTitle(f) {
@@ -1477,7 +1493,8 @@
                     return rows[0];
                 },
                 // 경계 문제가 있는 설비 목록 — 카드 상단 배너용.
-                // 미귀속 시간(doc/28 §2.7) ≥ 1분인 설비 — 비가동 − 유지보수 − 고장 잔여. 0 이어야 정상(데이터 결함 위치 안내).
+                // 짧은 멈춤(원인 미기록, 종전 '미귀속', doc/28 §2.7) ≥ 1분인 설비 — 비가동 − 유지보수 − 고장 잔여.
+                //   가용성 정산 막대의 앰버 조각을 설비별로 쪼갠 것이므로 화면 용어를 같게 쓴다(2026-09-21).
                 get mqUnattributedRows() {
                     const rows = (this.mq && this.mq.flows) ? this.mq.flows : [];
                     return rows.filter(f => (f.unattributedWallMs || 0) > 60000)
@@ -2253,7 +2270,10 @@
                 // 가용성 분해 — 상단 A KPI·정지 도넛과 항상 일치(같은 입력).
                 get availComp() {
                     // 벽시계 단일모델(doc/28 §2.7) — 분모 = 생산가능(availableWallMs), 분자 = 가동(runWallMs). 상단 A KPI 와 동일 SSOT.
-                    //   비가동 = 생산가능 − 가동 = 유지보수 + 고장 (+ 미귀속 — 행이 연속이라 0 이어야 정상, 정산 바에는 그리지 않고 진단 표기).
+                    //   비가동 = 생산가능 − 가동 = 유지보수 + 고장 + 짧은 멈춤(원인 미기록).
+                    //   <b>네 조각이 반드시 100% 로 닫힌다</b>(2026-09-21) — 종전엔 마지막 조각을 그리지 않아, 고장·유지보수가
+                    //   0 인 설비에서 막대 절반이 이름 없는 빈칸으로 남았다. 빈칸은 "정보 없음"이 아니라 "화면이 고장남"으로
+                    //   읽히므로(고장 0건 + 비가동 46% 가 나란히 보이던 화면) 모르는 시간도 이름을 붙여 그린다.
                     //   "얼마나 수집했나"는 아래 데이터 무결성 카드가 따로 보고한다.
                     const o = this.oee || {};
                     const r1 = (x) => Math.round(x * 10) / 10;
@@ -2262,23 +2282,38 @@
                     const down = Math.max(0, avail - run);
                     const maint = Math.min(down, Math.max(0, o.downMaintWallMs || 0));
                     const fault = Math.min(Math.max(0, down - maint), Math.max(0, o.downFaultWallMs || 0));
-                    const unattributed = Math.max(0, down - maint - fault);
+                    const idle = Math.max(0, down - maint - fault);
                     const denom = avail;
                     const pct = (x) => denom > 0 ? r1(x / denom * 100) : 0;
                     const failCount = Math.max(0, o.failureCount || 0);
                     const cycles = Math.max(0, o.normalCycleCount || 0);
+                    const bound = this.npBoundaryText();
+                    // 한 줄 요약 — 막대의 숫자 네 개를 사람 문장 하나로 잇는다. 상시 문단은 금지라 정확히 한 줄.
+                    //   "고장 없음"과 "비가동 46%"가 모순처럼 보이던 자리를 이 문장이 메운다.
+                    //   조사(은/는·이/가)는 시간 표기의 끝 글자에 따라 달라지므로 문장을 조사 없이 em 대시로 잇는다.
+                    const head = denom <= 0 ? '' : '생산하기로 한 ' + this.durSum(denom) + ' 중 ' + this.durSum(run) + ' 돌았습니다(' + pct(run) + '%). ';
+                    const story = denom <= 0 ? '' : head + (
+                        down <= 0 ? '멈춘 시간은 없습니다.'
+                        : idle <= 0 ? ('멈춘 ' + this.durSum(down) + ' — 전부 고장·유지보수로 기록돼 있습니다.')
+                        : ('멈춘 ' + this.durSum(down) + ' 가운데 ' + this.durSum(idle)
+                           + ' — 사이클 기록이 없는 짧은 멈춤입니다'
+                           + (bound ? ('(비생산 기준 ' + bound + ' 미달이라 계산에서 빼지 않습니다).') : '(원인이 기록되지 않았습니다).')));
                     return {
                         hasData: denom > 0,
                         runMs: run, runPct: pct(run),
                         faultMs: fault, faultPct: pct(fault),
                         maintMs: maint, maintPct: pct(maint),
-                        unattributedMs: unattributed,
+                        // 짧은 멈춤 = 잔여. 폭은 반올림 오차를 흡수해 100% 를 맞춘다(조각 셋의 % 합을 뺀 값).
+                        idleMs: idle, idlePct: idle > 0 ? r1(100 - pct(run) - pct(fault) - pct(maint)) : 0,
+                        unattributedMs: idle,
                         stopMs: fault + maint, stopPct: r1(pct(fault) + pct(maint)),
-                        denomMs: denom,
+                        denomMs: denom, downMs: down,
+                        npBoundary: bound,
+                        story,
                         runLabel: '가동 (정상 사이클)',
                         stopLabel: '고장 (사이클 전체)',
                         runNote: cycles + '회', stopNote: failCount + '건',
-                        subtitle: '가동 ÷ 생산가능(캘린더 − 비생산 − 미계측 − 진행 중) — 비가동 = 고장 + 유지보수',
+                        subtitle: '가동 ÷ 생산가능 — 비가동 = 고장 + 유지보수 + 짧은 멈춤',
                     };
                 },
                 // 계획시간 폴백 체인 3단계 (활성/건너뜀/대기)
