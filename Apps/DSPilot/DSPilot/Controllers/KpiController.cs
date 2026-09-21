@@ -56,7 +56,8 @@ public sealed class KpiController : ControllerBase
         var rows = await _repo.QueryCyclesAsync(fromMs, toMs, flow, branch, ct, systemFlows);
         var facts = rows.Select(r => r.ToFact()).ToList();
 
-        var totals = KpiRules.Compute(facts, kappa);
+        // 창을 넘겨 걸친 행을 겹친 만큼 반영한다(doc/30 §7.2). 판정은 행 전체로 하므로 상태는 안 바뀐다.
+        var totals = KpiRules.Compute(facts, kappa, fromMs, toMs);
         // 세그먼트는 (설비, 분기) 계열마다 따로 만든다. 사이클 행은 한 계열 안에서만 시간축을 타일링하므로
         // 섞어서 병합하면 서로 겹친 구간이 이름표 없이 쏟아진다(화면이 덮어 그릴 수밖에 없다).
         var segments = rows
@@ -83,14 +84,13 @@ public sealed class KpiController : ControllerBase
         }).ToList();
 
         var excluded = new List<KpiExcludedDto>();
-        int cut = 0, unknown = 0, inProgress = 0, noBaseline = 0, unclassified = 0, overflow = 0;
+        int unknown = 0, inProgress = 0, noBaseline = 0, unclassified = 0, overflow = 0;
         foreach (var f in facts)
         {
             if (KpiRules.Classify(f, kappa) != CycleState.Excluded) continue;
             var reason = KpiRules.ResolveExclude(f, kappa);
             switch (reason)
             {
-                case ExcludeReason.Cut: cut++; break;
                 case ExcludeReason.InProgress: inProgress++; break;
                 case ExcludeReason.NoBaseline: noBaseline++; break;
                 case ExcludeReason.Unclassified: unclassified++; break;
@@ -125,7 +125,8 @@ public sealed class KpiController : ControllerBase
             branch,
             new KpiCountsDto(
                 totals.RunCount, totals.DownCount, totals.NonProdCount,
-                new KpiExcludedCountsDto(cut, unknown, inProgress, noBaseline, unclassified, overflow)),
+                new KpiExcludedCountsDto(unknown, inProgress, noBaseline, unclassified, overflow),
+                totals.ClippedCount),
             KpiMetricsDto.From(totals),
             segments.Select(x => new KpiSegmentDto(
                 KpiTime.ToIso(x.Seg.StartMs), KpiTime.ToIso(x.Seg.EndMs),
@@ -271,12 +272,16 @@ public sealed record KpiCycleDto(
     long Id, long StartMs, long EndMs, string State, string? Reason,
     long? MtMs, string? Axis, string? WorstWork, double WorstRatio, double MtRatio, long OverflowMs);
 
-public sealed record KpiCountsDto(int Run, int Down, int NonProd, KpiExcludedCountsDto Excluded);
+/// <summary>
+/// 상태별 개수와 제외 내역. <paramref name="Clipped"/> 는 조회 창에 걸쳐 <b>겹친 만큼만</b> 반영된 행 수다
+/// (doc/30 §7.2) — 제외가 아니라 집계 구간 표기용이다. 요청 구간과 실제로 잰 것이 다르면 화면이 먼저 말한다.
+/// </summary>
+public sealed record KpiCountsDto(int Run, int Down, int NonProd, KpiExcludedCountsDto Excluded, int Clipped);
 
 public sealed record KpiExcludedCountsDto(
-    int Cut, int Unknown, int InProgress, int NoBaseline, int Unclassified, int Overflow)
+    int Unknown, int InProgress, int NoBaseline, int Unclassified, int Overflow)
 {
-    public int Total => Cut + Unknown + InProgress + NoBaseline + Unclassified + Overflow;
+    public int Total => Unknown + InProgress + NoBaseline + Unclassified + Overflow;
 }
 
 /// <summary>지표. T 는 캘린더가 아니라 유효 행 CT 의 합이다.</summary>

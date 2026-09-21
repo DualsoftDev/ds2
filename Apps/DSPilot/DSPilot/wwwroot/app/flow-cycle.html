@@ -419,8 +419,7 @@
                                             <i style="background:#334E7B;"></i>비생산 <b x-text="(kpiCounts ? kpiCounts.nonProd : 0) + '회'"></b>
                                         </span>
                                         <span class="fb-stat is-un" x-show="kpiCounts && kpiCounts.excluded.total > 0" x-cloak
-                                              :title="'계산에서 빠진 사이클 — 잘림 ' + (kpiCounts ? kpiCounts.excluded.cut : 0)
-                                                    + ' · 미상 ' + (kpiCounts ? kpiCounts.excluded.unknown : 0)
+                                              :title="'계산에서 빠진 사이클 — 미상 ' + (kpiCounts ? kpiCounts.excluded.unknown : 0)
                                                     + ' · 진행 중 ' + (kpiCounts ? kpiCounts.excluded.inProgress : 0)
                                                     + ' · 기준 표본 부족 ' + (kpiCounts ? kpiCounts.excluded.noBaseline : 0)
                                                     + ' · 분기 미분류 ' + (kpiCounts ? (kpiCounts.excluded.unclassified || 0) : 0)

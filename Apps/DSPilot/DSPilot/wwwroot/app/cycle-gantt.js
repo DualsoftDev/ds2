@@ -64,7 +64,8 @@
         return null;
     }
     // 제외 사유 표시 라벨 — /api/kpi/timeline 의 reason 토큰(doc/30 §3 · §6).
-    var KPI_REASON = { Cut: '구간에 잘림', Unknown: '이전 사이클 미상', InProgress: '진행 중', NoBaseline: '기준 표본 부족',
+    // 'Cut' 은 2026-09-21 폐기 — 창에 걸친 행은 제외가 아니다(doc/30 §7.2).
+    var KPI_REASON = { Unknown: '이전 사이클 미상', InProgress: '진행 중', NoBaseline: '기준 표본 부족',
                        Unclassified: '분기 미분류', Overflow: '경계 초과(모델링 확인)' };
     // 경계 스냅(ms, doc/30 §3) — 다음 경계 직전 이 안에서 시작한 call 구간은 다음 사이클 것. 서버 설정과 같은 값을 페이지가 넣어 준다.
     var _snapMs = 100;

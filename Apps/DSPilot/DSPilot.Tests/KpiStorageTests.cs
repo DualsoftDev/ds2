@@ -101,20 +101,24 @@ public sealed class KpiStorageTests : IDisposable
     }
 
     [Fact]
-    public async Task 구간_경계에_걸친_행은_잘림으로_표시된다()
+    public async Task 구간_경계에_걸친_행도_제외되지_않고_그대로_온다()
     {
+        // doc/30 §7.2 — 잘림은 제외 사유가 아니다. 창에 걸렸다고 정상 CT 가 비정상 CT 가 되지 않는다.
+        // 자를지 뺄지는 집계 단계에서 소비자가 정한다(KpiRules.Compute 가 창을 받아 겹친 만큼 쓴다).
         await _repo.SaveCycleAsync(Cycle(T0, 10_000), []);              // 완전히 안쪽
         await _repo.SaveCycleAsync(Cycle(T0 - 5_000, 6_000), []);       // 왼쪽 걸침
         await _repo.SaveCycleAsync(Cycle(T0 + 15_000, 10_000), []);     // 오른쪽 걸침
 
         var rows = await _repo.QueryCyclesAsync(T0 - 1_000, T0 + 20_000);
         Assert.Equal(3, rows.Count);
-        Assert.Equal(1, rows.Count(r => r.Exclude == ExcludeReason.None));
-        Assert.Equal(2, rows.Count(r => r.Exclude == ExcludeReason.Cut));
+        Assert.Equal(3, rows.Count(r => r.Exclude == ExcludeReason.None));
+        // 원본 경계를 그대로 들고 온다 — 겹침 계산은 집계가 한다.
+        Assert.Contains(rows, r => r.StartMs == T0 - 5_000);
+        Assert.Contains(rows, r => r.EndMs == T0 + 25_000);
     }
 
     [Fact]
-    public async Task 저장된_제외사유가_잘림보다_우선한다()
+    public async Task 저장된_제외사유는_그대로_실려_온다()
     {
         await _repo.SaveCycleAsync(NoBaseline(T0, 10_000), []);
         var row = Assert.Single(await _repo.QueryCyclesAsync(T0 - 1, T0 + 60_000));

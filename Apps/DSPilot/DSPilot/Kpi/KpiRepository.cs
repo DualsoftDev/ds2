@@ -155,8 +155,9 @@ public sealed class KpiRepository
     // ── 조회 ──────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// 구간과 겹치는 사이클 행. 구간 경계에 걸친 행은 <see cref="ExcludeReason.Cut"/> 으로 표시해 돌려준다 —
-    /// 연표에는 잘라 그리되 개수·합산에서는 빠진다(doc/30 §3 · §6).
+    /// 구간과 겹치는 사이클 행. 구간 경계에 걸친 행도 <b>그대로</b> 돌려준다 — 잘림은 제외 사유가 아니다
+    /// (doc/30 §7.2). 창에 걸렸다고 정상 CT 가 비정상 CT 가 되지는 않는다. 자를지 뺄지는 집계 단계에서
+    /// 소비자가 정한다(시간 합=겹친 만큼 · 건수=시작 귀속 · 행 속성=온전한 행만).
     /// </summary>
     public async Task<List<CycleRow>> QueryCyclesAsync(
         long fromMs, long toMs, string? flow = null, string? branch = null, CancellationToken ct = default,
@@ -185,11 +186,9 @@ public sealed class KpiRepository
         {
             long start = (long)r.startMs;
             long end = (long)r.endMs;
-            var stored = (ExcludeReason)(int)(long)r.excludeReason;
-            // 저장된 사유가 우선(진행 중·기준 없음·미분류). 그렇지 않으면 경계 잘림 여부로 판단.
-            var exclude = stored != ExcludeReason.None
-                ? stored
-                : (start < fromMs || end > toMs ? ExcludeReason.Cut : ExcludeReason.None);
+            // 제외 사유는 행의 성질뿐이다(적재 때 박힌 것 + 조회 시 도출하는 진행 중·경계 초과).
+            // 창에 걸쳤는지는 (행, 창) 쌍의 성질이라 여기 섞지 않는다 — doc/30 §7.2.
+            var exclude = (ExcludeReason)(int)(long)r.excludeReason;
 
             rows.Add(new CycleRow(
                 (long)r.id,

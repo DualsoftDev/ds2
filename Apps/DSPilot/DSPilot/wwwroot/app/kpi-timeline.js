@@ -25,8 +25,8 @@
         Excluded: { label: '제외', cls: 'kt-excluded' },
     };
 
+    // 'Cut'(구간에 잘림)은 2026-09-21 폐기 — 창에 걸친 행은 제외가 아니라 겹친 만큼 제 상태로 집계된다(doc/30 §7.2).
     const REASON = {
-        Cut: '구간에 잘림',
         Unknown: '이전 사이클 미상',
         InProgress: '진행 중',
         NoBaseline: '기준 표본 부족',
@@ -230,7 +230,6 @@
             const chip = (cls, label, n, extra) =>
                 `<span class="kt-chip ${extra || ''}"><i class="kt-dot" style="background:var(--${cls})"></i>${label} <b>${n}</b>회</span>`;
             const why = [];
-            if (ex.cut) why.push('잘림 ' + ex.cut);
             if (ex.unknown) why.push('미상 ' + ex.unknown);
             if (ex.inProgress) why.push('진행 중 ' + ex.inProgress);
             if (ex.noBaseline) why.push('기준 없음 ' + ex.noBaseline);
@@ -256,6 +255,12 @@
             ];
             if (ex.total > 0)
                 parts.push(`<span class="kt-chip kt-muted" title="계산에서 빠진 구간">제외 <b>${ex.total}</b> · ${why.join(' · ')}</span>`);
+            // 집계 구간 표기(doc/30 §7.2) — 요청 구간과 실제로 잰 것이 다르면 화면이 먼저 말한다.
+            //   걸친 행은 빠지지 않는다. 겹친 만큼만 시간에 들어가고 건수는 시작한 쪽 구간에서 센다.
+            if (c.clipped > 0)
+                parts.push(`<span class="kt-chip kt-muted" title="조회 구간 양끝에 걸친 사이클입니다.`
+                    + ` 시간은 겹친 만큼만 반영하고, 건수는 그 사이클이 시작한 구간에서 셉니다.">`
+                    + `걸친 행 <b>${c.clipped}</b>개</span>`);
             elChips.innerHTML = parts.join('');
         }
 

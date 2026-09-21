@@ -23,8 +23,8 @@ public enum CycleState
 public enum ExcludeReason
 {
     None = 0,
-    /// <summary>조회 구간 경계에 걸쳐 잘린 행 — 개수·합산 제외(연표에는 잘라 그린다).</summary>
-    Cut = 1,
+    // 1 = 종전 Cut(구간에 잘림). 2026-09-21 폐기 — 잘림은 행의 성질이 아니라 (행, 창) 쌍의 성질이라
+    //     제외 사유가 아니다(doc/30 §7.2). 저장된 적이 없는 값이지만 번호는 재사용하지 않는다.
     /// <summary>이전 경계를 알 수 없는 구간(수집 시작 직후·데이터 공백 직후).</summary>
     Unknown = 2,
     /// <summary>다음 경계가 아직 없는 열린 사이클 — R 을 적립하지 않는다.</summary>
@@ -138,7 +138,8 @@ public sealed record KpiTotals(
     double? Teep,
     int ToCount,
     double? TtrMs,
-    double? TbfMs)
+    double? TbfMs,
+    int ClippedCount = 0)
 {
     public static KpiTotals Empty(double q) =>
         new(0, 0, 0, 0, 0, 0, 0, 0, 0, null, null, q, null, null, null, 0, null, null);
@@ -223,16 +224,37 @@ public static class KpiRules
         return ExcludeReason.None;
     }
 
+    /// <summary>창과 겹친 길이. 창을 주지 않으면 행 전체(CT). doc/30 §7.2.</summary>
+    public static long OverlapMs(in CycleFact f, long? fromMs, long? toMs)
+    {
+        if (fromMs is not long a || toMs is not long b) return f.CtMs;
+        long s = Math.Max(f.StartMs, a), e = Math.Min(f.EndMs, b);
+        return e > s ? e - s : 0;
+    }
+
     /// <summary>
-    /// 구간 집계. T 는 캘린더가 아니라 유효 행 CT 의 합이다(doc/30 §7).
+    /// 행의 시작이 창 안인가 — 건수(고장 건수·MTBF 간격·MTTR)의 귀속 기준이다. 창을 주지 않으면 항상 참.
+    /// 칸마다 세면 긴 행이 부풀고 양쪽 창에서 세면 이중 계상된다(doc/30 §7.2).
+    /// </summary>
+    public static bool StartsInWindow(in CycleFact f, long? fromMs, long? toMs)
+        => fromMs is not long a || toMs is not long b || (f.StartMs >= a && f.StartMs < b);
+
+    /// <summary>
+    /// 구간 집계. T 는 캘린더가 아니라 <b>구간 안에서 판정된 시간</b>의 합이다(doc/30 §7).
+    /// <para>
+    /// <paramref name="fromMs"/>·<paramref name="toMs"/> 를 주면 창에 걸친 행을 <b>겹친 만큼</b> 반영한다
+    /// (doc/30 §7.2). 판정은 언제나 행 전체로 하므로 자른다고 상태가 바뀌지 않는다 — 자정을 가로지른
+    /// 비생산 행은 양쪽 날 모두 비생산이고 시간만 갈린다. 창을 주지 않으면 행 전체를 쓴다(단위 테스트·전체 합산).
+    /// </para>
     /// 입력은 시작 시각 오름차순일 필요가 없다 — TBF 계산을 위해 내부에서 정렬한다.
     /// </summary>
-    public static KpiTotals Compute(IReadOnlyList<CycleFact> facts, in KpiKappa kappa)
+    public static KpiTotals Compute(
+        IReadOnlyList<CycleFact> facts, in KpiKappa kappa, long? fromMs = null, long? toMs = null)
     {
         var k = kappa.Normalized();
         if (facts.Count == 0) return KpiTotals.Empty(k.Quality);
 
-        int run = 0, down = 0, nonProd = 0, excluded = 0;
+        int run = 0, down = 0, nonProd = 0, excluded = 0, clipped = 0;
         long tRun = 0, tDown = 0, tNonProd = 0;
         double sumR = 0;
         var downStarts = new List<long>();
@@ -240,16 +262,29 @@ public static class KpiRules
 
         foreach (var f in facts)
         {
-            switch (Classify(f, k))
+            var state = Classify(f, k);
+            long ovMs = OverlapMs(f, fromMs, toMs);
+            if (ovMs <= 0 && state != CycleState.Excluded) continue;    // 창 밖(호출측이 걸러 오지만 방어)
+            bool starts = StartsInWindow(f, fromMs, toMs);
+            if (ovMs < f.CtMs) clipped++;
+            // 시간은 겹친 만큼, 건수는 시작 귀속, R 은 CT 와 같은 비율로 안분(doc/30 §7.2).
+            double share = f.CtMs > 0 ? ovMs / (double)f.CtMs : 0;
+            switch (state)
             {
                 case CycleState.Run:
-                    run++; tRun += f.CtMs; sumR += f.RMs; break;
+                    if (starts) run++;
+                    tRun += ovMs; sumR += f.RMs * share; break;
                 case CycleState.Down:
-                    down++; tDown += f.CtMs; downCtSum += f.CtMs; downStarts.Add(f.StartMs); break;
+                    tDown += ovMs;
+                    // MTTR·MTBF 는 행 속성이라 잘린 길이가 아니라 원래 CT 로 잰다 — 창 때문에 수리 시간이
+                    // 짧아 보이면 안 된다. 그래서 시작이 창 안인 행만 센다.
+                    if (starts) { down++; downCtSum += f.CtMs; downStarts.Add(f.StartMs); }
+                    break;
                 case CycleState.NonProd:
-                    nonProd++; tNonProd += f.CtMs; break;
+                    if (starts) nonProd++;
+                    tNonProd += ovMs; break;
                 default:
-                    excluded++; break;
+                    excluded++; break;       // 진단 개수 — 창에 걸치기만 해도 센다
             }
         }
 
@@ -277,7 +312,7 @@ public static class KpiRules
             run, down, nonProd, excluded,
             tRun, tDown, tNonProd, t,
             sumR, a, p, k.Quality, oee, u, teep,
-            down, ttr, tbf);
+            down, ttr, tbf, clipped);
     }
 
     /// <summary>

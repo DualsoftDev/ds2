@@ -252,7 +252,8 @@ public sealed class ErrorTagReliabilityService
         var cycles = await _kpi.QueryCyclesAsync(fromMs, toMs, flow, branch: null, ct);
 
         // 재가동 = 사이클 시작. 그 사이클의 판정(가동·비가동·비생산)은 보지 않는다 — 우리가 묻는 것은
-        // "다시 돌았나" 하나뿐이다. 제외 행(잘림·UNK·진행 중)도 시작 자체는 진짜 head 신호라 근거로 쓴다.
+        // "다시 돌았나" 하나뿐이다. 제외 행(UNK·진행 중 등)도 시작 자체는 진짜 head 신호라 근거로 쓴다.
+        // 창에 걸친 행도 마찬가지다 — 걸림은 제외가 아니고(doc/30 §7.2) 시작 시각은 온전하다.
         var restarts = cycles.Select(c => c.StartMs).Distinct().OrderBy(x => x).ToList();
 
         var rs = cycles.Where(c => c.RUsedMs > 0).Select(c => c.RUsedMs).OrderBy(x => x).ToList();

@@ -138,10 +138,15 @@ public class KpiRulesTests
     }
 
     [Fact]
-    public void 잘린_행은_제외()
+    public void 창에_걸렸다고_제외되지_않는다()
     {
-        var f = Fact(1, 0, 12_000, exclude: ExcludeReason.Cut);
-        Assert.Equal(CycleState.Excluded, KpiRules.Classify(f, K));
+        // doc/30 §7.2 — 잘림은 행의 성질이 아니라 (행, 창) 쌍의 성질이다. 판정은 창을 보지 않는다.
+        var f = Fact(1, 0, 12_000);
+        Assert.Equal(CycleState.Run, KpiRules.Classify(f, K));
+        Assert.Equal(ExcludeReason.None, KpiRules.ResolveExclude(f, K));
+        // 창을 어떻게 잡아도 같은 상태다 — 달라지는 것은 겹친 길이뿐.
+        Assert.Equal(4_000, KpiRules.OverlapMs(f, 8_000, 30_000));
+        Assert.Equal(12_000, KpiRules.OverlapMs(f, null, null));
     }
 
     [Fact]
@@ -171,7 +176,7 @@ public class KpiRulesTests
         Add(30_000, worst: 4.0);
         Add(10_000);
         Add(200_000);
-        Add(9_000, ex: ExcludeReason.Cut);
+        Add(9_000, ex: ExcludeReason.Unclassified);
         return list;
     }
 
@@ -202,6 +207,109 @@ public class KpiRulesTests
         Assert.Equal(t.A!.Value * t.P!.Value * t.Q, t.Oee!.Value, 9);
         Assert.Equal(t.U!.Value * t.Oee!.Value, t.Teep!.Value, 9);
         Assert.True(KpiRules.Verify(t));
+    }
+
+    // ── 창에 걸친 행 — 자르기와 귀속(doc/30 §7.2) ────────────────────────────────
+
+    /// <summary>자정을 가로지른 비생산 행 하나. 양쪽 날이 겹친 만큼씩 나눠 갖고, 건수는 시작한 날만 센다.</summary>
+    private static List<CycleFact> Straddler()
+        // [-40초, +60초) = 100초 ≥ κ_비생산(10) × R(10초) → 비생산. 창 경계는 0.
+        => new() { Fact(1, -40_000, 100_000) };
+
+    [Fact]
+    public void 걸친_행은_겹친_만큼만_시간에_들어간다()
+    {
+        var before = KpiRules.Compute(Straddler(), K, -100_000, 0);
+        var after = KpiRules.Compute(Straddler(), K, 0, 100_000);
+
+        Assert.Equal(40_000, before.TNonProdMs);       // 창 앞쪽 40초
+        Assert.Equal(60_000, after.TNonProdMs);        // 창 뒤쪽 60초
+        Assert.Equal(1, before.NonProdCount);          // 건수는 시작한 구간에서만
+        Assert.Equal(0, after.NonProdCount);
+        Assert.Equal(1, before.ClippedCount);
+        Assert.Equal(1, after.ClippedCount);
+    }
+
+    [Fact]
+    public void 창을_쪼개_더하면_전체와_같다()
+    {
+        // 가산성 — 어떤 분할로 나눠 더해도 시간 합이 보존된다. 종전 '잘림 제외' 규칙에서는 깨졌다.
+        var facts = Sample();
+        long from = facts.Min(f => f.StartMs), to = facts.Max(f => f.EndMs);
+        var whole = KpiRules.Compute(facts, K, from, to);
+
+        long run = 0, down = 0, nonProd = 0;
+        const int slices = 7;
+        for (int i = 0; i < slices; i++)
+        {
+            long a = from + (to - from) * i / slices;
+            long b = from + (to - from) * (i + 1) / slices;
+            var part = KpiRules.Compute(facts, K, a, b);
+            run += part.TRunMs; down += part.TDownMs; nonProd += part.TNonProdMs;
+        }
+
+        Assert.Equal(whole.TRunMs, run);
+        Assert.Equal(whole.TDownMs, down);
+        Assert.Equal(whole.TNonProdMs, nonProd);
+    }
+
+    [Fact]
+    public void 건수는_시작_기준이라_이중_계상되지_않는다()
+    {
+        var facts = Sample();
+        long from = facts.Min(f => f.StartMs), to = facts.Max(f => f.EndMs);
+        var whole = KpiRules.Compute(facts, K, from, to);
+
+        int run = 0, down = 0, nonProd = 0;
+        const int slices = 5;
+        for (int i = 0; i < slices; i++)
+        {
+            long a = from + (to - from) * i / slices;
+            long b = from + (to - from) * (i + 1) / slices;
+            var part = KpiRules.Compute(facts, K, a, b);
+            run += part.RunCount; down += part.DownCount; nonProd += part.NonProdCount;
+        }
+
+        Assert.Equal(whole.RunCount, run);
+        Assert.Equal(whole.DownCount, down);
+        Assert.Equal(whole.NonProdCount, nonProd);
+    }
+
+    [Fact]
+    public void 수리시간은_잘려도_원래_CT_로_잰다()
+    {
+        // MTTR 은 행 속성이다 — 창 때문에 수리 시간이 짧아 보이면 안 된다(doc/30 §7.2 "행 속성").
+        var down = new List<CycleFact> { Fact(1, 0, 40_000, worst: 4.0, worstWork: "w") };
+        var t = KpiRules.Compute(down, K, 0, 10_000);
+
+        Assert.Equal(1, t.DownCount);
+        Assert.Equal(10_000, t.TDownMs);        // 시간은 겹친 만큼
+        Assert.Equal(40_000, t.TtrMs);          // 수리 시간은 행 전체
+    }
+
+    [Fact]
+    public void 창보다_긴_행_하나뿐이어도_집계된다()
+    {
+        // 하루를 통째로 덮는 비생산 행 — 종전 '온전한 행만' 규칙에서는 "데이터 없음" 이 됐다.
+        var t = KpiRules.Compute(Straddler(), K, 0, 20_000);
+
+        Assert.Equal(20_000, t.TNonProdMs);
+        Assert.Equal(20_000, t.TMs);
+        Assert.Equal(0.0, t.U);                 // 창 전체가 비생산이라 생산가능은 0
+        Assert.True(KpiRules.Verify(t));
+    }
+
+    [Fact]
+    public void 창을_주지_않으면_행_전체를_쓴다()
+    {
+        // 기존 호출부·단위 테스트 호환 — 창 없는 Compute 는 종전과 같다.
+        var facts = Sample();
+        var windowed = KpiRules.Compute(facts, K, facts.Min(f => f.StartMs), facts.Max(f => f.EndMs));
+        var whole = KpiRules.Compute(facts, K);
+
+        Assert.Equal(whole.TMs, windowed.TMs);
+        Assert.Equal(whole.RunCount, windowed.RunCount);
+        Assert.Equal(0, whole.ClippedCount);
     }
 
     [Fact]
