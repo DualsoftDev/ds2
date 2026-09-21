@@ -283,10 +283,10 @@
                 </section>
 
                 <!-- ════ 가용성 누적 정산 — 벽시계 단일모델(doc/28 §2.7): 가동 ÷ 생산가능(캘린더 − 비생산 − 미계측 − 진행 중).
-                      비가동 = 생산가능 − 가동 = 고장 + 유지보수 + 짧은 멈춤(원인 미기록) — 3분할로 <b>항상 100% 로 닫는다</b>.
-                      2026-09-21: 종전엔 잔여(미귀속)를 그리지 않아 고장·유지보수 0 인 설비에서 막대 절반이 빈칸이었다.
-                      "고장 없음"과 "비가동 46%"가 아무 설명 없이 나란히 놓여 숫자가 틀린 것처럼 읽혔다 — 모르는 시간도
-                      이름을 붙여 그리고, 판정 경계와 한 줄 요약을 함께 낸다. 상단 KPI(A)와 같은 값이다 ════ -->
+                      비가동 = 생산가능 − 가동 — 2분할로 <b>항상 100% 로 닫는다</b>.
+                      2026-09-21: 조각을 둘로 줄였다. 종전엔 고장·유지보수·짧은 멈춤 셋으로 쪼갰는데, 길이로만 판정하면서
+                      원인을 단정하는 이름이라 doc/30 §11.1 폐기 대상이다. 셋의 합이 곧 비가동이라 A 는 변하지 않는다.
+                      판정 경계와 한 줄 요약을 함께 낸다. 상단 KPI(A)와 같은 값이다 ════ -->
                 <section class="card up-section" id="availability-section">
                     <div class="ds-card-h">
                         <h4>가용성 누적 정산
@@ -295,6 +295,14 @@
                                   title="라인(전체)은 설비별 실측 시간을 합산합니다(=설비별 가용성의 가중평균). 설비를 하나 고르면 그 설비 실측만 봅니다."></span>
                         </h4>
                         <span class="ds-card-h-sub" x-text="availComp.subtitle"></span>
+                        <span style="flex:1;"></span>
+                        <!-- 정지 이벤트 로그 진입 — 종전 '정지 구성' 카드 하단에 있었다(그 카드 삭제, 2026-09-21).
+                             이 모달을 여는 유일한 경로라 같이 지우면 로그에 갈 방법이 없어진다. -->
+                        <button class="btn btn-sm btn-outlined" @click="showDowntimeLog = true"
+                                title="이 기간 정지 이벤트 목록 — 조회 전용">
+                            <span class="material-icons" style="font-size:16px;">receipt_long</span>
+                            정지 로그
+                        </button>
                     </div>
 
                     <!-- ① 가용성 분해 바 (활성 모드 — 상단 A KPI와 일치). 라벨은 세그먼트 안에("가동 12h · 78%"), 좁은 구간은 % 만 또는 hover.
@@ -303,13 +311,15 @@
                         <div style="margin-bottom:18px;">
                             <div style="display:flex; height:28px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--color-lines);">
                                 <div class="up-bar-seg" :style="`width:${availComp.runPct}%; background:var(--oee-run);`"
-                                     :title="'가동(정상 사이클) ' + durSum(availComp.runMs) + ' · ' + availComp.runPct + '% · ' + availComp.runNote">
+                                     :title="'가동(정상 사이클) ' + durSum(availComp.runMs) + ' · ' + availComp.runPct + '% · ' + availComp.runNote
+                                             + (sumFlowNote(availComp.runMs) ? (' · ' + sumFlowNote(availComp.runMs)) : '')">
                                     <span class="up-bar-lbl is-long" x-text="'가동 ' + durSum(availComp.runMs) + ' · ' + availComp.runPct + '%'"></span><span class="up-bar-lbl is-short" x-text="availComp.runPct + '%'"></span></div>
                                 <!-- 비가동 한 조각(2026-09-21) — 종전 고장·유지보수·짧은 멈춤 셋. 길이로만 판정하면서
                                      원인을 단정하는 이름이라 합쳤다(doc/30 §11.1). 셋의 합이 곧 생산가능 − 가동이라 A 는 그대로다.
                                      원인별 내역은 클릭 → 날짜별 비가동 패턴과 아래 정지 로그가 맡는다. -->
                                 <div class="up-bar-seg hatch-fault" x-show="availComp.downPct > 0" @click="openDtPattern('all')" :style="`width:${availComp.downPct}%; cursor:pointer;`"
                                      :title="'비가동 ' + durSum(availComp.downMs) + ' · ' + availComp.downPct + '% — 생산가능에서 가동을 뺀 나머지. 클릭 → 날짜별 비가동 패턴'
+                                             + (sumFlowNote(availComp.downMs) ? (' · ' + sumFlowNote(availComp.downMs)) : '')
                                              + (availComp.unattributedMs > 0 ? (' · 이 중 ' + durSum(availComp.unattributedMs) + ' 은 사이클 기록이 없어 원인을 모릅니다(아래 계측 품질).') : '')">
                                     <span class="up-bar-lbl is-long" x-text="'비가동 ' + durSum(availComp.downMs) + ' · ' + availComp.downPct + '%'"></span><span class="up-bar-lbl is-short" x-text="availComp.downPct + '%'"></span></div>
                             </div>
@@ -340,8 +350,9 @@
 
                 </section>
 
-                <!-- ════ 날짜별 비가동 패턴 (드릴다운, 2026-07-13) — 가용성 누적 정산의 빨간(비가동) 부분·정지 구성
-                     도넛/범례(고장·유지보수) 클릭으로 열림. '날짜별 비생산 패턴'(생산효율)과 동일 골격(up-npd) —
+                <!-- ════ 날짜별 비가동 패턴 (드릴다운, 2026-07-13) — 가용성 누적 정산의 비가동 조각
+                     클릭으로 열림(종전 '정지 구성' 도넛에서도 열렸으나 그 카드는 2026-09-21 삭제).
+                     '날짜별 비생산 패턴'(생산효율)과 동일 골격(up-npd) —
                      행=날짜×24h, 창=정지 이벤트(고장=빨강 빗금 / 유지보수=골드 빗금). 소스=정지 이벤트 로그와 동일. ════ -->
                 <section class="card up-section" id="downtime-pattern-section" x-show="dtPat.show" x-cloak>
                     <div class="ds-card-h">
@@ -405,54 +416,12 @@
                     </template>
                 </section>
 
-                <!-- ════ 정지 원인 도넛 | 계획시간 폴백 체인 + 14일 히스토그램 (정지 로그 위로 이동 — 로그는 이 아래에서 토글) ════ -->
-                <div class="up-grid" :class="curFlow ? 'up-1col' : 'up-2col'">
-
-                    <!-- 정지 고장/유지보수 도넛 — 합계가 상단 '기간 정지'와 일치 -->
-                    <section class="card up-section">
-                        <div class="ds-card-h">
-                            <h4>정지 구성
-                                <!-- 라인(전체)은 설비별 실측 합산 — 24h 를 넘는 값이 정상(시간별 라인 가동·가용성 정산과 같은 규약). -->
-                                <span class="up-oee-chip" x-show="!curFlow && oee && oee.cycleFlowCount > 1"
-                                      x-text="'설비 합산 ×' + (oee ? oee.cycleFlowCount : '')"
-                                      title="라인(전체)은 설비별 실측 시간을 합산합니다 — 기간이 '오늘'이어도 설비 N대 합산이라 24시간을 넘을 수 있습니다(하루 최대 24h × 설비수). 각 값은 선택한 기간으로 이미 잘라낸 뒤 합산한 값입니다. 설비를 하나 고르면 그 설비 실측만 봅니다."></span>
-                            </h4>
-                            <span class="ds-card-h-sub">고장 · 유지보수 · 비생산 비중 (지속시간 기준)</span>
-                        </div>
-                        <template x-if="faultDist.has">
-                            <div class="up-dist">
-                                <!-- 고장/유지보수 세그·범례 클릭 → 날짜별 비가동 패턴 드릴다운 (data-seg 는 faultDonutSvg 가 심음) -->
-                                <svg class="up-donut" viewBox="0 0 100 100" x-html="faultDonutSvg" @click="onFaultDonutClick($event)"></svg>
-                                <div class="up-legend">
-                                    <template x-for="seg in faultDist.segs" :key="seg.label">
-                                        <div class="up-legend-row" @click="onFaultLegendClick(seg)"
-                                             :style="(seg.pat === 'up-pat-fault' || seg.pat === 'up-pat-maint') ? 'cursor:pointer;' : ''"
-                                             :title="((seg.pat === 'up-pat-fault' || seg.pat === 'up-pat-maint') ? '클릭 → 날짜별 비가동 패턴' : '') + (sumFlowNote(seg.ms) ? (' · ' + sumFlowNote(seg.ms)) : '')">
-                                            <span class="up-legend-swatch" :class="seg.cls"></span>
-                                            <span class="up-legend-name" x-text="seg.label"></span>
-                                            <span class="up-legend-share" x-text="seg.share + '%'"></span>
-                                            <!-- 값 = 설비별 실측 합산(Σ_flow) — 아래 작은 글씨는 설비당 평균(÷설비수) -->
-                                            <span class="up-legend-vals">
-                                                <span class="up-legend-val" x-text="durSum(seg.ms)"></span>
-                                                <span class="up-legend-per" x-show="durPerFlow(seg.ms)" x-text="'설비당 ' + durPerFlow(seg.ms)"></span>
-                                            </span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                        </template>
-                        <template x-if="!faultDist.has">
-                            <div class="ds-empty">
-                                <span class="material-icons">donut_large</span>
-                                <div class="ds-empty-title">표시할 정지 데이터 없음</div>
-                                <div class="ds-empty-desc">이 기간 감지된 정지 이벤트가 없습니다.</div>
-                            </div>
-                        </template>
-                        <button class="btn btn-sm btn-outlined" style="margin-top:12px; width:100%; justify-content:center;" @click="showDowntimeLog = true">
-                            <span class="material-icons" style="font-size:16px;">receipt_long</span>
-                            정지 이벤트 로그 보기
-                        </button>
-                    </section>
+                <!-- ════ OEE 순위 — 종전 왼쪽에 있던 '정지 구성' 도넛은 2026-09-21 삭제.
+                     분모가 다른 셋을 한 원에 담고 있었다 — 고장·유지보수는 생산가능 안, 비생산은 밖.
+                     그래서 비생산이 클수록(= 정상 운영일수록) 단색 링이 됐고, 현장 실측은 비생산 99.6% 였다.
+                     세 값 모두 정산 막대·계산 제외 줄·시간별 차트에 이미 있어 네 번째 인코딩이기도 했다.
+                     카드가 유일하게 주던 둘은 옮겼다: 설비당 환산→정산 막대 툴팁, [정지 이벤트 로그]→정산 카드 헤더. ════ -->
+                <div class="up-grid up-1col">
 
                     <!-- OEE 순위 — 시스템 단위에서만 표시 (설비 선택 시 숨김) -->
                     <section class="card up-section" x-show="!curFlow" x-cloak>
@@ -621,7 +590,7 @@
                 </div>
 
                 <!-- 품질(양품률) 직접 입력은 설비효율(OEE)의 '품질 Q' 카드 클릭 → 다이얼로그로 이동(아래 #qDialog). -->
-                <!-- 설비별 OEE 순위는 상단 '정지 구성' 옆(2열 그리드)으로 이동 — 여기 있던 전폭 순위 카드 제거. -->
+                <!-- 설비별 OEE 순위는 위쪽으로 이동 — 여기 있던 전폭 순위 카드 제거. -->
 
                 <!-- ════ 비생산 시간대 (doc/22) — 24시간 연표 에디터. 자동 5일 패턴 ▸ 사용자 설정 시 수동 전환.
                      이 시간대의 정상 가동시간·비가동은 모두 OEE 산출에서 제외(생산·비생산 가리지 않고 분모 밖). 설비효율 탭 맨 아래 배치(설정 성격). ════ -->

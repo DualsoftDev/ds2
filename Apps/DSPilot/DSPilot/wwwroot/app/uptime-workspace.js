@@ -157,8 +157,8 @@
                 _cmSeq: 0, _cmPrevTimer: null, _cmMultMsgTimer: null,
                 // 정지 이벤트 로그(조회 전용) 토글 — 기본 숨김, 정지 원인 구성(도넛)의 [로그 보기] 버튼으로 토글
                 showDowntimeLog: false,
-                // 날짜별 비가동 패턴 (드릴다운, 2026-07-13) — 가용성 누적 정산의 빨간(비가동) 부분·정지 구성
-                // 도넛/범례(고장·유지보수) 클릭으로 열림. '날짜별 비생산 패턴'(생산효율)과 같은 up-npd 골격을
+                // 날짜별 비가동 패턴 (드릴다운, 2026-07-13) — 가용성 누적 정산의 비가동 조각 클릭으로 열림.
+                // '날짜별 비생산 패턴'(생산효율)과 같은 up-npd 골격을
                 // 이미 로드된 this.downtime(기간·설비 필터 반영)에서 클라 접기로 그린다. filter='all'|'fault'|'maintenance'.
                 dtPat: { show: false, filter: 'all' },
                 _dtPatMemo: null, // dtPatDays() 메모 — downtime 재로드(배열 교체)/필터/기간 변경 시 무효
@@ -1675,7 +1675,7 @@
                         if (d.granularity === 'hour') return s.slot.slice(11, 16); // "HH:mm"(=HH:00)
                         return s.slot.length >= 10 ? s.slot.slice(5, 10) : s.slot;  // "yyyy-MM-dd" → "MM-DD" (ISO 숫자형 통일)
                     });
-                    // 가동·고장·유지보수·비생산 4분해 — 고장/유지보수 구분은 '정지 구성' 도넛과 동일한 isFailure 2-상태로 정렬:
+                    // 가동·비가동·비생산 분해 — 비가동 내부는 isFailure 2-상태로 모아 한 계열로 그린다(2026-09-21):
                     //   고장 = failureMs(isFailure=1) + unclassifiedMs(미분류, 기본 isFailure=1)
                     //   유지보수 = plannedMs(category='planned') + otherMs(계획외지만 isFailure=0 — 자재대기 등, 도넛도 유지보수로 집계)
                     //   nonProdMs=비생산(A 분모 밖 — 가동에서 카빙), 나머지=가동근사.
@@ -2401,9 +2401,9 @@
                     finally { d.busy = false; }
                 },
 
-                // 정지 구성 도넛 (고장/유지보수/비생산) — 벽시계 단일모델(doc/28 §2.7): 서버가 비가동을 유지보수/고장 행 전체 구간과
-                // 겹쳐 귀속한 값 + 비생산 벽시계(nonProdWallMs, A 분모 밖). 가용성 정산 분해·시간별 추이 정지부와 동일 소스라 세 뷰가 항상 일치한다.
-                // (구 '대기(고장 여파)' 세그먼트·'가동간 공백'은 두 규칙 모델로 폐기.)
+                // 정지 구성(고장/유지보수/비생산) — 화면 도넛은 2026-09-21 삭제됐고, 이제 <b>Excel 내보내기 전용</b>이다
+                //   (exportExcel 의 faultSegs). 분모가 다른 셋을 한 원에 담아 화면에선 읽힐 수 없었지만,
+                //   표로 나열하는 Excel 에서는 세 값이 그대로 쓸모가 있다. 값은 정산 막대·시간별 차트와 같은 소스다.
                 get faultDist() {
                     const o = this.oee || {};
                     const run = Math.max(0, o.runWallMs || 0), avail = Math.max(0, o.availableWallMs || 0);
@@ -2429,27 +2429,6 @@
                     }
                     return { count, has: true, segs };
                 },
-                // faultDist → 도넛 내부 SVG 문자열 (x-html)
-                get faultDonutSvg() {
-                    const d = this.faultDist;
-                    // 정지 유형 대각선 빗금 패턴(색=유형, 빗금=정지 신호 — 가동 솔리드와 대비). userSpaceOnUse 로 링 전체에 타일링.
-                    const pat = (id, color) => `<pattern id="${id}" patternUnits="userSpaceOnUse" width="7" height="7">`
-                        + `<rect width="7" height="7" fill="${color}"></rect>`
-                        + `<path d="M0,7 L7,0 M-1.5,1.5 L1.5,-1.5 M5.5,8.5 L8.5,5.5" stroke="rgba(255,255,255,0.55)" stroke-width="1.3"></path></pattern>`;
-                    let s = `<defs>${pat('up-pat-fault', 'var(--oee-fault)')}${pat('up-pat-maint', 'var(--oee-maint)')}${pat('up-pat-nonprod', 'var(--nonprod)')}</defs>`;
-                    s += '<circle class="up-donut-track" cx="50" cy="50" r="38" fill="none" stroke-width="14"></circle>';
-                    // 고장/유지보수 세그는 클릭 드릴다운(날짜별 비가동 패턴) 대상 — data-seg 로 onFaultDonutClick 이 식별.
-                    for (const seg of d.segs) {
-                        const segKey = seg.pat === 'up-pat-fault' ? 'fault' : (seg.pat === 'up-pat-maint' ? 'maint' : 'nonprod');
-                        const drill = segKey === 'fault' || segKey === 'maint';   // 비생산은 드릴다운 비대상
-                        const click = drill ? ` data-seg="${segKey}" style="cursor:pointer;"` : '';
-                        s += `<circle cx="50" cy="50" r="38" fill="none" stroke="url(#${seg.pat})" stroke-width="14" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 50 50)"${click}><title>${this.esc(seg.label)}${drill ? ' — 클릭 → 날짜별 비가동 패턴' : ''}</title></circle>`;
-                    }
-                    s += `<text class="up-donut-total" x="50" y="49" text-anchor="middle">${d.count}</text>`;
-                    s += '<text class="up-donut-cap" x="50" y="61" text-anchor="middle">정지건수</text>';
-                    return s;
-                },
-
                 // ── 날짜별 비가동 패턴 (드릴다운) — 가용성 정산 빨간부·정지 도넛/범례(고장·유지보수) 클릭으로 토글 ──
                 // '날짜별 비생산 패턴'(uptime-teep)과 같은 up-npd 골격이되 소스가 다르다: 비생산=서버 days 접기,
                 // 여기는 이미 로드된 정지 이벤트(this.downtime — 기간·설비 필터로 조회됨)를 클라에서 날짜별로 접는다.
@@ -2461,17 +2440,6 @@
                         const el = document.getElementById('downtime-pattern-section');
                         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                     });
-                },
-                // 도넛 세그먼트 클릭 — faultDonutSvg 가 circle 에 data-seg 를 심어둠. 비생산 세그는 대상 아님
-                // (그 패턴은 생산효율 페이지의 '날짜별 비생산 패턴' 담당 — 여기는 A 분모 안의 비가동만).
-                onFaultDonutClick(ev) {
-                    const seg = ev.target && ev.target.dataset ? ev.target.dataset.seg : null;
-                    if (seg === 'fault') this.openDtPattern('fault');
-                    else if (seg === 'maint') this.openDtPattern('maintenance');
-                },
-                onFaultLegendClick(seg) {
-                    if (seg.pat === 'up-pat-fault') this.openDtPattern('fault');
-                    else if (seg.pat === 'up-pat-maint') this.openDtPattern('maintenance');
                 },
                 // 패턴 대상 이벤트 — 고장·유지보수만(비생산 제외) + 하위 필터(고장/유지보수)
                 dtPatEvents() {
@@ -2587,11 +2555,12 @@
                     if (!worst) return null;
                     const oeeTxt = worst.oee != null ? ('OEE ' + this.pct(worst.oee)) : ('정지 ' + this.durShort(worst.downtimeMs));
                     let s = `정지 기준 가장 취약한 설비는 <b>${worst.flowName}</b> (${oeeTxt}, 정지 ${worst.downtimeCount}건) 입니다.`;
-                    const d = this.faultDist;
-                    const faultSeg = d.segs.find(x => x.label === FAULT_DEF.label);
-                    const maintSeg = d.segs.find(x => x.label === MAINT_DEF.label);
-                    if (faultSeg && faultSeg.share > 0) s += ` 정지의 ${faultSeg.share}%가 고장입니다.`;
-                    if (maintSeg && maintSeg.share > 0) s += ` ${maintSeg.share}%는 유지보수입니다.`;
+                    // 종전엔 "정지의 N%가 고장" 을 도넛 비중에서 가져왔는데, 그 분모에 비생산(분모 밖)이 섞여 있어
+                    //   비생산이 큰 라인에서는 고장 비중이 0%대로 눌렸다 — 도넛과 함께 폐기(2026-09-21).
+                    //   대신 손 쓸 수 있는 사실 하나만 말한다: 비가동 중 원인을 모르는 몫.
+                    const ac = this.availComp;
+                    if (ac.hasData && ac.unattributedMs > 0 && ac.downMs > 0)
+                        s += ` 비가동 ${this.durSum(ac.downMs)} 가운데 ${this.durSum(ac.unattributedMs)} 은 사이클 기록이 없어 원인을 알 수 없습니다.`;
                     if (this.oee && this.oee.qualitySource === 'measured' && this.oee.quality != null && this.oee.quality < 0.98)
                         s += ` 품질 ${this.pct(this.oee.quality)}(불량 입력 반영) 가 OEE 손실에 기여합니다.`;
                     else if (this.oee && this.oee.qualitySource === 'assumed')

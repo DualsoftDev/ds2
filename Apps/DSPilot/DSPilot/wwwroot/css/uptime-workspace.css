@@ -110,15 +110,6 @@
         .up-alarm-idx b { font-size: 1.05rem; }
 
         /* 레벨 분포 — 도넛 + 범례 (mockup #p7 정지원인 도넛 톤) */
-        .up-dist { display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: center; margin-bottom: 16px; }
-        @media (max-width: 560px) { .up-dist { grid-template-columns: 1fr; justify-items: center; } }
-        .up-donut { width: 150px; height: 150px; display: block; }
-        .up-donut-track { stroke: var(--color-surface-variant); }
-        .up-donut-total { font-size: 17px; font-weight: 800; fill: var(--color-text-primary); font-family: var(--font-mono); }
-        .up-donut-cap { font-size: 7px; fill: var(--color-text-secondary); letter-spacing: 0.06em; }
-        .up-legend { display: flex; flex-direction: column; gap: 8px; }
-        .up-legend-row { display: flex; align-items: center; gap: 10px; font-size: 0.76rem; }
-        .up-legend-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
 
         /* OEE 가동·정지 색 SSOT — 차트(canvas, JS)·범례 스와치·정지 도넛(SVG) 공용.
            가동(파랑)=더 밝고 눈에 띄게 / 정지 3종=살짝 더 어둡게 대비.
@@ -162,13 +153,7 @@
         .up-bar-lbl.is-long { display: none; }
         @container (min-width: 190px) { .up-bar-lbl.is-long { display: inline; } .up-bar-lbl.is-short { display: none; } }
         @container (max-width: 42px) { .up-bar-lbl.is-short { display: none; } }
-        .up-legend-name { font-weight: 700; flex: 1; }
-        .up-legend-share { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-secondary); }
         /* 정지 구성 범례 값 — 라인 스코프는 설비 합산이라 '68시간 12분'까지 길어진다(폭 여유 + 설비당 평균 2행). */
-        .up-legend-vals { display: flex; flex-direction: column; align-items: flex-end; min-width: 78px; line-height: 1.25; }
-        .up-legend-val { text-align: right; font-family: var(--font-mono); font-weight: 800; white-space: nowrap; }
-        .up-legend-per { font-size: 0.62rem; font-family: var(--font-mono); font-weight: 600; color: var(--color-text-secondary); white-space: nowrap; }
-        .up-dist-empty { grid-column: 1 / -1; }
         /* 정지 로그 '지속' 병기 — 기간 경계를 걸친 정지의 사건 전체 길이(작은 회색 2행) */
         .up-dt-clip { display: block; font-size: 0.62rem; font-family: var(--font-mono); font-weight: 600; color: var(--color-text-secondary); white-space: nowrap; }
 
@@ -615,10 +600,6 @@
             .up-alarm-msg { font-size: 1.02rem; }
             .up-alarm-ico { font-size: 22px; }
 
-            /* 도넛 ~120px (정지원인 + 레벨분포 공용 .up-donut), 분포 1열 중앙정렬 */
-            .up-dist { grid-template-columns: 1fr; justify-items: center; }
-            .up-donut { width: 120px; height: 120px; }
-            .up-legend { width: 100%; }
 
             /* 필터 행: 정지로그 필터 + UserTag 필터 → 세로 스택 */
             .up-filter-row { flex-direction: column; align-items: stretch; }
