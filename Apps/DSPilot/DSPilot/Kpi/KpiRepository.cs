@@ -159,8 +159,12 @@ public sealed class KpiRepository
     /// 연표에는 잘라 그리되 개수·합산에서는 빠진다(doc/30 §3 · §6).
     /// </summary>
     public async Task<List<CycleRow>> QueryCyclesAsync(
-        long fromMs, long toMs, string? flow = null, string? branch = null, CancellationToken ct = default)
+        long fromMs, long toMs, string? flow = null, string? branch = null, CancellationToken ct = default,
+        IReadOnlyCollection<string>? flows = null)
     {
+        // 시스템 스코프 = 그 시스템의 설비 집합. 빈 집합이면 결과도 비어야 한다(전체로 폴백하지 않는다).
+        if (flows is { Count: 0 }) return [];
+
         await using var conn = _db.OpenRead();
         var sql = """
             SELECT id, flow, branch, startMs, endMs, ctMs, mtMs, wtMs,
@@ -169,11 +173,12 @@ public sealed class KpiRepository
             WHERE endMs > @fromMs AND startMs < @toMs
             """;
         if (!string.IsNullOrWhiteSpace(flow)) sql += " AND flow = @flow";
+        else if (flows is not null) sql += " AND flow IN @flows";
         if (!string.IsNullOrWhiteSpace(branch)) sql += " AND branch = @branch";
         sql += " ORDER BY startMs";
 
         var raw = await conn.QueryAsync(new CommandDefinition(
-            sql, new { fromMs, toMs, flow, branch }, cancellationToken: ct));
+            sql, new { fromMs, toMs, flow, branch, flows }, cancellationToken: ct));
 
         var rows = new List<CycleRow>();
         foreach (var r in raw)
@@ -219,14 +224,29 @@ public sealed class KpiRepository
     }
 
     /// <summary>
-    /// R 표본 — 최근 창의 완료 CT. 제외 행(진행 중·기준 없음·미분류)은 빼고, 비생산으로 보일 만큼 긴 행도
+    /// 표본 자격(SQL 조각). 행에 저장되는 제외 사유는 셋뿐이다 — 없음 · 기준 없음 · 미분류.
+    /// <para>
+    /// <b>기준 없음도 표본이다.</b> ctMs 가 멀쩡한 완료 사이클이고, 기준선을 못 받은 것은 적재 시점 사정일 뿐
+    /// 표본 자격과 무관하다. 종전처럼 이 행을 빼면 새 DB 가 부팅되지 않는다 — 적재 시 기준선이 없어 '기준 없음'
+    /// 으로 들어가는데(<see cref="CycleIngestService"/>), 표본이 '없음' 행만 세니 표본은 영원히 0이고,
+    /// 표본이 0이라 기준선이 안 서고, 기준선이 없어 다음 행도 '기준 없음' 이 된다. 뒤늦은 박제
+    /// (<see cref="CycleIngestService.BackfillBaselinesAsync"/>)도 기준선을 못 받아 그냥 넘어간다.
+    /// 현장 실측(2026-09-21): DB 재생성 사흘 뒤 사이클 1,679건이 전부 '기준 없음', 가동·비가동·비생산 0건.
+    /// </para>
+    /// 미분류(어느 분기도 통과하지 못한 행)는 그 분기의 사이클이라 볼 수 없어 계속 뺀다.
+    /// </summary>
+    private static string SampleEligible(string alias = "") =>
+        $"{alias}excludeReason IN ({(int)ExcludeReason.None}, {(int)ExcludeReason.NoBaseline})";
+
+    /// <summary>
+    /// R 표본 — 최근 창의 완료 CT. 미분류 행은 빼고, 비생산으로 보일 만큼 긴 행도
     /// 중앙값 특성상 자연히 밀려나므로 따로 거르지 않는다(원본 스펙 §3 의 중앙값 채택 이유).
     /// </summary>
     public async Task<List<long>> GetCtSamplesAsync(
         string flow, string? branch, long sinceMs, CancellationToken ct = default)
     {
         await using var conn = _db.OpenRead();
-        var sql = "SELECT ctMs FROM cycle WHERE flow=@flow AND startMs >= @sinceMs AND ctMs > 0 AND excludeReason = 0";
+        var sql = $"SELECT ctMs FROM cycle WHERE flow=@flow AND startMs >= @sinceMs AND ctMs > 0 AND {SampleEligible()}";
         sql += branch is null ? " AND branch IS NULL" : " AND branch = @branch";
         var rows = await conn.QueryAsync<long>(new CommandDefinition(
             sql, new { flow, branch, sinceMs }, cancellationToken: ct));
@@ -238,7 +258,7 @@ public sealed class KpiRepository
         string flow, string? branch, long sinceMs, CancellationToken ct = default)
     {
         await using var conn = _db.OpenRead();
-        var sql = "SELECT mtMs FROM cycle WHERE flow=@flow AND startMs >= @sinceMs AND mtMs > 0 AND excludeReason = 0";
+        var sql = $"SELECT mtMs FROM cycle WHERE flow=@flow AND startMs >= @sinceMs AND mtMs > 0 AND {SampleEligible()}";
         sql += branch is null ? " AND branch IS NULL" : " AND branch = @branch";
         var rows = await conn.QueryAsync<long>(new CommandDefinition(
             sql, new { flow, branch, sinceMs }, cancellationToken: ct));
@@ -250,10 +270,10 @@ public sealed class KpiRepository
         string flow, string? branch, long sinceMs, CancellationToken ct = default)
     {
         await using var conn = _db.OpenRead();
-        var sql = """
+        var sql = $"""
             SELECT w.work AS Work, w.durationMs AS DurationMs
             FROM cycleWork w JOIN cycle c ON c.id = w.cycleId
-            WHERE c.flow=@flow AND c.startMs >= @sinceMs AND c.excludeReason = 0 AND w.durationMs > 0
+            WHERE c.flow=@flow AND c.startMs >= @sinceMs AND {SampleEligible("c.")} AND w.durationMs > 0
             """;
         sql += branch is null ? " AND c.branch IS NULL" : " AND c.branch = @branch";
         var rows = await conn.QueryAsync<(string Work, long DurationMs)>(new CommandDefinition(

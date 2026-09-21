@@ -1385,6 +1385,9 @@
                             from: r.from, to: r.to,
                             flow: this.curFlow || undefined,
                             branch: this.curBranch || undefined,
+                            // 시스템 스코프도 함께 보낸다 — 종전엔 안 보내서 헤더는 "시스템 X" 인데
+                            // 연표만 라인 전체를 그렸다(설비가 오면 서버가 설비를 우선한다).
+                            system: (!this.curFlow && this.curSystem) ? this.curSystem : undefined,
                         });
                         this.ktlErr = null;
                     } catch (e) {

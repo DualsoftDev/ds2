@@ -36,6 +36,23 @@
         None: '',
     };
 
+    // ── 구간 비례 합산(여러 설비를 한 줄로 볼 때) ──────────────────────────────
+    /// 가로 한 칸의 목표 픽셀 폭. 작을수록 시간 해상도가 높고 DOM 이 는다(같은 모양은 어차피 합쳐진다).
+    const BUCKET_PX = 3;
+    /// 비가동·비생산이 있으면 최소 이 높이(%)는 준다 — 34px 스트립에서 약 3px. 12대 중 1대(8.3%)와
+    /// 거의 같은 값이라 비율을 왜곡하지 않으면서 "한 대만 멈춤" 도 눈에 들어온다.
+    const MIN_BAND = 9;
+
+    /// 세그먼트에 실린 설비 수. 클라이언트가 만든 합성 구간(flow 없음)은 세지 않는다.
+    /// ★분기로 나누지 않는다 — 분기는 한 설비의 사이클을 <b>분류</b>하는 축이라 사이클 하나는 분기 하나에만
+    /// 속한다(doc/30 §2.3). 분기를 계열로 세면 분기 2개짜리 설비의 분모가 2배가 되어 높이가 절반이 된다.
+    /// 세로 비율의 분모는 "동시에 돌 수 있는 설비 수" 여야 한다.
+    function seriesCount(segs) {
+        const set = new Set();
+        for (const s of segs || []) if (s.flow) set.add(s.flow);
+        return set.size;
+    }
+
     // 지속시간 표기는 공용 SSOT(shell.js dspFmt)를 따른다 — 없으면 최소 폴백.
     function dur(ms) {
         if (window.dspFmt && typeof window.dspFmt.dur === 'function') return window.dspFmt.dur(ms);
@@ -58,9 +75,13 @@
     function injectStyleOnce() {
         if (document.getElementById('kpi-timeline-style')) return;
         const css = `
+        /* --kt-unknown = 합산 칸에서 판정되지 않은 높이(제외). 상태 색과 경쟁하지 않게 흐린 무채색으로 둔다 —
+           스펙상 제외는 본체가 아니라 오버레이다(doc/30 §9.1). 아무것도 안 칠하면 "데이터 없음" 과 구분이 안 된다. */
         .kt-wrap { --kt-run:#1E9BE8; --kt-down:#B22F22; --kt-nonprod:#334E7B; --kt-excluded:#C9CED6;
+                   --kt-unknown:rgba(122,134,150,.26);
                    display:flex; flex-direction:column; gap:8px; }
-        .dark-theme .kt-wrap, .dark .kt-wrap { --kt-run:#52C4FF; --kt-down:#D14738; --kt-nonprod:#41608F; --kt-excluded:#4A5160; }
+        .dark-theme .kt-wrap, .dark .kt-wrap { --kt-run:#52C4FF; --kt-down:#D14738; --kt-nonprod:#41608F; --kt-excluded:#4A5160;
+                   --kt-unknown:rgba(150,162,180,.24); }
         .kt-chips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:12px; }
         /* 색 토큰 정정(2026-09-21) — 종전엔 --surface-2/--border-color/--text-muted 를 썼는데 이 앱에 그런 토큰이
            없다. 즉 다크 테마에서도 배경이 폴백 #fff(흰색)로 고정되고 글자만 밝아져 칩 전체가 안 읽혔다(실측).
@@ -87,6 +108,9 @@
                              background-image:repeating-linear-gradient(45deg, rgba(150,185,235,.5) 0 1.4px, transparent 1.4px 6px); }
         .kt-seg.kt-excluded { background:var(--kt-excluded);
                               background-image:repeating-linear-gradient(90deg, rgba(255,255,255,.7) 0 2px, transparent 2px 5px); }
+        /* 구간 비례 합산 칸 — 색은 gradient 로 직접 준다(상태 클래스 없음). 바탕은 비워 두어
+           칠하지 않은 높이가 그대로 "모르는 시간"(제외·공백)으로 읽히게 한다. */
+        .kt-seg.kt-roll { background:none; cursor:default; }
         .kt-seg:hover { filter:brightness(1.12); outline:1px solid rgba(0,0,0,.25); outline-offset:-1px; }
         .kt-seg.kt-sel { outline:2px solid var(--color-primary,#1E9BE8); outline-offset:-2px; }
         .kt-seg-n { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
@@ -212,17 +236,15 @@
             if (ex.noBaseline) why.push('기준 없음 ' + ex.noBaseline);
 
             // 전부 제외된 구간(2026-09-21) — '0회' 칩 넷을 나란히 두면 화면이 고장난 것처럼 읽힌다.
-            //   숫자 대신 "왜 비었는지"를 말한다. 이건 오류가 아니라 대기 상태라는 것을 사용자가 알아야 한다.
+            //   숫자 대신 "왜 비었는지"를 말한다.
+            // ★약속하지 않는다(2026-09-21 정정). 종전엔 "학습하지 못해… N개 대기 중" 으로 곧 판정이 시작된다고
+            //   말했는데, 기준선 표본 쿼리가 제외 행을 세지 않아 새 DB 에서는 영원히 시작되지 않았다
+            //   (현장: 사이클 1,679개 전부 기준 없음. KpiRepository 표본 쿼리 수정으로 별도 해결).
+            //   화면은 관측된 사실만 말하고 앞일을 예고하지 않는다 — 고쳐지지 않는 상태를 대기라고 부르면
+            //   사용자는 기다리기만 하고 아무도 원인을 찾지 않는다.
             if (total === 0 && ex.total > 0) {
-                // 사유가 섞여 있어도 '가장 많은 사유'로 말한다 — 진행 중 1건이 섞였다고 해서 본론(기준 미학습)을
-                //   숫자 나열로 되돌리면 사용자는 다시 아무것도 알 수 없다.
-                const top = Math.max(ex.noBaseline || 0, ex.inProgress || 0, ex.cut || 0, ex.unknown || 0, ex.overflow || 0);
-                const msg = top === (ex.noBaseline || 0)
-                    ? `표준 사이클 길이를 아직 학습하지 못해 판정을 시작하지 못했습니다 — 사이클 <b>${ex.noBaseline}</b>개 대기 중`
-                    : (top === (ex.inProgress || 0)
-                        ? `사이클이 아직 진행 중입니다 — 완료되면 가동·비가동으로 확정됩니다`
-                        : `판정된 사이클이 없습니다 — 제외 <b>${ex.total}</b>개(${why.join(' · ')})`);
-                elChips.innerHTML = `<span class="kt-chip kt-why" title="설비마다 최근 14일 완료 사이클이 일정 건수 이상 쌓이면 표준 길이(중앙값)가 정해지고, 그때부터 가동·비가동·비생산 판정이 시작됩니다.">${msg}</span>`;
+                elChips.innerHTML = `<span class="kt-chip kt-why">판정된 사이클이 없습니다 · 제외 <b>${ex.total}</b>개`
+                    + (why.length ? `(${why.join(' · ')})` : '') + `</span>`;
                 return;
             }
 
@@ -251,8 +273,17 @@
         function renderStrip(segs, fromMs, toMs) {
             const span = Math.max(1, toMs - fromMs);
             elStrip.innerHTML = '';
+            selected = null;              // 앞선 선택의 DOM 은 방금 지워졌다
             if (!segs.length) {
                 elStrip.innerHTML = '<div class="kt-empty">이 구간에 사이클이 없습니다.</div>';
+                return;
+            }
+            // 설비가 둘 이상이면 한 줄에 겹쳐 그릴 수 없다 → 구간 비례 합산으로 넘어간다.
+            if (seriesCount(segs) > 1) {
+                // 합산 칸은 사이클이 아니라 시간 구간이라 선택 대상이 아니다. 설비 화면에서 고른 사이클이
+                // 남아 있으면 라인 화면 아래에 엉뚱한 사이클 설명이 붙으므로 여기서 지운다.
+                if (typeof opts.onSelect === 'function') opts.onSelect(null);
+                renderRollup(segs, fromMs, toMs);
                 return;
             }
             const frag = document.createDocumentFragment();
@@ -284,6 +315,116 @@
             elStrip.appendChild(frag);
         }
 
+        /**
+         * 구간 비례 합산(doc/30 §9.1) — 여러 설비를 한 줄로 볼 때.
+         *
+         * 사이클 행은 (설비, 분기) 하나에 대해서만 시간축을 빈틈없이 타일링한다. 설비 12대를 한 줄에
+         * 그대로 얹으면 12겹이 되고, 절대배치 DOM 은 나중에 시작한 것이 앞선 것을 덮는다. 색 우선순위를
+         * 어떻게 정하든 12대의 상태를 한 색으로 줄이는 순간 정보가 사라진다 — 가동 우선이면 고장이 안 보이고,
+         * 고장 우선이면 한 대가 라인을 빨갛게 칠한다.
+         *
+         * 그래서 색을 고르지 않고 <b>면적으로 합산</b>한다. 가로 한 칸(수 px)마다 그 시간 동안 각 상태가
+         * 차지한 시간을 모두 더해, 칸 안에서 세로 비율로 쌓는다. 분모는 (칸 길이 × 계열 수)라 "라인의 몇 %가
+         * 돌고 있었나" 가 그대로 높이가 된다. 제외·공백은 칠하지 않는다 — 스트립 바탕이 곧 "모르는 시간" 이다.
+         */
+        function renderRollup(segs, fromMs, toMs) {
+            const span = Math.max(1, toMs - fromMs);
+            const width = Math.max(120, elStrip.clientWidth || 1200);
+            const cols = Math.max(80, Math.min(1400, Math.round(width / BUCKET_PX)));
+            const bw = span / cols;
+            const series = seriesCount(segs);
+
+            const buckets = new Array(cols);
+            for (let i = 0; i < cols; i++) buckets[i] = { run: 0, down: 0, nonProd: 0, excluded: 0, cycles: 0 };
+
+            for (const s of segs) {
+                const a = Math.max(fromMs, s.startMs), b = Math.min(toMs, s.endMs);
+                if (!(b > a)) continue;
+                const key = s.state === 'Run' ? 'run' : s.state === 'Down' ? 'down'
+                    : s.state === 'NonProd' ? 'nonProd' : 'excluded';
+                const i0 = Math.max(0, Math.floor((a - fromMs) / bw));
+                const i1 = Math.min(cols, Math.ceil((b - fromMs) / bw));
+                // 사이클 수는 세그먼트가 걸친 칸 중 시작 칸에만 센다(칸마다 더하면 긴 세그먼트가 부풀린다).
+                if (i0 < cols) buckets[i0].cycles += s.cycles || 0;
+                for (let i = i0; i < i1; i++) {
+                    const bs = fromMs + i * bw;
+                    const ov = Math.min(b, bs + bw) - Math.max(a, bs);
+                    if (ov > 0) buckets[i][key] += ov;
+                }
+            }
+
+            const denom = bw * series;
+            const shape = b => {
+                let r = (b.run / denom) * 100, d = (b.down / denom) * 100, n = (b.nonProd / denom) * 100;
+                // 한 대만 멈춰도 보이게 — 12대 중 1대면 8%(2.7px)라 그냥 두면 눈에 안 들어온다.
+                if (d > 0 && d < MIN_BAND) d = MIN_BAND;
+                if (n > 0 && n < MIN_BAND) n = MIN_BAND;
+                if (r + d + n > 100) r = Math.max(0, 100 - d - n);
+                return [Math.round(r * 10) / 10, Math.round(d * 10) / 10, Math.round(n * 10) / 10];
+            };
+
+            // 위에서부터 비가동 · 비생산 · 가동 — 문제를 윗변에 붙여 두면 윗줄만 훑어도 고장 유무가 읽힌다.
+            // 남는 높이는 판정되지 않은 시간이다. 제외가 있으면 흐린 무채색으로 덮어 "데이터가 있는데 판정 못 함"
+            // 과 "아예 없음" 을 구분한다.
+            const paint = ([r, d, n], hasExcluded) => {
+                if (r + d + n <= 0 && !hasExcluded) return '';
+                const stops = [];
+                let top = 0;
+                if (d > 0) { stops.push(`var(--kt-down) ${top}% ${top + d}%`); top += d; }
+                if (n > 0) { stops.push(`var(--kt-nonprod) ${top}% ${top + n}%`); top += n; }
+                if (r > 0) { stops.push(`var(--kt-run) ${top}% ${top + r}%`); top += r; }
+                if (top < 100) stops.push(`${hasExcluded ? 'var(--kt-unknown)' : 'transparent'} ${top}% 100%`);
+                return `linear-gradient(to bottom, ${stops.join(',')})`;
+            };
+
+            const frag = document.createDocumentFragment();
+            let i = 0;
+            while (i < cols) {
+                const sh = shape(buckets[i]);
+                const ex = buckets[i].excluded > 0;
+                let j = i + 1;
+                // 같은 모양이 이어지면 한 칸으로 합친다 — 정지 구간이 길어도 DOM 이 늘지 않는다.
+                while (j < cols) {
+                    const t = shape(buckets[j]);
+                    if (t[0] !== sh[0] || t[1] !== sh[1] || t[2] !== sh[2] || (buckets[j].excluded > 0) !== ex) break;
+                    j++;
+                }
+                const bg = paint(sh, ex);
+                if (bg) {
+                    const el = document.createElement('div');
+                    el.className = 'kt-seg kt-roll';
+                    el.style.left = pct((i / cols) * 100);
+                    el.style.width = pct(((j - i) / cols) * 100);
+                    el.style.backgroundImage = bg;
+                    const range = [i, j];
+                    el.addEventListener('mousemove', ev => showTip(rollTip(buckets, range, fromMs, bw, series), ev));
+                    el.addEventListener('mouseleave', hideTip);
+                    frag.appendChild(el);
+                }
+                i = j;
+            }
+            elStrip.appendChild(frag);
+        }
+
+        function rollTip(buckets, [i0, i1], fromMs, bw, series) {
+            let run = 0, down = 0, nonProd = 0, excluded = 0, cycles = 0;
+            for (let i = i0; i < i1; i++) {
+                run += buckets[i].run; down += buckets[i].down;
+                nonProd += buckets[i].nonProd; excluded += buckets[i].excluded; cycles += buckets[i].cycles;
+            }
+            const denom = bw * (i1 - i0) * series;
+            const p = v => denom > 0 ? Math.round((v / denom) * 100) : 0;
+            const rows = [
+                `<b>${hhmm(fromMs + i0 * bw)} ~ ${hhmm(fromMs + i1 * bw)}</b>`,
+                `<span class="kt-tip-k">설비</span> ${series}대 기준`,
+                `<span class="kt-tip-k">가동</span> ${p(run)}% · <span class="kt-tip-k">비가동</span> ${p(down)}%`
+                + ` · <span class="kt-tip-k">비생산</span> ${p(nonProd)}%`,
+            ];
+            if (excluded > 0) rows.push(`<span class="kt-tip-k">제외</span> ${p(excluded)}% (계산 밖)`);
+            if (cycles > 0) rows.push(`<span class="kt-tip-k">사이클</span> ${cycles}회`);
+            return rows.join('<br>');
+        }
+
         function renderLinks(links, fromMs, toMs) {
             const span = Math.max(1, toMs - fromMs);
             const nowMs = Date.now();
@@ -305,6 +446,7 @@
             if (q && q.to) p.set('to', typeof q.to === 'string' ? q.to : q.to.toISOString());
             if (q && q.flow) p.set('flow', q.flow);
             if (q && q.branch) p.set('branch', q.branch);
+            if (q && q.system) p.set('system', q.system);
 
             const res = await fetch('/api/kpi/timeline?' + p.toString());
             if (!res.ok) throw new Error('timeline ' + res.status);

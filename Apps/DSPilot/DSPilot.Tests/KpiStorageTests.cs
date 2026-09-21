@@ -122,18 +122,54 @@ public sealed class KpiStorageTests : IDisposable
     }
 
     [Fact]
-    public async Task 표본_조회는_제외행을_빼고_돌려준다()
+    public async Task 표본_조회는_미분류행만_빼고_기준없음은_센다()
     {
         for (int i = 0; i < 5; i++)
             await _repo.SaveCycleAsync(Cycle(T0 + i * 20_000, 10_000, mt: 7_000 + i), []);
-        await _repo.SaveCycleAsync(NoBaseline(T0 + 500_000, 10_000), []);
+        // 기준 없음 = 기준선이 아직 없던 때 들어온 완료 사이클. CT·MT 는 멀쩡하므로 표본이다.
+        await _repo.SaveCycleAsync(
+            new CycleRecord("FlowA", null, T0 + 500_000, T0 + 510_000, 6_000, 0, 0, null, 0, 0, ExcludeReason.NoBaseline), []);
+        // 미분류 = 어느 분기도 통과하지 못한 행. 그 분기의 사이클로 볼 수 없어 표본에서 뺀다.
+        await _repo.SaveCycleAsync(
+            new CycleRecord("FlowA", null, T0 + 600_000, T0 + 610_000, 5_000, 0, 0, null, 0, 0, ExcludeReason.Unclassified), []);
 
         var samples = await _repo.GetCtSamplesAsync("FlowA", null, T0 - 1);
-        Assert.Equal(5, samples.Count);
+        Assert.Equal(6, samples.Count);
 
         var mts = await _repo.GetMtSamplesAsync("FlowA", null, T0 - 1);
-        Assert.Equal(5, mts.Count);
-        Assert.Equal(7_000, mts.Min());
+        Assert.Equal(6, mts.Count);
+        Assert.Equal(6_000, mts.Min());
+    }
+
+    /// <summary>
+    /// 새 DB 부팅 — 기준선 없이 들어온 행만 있어도 표본 K 를 채우면 기준선이 선다.
+    /// 종전엔 표본 쿼리가 '제외 아님' 행만 세서 표본이 영원히 0이었다(적재 → 기준 없음 → 표본 0 → 기준선 없음 →
+    /// 다음 행도 기준 없음). 현장 실측(2026-09-21): DB 재생성 사흘 뒤 사이클 1,679건 전부 기준 없음, 판정 0건.
+    /// </summary>
+    [Fact]
+    public async Task 기준선_없이_들어온_행만_있어도_표본이_차면_기준선이_선다()
+    {
+        for (int i = 0; i < KpiRules.MinBaselineSamples; i++)
+        {
+            await _repo.SaveCycleAsync(
+                new CycleRecord("FlowB", null, T0 + i * 20_000, T0 + i * 20_000 + 10_000,
+                                8_000, 0, 0, null, 0, 0, ExcludeReason.NoBaseline),
+                [new WorkDuration("w1", 3_000, 0)]);
+        }
+
+        var cts = await _repo.GetCtSamplesAsync("FlowB", null, T0 - 1);
+        Assert.Equal(KpiRules.MinBaselineSamples, cts.Count);
+        Assert.NotNull(KpiRules.Median(cts));          // 표본 K 를 채웠으므로 기준선이 만들어진다
+
+        var mts = await _repo.GetMtSamplesAsync("FlowB", null, T0 - 1);
+        Assert.NotNull(KpiRules.Median(mts));
+
+        var works = await _repo.GetWorkSamplesAsync("FlowB", null, T0 - 1);
+        Assert.Equal(KpiRules.MinBaselineSamples, works["w1"].Count);
+
+        // 그 행들은 뒤늦은 박제 대상으로 남아 있어야 한다(BackfillBaselinesAsync 가 집어간다).
+        var pending = await _repo.GetPendingBaselineCyclesAsync(100);
+        Assert.Equal(KpiRules.MinBaselineSamples, pending.Count);
     }
 
     [Fact]
@@ -157,6 +193,32 @@ public sealed class KpiStorageTests : IDisposable
 
         var branched = await _repo.GetWorkSamplesAsync("FlowA", "Y450", T0 - 1);
         Assert.Equal(99_000, Assert.Single(branched["w1"]));
+    }
+
+    /// <summary>
+    /// 시스템 스코프 — 설비 집합으로 좁힌다. 빈 집합(모델에 없는 시스템)이면 전체로 폴백하지 않고 0건이다.
+    /// 폴백하면 라인 수치가 그 시스템 것처럼 보인다(가장 위험한 오해).
+    /// </summary>
+    [Fact]
+    public async Task 설비_집합으로_좁혀_조회한다()
+    {
+        await _repo.SaveCycleAsync(Cycle(T0, 10_000), []);
+        await _repo.SaveCycleAsync(new CycleRecord("FlowB", null, T0 + 30_000, T0 + 40_000, 10_000, 10_000, 0, null, 0), []);
+        await _repo.SaveCycleAsync(new CycleRecord("FlowC", null, T0 + 60_000, T0 + 70_000, 10_000, 10_000, 0, null, 0), []);
+
+        var all = await _repo.QueryCyclesAsync(T0 - 1, T0 + 200_000);
+        Assert.Equal(3, all.Count);
+
+        var scoped = await _repo.QueryCyclesAsync(T0 - 1, T0 + 200_000, flows: new[] { "FlowA", "FlowC" });
+        Assert.Equal(2, scoped.Count);
+        Assert.DoesNotContain(scoped, r => r.Flow == "FlowB");
+
+        var none = await _repo.QueryCyclesAsync(T0 - 1, T0 + 200_000, flows: Array.Empty<string>());
+        Assert.Empty(none);
+
+        // 설비 지정이 시스템보다 우선 — 집합이 함께 와도 설비 하나만 돌려준다.
+        var one = await _repo.QueryCyclesAsync(T0 - 1, T0 + 200_000, "FlowB", flows: new[] { "FlowA", "FlowC" });
+        Assert.Equal("FlowB", Assert.Single(one).Flow);
     }
 
     [Fact]

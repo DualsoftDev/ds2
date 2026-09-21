@@ -21,12 +21,14 @@ public sealed class KpiController : ControllerBase
 {
     private readonly KpiRepository _repo;
     private readonly AppSettingsService _settings;
+    private readonly DsProjectService _project;
     private readonly ILogger<KpiController> _logger;
 
-    public KpiController(KpiRepository repo, AppSettingsService settings, ILogger<KpiController> logger)
+    public KpiController(KpiRepository repo, AppSettingsService settings, DsProjectService project, ILogger<KpiController> logger)
     {
         _repo = repo;
         _settings = settings;
+        _project = project;
         _logger = logger;
     }
 
@@ -42,16 +44,28 @@ public sealed class KpiController : ControllerBase
         [FromQuery] DateTime? to,
         [FromQuery] string? flow,
         [FromQuery] string? branch,
+        [FromQuery] string? system,
         CancellationToken ct)
     {
         var (fromMs, toMs) = ResolveRange(from, to);
         var kappa = _settings.LoadSettings().Kpi.Resolve();
 
-        var rows = await _repo.QueryCyclesAsync(fromMs, toMs, flow, branch, ct);
+        // 스코프 — 설비(flow) 가 우선, 없으면 시스템(그 시스템의 설비 집합). 둘 다 없으면 라인 전체.
+        // 종전엔 system 을 아예 받지 않아, 시스템 페이지가 "시스템 X" 라고 써 놓고 라인 전체를 그렸다.
+        var systemFlows = string.IsNullOrWhiteSpace(flow) ? ResolveSystemFlowSet(system) : null;
+        var rows = await _repo.QueryCyclesAsync(fromMs, toMs, flow, branch, ct, systemFlows);
         var facts = rows.Select(r => r.ToFact()).ToList();
 
         var totals = KpiRules.Compute(facts, kappa);
-        var segments = KpiRules.BuildSegments(facts, kappa);
+        // 세그먼트는 (설비, 분기) 계열마다 따로 만든다. 사이클 행은 한 계열 안에서만 시간축을 타일링하므로
+        // 섞어서 병합하면 서로 겹친 구간이 이름표 없이 쏟아진다(화면이 덮어 그릴 수밖에 없다).
+        var segments = rows
+            .GroupBy(r => (r.Flow, r.Branch))
+            .SelectMany(g => KpiRules
+                .BuildSegments(g.Select(r => r.ToFact()).ToList(), kappa)
+                .Select(s => (Seg: s, g.Key.Flow, g.Key.Branch)))
+            .OrderBy(x => x.Seg.StartMs)
+            .ToList();
         var links = await _repo.QueryLinkEventsAsync(fromMs, toMs, ct);
         var gatedWorks = await _repo.GetGatedWorksAsync(fromMs, toMs, flow, ct);
         var snapMs = _settings.LoadSettings().Kpi.ResolveBoundarySnapMs();
@@ -113,14 +127,15 @@ public sealed class KpiController : ControllerBase
                 totals.RunCount, totals.DownCount, totals.NonProdCount,
                 new KpiExcludedCountsDto(cut, unknown, inProgress, noBaseline, unclassified, overflow)),
             KpiMetricsDto.From(totals),
-            segments.Select(s => new KpiSegmentDto(
-                KpiTime.ToIso(s.StartMs), KpiTime.ToIso(s.EndMs),
-                s.StartMs, s.EndMs,
-                s.State.ToString(),
-                s.State == CycleState.Excluded ? s.Reason.ToString() : null,
-                s.Cycles, s.CtMs, s.MtMs, s.RMs, s.MtMedianMs,
-                s.State == CycleState.Down ? s.Axis.ToString() : null,
-                s.WorstWork, s.WorstRatio, s.MtRatio)).ToList(),
+            segments.Select(x => new KpiSegmentDto(
+                KpiTime.ToIso(x.Seg.StartMs), KpiTime.ToIso(x.Seg.EndMs),
+                x.Seg.StartMs, x.Seg.EndMs,
+                x.Seg.State.ToString(),
+                x.Seg.State == CycleState.Excluded ? x.Seg.Reason.ToString() : null,
+                x.Seg.Cycles, x.Seg.CtMs, x.Seg.MtMs, x.Seg.RMs, x.Seg.MtMedianMs,
+                x.Seg.State == CycleState.Down ? x.Seg.Axis.ToString() : null,
+                x.Seg.WorstWork, x.Seg.WorstRatio, x.Seg.MtRatio,
+                x.Flow, x.Branch)).ToList(),
             excluded,
             links.Select(l => new KpiLinkDto(
                 l.System, KpiTime.ToIso(l.AtMs), l.EndMs is long e ? KpiTime.ToIso(e) : null,
@@ -192,6 +207,29 @@ public sealed class KpiController : ControllerBase
 
     // ── 공통 ──────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// 시스템 이름 → 그 시스템의 설비 이름 집합. 미지정이면 null(= 라인 전체, 종전 동작).
+    /// 지정했는데 시스템이 없거나 모델 미로드면 <b>빈 집합</b>이다 — 전체로 폴백하면 라인 수치가 그 시스템
+    /// 것처럼 보인다(가장 위험한 오해). 구 OEE 컨트롤러와 같은 태도.
+    /// </summary>
+    private HashSet<string>? ResolveSystemFlowSet(string? system)
+    {
+        if (string.IsNullOrWhiteSpace(system)) return null;
+        var name = system.Trim();
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var sys in _project.GetActiveSystems())
+            {
+                if (!string.Equals(sys.Name, name, StringComparison.Ordinal)) continue;
+                foreach (var f in _project.GetFlows(sys.Id)) set.Add(f.Name);
+                break;
+            }
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Kpi] system→flow 집합 해석 실패: {System}", name); }
+        return set;
+    }
+
     /// <summary>기본 구간은 오늘 0시 ~ 지금. 들어온 값은 로컬로 보고 epoch ms 로 바꾼다.</summary>
     private static (long FromMs, long ToMs) ResolveRange(DateTime? from, DateTime? to)
     {
@@ -255,11 +293,18 @@ public sealed record KpiMetricsDto(
 }
 
 /// <summary>연표 세그먼트. 인접한 같은 상태의 사이클이 하나로 묶여 있다. Axis 는 비가동일 때만("Work" | "Mt").</summary>
+/// <summary>
+/// 연표 세그먼트. <b>Flow·Branch 를 함께 싣는다</b> — 사이클 행은 (설비, 분기) 하나에 대해서만 시간축을
+/// 빈틈없이 타일링한다. 여러 계열을 한 배열에 이름표 없이 섞어 보내면 화면은 겹쳐 그리는 수밖에 없고,
+/// 나중에 시작한 것이 앞선 것을 덮어 정상 구간이 제외에 가려진다(현장 2026-09-21: 라인 226개 중 225개 겹침).
+/// 계열을 알면 화면이 픽셀 구간마다 상태별 면적을 합산할 수 있다(doc/30 §9.1 "구간 비례").
+/// </summary>
 public sealed record KpiSegmentDto(
     string Start, string End, long StartMs, long EndMs,
     string State, string? Reason,
     int Cycles, long CtMs, long MtMs, double RMs, double MtMedianMs,
-    string? Axis, string? WorstWork, double WorstRatio, double MtRatio);
+    string? Axis, string? WorstWork, double WorstRatio, double MtRatio,
+    string Flow, string? Branch);
 
 public sealed record KpiExcludedDto(long StartMs, long EndMs, string Reason);
 
