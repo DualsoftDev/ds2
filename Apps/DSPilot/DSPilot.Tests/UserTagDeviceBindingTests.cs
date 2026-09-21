@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
+using System;
 using System.Text;
 using DSPilot.Models;
 using DSPilot.Models.UserTagAlerts;
@@ -184,6 +185,29 @@ public class UserTagDeviceBindingTests
         Assert.Null(back.Error);
         Assert.Equal("M901", back.TagAddress);
         Assert.Null(back.Device);
+    }
+
+    [Theory]
+    [InlineData(UserTagEditorSupport.LevelAlarm)]
+    [InlineData(UserTagEditorSupport.LevelMonitor)]
+    public void 내보낸_CSV_는_UTF8_BOM_으로_시작한다(string level)
+    {
+        // BOM 이 없으면 한글 Windows 의 Excel 이 CP949 로 열어 헤더("이름","로그 레벨"...)부터 깨진다.
+        // Encoding.GetBytes 가 preamble 을 붙여 주지 않는 것이 예전 원인이었다.
+        var row = new UtEditorTagDto(
+            SystemId: Guid.NewGuid().ToString(), SystemName: "Line1", Name: "펌프압력", TagAddress: "D200",
+            ValueType: "Real", MatchOp: "Changed", MatchValue: "", Level: level);
+
+        foreach (var csv in new[]
+                 {
+                     UserTagEditorSupport.BuildCsv([row], includeExample: false, level: level),
+                     UserTagEditorSupport.BuildCsv([], includeExample: true, level: level),
+                 })
+        {
+            Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, csv[..3]);
+            // BOM 을 붙여도 자기 파일을 도로 읽을 수 있어야 한다(왕복).
+            Assert.Equal("utf-8(BOM)", UserTagEditorSupport.ParseCsv(csv, level).Encoding);
+        }
     }
 
     [Fact]

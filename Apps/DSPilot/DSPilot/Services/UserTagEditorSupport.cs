@@ -258,7 +258,10 @@ public static class UserTagEditorSupport
                 sb.AppendLine(string.Join(",", "", "예시_고온경보", LevelAlarm, "D100", "Word", "Gte", "1000", ""));
             }
         }
-        return new UTF8Encoding(true).GetBytes(sb.ToString());
+        // Encoding.GetBytes 는 BOM(preamble)을 붙이지 않는다 — UTF8Encoding(true) 를 넘겨도 마찬가지다.
+        // 직접 붙이지 않으면 한글 Windows 의 Excel 이 CP949 로 열어 헤더부터 깨진다.
+        var enc = new UTF8Encoding(true);
+        return [.. enc.GetPreamble(), .. enc.GetBytes(sb.ToString())];
     }
 
     private static string Esc(string s)
