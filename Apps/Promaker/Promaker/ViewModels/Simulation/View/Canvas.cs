@@ -16,6 +16,7 @@ public partial class SimulationPanelState
     private void InitSimNodes()
     {
         SimNodes.Clear();
+        _simNodeByGuid.Clear();
         _stateCache.Clear();
         if (_simEngine is null) return;
 
@@ -76,7 +77,7 @@ public partial class SimulationPanelState
 
     private void UpdateSimNodeState(Guid nodeGuid, Status4 newState)
     {
-        var row = SimNodes.FirstOrDefault(node => node.NodeGuid == nodeGuid);
+        var row = TryFindSimNode(nodeGuid);
         if (row is not null) row.State = newState;
 
         foreach (var canvasNode in _allCanvasNodes())
@@ -145,14 +146,16 @@ public partial class SimulationPanelState
 
     private void AddSimNode(SimulationProjection.SimulationEntry entry)
     {
-        SimNodes.Add(new SimNodeRow
+        var row = new SimNodeRow
         {
             NodeGuid = entry.Id,
             Name = entry.Kind == EntityKind.Call ? $"  - {entry.Name}" : entry.Name,
             NodeType = entry.Kind.ToString(),
             SystemName = entry.SystemName,
             State = Status4.Ready
-        });
+        };
+        SimNodes.Add(row);
+        _simNodeByGuid.TryAdd(entry.Id, row);
     }
 
     /// <summary>캔버스 노드가 새로 생성된 후 시뮬레이션 상태/토큰 뱃지를 복원합니다.</summary>

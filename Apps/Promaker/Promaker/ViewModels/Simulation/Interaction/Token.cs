@@ -121,7 +121,7 @@ public partial class SimulationPanelState
         var tokenOpt = _simEngine.GetWorkToken(workGuid);
         var display = tokenOpt is not null ? FormatTokenDisplay(tokenOpt.Value) : "";
 
-        var row = SimNodes.FirstOrDefault(r => r.NodeGuid == workGuid);
+        var row = TryFindSimNode(workGuid);
         if (row is not null)
             row.TokenDisplay = display;
 

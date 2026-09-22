@@ -344,18 +344,14 @@ public sealed partial class SimulationHubBridge : ObservableObject
 
     // ── Tag routing ──────────────────────────────────────────────
 
+    /// <summary>수신 태그 1건의 런타임 반영. 로그는 호출측(WireHubReceivers)이 배치 단위로
+    /// 남긴다 — 여기서 건별로 남기면 dispatcher 가 태그 수만큼 깨어난다.</summary>
     private void OnHubTagChanged(int generation, string address, string value, string source)
     {
         if (TestSignalBlocked)
             return;
         if (!IsCurrentGeneration(generation))
             return;
-
-        _dispatcher.BeginInvoke(() =>
-        {
-            if (IsCurrentGeneration(generation))
-                _addSimLog($"[Hub수신] {address}={value} from={source}", LogSeverity.Info);
-        });
 
         // 외부 구독자에게 broadcast — engine·session 상태와 무관히 항상 발화.
         try { TagBroadcast?.Invoke(address, value, source); }

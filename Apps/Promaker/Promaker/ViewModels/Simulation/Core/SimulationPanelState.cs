@@ -135,15 +135,29 @@ public partial class SimulationPanelState : ObservableObject
         RuntimeIoChanged(snapshot);
     }
 
-    /// <summary>현재 시뮬 엔진의 IOValues 를 C# Dictionary 로 스냅샷. 미실행이면 null.</summary>
+    // 직전 스냅샷과 그 원본 map. NotifyRuntimeIoChanged 는 Work/Call 상태변화 1건마다 불리지만
+    // IOValues 가 바뀌는 것은 Call 전이뿐이라, 그 사이 이벤트에서는 같은 내용을 다시 복사하게 된다.
+    private object? _ioSnapshotSourceMap;
+    private IReadOnlyDictionary<Guid, string>? _ioSnapshotCache;
+
+    /// <summary>현재 시뮬 엔진의 IOValues 를 C# Dictionary 로 스냅샷. 미실행이면 null.
+    ///
+    /// <para>F# Map 은 불변이고 엔진은 상태를 통째로 교체하므로, map 참조가 그대로면 내용도
+    /// 그대로다 — 그 경우 직전 스냅샷을 재사용한다. 반환된 사전은 읽기 전용으로만 쓰인다
+    /// (PropertyPanel 이 _lastIoSnapshot 으로 들고 있다가 조건 항목 로드 시 다시 적용).</para></summary>
     public IReadOnlyDictionary<Guid, string>? GetIoValuesSnapshot()
     {
         var engine = _simEngine;
         if (engine is null) return null;
         var map = engine.State.IOValues;
-        var dict = new Dictionary<Guid, string>(capacity: 16);
+        if (_ioSnapshotCache is not null && ReferenceEquals(map, _ioSnapshotSourceMap))
+            return _ioSnapshotCache;
+
+        var dict = new Dictionary<Guid, string>(capacity: map.Count);
         foreach (var kv in map)
             dict[kv.Key] = kv.Value;
+        _ioSnapshotSourceMap = map;
+        _ioSnapshotCache = dict;
         return dict;
     }
 
@@ -632,6 +646,16 @@ public partial class SimulationPanelState : ObservableObject
     }
 
     public ObservableCollection<SimNodeRow> SimNodes { get; } = [];
+
+    /// <summary>NodeGuid → SimNodes 행. 상태/토큰 갱신이 엔진 이벤트 1건마다 행을 찾는데,
+    /// 선형 탐색이면 "이벤트 수 × 노드 수" 가 UI 스레드에서 돈다. SimNodes 와 같은 자리에서만
+    /// 갱신한다(InitSimNodes / AddSimNode / ResetSimulationState).
+    /// 중복 NodeGuid 는 TryAdd 로 첫 행 유지 — 종전 FirstOrDefault 와 같은 결과.</summary>
+    private readonly Dictionary<Guid, SimNodeRow> _simNodeByGuid = [];
+
+    internal SimNodeRow? TryFindSimNode(Guid nodeGuid) =>
+        _simNodeByGuid.TryGetValue(nodeGuid, out var row) ? row : null;
+
     public ObservableCollection<SimWorkItem> SimWorkItems { get; } = [];
     public GanttChartState GanttChart { get; } = new();
 

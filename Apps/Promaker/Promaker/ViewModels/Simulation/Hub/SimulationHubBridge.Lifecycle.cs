@@ -223,16 +223,57 @@ public sealed partial class SimulationHubBridge
         return true;
     }
 
+    /// <summary>수신 태그를 시뮬 로그에 남길 상황인지. OnHubTagChanged 의 진입 가드와 같은 조건 —
+    /// 차단/구세대 태그는 종전에도 로그에 남지 않았다.</summary>
+    private bool ShouldLogHubReceipts(int generation) =>
+        !TestSignalBlocked && IsCurrentGeneration(generation);
+
+    private void LogHubTagReceipt(int generation, string address, string value, string source)
+    {
+        if (!ShouldLogHubReceipts(generation)) return;
+        _dispatcher.BeginInvoke(() =>
+        {
+            if (IsCurrentGeneration(generation))
+                _addSimLog($"[Hub수신] {address}={value} from={source}", LogSeverity.Info);
+        });
+    }
+
+    /// <summary>배치 수신분을 시뮬 로그에 남긴다 — <b>배치당 dispatcher 1회</b>.
+    ///
+    /// <para>종전엔 태그 1건마다 BeginInvoke 를 걸었다. 배치(OnTagsChanged)는 스캔 1회에 변화한
+    /// 태그 전부를 한 번에 주므로 실 PLC 에서 "태그 수 × 스캔 빈도" 만큼 dispatcher 큐에 작업이
+    /// 쌓였고, Normal 우선순위는 Input 보다 높아 그만큼 마우스·키보드 처리가 뒤로 밀렸다.</para>
+    ///
+    /// <para>줄 수와 내용은 종전과 같다. 문자열 조립은 여기(허브 스레드)서 끝내고 UI 스레드엔
+    /// 완성된 줄만 넘긴다 — 태그가 몰릴 때 UI 스레드가 포매팅까지 떠안지 않게.</para></summary>
+    private void LogHubTagReceipts(int generation, TagWrite[] items)
+    {
+        if (items.Length == 0 || !ShouldLogHubReceipts(generation)) return;
+        var lines = Array.ConvertAll(items, it => $"[Hub수신] {it.Address}={it.Value} from={it.Source}");
+        _dispatcher.BeginInvoke(() =>
+        {
+            if (!IsCurrentGeneration(generation)) return;
+            foreach (var line in lines)
+                _addSimLog(line, LogSeverity.Info);
+        });
+    }
+
     private void WireHubReceivers(HubConnection hubConnection, int generation)
     {
         hubConnection.On<string, string, string>(
             HubMethod.OnTagChanged,
-            (address, value, source) => OnHubTagChanged(generation, address, value, source));
+            (address, value, source) =>
+            {
+                LogHubTagReceipt(generation, address, value, source);
+                OnHubTagChanged(generation, address, value, source);
+            });
         hubConnection.On<TagWrite[]>(
             HubMethod.OnTagsChanged,
             items =>
             {
                 if (items is null) return;
+                // 로그는 배치 전체를 dispatcher 1회로 — LogHubTagReceipts 주석 참조.
+                LogHubTagReceipts(generation, items);
                 foreach (var it in items)
                     OnHubTagChanged(generation, it.Address, it.Value, it.Source);
             });

@@ -415,6 +415,7 @@ public partial class SimulationPanelState
         if (clearCollections)
         {
             SimNodes.Clear();
+            _simNodeByGuid.Clear();
             SimWorkItems.Clear();
             TokenSourceWorks.Clear();
             SelectedTokenSource = null;
