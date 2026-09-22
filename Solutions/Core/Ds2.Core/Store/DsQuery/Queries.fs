@@ -104,17 +104,27 @@ module Queries =
     /// 비활성화(IsDisabled) Flow 들에 속한 Work id 집합. 표시(Canvas)/런타임(SimIndex) 공통 필터용.
     /// 화살표는 끝점(source/target) 중 하나라도 이 집합에 속하면 제외 대상이다.
     let hiddenWorkIds (store: DsStore) : Set<Guid> =
-        allFlows store
-        |> List.filter (fun f -> f.IsDisabled)
-        |> List.collect (fun f -> worksOf f.Id store)
-        |> List.map (fun w -> w.Id)
-        |> Set.ofList
+        // 비활성 Flow id 집합을 먼저 만들고 Work 를 1회 훑는다. 종전엔 비활성 Flow 마다
+        // 전체 Work 를 다시 훑어 O(비활성Flow수 × 전체Work수) 였고, 캔버스 투영이
+        // 탭을 그릴 때마다 이걸 불렀다.
+        let disabledFlowIds =
+            store.FlowsReadOnly.Values
+            |> Seq.filter (fun f -> f.IsDisabled)
+            |> Seq.map (fun f -> f.Id)
+            |> Set.ofSeq
+        if Set.isEmpty disabledFlowIds then Set.empty
+        else
+            store.WorksReadOnly.Values
+            |> Seq.filter (fun w -> disabledFlowIds.Contains w.ParentId)
+            |> Seq.map (fun w -> w.Id)
+            |> Set.ofSeq
 
     /// <summary>특정 Project의 Active System에 속한 모든 Work 조회</summary>
     let activeWorksOf (projectId: Guid) (store: DsStore) : Work list =
+        let index = buildHierarchyIndex store
         activeSystemsOf projectId store
-        |> List.collect (fun sys -> flowsOf sys.Id store)
-        |> List.collect (fun flow -> worksOf flow.Id store)
+        |> List.collect (fun sys -> index.Flows sys.Id)
+        |> List.collect (fun flow -> index.Works flow.Id)
 
     /// <summary>Work가 속한 System의 ID를 반환</summary>
     let trySystemIdOfWork (workId: Guid) (store: DsStore) : Guid option =
@@ -231,12 +241,14 @@ module Queries =
     /// <summary>System 폐포 — 대상 System + 하위 ApiCall 들이 참조(ApiDef)하는 시스템들을 재귀 수집.</summary>
     /// System 단위 실행(멀티 PLC)에서 인과(ApiCall→ApiDef)가 끊기지 않는 최소 엔진 범위.
     let systemClosureOf (systemId: Guid) (store: DsStore) : Set<Guid> =
+        // 3중 중첩의 각 단계가 전수 스캔이라 O(Flow×Work + Work×Call) 이었다 — 역인덱스 1벌로 내린다.
+        let index = buildHierarchyIndex store
         let visited = System.Collections.Generic.HashSet<Guid>()
         let rec collect (sysId: Guid) =
             if visited.Add sysId then
-                for flow in flowsOf sysId store do
-                    for work in worksOf flow.Id store do
-                        for call in callsOf work.Id store do
+                for flow in index.Flows sysId do
+                    for work in index.WorksSeq flow.Id do
+                        for call in index.CallsSeq work.Id do
                             for apiCall in call.ApiCalls do
                                 match apiCall.ApiDefId with
                                 | Some defId ->
@@ -257,9 +269,12 @@ module Queries =
             if not (String.IsNullOrWhiteSpace address) then
                 let trimmed = address.Trim()
                 if seen.Add trimmed then result.Add trimmed
-        for flow in flowsOf systemId store do
-            for work in worksOf flow.Id store do
-                for call in callsOf work.Id store do
+        // 3중 중첩의 각 단계가 전수 스캔이라 O(Flow×Work + Work×Call) 이었다. System 이 선택된
+        // 동안 속성 패널 새로고침마다(노드 이동 포함) 도는 경로라 역인덱스 1벌로 내린다.
+        let index = buildHierarchyIndex store
+        for flow in index.Flows systemId do
+            for work in index.WorksSeq flow.Id do
+                for call in index.CallsSeq work.Id do
                     for apiCall in call.ApiCalls do
                         apiCall.OutTag |> Option.iter (fun t -> add t.Address)
                         apiCall.InTag  |> Option.iter (fun t -> add t.Address)

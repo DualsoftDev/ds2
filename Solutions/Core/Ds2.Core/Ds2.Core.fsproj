@@ -59,6 +59,7 @@
     <Compile Include="Store\DsQuery\Format.fs" />
     <Compile Include="Store\DsQuery\TokenRole.fs" />
     <Compile Include="Store\DsQuery\Validation.fs" />
+    <Compile Include="Store\DsQuery\StoreIndex.fs" />
     <Compile Include="Store\DsQuery\Queries.fs" />
     <Compile Include="Store\DsQuery\Device.fs" />
     <Compile Include="Store\StoreHierarchyQueries.fs" />

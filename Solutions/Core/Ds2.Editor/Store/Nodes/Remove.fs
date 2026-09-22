@@ -1,6 +1,7 @@
 namespace Ds2.Editor
 
 open System
+open System.Collections.Generic
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Core.Store
@@ -8,16 +9,58 @@ open Ds2.Core.Store
 
 
 module internal CascadeRemove =
-    let private arrowsFor (dict: System.Collections.Generic.IReadOnlyDictionary<Guid, 'T>) (srcOf: 'T -> Guid) (tgtOf: 'T -> Guid) (nodeIds: Set<Guid>) =
-        dict.Values
-        |> Seq.filter (fun a -> nodeIds.Contains(srcOf a) || nodeIds.Contains(tgtOf a))
-        |> Seq.toList
 
-    let arrowWorksFor (store: DsStore) (workIds: Set<Guid>) =
-        arrowsFor store.ArrowWorksReadOnly (fun a -> a.SourceId) (fun a -> a.TargetId) workIds
+    /// <summary>
+    /// 한 번의 삭제 작업 동안만 사는 부모→자식 / 원본→참조 / 노드→화살표 역인덱스.
+    ///
+    /// <para>캐스케이드는 노드마다 자식·역참조·화살표를 묻고 그 질의 하나하나가 해당 딕셔너리
+    /// 전수 스캔이었다. 그래서 System 1개 삭제가 O(Work² + Work·Call + Call²) 였다 — Project
+    /// 스냅샷 복제를 걷어낸 뒤로는 이게 다중 삭제의 남은 벽이다. 작업 진입 시 한 번만 훑어
+    /// O(전체엔티티 + 삭제수) 로 내린다.</para>
+    ///
+    /// <para>각 칸은 <c>Lazy</c> — 화살표 1개 삭제처럼 한 축만 쓰는 경우 나머지 축은 훑지 않아
+    /// 소규모 삭제가 종전보다 느려지지 않는다.</para>
+    ///
+    /// <para><b>스냅샷이다.</b> 캐스케이드 도중 엔티티가 지워져도 인덱스는 그대로라 이미 지워진
+    /// id 가 다시 나올 수 있다. <c>trackRemove</c> 는 없는 id 에 no-op 이라 무해하다 — 종전 코드도
+    /// 형제 Call 이 화살표 하나를 공유하면 같은 화살표를 두 번 지웠다. 반면 <c>trackMutate</c> 는
+    /// 없는 id 에 "Entity not found" 로 던지므로, Call 의 ApiCalls 정리만은 인덱스가 아니라
+    /// 살아있는 store 를 훑는다(<c>detachApiCallsOfRemovedApiDefs</c>).</para>
+    /// </summary>
+    type RemoveIndex =
+        { /// System→Flow→Work→Call, System→ApiDef — 트리/캔버스 투영과 공용.
+          Hierarchy        : StoreHierarchyIndex
+          CallsReferencing : Lazy<Dictionary<Guid, ResizeArray<Call>>>
+          WorksReferencing : Lazy<Dictionary<Guid, ResizeArray<Work>>>
+          ArrowWorksOfNode : Lazy<Dictionary<Guid, ResizeArray<ArrowBetweenWorks>>>
+          ArrowCallsOfNode : Lazy<Dictionary<Guid, ResizeArray<ArrowBetweenCalls>>>
+          ApiCallsOfApiDef : Lazy<Dictionary<Guid, ResizeArray<ApiCall>>> }
 
-    let arrowCallsFor (store: DsStore) (callIds: Set<Guid>) =
-        arrowsFor store.ArrowCallsReadOnly (fun a -> a.SourceId) (fun a -> a.TargetId) callIds
+    /// 캐스케이드 진입 직전에 부를 것 — 이 시점의 store 를 스냅샷한다.
+    /// (cross-flow 이동처럼 paste 후에 지우는 경로는 paste 뒤에 불러야 새로 생긴
+    ///  reference 엔티티가 인덱스에 들어온다.)
+    let buildIndex (store: DsStore) : RemoveIndex =
+        { Hierarchy = buildHierarchyIndex store
+          CallsReferencing =
+            lazy (store.CallsReadOnly.Values
+                  |> Seq.filter (fun c -> c.ReferenceOf.IsSome)
+                  |> StoreIndex.groupBy (fun c -> c.ReferenceOf.Value))
+          WorksReferencing =
+            lazy (store.WorksReadOnly.Values
+                  |> Seq.filter (fun w -> w.ReferenceOf.IsSome)
+                  |> StoreIndex.groupBy (fun w -> w.ReferenceOf.Value))
+          ArrowWorksOfNode =
+            lazy (store.ArrowWorksReadOnly.Values
+                  |> StoreIndex.groupByMany (fun (a: ArrowBetweenWorks) ->
+                        if a.SourceId = a.TargetId then [ a.SourceId ] else [ a.SourceId; a.TargetId ]))
+          ArrowCallsOfNode =
+            lazy (store.ArrowCallsReadOnly.Values
+                  |> StoreIndex.groupByMany (fun (a: ArrowBetweenCalls) ->
+                        if a.SourceId = a.TargetId then [ a.SourceId ] else [ a.SourceId; a.TargetId ]))
+          ApiCallsOfApiDef =
+            lazy (store.ApiCallsReadOnly.Values
+                  |> Seq.filter (fun ac -> ac.ApiDefId.IsSome)
+                  |> StoreIndex.groupBy (fun ac -> ac.ApiDefId.Value)) }
 
 
     let removeOrphanApiCalls (store: DsStore) =
@@ -32,9 +75,9 @@ module internal CascadeRemove =
         for orphanId in orphanIds do
             store.TrackRemove(store.ApiCalls, orphanId)
 
-    let removeHwComponents (store: DsStore) (systemIds: Guid list) =
-        for sid in systemIds do
-            Queries.apiDefsOf    sid store |> List.iter (fun d -> store.TrackRemove(store.ApiDefs,      d.Id))
+    let private removeHwComponents (store: DsStore) (index: RemoveIndex) (systemId: Guid) =
+        index.Hierarchy.ApiDefs systemId
+        |> List.iter (fun d -> store.TrackRemove(store.ApiDefs, d.Id))
 
     /// 삭제된 System 들을 소속 프로젝트의 Active/Passive 목록에서 뺀다 — **프로젝트당 mutate 1회**.
     ///
@@ -56,53 +99,71 @@ module internal CascadeRemove =
                         proj.ActiveSystemIds.RemoveAll(fun id -> systemIds.Contains id) |> ignore
                         proj.PassiveSystemIds.RemoveAll(fun id -> systemIds.Contains id) |> ignore)
 
-    /// System 엔티티 자체만 제거. 프로젝트 목록 정리는 배치 말미의 detachSystemsFromProjects 담당.
-    let private removeSystemEntity (store: DsStore) (systemId: Guid) =
-        store.TrackRemove(store.Systems, systemId)
+    /// 삭제된 ApiDef(Device) 를 가리키던 ApiCall 을 각 Call 의 직접 참조 목록(call.ApiCalls)에서
+    /// 떼어낸다. store 의 ApiCall 실제 제거는 removeOrphanApiCalls 에 위임 — condition 이 아직
+    /// 참조하면 보존(무결성), 아니면 자동 정리. 이 단계가 없으면 ApiDef 만 사라지고 ApiCall 이
+    /// dangling 으로 남아 I/O 가 UNKNOWN 으로 표시된다.
+    ///
+    /// **선택된 ApiDef 를 모아 store 를 1회만 훑는다.** ApiDef 마다 훑으면 디바이스 다중 삭제가
+    /// O(ApiDef수 × 전체Call수) 가 된다. 인덱스가 아니라 살아있는 Calls 를 훑는 이유는 trackMutate
+    /// 가 이미 지워진 Call 에 던지기 때문 — 부모 Work 가 함께 선택돼 먼저 지워진 Call 은 건드릴
+    /// 필요도 없다(undo 가 원래 ApiCalls 째로 복원한다).
+    let private detachApiCallsOfRemovedApiDefs
+        (store: DsStore) (index: RemoveIndex) (removedApiDefIds: Guid list) =
+        if not removedApiDefIds.IsEmpty then
+            let deadApiCallIds =
+                removedApiDefIds
+                |> Seq.collect (fun defId -> StoreIndex.findSeq index.ApiCallsOfApiDef.Value defId)
+                |> Seq.map (fun ac -> ac.Id)
+                |> Set.ofSeq
+            if not (Set.isEmpty deadApiCallIds) then
+                for call in store.Calls.Values |> Seq.toList do
+                    if call.ApiCalls |> Seq.exists (fun ac -> deadApiCallIds.Contains ac.Id) then
+                        store.TrackMutate(store.Calls, call.Id, fun c ->
+                            c.ApiCalls.RemoveAll(fun ac -> deadApiCallIds.Contains ac.Id) |> ignore)
 
-    let rec cascadeRemoveCall (store: DsStore) (callId: Guid) =
+    let rec cascadeRemoveCall (store: DsStore) (index: RemoveIndex) (callId: Guid) =
         // 원본 Call 삭제 시 → 이 Call을 참조하는 모든 reference Call도 삭제
-        store.CallsReadOnly.Values
-        |> Seq.filter (fun c -> c.ReferenceOf = Some callId)
-        |> Seq.toList
-        |> List.iter (fun refC -> cascadeRemoveCall store refC.Id)
-        arrowCallsFor store (Set.singleton callId)
+        StoreIndex.find index.CallsReferencing.Value callId
+        |> List.iter (fun refC -> cascadeRemoveCall store index refC.Id)
+        StoreIndex.find index.ArrowCallsOfNode.Value callId
         |> List.iter (fun a -> store.TrackRemove(store.ArrowCalls, a.Id))
         store.TrackRemove(store.Calls, callId)
 
-    let rec cascadeRemoveWork (store: DsStore) (workId: Guid) =
+    let rec cascadeRemoveWork (store: DsStore) (index: RemoveIndex) (workId: Guid) =
         // 원본 Work 삭제 시 → 이 Work를 참조하는 모든 reference Work도 삭제
-        store.WorksReadOnly.Values
-        |> Seq.filter (fun w -> w.ReferenceOf = Some workId)
-        |> Seq.toList
-        |> List.iter (fun refW -> cascadeRemoveWork store refW.Id)
-        Queries.callsOf workId store
-        |> List.iter (fun call -> cascadeRemoveCall store call.Id)
-        arrowWorksFor store (Set.singleton workId)
+        StoreIndex.find index.WorksReferencing.Value workId
+        |> List.iter (fun refW -> cascadeRemoveWork store index refW.Id)
+        index.Hierarchy.Calls workId
+        |> List.iter (fun call -> cascadeRemoveCall store index call.Id)
+        StoreIndex.find index.ArrowWorksOfNode.Value workId
         |> List.iter (fun a -> store.TrackRemove(store.ArrowWorks, a.Id))
         store.TrackRemove(store.Works, workId)
 
-    let cascadeRemoveFlow (store: DsStore) (flowId: Guid) =
-        Queries.worksOf flowId store
-        |> List.iter (fun work -> cascadeRemoveWork store work.Id)
+    let cascadeRemoveFlow (store: DsStore) (index: RemoveIndex) (flowId: Guid) =
+        index.Hierarchy.Works flowId
+        |> List.iter (fun work -> cascadeRemoveWork store index work.Id)
         store.TrackRemove(store.Flows, flowId)
 
-    let cascadeRemoveSystem (store: DsStore) (systemId: Guid) =
-        Queries.flowsOf systemId store
-        |> List.iter (fun flow -> cascadeRemoveFlow store flow.Id)
-        removeHwComponents store [ systemId ]
-        removeSystemEntity store systemId
+    let cascadeRemoveSystem (store: DsStore) (index: RemoveIndex) (systemId: Guid) =
+        index.Hierarchy.Flows systemId
+        |> List.iter (fun flow -> cascadeRemoveFlow store index flow.Id)
+        removeHwComponents store index systemId
+        // System 엔티티 자체만 제거. 프로젝트 목록 정리는 배치 말미의 detachSystemsFromProjects 담당.
+        store.TrackRemove(store.Systems, systemId)
 
-    let cascadeRemoveProject (store: DsStore) (projectId: Guid) =
-        Queries.projectSystemsOf projectId store 
-        |> List.iter (fun system -> cascadeRemoveSystem store system.Id)
+    let cascadeRemoveProject (store: DsStore) (index: RemoveIndex) (projectId: Guid) =
+        Queries.projectSystemsOf projectId store
+        |> List.iter (fun system -> cascadeRemoveSystem store index system.Id)
         store.TrackRemove(store.Projects, projectId)
 
     let batchRemoveEntities (store: DsStore) (selections: (EntityKind * Guid) list) =
         let selIds = selections |> List.map snd |> Set.ofList
-        // 프로젝트 목록 정리는 모아서 말미에 1회 — detachSystemsFromProjects 주석 참조.
-        let removedSystemIds = System.Collections.Generic.HashSet<Guid>()
-        let removedProjectIds = System.Collections.Generic.HashSet<Guid>()
+        let index = buildIndex store
+        // 프로젝트 목록 정리와 ApiCall 떼어내기는 모아서 말미에 1회 — 각 함수 주석 참조.
+        let removedSystemIds = HashSet<Guid>()
+        let removedProjectIds = HashSet<Guid>()
+        let removedApiDefIds = ResizeArray<Guid>()
 
         for (ek, id) in selections do
             match ek with
@@ -110,34 +171,22 @@ module internal CascadeRemove =
                 // 부모 Work가 함께 선택된 Call은 건너뜀 — Work 캐스케이드가 처리
                 match Queries.getCall id store with
                 | Some call when not (selIds.Contains call.ParentId) ->
-                    cascadeRemoveCall store id
+                    cascadeRemoveCall store index id
                 | _ -> ()
-            | EntityKind.Work      -> cascadeRemoveWork store id
-            | EntityKind.Flow      -> cascadeRemoveFlow store id
+            | EntityKind.Work      -> cascadeRemoveWork store index id
+            | EntityKind.Flow      -> cascadeRemoveFlow store index id
             | EntityKind.System    ->
-                cascadeRemoveSystem store id
+                cascadeRemoveSystem store index id
                 removedSystemIds.Add id |> ignore
             | EntityKind.Project   ->
                 // 프로젝트가 통째로 사라지므로 그 프로젝트의 목록은 손대지 않는다(skip 대상).
                 // 다른 프로젝트에도 걸려 있던 System 이면 거기서는 빠져야 하므로 id 는 수집한다.
                 for s in Queries.projectSystemsOf id store do removedSystemIds.Add s.Id |> ignore
                 removedProjectIds.Add id |> ignore
-                cascadeRemoveProject store id
+                cascadeRemoveProject store index id
             | EntityKind.ApiDef    ->
-                // ApiDef(Device) 제거 시, 이 ApiDef 를 ApiCall.ApiDefId 로 참조하는 ApiCall 을
-                // 각 Call 의 직접 참조 목록(call.ApiCalls)에서 떼어낸다. store 의 실제 제거는 아래
-                // removeOrphanApiCalls 에 위임 — condition 이 아직 참조하면 보존(무결성), 아니면 자동 정리.
-                // 이 단계가 없으면 ApiDef 만 사라지고 ApiCall 이 dangling 으로 남아 I/O 가 UNKNOWN 으로 표시됨.
-                let deadApiCallIds =
-                    store.ApiCalls.Values
-                    |> Seq.filter (fun ac -> ac.ApiDefId = Some id)
-                    |> Seq.map (fun ac -> ac.Id)
-                    |> Set.ofSeq
-                if not (Set.isEmpty deadApiCallIds) then
-                    for call in store.Calls.Values |> Seq.toList do
-                        if call.ApiCalls |> Seq.exists (fun ac -> deadApiCallIds.Contains ac.Id) then
-                            store.TrackMutate(store.Calls, call.Id, fun c ->
-                                c.ApiCalls.RemoveAll(fun ac -> deadApiCallIds.Contains ac.Id) |> ignore)
+                // ApiCall 떼어내기는 말미에 1회 — detachApiCallsOfRemovedApiDefs 주석 참조.
+                removedApiDefIds.Add id
                 store.TrackRemove(store.ApiDefs, id)
             | EntityKind.ArrowWork -> store.TrackRemove(store.ArrowWorks, id)
             // ArrowCall: 현 cycle 의 dispatcher 입력 경로 부재 (arrows.remove 는 ArrowWork 만 enumerate,
@@ -146,5 +195,6 @@ module internal CascadeRemove =
             | EntityKind.ArrowCall -> store.TrackRemove(store.ArrowCalls, id)
             | _ -> ()
 
+        detachApiCallsOfRemovedApiDefs store index (List.ofSeq removedApiDefIds)
         detachSystemsFromProjects store (Set.ofSeq removedSystemIds) (Set.ofSeq removedProjectIds)
         removeOrphanApiCalls store

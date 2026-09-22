@@ -118,6 +118,59 @@ module RemoveTests =
         Assert.True(store.Calls.ContainsKey(call.Id))
         Assert.False(store.Calls.[call.Id].ApiCalls |> Seq.exists (fun ac -> ac.Id = apiCallId))
 
+    /// ApiDef 여러 개를 한 선택으로 지울 때 — ApiCall 떼어내기는 ApiDef 마다가 아니라
+    /// **배치당 Call 1회 순회**다(ApiDef 마다 훑으면 디바이스 다중 삭제가 O(ApiDef수 × 전체Call수)).
+    /// 묶어도 선택한 ApiDef 전부의 ApiCall 이 떨어지는지 못 박는다.
+    [<Fact>]
+    let ``RemoveEntities detaches ApiCalls of every selected ApiDef in one pass`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "DevA.Api"; "DevB.Api"; "DevC.Api" ], true, None)
+        let calls = Queries.callsOf work.Id store
+        let apiCalls = calls |> List.collect (fun c -> c.ApiCalls |> List.ofSeq)
+        let apiDefIds = apiCalls |> List.choose (fun ac -> ac.ApiDefId) |> List.distinct
+        Assert.Equal(3, calls.Length)
+        Assert.Equal(3, apiDefIds.Length)
+
+        store.RemoveEntities(apiDefIds |> List.map (fun id -> (EntityKind.ApiDef, id)))
+
+        for id in apiDefIds do
+            Assert.False(store.ApiDefs.ContainsKey id)
+        for ac in apiCalls do
+            Assert.False(store.ApiCalls.ContainsKey ac.Id)
+        // Call 자체는 보존되고 직접 참조 목록만 비워진다.
+        for c in calls do
+            Assert.True(store.Calls.ContainsKey c.Id)
+            Assert.Empty(store.Calls.[c.Id].ApiCalls)
+
+    /// ApiDef 와, 그 ApiCall 을 물고 있던 Call 의 부모 Work 를 같은 선택으로 지우는 경우.
+    /// ApiCall 떼어내기는 역인덱스가 아니라 **살아있는** Calls 를 훑어야 한다 — 캐스케이드로 이미
+    /// 지워진 Call 에 trackMutate 를 걸면 "Entity not found" 로 던진다. undo 도 온전해야 한다
+    /// (그 Call 의 제거 스냅샷은 ApiCalls 를 그대로 안고 있다).
+    [<Fact>]
+    let ``RemoveEntities handles ApiDef selected together with the work owning its calls`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+        let call = Queries.callsOf work.Id store |> List.head
+        let apiCall = call.ApiCalls |> Seq.head
+        let apiCallId = apiCall.Id
+        let apiDefId = apiCall.ApiDefId.Value
+
+        store.RemoveEntities([ (EntityKind.Work, work.Id); (EntityKind.ApiDef, apiDefId) ])
+
+        Assert.False(store.Works.ContainsKey work.Id)
+        Assert.False(store.Calls.ContainsKey call.Id)
+        Assert.False(store.ApiDefs.ContainsKey apiDefId)
+        Assert.False(store.ApiCalls.ContainsKey apiCallId)
+
+        store.Undo()
+        Assert.True(store.Works.ContainsKey work.Id)
+        Assert.True(store.ApiDefs.ContainsKey apiDefId)
+        Assert.True(store.ApiCalls.ContainsKey apiCallId)
+        Assert.True(store.Calls.ContainsKey call.Id)
+        Assert.True(store.Calls.[call.Id].ApiCalls |> Seq.exists (fun ac -> ac.Id = apiCallId))
+
     [<Fact>]
     let ``Undo restores deleted entities`` () =
         let store = createStore ()

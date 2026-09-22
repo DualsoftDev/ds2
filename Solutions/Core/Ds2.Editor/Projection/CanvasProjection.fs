@@ -27,15 +27,18 @@ let private toArrowInfo (a: DsArrow) : CanvasArrowInfo =
 
 let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasContent =
     let hidden = Queries.hiddenWorkIds store
+    // System 탭은 Flow 가 여럿이라 Flow 마다 전체 Work 를 훑으면 O(Flow수 × 전체Work수) 다.
+    // 역인덱스 1벌로 내린다 (Flow/Work 단일 탭 투영은 부모가 하나뿐이라 그대로 둔다).
+    let index = buildHierarchyIndex store
     let flowIds =
-        Queries.flowsOf systemId store
+        index.Flows systemId
         |> List.filter (fun f -> not f.IsDisabled)   // 비활성 Flow 의 Work 는 표시하지 않음
         |> List.map (fun f -> f.Id)
 
     let nodes =
         flowIds
         |> List.collect (fun flowId ->
-            Queries.worksOf flowId store
+            index.Works flowId
             |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position (ConditionQueries.getResolvedWorkConditionTypes store w.Id) false w.ReferenceOf.IsSome w.ReferenceOf))
 
     let arrows =

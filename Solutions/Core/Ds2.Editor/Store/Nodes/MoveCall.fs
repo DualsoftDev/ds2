@@ -264,9 +264,12 @@ type DsStoreCallMoveExtensions =
                     // Cascade-remove 전에 다른 Call/Work Condition 의 ApiCall reference 자동 rewire
                     DsStoreCallMoveExtensions.RewireConditionApiCallReferences(store, apiCallMap)
 
-                    // 원본 Call 들 cascade-remove
+                    // 원본 Call 들 cascade-remove. 역인덱스는 **paste 뒤에** 만든다 — paste 가
+                    // 만든 엔티티가 원본을 ReferenceOf 로 가리킬 수 있어 그 전에 스냅샷하면
+                    // 역참조가 누락돼 dangling reference 가 남는다.
+                    let removeIndex = CascadeRemove.buildIndex store
                     for sc in movables do
-                        CascadeRemove.cascadeRemoveCall store sc.Id
+                        CascadeRemove.cascadeRemoveCall store removeIndex sc.Id
                     CascadeRemove.removeOrphanApiCalls store)
                 if not pastedIds.IsEmpty then store.EmitRefreshAndHistory()
                 Moved pastedIds
@@ -294,8 +297,10 @@ type DsStoreCallMoveExtensions =
                 let mutable pastedIds = []
                 store.WithTransaction($"Move {movables.Length} Work(s) across Flow ({mode})", fun () ->
                     pastedIds <- DirectPasteOps.pasteWorksToFlowBatch store movables targetFlowId 0 mode
+                    // 역인덱스는 paste 뒤에 — 이유는 MoveCallsAcrossFlow 쪽 주석 참조.
+                    let removeIndex = CascadeRemove.buildIndex store
                     for w in movables do
-                        CascadeRemove.cascadeRemoveWork store w.Id
+                        CascadeRemove.cascadeRemoveWork store removeIndex w.Id
                     CascadeRemove.removeOrphanApiCalls store)
                 if not pastedIds.IsEmpty then store.EmitRefreshAndHistory()
                 pastedIds
