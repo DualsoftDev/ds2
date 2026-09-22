@@ -316,6 +316,11 @@ public sealed class UserTagAlertService : BackgroundService
         var newAlerts = new List<UserTagAlertRecord>();
         var newUiAlerts = new List<UserTagAlert>();
 
+        // 신호의 정체 = (엔드포인트, 주소) — doc/31 §6. 발생 시점에 박제해야 한다. 나중에 System 이름이
+        // 바뀌거나 프로젝트를 다시 만들어 이관해도(SystemPackage 가 Guid 전면 remap) 이 값은 안 변한다.
+        // 폴링 1회에 한 번만 만든다(모델 조회라 로그마다 부르면 비싸다).
+        var endpointBySystem = _projectService.GetEndpointLabelsBySystemId();
+
         foreach (var log in newLogs)
         {
             if (ct.IsCancellationRequested) break;
@@ -383,7 +388,8 @@ public sealed class UserTagAlertService : BackgroundService
                 MatchOp: LoggingHelpers.UserTagHelpers.matchOpToString(op),
                 MatchValue: def.MatchValue,
                 ActualValue: newValue,
-                SourceLogId: log.Id);
+                SourceLogId: log.Id,
+                Endpoint: endpointBySystem.TryGetValue(def.SystemId, out var ep) ? ep : null);
             newAlerts.Add(record);
 
             // 라이브 활성 알람 등록/갱신 — 이 주소의 조건이 지금 걸렸다(배너 표시 대상).

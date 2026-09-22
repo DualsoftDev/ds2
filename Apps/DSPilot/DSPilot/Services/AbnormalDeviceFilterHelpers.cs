@@ -152,6 +152,7 @@ public static class AbnormalDeviceFilterHelpers
             {
                 System = sys,
                 SystemId = NormId(b.SystemId),
+                Endpoint = b.Endpoint?.Trim() ?? string.Empty,
                 TagAddress = addr,
                 Device = b.Device?.Trim() ?? string.Empty,
             };
@@ -177,7 +178,13 @@ public static class AbnormalDeviceFilterHelpers
     /// </summary>
     public sealed class UserTagDeviceIndex
     {
-        /// <summary>(System GUID, 주소) → 디바이스.</summary>
+        /// <summary>
+        /// <b>(엔드포인트, 주소) → 디바이스 — 정본 색인.</b> 신호의 정체가 이것이다(doc/31 §6).
+        /// 이름·GUID 색인은 이 칸이 비어 있던 시절의 데이터를 받는 폴백이다.
+        /// </summary>
+        public Dictionary<string, string> ByEndpoint { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>(System GUID, 주소) → 디바이스. 폴백.</summary>
         public Dictionary<string, string> BySystemId { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>(System 이름, 주소) → 디바이스. GUID 가 없던 시절 매핑의 폴백.</summary>
@@ -192,18 +199,24 @@ public static class AbnormalDeviceFilterHelpers
         /// <summary>옛 GUID → 현재 GUID(별칭 이력). GUID 재발급을 받는다.</summary>
         public Dictionary<string, string> IdOfAlias { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-        public int Count => BySystemId.Count + BySystemName.Count;
+        /// <summary>System GUID → 엔드포인트(현재 모델). 엔드포인트가 없는 옛 알람 행을 끌어올릴 때 쓴다.</summary>
+        public Dictionary<string, string> EndpointOfId { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public int Count => ByEndpoint.Count + BySystemId.Count + BySystemName.Count;
     }
 
     /// <summary>
     /// 조회 색인 생성. 값 <c>""</c> 는 전역, <b>키 부재는 미지정</b>이라 호출부가 둘을 구분할 수 있어야 한다
     /// (빈 문자열을 null 로 접지 말 것).
     /// </summary>
-    /// <param name="currentSystems">현재 모델의 (GUID, 이름) — 옛 이름의 알람을 현재 이름의 매핑으로 잇는다.</param>
-    /// <param name="aliases">별칭 이력 — GUID 까지 바뀐 경우를 받는다.</param>
+    /// <param name="currentSystems">
+    /// 현재 모델의 (GUID, 이름, 엔드포인트). 엔드포인트가 없던 시절의 알람 행을 현재 모델로 끌어올리고,
+    /// 옛 이름의 알람을 현재 이름의 매핑으로 잇는 데 쓴다.
+    /// </param>
+    /// <param name="aliases">별칭 이력 — 엔드포인트까지 바뀐 극단(진짜 설비 교체)을 받는 수동 예외.</param>
     public static UserTagDeviceIndex BuildUserTagDeviceIndex(
         IEnumerable<UserTagDeviceBinding>? bindings,
-        IEnumerable<(string Id, string Name)>? currentSystems = null,
+        IEnumerable<(string Id, string Name, string Endpoint)>? currentSystems = null,
         IEnumerable<SystemAlias>? aliases = null)
     {
         var idx = new UserTagDeviceIndex();
@@ -213,13 +226,16 @@ public static class AbnormalDeviceFilterHelpers
             idx.BySystemName[BindingKey(b.System, b.TagAddress)] = b.Device;
             if (b.SystemId.Length > 0)
                 idx.BySystemId[BindingKey(b.SystemId, b.TagAddress)] = b.Device;
+            if (b.Endpoint.Length > 0)
+                idx.ByEndpoint[BindingKey(b.Endpoint, b.TagAddress)] = b.Device;
         }
 
-        foreach (var (id, name) in currentSystems ?? [])
+        foreach (var (id, name, endpoint) in currentSystems ?? [])
         {
             var gid = NormId(id);
-            if (gid.Length > 0 && !string.IsNullOrWhiteSpace(name))
-                idx.NameOfId[gid] = name.Trim();
+            if (gid.Length == 0) continue;
+            if (!string.IsNullOrWhiteSpace(name)) idx.NameOfId[gid] = name.Trim();
+            if (!string.IsNullOrWhiteSpace(endpoint)) idx.EndpointOfId[gid] = endpoint.Trim();
         }
 
         foreach (var a in aliases ?? [])
@@ -238,22 +254,34 @@ public static class AbnormalDeviceFilterHelpers
 
     /// <summary>
     /// 한 알람의 귀속 디바이스를 찾는다 — <b>해석 사슬</b>. 첫 성공에서 멈춘다.
+    /// <para>
+    /// <b>정본은 ①(엔드포인트, 주소)</b> 다 — 신호의 정체가 그것이므로 이름·GUID·프로젝트 재생성을
+    /// 전부 통과한다. ②~⑤는 엔드포인트가 없던 시절의 행을 받는 <b>과거 호환 폴백</b>이고, 앞으로
+    /// 쌓이는 데이터는 ①에서 끝난다.
+    /// </para>
     /// <list type="number">
-    ///   <item>알람의 System GUID 로 (이름이 바뀌어도 맞는다)</item>
-    ///   <item>별칭 이력으로 옛 GUID → 새 GUID 변환 후 재시도 (GUID 재발급)</item>
+    ///   <item>알람의 엔드포인트로 — 정본</item>
+    ///   <item>알람의 GUID → 현재 모델의 엔드포인트 → 엔드포인트 색인 (엔드포인트 없던 옛 행)</item>
+    ///   <item>알람의 System GUID 로 (이름만 바뀐 경우)</item>
     ///   <item>알람의 GUID → 현재 System 이름 → 이름 색인 (GUID 없이 저장된 옛 매핑)</item>
-    ///   <item>알람의 System 이름 그대로 (종전 동작)</item>
-    ///   <item>별칭 이력으로 옛 이름 → 새 이름 변환 후 재시도</item>
+    ///   <item>알람의 System 이름 그대로, 그리고 별칭 이력을 거쳐 한 번 더 (종전 동작)</item>
     /// </list>
     /// 반환 <c>false</c> = 미지정(지표 제외), <c>true</c> + 빈 문자열 = 전역.
     /// </summary>
     public static bool TryGetBoundDevice(
-        UserTagDeviceIndex? index, string? systemId, string? systemName, string? tagAddress, out string device)
+        UserTagDeviceIndex? index, string? endpoint, string? systemId, string? systemName, string? tagAddress,
+        out string device)
     {
         device = string.Empty;
         if (index is null || index.Count == 0 || string.IsNullOrWhiteSpace(tagAddress)) return false;
 
         var gid = NormId(systemId);
+        var ep = (endpoint ?? string.Empty).Trim();
+
+        if (ep.Length > 0 && index.ByEndpoint.TryGetValue(BindingKey(ep, tagAddress), out device!)) return true;
+
+        if (ep.Length == 0 && gid.Length > 0 && index.EndpointOfId.TryGetValue(gid, out var curEp)
+            && index.ByEndpoint.TryGetValue(BindingKey(curEp, tagAddress), out device!)) return true;
 
         if (gid.Length > 0 && index.BySystemId.TryGetValue(BindingKey(gid, tagAddress), out device!)) return true;
 
@@ -273,8 +301,13 @@ public static class AbnormalDeviceFilterHelpers
         return false;
     }
 
-    /// <summary>GUID 를 모르는 호출부용 간편 오버로드 — 이름 색인만 두드린다.</summary>
+    /// <summary>엔드포인트를 모르는 호출부용 간편 오버로드 — ②부터 시작한다.</summary>
     public static bool TryGetBoundDevice(
+        UserTagDeviceIndex? index, string? systemId, string? systemName, string? tagAddress, out string device) =>
+        TryGetBoundDevice(index, null, systemId, systemName, tagAddress, out device);
+
+    /// <summary>GUID 도 엔드포인트도 모르는 호출부용 — 이름 색인만 두드린다(테스트·구 경로).</summary>
+    public static bool TryGetBoundDeviceByName(
         UserTagDeviceIndex? index, string? systemName, string? tagAddress, out string device) =>
-        TryGetBoundDevice(index, null, systemName, tagAddress, out device);
+        TryGetBoundDevice(index, null, null, systemName, tagAddress, out device);
 }

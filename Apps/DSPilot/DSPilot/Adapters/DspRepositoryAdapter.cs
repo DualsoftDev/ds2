@@ -266,6 +266,12 @@ public class DspRepositoryAdapter : IDspRepository
                     matchValue    TEXT,
                     actualValue   TEXT     NOT NULL,
                     sourceLogId   INTEGER,
+                    -- PLC 엔드포인트 표기(2026-09-22). 이상알람 신호의 정체는 (엔드포인트, 주소) 다 —
+                    --   doc/31 §6. systemName·systemId 는 AASX 표식이라 이름 변경·프로젝트 재생성으로
+                    --   둘 다 바뀌지만(SystemPackage 가 Guid 를 전면 remap), 엔드포인트는 물리 접속이라
+                    --   남는다. 이 칸이 없으면 이력을 이을 안정 키가 아예 없다.
+                    --   NULL = 이 칸 이전에 쌓인 행, 또는 엔드포인트 미배정 System.
+                    endpoint      TEXT,
                     -- 해소 시각(2026-08-21). 조건이 더 이상 만족되지 않게 된 순간 채운다.
                     --   정지 분류(doc/25)의 미해소 usertag = 라인 고장 규칙을 과거 기간 조회에서도
                     --   재현하려면 이 값이 필요하다. 종전엔 발생 시점만 남는 점 이벤트라 실시간
@@ -330,6 +336,7 @@ public class DspRepositoryAdapter : IDspRepository
             // 추가하지 않으므로, 우리 코드가 쓰는 컬럼이 누락되어 있으면 SQL 에러가 fire-and-forget
             // 으로 흡수되어 통계가 영원히 0 으로 남는다. 누락된 컬럼만 ALTER 로 보충.
             await EnsureColumnAsync(conn, "userTagAlertLog", "clearedAt", "TEXT");
+            await EnsureColumnAsync(conn, "userTagAlertLog", "endpoint",  "TEXT");
             await EnsureColumnAsync(conn, "dspCall", "previousGoingTime", "INTEGER");
             await EnsureColumnAsync(conn, "dspCall", "averageGoingTime",  "REAL");
             await EnsureColumnAsync(conn, "dspCall", "stdDevGoingTime",   "REAL");

@@ -288,6 +288,11 @@
                                                         <td data-label="이름">
                                                             <strong x-text="a.name"></strong>
                                                             <div style="font-family:var(--font-mono);font-size:0.72rem;color:var(--color-text-secondary);" x-text="a.systemName + ' · ' + a.tagAddress"></div>
+                                                            <!-- 당시 이름 — 현재 라벨과 다를 때만. 이름이 달라진 채 이어진 건이
+                                                                 리네임인지 주소 의미 변경인지 가릴 유일한 실마리다(doc/31 §6). -->
+                                                            <div x-show="a.nameAtTime" style="font-size:0.72rem;color:var(--color-text-secondary);"
+                                                                 title="발생 당시의 태그 이름입니다 — 이후 이름이 바뀌었습니다"
+                                                                 x-text="'당시: ' + a.nameAtTime"></div>
                                                         </td>
                                                         <td data-label="디바이스" x-text="a.device"></td>
                                                         <td data-label="해소" x-text="a.clearedAtLocal || '—'"></td>

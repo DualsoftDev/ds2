@@ -94,9 +94,9 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         await using var conn = await OpenAsync();
         const string sql = @"
             INSERT INTO userTagAlertLog
-                (occurredAt, systemId, systemName, name, logLevel, tagAddress, valueType, matchOp, matchValue, actualValue, sourceLogId)
+                (occurredAt, systemId, systemName, name, logLevel, tagAddress, valueType, matchOp, matchValue, actualValue, sourceLogId, endpoint)
             VALUES
-                (@OccurredAt, @SystemId, @SystemName, @Name, @LogLevel, @TagAddress, @ValueType, @MatchOp, @MatchValue, @ActualValue, @SourceLogId);
+                (@OccurredAt, @SystemId, @SystemName, @Name, @LogLevel, @TagAddress, @ValueType, @MatchOp, @MatchValue, @ActualValue, @SourceLogId, @Endpoint);
             SELECT last_insert_rowid();";
 
         var id = await conn.ExecuteScalarAsync<long>(sql, new
@@ -112,6 +112,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
             r.MatchValue,
             r.ActualValue,
             r.SourceLogId,
+            r.Endpoint,
         });
 
         await _mirror.ReplicatePlcAsync("userTagAlertLog", "id = @Id", new { Id = id });
@@ -246,7 +247,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         var dir = sortDesc ? "DESC" : "ASC";
 
         var sql = $@"
-            SELECT id, occurredAt, systemId, systemName, name, logLevel, tagAddress, valueType, matchOp, matchValue, actualValue, sourceLogId, clearedAt
+            SELECT id, occurredAt, systemId, systemName, name, logLevel, tagAddress, valueType, matchOp, matchValue, actualValue, sourceLogId, clearedAt, endpoint
             FROM userTagAlertLog
             {where}
             ORDER BY {col} {dir}, id DESC
@@ -367,7 +368,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         AppendDeviceFilterExclusion(sb, p);
         AppendUserTagFilterExclusion(sb, p);
         var sql = $@"
-            SELECT id, occurredAt, systemId, systemName, name, logLevel, tagAddress, valueType, matchOp, matchValue, actualValue, sourceLogId, clearedAt
+            SELECT id, occurredAt, systemId, systemName, name, logLevel, tagAddress, valueType, matchOp, matchValue, actualValue, sourceLogId, clearedAt, endpoint
             FROM userTagAlertLog
             {sb}
             ORDER BY id DESC
@@ -443,7 +444,8 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         MatchValue: r.MatchValue,
         ActualValue: r.ActualValue ?? string.Empty,
         SourceLogId: r.SourceLogId,
-        ClearedAt: string.IsNullOrEmpty(r.ClearedAt) ? null : SqliteDateTimeHelpers.FromSqliteUtcString(r.ClearedAt));
+        ClearedAt: string.IsNullOrEmpty(r.ClearedAt) ? null : SqliteDateTimeHelpers.FromSqliteUtcString(r.ClearedAt),
+        Endpoint: string.IsNullOrWhiteSpace(r.Endpoint) ? null : r.Endpoint.Trim());
 
     private sealed class Row
     {
@@ -460,6 +462,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         public string? ActualValue { get; set; }
         public long? SourceLogId { get; set; }
         public string? ClearedAt { get; set; }   // NULL/빈값 = 미해소(진행 중)
+        public string? Endpoint { get; set; }    // NULL = 이 칸 이전 행 또는 엔드포인트 미배정
     }
 
     // Dapper 가 ValueTuple 을 매핑하지 못해 (TupleElementNamesAttribute 는 컴파일타임만 살아있음 → Item1/Item2 로만 인식),

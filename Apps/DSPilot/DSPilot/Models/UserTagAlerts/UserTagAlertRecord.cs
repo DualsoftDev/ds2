@@ -21,7 +21,15 @@ public sealed record UserTagAlertRecord(
     long? SourceLogId,
     // 해소 시각 — 알람 조건이 풀린 시점(Bit 1→0 등). NULL = 아직 해소되지 않음(진행 중).
     // 조회 경로가 발생/해소를 한 행으로 함께 내려보내므로 목록·Excel 이 "지속시간"을 계산할 수 있다.
-    DateTime? ClearedAt = null);
+    DateTime? ClearedAt = null,
+    /// <summary>
+    /// 이 신호를 읽은 PLC 엔드포인트 표기(<c>ip:port</c> 등). <b>(엔드포인트, 주소) 가 신호의 정체다</b> —
+    /// doc/31 §6. <see cref="SystemId"/>·<see cref="SystemName"/> 은 AASX 표식이라 이름 변경으로도,
+    /// 프로젝트를 다시 만들어 시스템을 이관해도(SystemPackage 가 Guid 전면 remap) 바뀐다.
+    /// 엔드포인트는 물리 접속이라 남는다.
+    /// <para>null = 이 필드 이전에 쌓인 행, 또는 엔드포인트가 배정되지 않은 System.</para>
+    /// </summary>
+    string? Endpoint = null);
 
 /// <summary>
 /// 해소 1건의 지정 키 — 어떤 발생 행에 어느 시각을 찍을지 정확히 지목한다.

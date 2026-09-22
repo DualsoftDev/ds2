@@ -269,6 +269,34 @@ public class DsProjectService
     }
 
     /// <summary>
+    /// System GUID → PLC 엔드포인트 표기(<c>ip:port</c> 등). <see cref="GetPlcEndpoints"/> 와 달리
+    /// 공유 접속을 합치지 않는다 — 시스템마다 자기 엔드포인트를 알아야 하는 호출부용이다.
+    /// <para>
+    /// 이상알람 신호의 정체가 <b>(엔드포인트, 주소)</b> 라서 필요하다(doc/31 §6). 엔드포인트는 물리
+    /// 접속이라 AASX 이름·GUID 가 바뀌어도, 프로젝트를 다시 만들어 시스템을 이관해도(SystemPackage 가
+    /// Guid 를 전면 remap 한다) 변하지 않는다. 그래서 이력을 잇는 유일한 안정 키다.
+    /// </para>
+    /// 엔드포인트가 배정되지 않은 System 은 항목이 없다(legacy 단일 폴백은 여기서 하지 않는다 —
+    /// 잘못 귀속시키면 두 PLC 의 같은 주소가 한 신호가 된다).
+    /// </summary>
+    public Dictionary<Guid, string> GetEndpointLabelsBySystemId()
+    {
+        var map = new Dictionary<Guid, string>();
+        if (!IsLoaded) return map;
+
+        var aid = TryGetAid();
+        if (aid is null) return map;
+
+        foreach (var system in GetActiveSystems())
+        {
+            var info = AidXgtEndpointSettings.TryReadForSystem(aid, system.Id);
+            if (info?.EndpointLabel is { Length: > 0 } label)
+                map[system.Id] = label;
+        }
+        return map;
+    }
+
+    /// <summary>
     /// AID 원천의 PLC 주소→시스템 이름 매핑(대소문자 무시) — 멀티 PLC 에서 "이 주소는 어느 PLC 것인가"의
     /// 정본. 모든 바인딩(Xgt·OpcUa·Modbus·Mqtt·Http)의 interaction Href/SignalId 를 키로,
     /// endpoint.SystemId → 활성 시스템 이름을 값으로 만든다.

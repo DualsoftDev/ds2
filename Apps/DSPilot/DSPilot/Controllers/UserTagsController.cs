@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Ds2.Editor;
@@ -208,9 +208,11 @@ public class UserTagsController : ControllerBase
         // 이상알람TAG 귀속은 AASX 가 아니라 DSPilot 설정에 산다 — GUID·이름 두 색인으로 한 번에 만든다
         // (리네임 내성: 이름이 바뀌어도 GUID 로 이어진다).
         var abnormal = _settings.LoadSettings().AbnormalAlarm;
+        var epById = _project.GetEndpointLabelsBySystemId();
         var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
             abnormal.UserTagDeviceBindings,
-            _project.GetActiveSystems().Select(s => (s.Id.ToString(), s.Name ?? string.Empty)),
+            _project.GetActiveSystems().Select(s =>
+                (s.Id.ToString(), s.Name ?? string.Empty, epById.TryGetValue(s.Id, out var ep) ? ep : string.Empty)),
             abnormal.SystemAliases);
 
         var tags = rows
@@ -270,6 +272,8 @@ public class UserTagsController : ControllerBase
         // 이상알람TAG 귀속 — AASX 가 아니라 설정에 쓴다. 요청에 든 System 의 것만 모아 두었다가
         // export 가 성공한 뒤에 반영한다(AASX 가 실패했는데 귀속만 바뀌면 두 저장소가 어긋난다).
         var bindingsBySystemName = new Dictionary<string, List<UserTagDeviceBinding>>(StringComparer.OrdinalIgnoreCase);
+        // 엔드포인트가 정본 키의 절반이다 — 저장 시점에 같이 각인한다(doc/31 §6).
+        var endpointBySystem = _project.GetEndpointLabelsBySystemId();
         foreach (var sysIn in req.Systems)
         {
             if (!Guid.TryParse(sysIn.SystemId, out var sid) || !nameById.TryGetValue(sid, out var sysName))
@@ -312,6 +316,7 @@ public class UserTagsController : ControllerBase
                     {
                         System = sysName,
                         SystemId = sid.ToString(),
+                        Endpoint = endpointBySystem.TryGetValue(sid, out var ep) ? ep : string.Empty,
                         TagAddress = entry.TagAddress,
                         Device = t.Device.Trim(),
                     });
@@ -408,6 +413,7 @@ public class UserTagsController : ControllerBase
                 RestartedAtLocal: a.RestartedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 SystemName: a.SystemName,
                 Name: a.Name,
+                NameAtTime: a.NameAtTime,
                 TagAddress: a.TagAddress,
                 Device: a.Device,
                 State: a.State.ToString(),

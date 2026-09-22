@@ -453,6 +453,17 @@ public class UserTagDeviceBinding
     /// </summary>
     public string SystemId { get; set; } = "";
 
+    /// <summary>
+    /// 그 System 의 PLC 엔드포인트 표기(<c>ip:port</c> 등) — <b>정본 키의 절반</b>(2026-09-22).
+    /// <para>
+    /// 신호의 정체는 <b>(엔드포인트, 주소)</b> 다(doc/31 §6). 이름도 GUID 도 AASX 를 갈면 같이 바뀌지만
+    /// (프로젝트를 다시 만들어 이관하면 SystemPackage 가 Guid 를 전면 remap 한다) 엔드포인트는 물리
+    /// 접속이라 남는다. 주소만으로는 안 된다 — 실측에서 알람 주소 149개 중 18개(12%)가 두 PLC 에
+    /// 함께 있었다(<c>%MW7000.15</c> 등). 엔드포인트가 그 12%를 가른다.
+    /// </para>
+    /// </summary>
+    public string Endpoint { get; set; } = "";
+
     /// <summary>UserTag 정의의 태그 주소(정의 고유키). PLC 프로그램에서 오는 값이라 AASX 변경에 안 흔들린다.</summary>
     public string TagAddress { get; set; } = "";
 

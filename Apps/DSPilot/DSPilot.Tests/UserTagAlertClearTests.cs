@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Dapper;
@@ -77,7 +77,10 @@ public class UserTagAlertClearTests : IDisposable
                     matchValue    TEXT,
                     actualValue   TEXT     NOT NULL,
                     sourceLogId   INTEGER,
-                    clearedAt     TEXT
+                    clearedAt     TEXT,
+                    -- 신호의 정체 = (엔드포인트, 주소) — doc/31 §6. 실제 스키마와 어긋나면
+                    -- INSERT 가 통째로 깨지므로 픽스처도 같이 유지해야 한다.
+                    endpoint      TEXT
                 )");
         }
 

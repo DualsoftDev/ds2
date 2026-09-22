@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Kpi;
@@ -43,16 +43,19 @@ public sealed class ErrorTagReliabilityService
     private readonly KpiRepository _kpi;
     private readonly DsProjectService _project;
     private readonly AppSettingsService _settings;
+    private readonly UserTagAlertService _alertService;
     private readonly ILogger<ErrorTagReliabilityService> _logger;
 
     public ErrorTagReliabilityService(
         IUserTagAlertRepository alerts, KpiRepository kpi, DsProjectService project,
-        AppSettingsService settings, ILogger<ErrorTagReliabilityService> logger)
+        AppSettingsService settings, UserTagAlertService alertService,
+        ILogger<ErrorTagReliabilityService> logger)
     {
         _alerts = alerts;
         _kpi = kpi;
         _project = project;
         _settings = settings;
+        _alertService = alertService;
         _logger = logger;
     }
 
@@ -65,7 +68,14 @@ public sealed class ErrorTagReliabilityService
         DateTime? ClearedAtUtc,
         DateTime? RestartedAtUtc,
         string SystemName,
+        /// <summary>현재 정의의 이름(라벨). 정의가 사라졌으면 그 신호의 가장 최근 이름.</summary>
         string Name,
+        /// <summary>
+        /// 발생 당시 박제된 이름 — 현재 라벨과 <b>다를 때만</b> 값이 있다. 비고처럼 이름 칸 아래에 붙인다.
+        /// 이름이 달라진 채 이어진 건은 리네임(잦음, 이어야 맞음)이거나 PLC 주소 의미 변경(드묾,
+        /// 이으면 틀림)이다. 드문 쪽이 틀렸을 때 추적할 유일한 실마리라 지우지 않는다.
+        /// </summary>
+        string? NameAtTime,
         string TagAddress,
         string Device,
         RecoveryState State,
@@ -137,7 +147,7 @@ public sealed class ErrorTagReliabilityService
             var address = r.TagAddress ?? string.Empty;
 
             if (!AbnormalDeviceFilterHelpers.TryGetBoundDevice(
-                    deviceIndex, r.SystemId.ToString(), sysName, address, out var device)
+                    deviceIndex, r.Endpoint, r.SystemId.ToString(), sysName, address, out var device)
                 || device.Length == 0)
             {
                 // 미지정·전역 — 계산에서 빠진다. 커버리지 안내를 위해 태그 수만 센다.
@@ -167,6 +177,7 @@ public sealed class ErrorTagReliabilityService
         var linkAt = await LoadLinkConnectsAsync(fromMs, cycleToMs, ct);
 
         var nowMs = KpiTime.NowMs();
+        var nameBySignal = BuildCurrentNames();
         var devices = new List<DeviceSummary>();
         var verdicts = new List<AlertVerdict>();
         var skippedChanged = 0;
@@ -202,7 +213,7 @@ public sealed class ErrorTagReliabilityService
             {
                 eventSeq++;
                 foreach (var i in e.Members)
-                    verdicts.Add(Verdict(ordered[i], device, e, eventSeq, flows, flowFacts));
+                    verdicts.Add(Verdict(ordered[i], device, e, eventSeq, flows, flowFacts, nameBySignal));
             }
         }
 
@@ -214,20 +225,69 @@ public sealed class ErrorTagReliabilityService
             unboundAddresses.Count, globalCount, skippedChanged, [.. staleSystems], true);
     }
 
+    /// <summary>
+    /// 신호의 정체 = <b>(엔드포인트, 주소)</b> — doc/31 §6. 엔드포인트를 모르는 옛 행은 System GUID 로,
+    /// 그것도 없으면 이름으로 떨어진다(폴백일 뿐 정본은 엔드포인트다).
+    /// </summary>
+    private static string SignalKey(string? endpoint, string? systemId, string? systemName, string? address)
+    {
+        var scope = !string.IsNullOrWhiteSpace(endpoint) ? endpoint.Trim()
+                  : !string.IsNullOrWhiteSpace(systemId) ? systemId.Trim()
+                  : (systemName ?? string.Empty).Trim();
+        return scope.ToUpperInvariant() + "" + (address ?? string.Empty).Trim().ToUpperInvariant();
+    }
+
+    private static string SignalKey(UserTagAlertRecord r) =>
+        SignalKey(r.Endpoint, r.SystemId == Guid.Empty ? null : r.SystemId.ToString(), r.SystemName, r.TagAddress);
+
+    /// <summary>
+    /// 신호 → 현재 이름. 현재 모델의 UserTag 정의에서 만든다. 정의가 사라진 신호는 항목이 없고,
+    /// 그 경우 표시는 박제된 이름으로 폴백한다('정의 없음' 으로 읽어야 할 상태).
+    /// </summary>
+    private Dictionary<string, string> BuildCurrentNames()
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        try
+        {
+            var epById = _project.GetEndpointLabelsBySystemId();
+            foreach (var d in _alertService.GetDefinitions())
+            {
+                if (string.IsNullOrWhiteSpace(d.TagAddress) || string.IsNullOrWhiteSpace(d.Name)) continue;
+                var ep = epById.TryGetValue(d.SystemId, out var e) ? e : null;
+                map[SignalKey(ep, d.SystemId.ToString(), d.SystemName, d.TagAddress)] = d.Name.Trim();
+                // 엔드포인트를 모르는 옛 행이 GUID·이름으로 떨어져도 같은 라벨을 찾게 한 번 더 넣는다.
+                map[SignalKey(null, d.SystemId.ToString(), d.SystemName, d.TagAddress)] = d.Name.Trim();
+                map[SignalKey(null, null, d.SystemName, d.TagAddress)] = d.Name.Trim();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[eMTBF] 현재 이름 수집 실패 (non-critical)");
+        }
+        return map;
+    }
+
     private static AlertInput ToInput(UserTagAlertRecord r, long windowMs) =>
         new(KpiTime.ToMs(r.OccurredAt), r.ClearedAt is { } c ? KpiTime.ToMs(c) : null, windowMs);
 
     private static AlertVerdict Verdict(
         UserTagAlertRecord r, string device, FaultEvent e, int eventNo,
-        IReadOnlyList<string> flows, Dictionary<string, FlowFacts> facts)
+        IReadOnlyList<string> flows, Dictionary<string, FlowFacts> facts,
+        IReadOnlyDictionary<string, string> currentNames)
     {
         var restartMs = e.Recovery.RestartMs;
+        var recorded = r.Name ?? string.Empty;
+        // 라벨은 언제나 현재 이름으로 통일한다 — 옛 이름의 행이 같은 신호로 모이게 하려면 표시가
+        // 하나여야 한다. 정의가 사라졌으면 박제된 이름으로 폴백한다(doc/31 §6).
+        var label = SignalKey(r) is { } key && currentNames.TryGetValue(key, out var cur) && cur.Length > 0
+            ? cur : recorded;
         return new AlertVerdict(
             OccurredAtUtc: r.OccurredAt,
             ClearedAtUtc: r.ClearedAt,
             RestartedAtUtc: restartMs is { } ms ? KpiTime.ToUtc(ms) : null,
             SystemName: r.SystemName ?? string.Empty,
-            Name: r.Name ?? string.Empty,
+            Name: label,
+            NameAtTime: string.Equals(label, recorded, StringComparison.Ordinal) ? null : recorded,
             TagAddress: r.TagAddress ?? string.Empty,
             Device: device,
             State: e.Recovery.State,
@@ -307,12 +367,17 @@ public sealed class ErrorTagReliabilityService
         }
     }
 
-    /// <summary>현재 모델의 활성 System (GUID, 이름) — 리네임 해석과 '끊긴 이름' 판정의 기준.</summary>
-    private List<(string Id, string Name)> CurrentSystems()
+    /// <summary>
+    /// 현재 모델의 활성 System (GUID, 이름, 엔드포인트) — 해석 사슬과 '끊긴 이름' 판정의 기준.
+    /// 엔드포인트가 함께 필요한 이유는 doc/31 §6 — 신호의 정체가 (엔드포인트, 주소) 다.
+    /// </summary>
+    private List<(string Id, string Name, string Endpoint)> CurrentSystems()
     {
         try
         {
-            return [.. _project.GetActiveSystems().Select(s => (s.Id.ToString(), s.Name ?? string.Empty))];
+            var epById = _project.GetEndpointLabelsBySystemId();
+            return [.. _project.GetActiveSystems().Select(s =>
+                (s.Id.ToString(), s.Name ?? string.Empty, epById.TryGetValue(s.Id, out var ep) ? ep : string.Empty))];
         }
         catch (Exception ex)
         {

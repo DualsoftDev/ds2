@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Services;
@@ -231,7 +231,10 @@ public record UtReliabilityAlertDto(
     string? ClearedAtLocal,
     string? RestartedAtLocal,
     string SystemName,
+    // 라벨은 언제나 현재 정의의 이름이다 — 옛 이름의 행이 같은 신호로 모이려면 표시가 하나여야 한다.
     string Name,
+    // 발생 당시 박제된 이름. 현재 라벨과 다를 때만 값이 있고, 이름 칸 아래 비고로 붙인다.
+    string? NameAtTime,
     string TagAddress,
     string Device,
     string State,
