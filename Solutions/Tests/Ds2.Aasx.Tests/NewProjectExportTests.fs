@@ -48,7 +48,7 @@ let ``new project with auto-created XGT AID can be saved as AASX`` () =
     let store = newPromakerProject ()
     let project = store.Projects.Values |> Seq.head
     let aid = AssetInterfacesDescription()
-    project.AssetInterfaces <- Some aid
+    store.SetAssetInterfaces(project.Id, aid)
     AidXgtEndpointSettings.ensureBindingForSystem(
         aid, project.ActiveSystemIds.[0], xgtTcpRequest "LsXgi" "192.168.0.10" 2004,
         [ "%QX0.1.13"; "%IX0.1.2" ])
@@ -62,7 +62,7 @@ let ``new project with auto-created XGT AID can be saved as AASX`` () =
         | Ok () -> ()
         | Error error -> Assert.Fail(error)
         let restoredProject = restored.Projects.Values |> Seq.head
-        Assert.True(restoredProject.AssetInterfaces.IsSome)
+        Assert.True((restored.TryGetAssetInterfaces restoredProject.Id).IsSome)
     finally
         if File.Exists(path) then File.Delete(path)
 
@@ -77,7 +77,7 @@ let ``multiple active Systems retain distinct AID XGT endpoint ownership`` () =
     store.AddFlow("SecondFlow", system2) |> ignore
 
     let aid = AssetInterfacesDescription()
-    project.AssetInterfaces <- Some aid
+    store.SetAssetInterfaces(project.Id, aid)
     AidXgtEndpointSettings.ensureBindingForSystem(
         aid, system1, xgtTcpRequest "LsXgi" "192.168.0.10" 2004, [ "%QX0.1.13" ])
     |> ignore
@@ -95,7 +95,7 @@ let ``multiple active Systems retain distinct AID XGT endpoint ownership`` () =
 
         let restoredProject = restored.Projects.Values |> Seq.head
         Assert.Equal(2, restoredProject.ActiveSystemIds.Count)
-        let restoredAid = restoredProject.AssetInterfaces.Value
+        let restoredAid = (restored.TryGetAssetInterfaces restoredProject.Id).Value
         let endpointSystemIds =
             restoredAid.Interfaces
             |> Seq.choose (function Xgt (endpoint, _) -> endpoint.SystemId | _ -> None)
@@ -135,7 +135,7 @@ let ``same address in two Systems is auto-qualified instead of failing`` () =
 
     let shared = "%IX0.1.2"
     let aid = AssetInterfacesDescription()
-    project.AssetInterfaces <- Some aid
+    store.SetAssetInterfaces(project.Id, aid)
     AidXgtEndpointSettings.ensureBindingForSystem(
         aid, system1, xgtTcpRequest "LsXgi" "192.168.0.10" 2004, [ shared; "%QX0.1.13" ])
     |> ignore
@@ -187,7 +187,7 @@ let ``already saved model with duplicate signalIds is repaired on load`` () =
     // 예전 코드가 만들어 낸 상태를 재현 — 두 endpoint 가 같은 signalId 를 갖는다.
     let shared = "%IX0.1.2"
     let aid = AssetInterfacesDescription()
-    project.AssetInterfaces <- Some aid
+    store.SetAssetInterfaces(project.Id, aid)
     AidXgtEndpointSettings.ensureBindingForSystem(
         aid, system1, xgtTcpRequest "LsXgi" "192.168.0.10" 2004, [ shared ])
     |> ignore
@@ -225,7 +225,7 @@ let ``already saved model with all-empty signalIds is repaired on load`` () =
     // 두 System 이 같은 주소를 하나 공유하는 구성 — 재발급이 분화 규칙까지 타는지 본다.
     let shared = "%IX0.1.2"
     let aid = AssetInterfacesDescription()
-    project.AssetInterfaces <- Some aid
+    store.SetAssetInterfaces(project.Id, aid)
     AidXgtEndpointSettings.ensureBindingForSystem(
         aid, system1, xgtTcpRequest "LsXgi" "192.168.0.10" 2004, [ shared; "%QX0.1.13" ])
     |> ignore
@@ -553,7 +553,7 @@ let ``orphaned endpoints of deleted systems are skipped, not fatal`` () =
     let deleted2 = store.AddSystem("DeletedSystem2", project.Id, true)
 
     let aid = AssetInterfacesDescription()
-    project.AssetInterfaces <- Some aid
+    store.SetAssetInterfaces(project.Id, aid)
     AidXgtEndpointSettings.ensureBindingForSystem(
         aid, survivor, xgtTcpRequest "LsXgk" "192.168.9.103" 2004, [ "%IX0.1.2" ]) |> ignore
     AidXgtEndpointSettings.ensureBindingForSystem(

@@ -309,7 +309,8 @@ type EmbeddedUaServer(
                     Queries.activeSystemsOf project.Id store
                     |> List.map (gaidOf project)
                 let aidAssets =
-                    match project.AssetInterfaces with
+                    // AID 의 소유는 store (Project 엔티티에서 분리 — DsStore.AssetInterfaces 주석 참조).
+                    match store.TryGetAssetInterfaces project.Id with
                     | Some aid when aid.Interfaces.Count > 0 -> [aidGaidOf project]
                     | _ -> []
                 List.append systemAssets aidAssets |> List.toArray
@@ -340,7 +341,7 @@ type EmbeddedUaServer(
 
             // AASX의 AID가 바뀌면 Agent watcher가 서버를 재기동하고 이 투영을 다시 수행한다.
             // 표준 4종 binding 모두 동일한 결정론적 SignalId NodeId 계약을 사용한다.
-            match project.AssetInterfaces with
+            match store.TryGetAssetInterfaces project.Id with
             | Some aid when aid.Interfaces.Count > 0 ->
                 let signals = ResizeArray<string list * SignalId * string * BuiltInType * string * SignalPolicy option>()
                 let seen = HashSet<string>(StringComparer.Ordinal)

@@ -24,12 +24,11 @@ public static class AidMicrexSxEndpointSynchronizer
     public static AidMicrexSxConnectionInfo? TryReadFromStore(DsStore? store, Guid systemId)
     {
         var project = AidXgtEndpointSynchronizer.FindOwningProject(store, systemId);
-        var aidOption = project?.AssetInterfaces;
-        if (aidOption is null
-            || !Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
+        var aid = AidXgtEndpointSynchronizer.TryGetAid(store, project);
+        if (aid is null)
             return null;
 
-        return AidMicrexSxEndpointSettings.TryReadForSystem(aidOption.Value, systemId);
+        return AidMicrexSxEndpointSettings.TryReadForSystem(aid, systemId);
     }
 
     /// <summary>
@@ -52,19 +51,7 @@ public static class AidMicrexSxEndpointSynchronizer
         if (project is null)
             return false;
 
-        AssetInterfacesDescription aid;
-        var aidOption = project.AssetInterfaces;
-        if (aidOption is not null
-            && Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
-        {
-            aid = aidOption.Value;
-        }
-        else
-        {
-            aid = new AssetInterfacesDescription();
-            project.AssetInterfaces =
-                Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.Some(aid);
-        }
+        var aid = store.GetOrCreateAssetInterfaces(project.Id);
 
         var written = AidMicrexSxEndpointSettings.EnsureBindingForSystem(
             aid,
@@ -87,11 +74,10 @@ public static class AidMicrexSxEndpointSynchronizer
     public static int RemoveFromStore(DsStore? store, Guid systemId)
     {
         var project = AidXgtEndpointSynchronizer.FindOwningProject(store, systemId);
-        var aidOption = project?.AssetInterfaces;
-        if (aidOption is null
-            || !Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
+        var aid = AidXgtEndpointSynchronizer.TryGetAid(store, project);
+        if (aid is null)
             return 0;
 
-        return AidMicrexSxEndpointSettings.RemoveForSystem(aidOption.Value, systemId);
+        return AidMicrexSxEndpointSettings.RemoveForSystem(aid, systemId);
     }
 }

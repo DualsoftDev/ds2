@@ -286,7 +286,8 @@ module AasxExporter =
                 else trimmed + "/v1/series"
             | _ -> "http://127.0.0.1:62542/v1/series"
         [
-            match project.AssetInterfaces with
+            // AID 의 소유는 store (Project 엔티티에서 분리 — DsStore.AssetInterfaces 주석 참조).
+            match store.TryGetAssetInterfaces project.Id with
             | Some aid when aid.Interfaces.Count > 0 ->
                 yield aidToSubmodel aid project.Name
                 yield timeSeriesToSubmodel aid aidAssetId project.Id project.Name dataApiEndpoint

@@ -149,6 +149,13 @@ public class DsProjectService
         return ListModule.IsEmpty(projects) ? null : ListModule.Head(projects);
     }
 
+    /// <summary>현재 모델의 AID. 소유는 Project 엔티티가 아니라 store 다
+    /// (분리 이유는 <c>DsStore.AssetInterfaces</c> 주석 참조). 없으면 null.</summary>
+    private AssetInterfacesDescription? TryGetAid() =>
+        GetProject() is { } project && _store.AssetInterfaces.TryGetValue(project.Id, out var aid)
+            ? aid
+            : null;
+
     public List<DsSystem> GetActiveSystems()
     {
         var project = GetProject();
@@ -234,11 +241,8 @@ public class DsProjectService
         var endpoints = new List<PlcEndpointInfo>();
         if (!IsLoaded) return endpoints;
 
-        var aidOption = GetProject()?.AssetInterfaces;
-        if (aidOption is null
-            || !Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
-            return endpoints;
-        var aid = aidOption.Value;
+        var aid = TryGetAid();
+        if (aid is null) return endpoints;
 
         foreach (var system in GetActiveSystems())
         {
@@ -277,10 +281,7 @@ public class DsProjectService
         if (cached is not null) return cached;
         if (!IsLoaded) return null;
 
-        var aidOption = GetProject()?.AssetInterfaces;
-        if (aidOption is null
-            || !Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
-            return null;
+        if (TryGetAid() is not { } aid) return null;
 
         var nameBySystemId = new Dictionary<Guid, string>();
         foreach (var system in GetActiveSystems())
@@ -299,7 +300,7 @@ public class DsProjectService
             return nameBySystemId.TryGetValue(sysIdOpt.Value, out var name) ? name : null;
         }
 
-        foreach (var binding in aidOption.Value.Interfaces)
+        foreach (var binding in aid.Interfaces)
         {
             switch (binding)
             {
@@ -812,10 +813,7 @@ public class DsProjectService
             }
 
             // 2) AID XGT interaction 병합 — System 별 IO맵 주소 + UserTag 주소 (Promaker EnumeratePlcAddressesForSystem 미러).
-            var aidOption = project.AssetInterfaces;
-            var aid = aidOption is not null
-                      && Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption)
-                ? aidOption.Value : null;
+            var aid = TryGetAid();
             var singleActive = activeById.Count == 1;
             foreach (var (sid, entries) in bySystem)
             {
@@ -892,9 +890,7 @@ public class DsProjectService
         try
         {
             if (!IsLoaded || GetProject() is not { } project) return result;
-            var aidOption = project.AssetInterfaces;
-            if (aidOption is null || !FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption)) return result;
-            var aid = aidOption.Value;
+            if (TryGetAid() is not { } aid) return result;
 
             var sys = GetActiveSystems().FirstOrDefault(s => s.Id == systemId);
             var propsOpt = sys?.GetLoggingProperties();

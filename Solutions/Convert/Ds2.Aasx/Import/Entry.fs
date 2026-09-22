@@ -19,7 +19,7 @@ module AasxImporter =
 
     /// 표준 서브모델 (AID / AIMC / OperationalData) 을 project 필드로 복원.
     /// 세 서브모델 모두 Provenance §C · Qualifier(dualsoft:origin) + Extension(auto-suppressed) 파싱.
-    let private importStandardSubmodels (env: Environment) (project: Project) : unit =
+    let private importStandardSubmodels (env: Environment) (store: DsStore) (project: Project) : unit =
         let findSm (idShort: string) =
             env.Submodels
             |> Seq.tryPick (function
@@ -34,8 +34,10 @@ module AasxImporter =
                     // SequenceModel 전체 로드를 막지 않도록 해당 부가 모델만 건너뛴다.
                     log.Warn($"Standard submodel '{idShort}' import skipped: {ex.Message}", ex))
 
+        // AID 의 소유는 store (Project 엔티티에서 분리 — DsStore.AssetInterfaces 주석 참조).
+        // AASX wire format 은 그대로 프로젝트당 Submodel 1개다.
         tryImport AidSubmodelIdShort (fun sm ->
-            project.AssetInterfaces <- Some (submodelToAid sm))
+            store.SetAssetInterfaces(project.Id, submodelToAid sm))
         tryImport AimcSubmodelIdShort (fun sm ->
             project.AssetInterfacesMapping <- Some (submodelToAimc sm))
         tryImport OperationalDataSubmodelIdShort (fun sm ->
@@ -198,7 +200,7 @@ module AasxImporter =
                         let td = submodelToTechnicalData sm
                         project.TechnicalData <- Some td)
 
-                    importStandardSubmodels env project
+                    importStandardSubmodels env store project
 
                     SubmodelType.AllDomains
                     |> List.iter (fun submodelType ->
@@ -267,7 +269,10 @@ module AasxImporter =
                     let td = submodelToTechnicalData sm
                     project.TechnicalData <- Some td)
 
-                importStandardSubmodels env project
+                // AID 는 store 소유라 **`imported` 에 써야** 한다 — 아래 ReplaceStore 가 imported 의
+                // 컬렉션으로 통째 교체하므로, 호출자 store 에 쓰면 그 자리에서 덮여 사라진다.
+                // (Nameplate/TechnicalData 등은 project 객체 자체에 붙어 imported 와 함께 넘어간다.)
+                importStandardSubmodels env imported project
 
                 SubmodelType.AllDomains
                 |> List.iter (fun submodelType ->

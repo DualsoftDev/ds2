@@ -6,6 +6,7 @@ open System.Collections.ObjectModel
 open System.Text.Json.Serialization
 open System.Threading
 open Ds2.Core
+open Ds2.Core.StandardSubmodels
 open Ds2.Serialization
 
 type DsStore() =
@@ -37,6 +38,18 @@ type DsStore() =
     member val ArrowWorks = Dictionary<Guid, ArrowBetweenWorks>()  with get, set
     member val ArrowCalls = Dictionary<Guid, ArrowBetweenCalls>()  with get, set
 
+    /// AID(AssetInterfacesDescription) — projectId → AID. PLC 접속·수집 설정의 정본.
+    ///
+    /// **Project 엔티티가 아니라 store 가 소유한다**(2026-09-22 이관). `trackMutate` 는 undo/redo
+    /// 스냅샷으로 엔티티를 통째로 JSON 왕복 복제하는데, AID 는 모델의 PLC 주소 전량(IO맵+UserTag)을
+    /// 담아 수 MB 로 자란다. Project 에 얹혀 있는 동안은 시스템 1개 추가/삭제마다 그 왕복을 물어
+    /// UI 가 초~수십 초씩 얼어붙었다. AID 편집은 원래 undo 대상이 아니었으므로(동기화기가
+    /// TrackMutate 없이 직접 씀) 소유를 옮겨도 잃는 기능은 없다.
+    ///
+    /// 파일/AASX 형식은 그대로다 — .sdf 는 로드 시 `MigrateProjectAidToStore` 가 구버전 배치를
+    /// 흡수하고, AASX 는 지금도 프로젝트당 Submodel 1개라 wire format 무변경.
+    member val AssetInterfaces = Dictionary<Guid, AssetInterfacesDescription>() with get, set
+
     /// Undo/Redo 시 마지막 트랜잭션에서 변경된 엔티티 ID 목록
     [<JsonIgnore>] member val LastTransactionAffectedIds : Guid list = [] with get, set
 
@@ -51,6 +64,42 @@ type DsStore() =
     [<JsonIgnore>] member this.ArrowCallsReadOnly: IReadOnlyDictionary<Guid, ArrowBetweenCalls> = ReadOnlyDictionary(this.ArrowCalls)
 
     static member empty() = DsStore()
+
+    /// 이 프로젝트의 AID. 없으면 None — 읽기 경로는 만들지 않는다.
+    member this.TryGetAssetInterfaces(projectId: Guid) : AssetInterfacesDescription option =
+        match this.AssetInterfaces.TryGetValue projectId with
+        | true, aid -> Some aid
+        | _ -> None
+
+    /// 이 프로젝트의 AID. 없으면 빈 AID 를 만들어 등록하고 돌려준다 (쓰기 경로 전용).
+    member this.GetOrCreateAssetInterfaces(projectId: Guid) : AssetInterfacesDescription =
+        match this.AssetInterfaces.TryGetValue projectId with
+        | true, aid -> aid
+        | _ ->
+            let fresh = AssetInterfacesDescription()
+            this.AssetInterfaces.[projectId] <- fresh
+            fresh
+
+    member this.SetAssetInterfaces(projectId: Guid, aid: AssetInterfacesDescription) =
+        if isNull (box aid) then this.AssetInterfaces.Remove projectId |> ignore
+        else this.AssetInterfaces.[projectId] <- aid
+
+    /// 구버전 파일 흡수 — Project 안에 실려 오던 AID 를 store 소유로 옮기고 Project 쪽은 비운다.
+    /// (Project.LegacyAssetInterfaces 주석 참조). 이미 store 에 있으면 그쪽을 정본으로 두고 버린다.
+    ///
+    /// 주인 없는 AID 정리도 함께 한다 — 프로젝트를 지워도 AID 는 남는데, **즉시 지우면 undo 로
+    /// 프로젝트가 돌아와도 접속 설정이 안 돌아온다**(AID 는 undo 대상이 아니다). 그래서 세션 중에는
+    /// 남겨 두고 로드 시점에만 떨군다.
+    member internal this.MigrateProjectAidToStore() =
+        for project in this.Projects.Values do
+            match project.LegacyAssetInterfaces with
+            | Some aid ->
+                if not (this.AssetInterfaces.ContainsKey project.Id) then
+                    this.AssetInterfaces.[project.Id] <- aid
+                project.LegacyAssetInterfaces <- None
+            | None -> ()
+        for orphan in this.AssetInterfaces.Keys |> Seq.filter (this.Projects.ContainsKey >> not) |> Seq.toList do
+            this.AssetInterfaces.Remove orphan |> ignore
 
     member internal _.DirectWrite<'T when 'T :> DsEntity>(dict: Dictionary<Guid, 'T>, entity: 'T) =
         dict.[entity.Id] <- entity
@@ -95,6 +144,8 @@ type DsStore() =
         replace source.ApiCalls   this.ApiCalls
         replace source.ArrowWorks this.ArrowWorks
         replace source.ArrowCalls this.ArrowCalls
+        this.AssetInterfaces.Clear()
+        for kv in source.AssetInterfaces do this.AssetInterfaces.[kv.Key] <- kv.Value
 
     member private this.MigrateWorkNaming() =
         for work in this.Works.Values do
@@ -119,6 +170,7 @@ type DsStore() =
             this.RewireApiCallReferences()
             this.MigrateWorkNaming()
             this.MigrateSystemType()
+            this.MigrateProjectAidToStore()
             // round-trip §1.3 hook (3 지점 중 하나): load / replace / import / new — store 전체 교체 후 1회 ++.
             // LLM chat 의 LastSentRevision 무효화 → 다음 송신에 새 snapshot 자동 첨부.
             // **참고 (round-trip §n2)**: 새 store 인스턴스 자체로 교체되는 경로 (`MainViewModel.Reset` →

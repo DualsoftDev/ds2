@@ -39,9 +39,9 @@ module internal CascadeRemove =
     /// 삭제된 System 들을 소속 프로젝트의 Active/Passive 목록에서 뺀다 — **프로젝트당 mutate 1회**.
     ///
     /// System 마다 따로 부르면 안 된다. trackMutate 는 undo/redo 스냅샷으로 엔티티를 통째로 JSON
-    /// 왕복 복제하는데, Project 는 AID(AssetInterfaces)·시뮬레이션 결과 같은 대형 서브모델을 안고
-    /// 있어 스냅샷 1쌍이 수 MB 왕복이다(실측 ≈1초). 16개 선택 삭제가 16초, 프로젝트 통째 삭제가
-    /// 21초씩 UI 를 얼렸다.
+    /// 왕복 복제하는데, Project 는 AIMC·OperationalData·시뮬레이션 결과 같은 대형 서브모델을 안고
+    /// 있어 스냅샷이 모델 규모에 비례해 커진다. AID 가 Project 에 실려 있던 시절엔 이 경로가
+    /// 16개 선택 삭제에 16초, 프로젝트 통째 삭제에 21초씩 UI 를 얼렸다(AID 는 DsStore 소유로 분리됨).
     ///
     /// skipProjectIds = 이 배치에서 통째로 삭제되는 프로젝트. 이미 사라진 엔티티를 mutate 하면
     /// trackMutate 가 "Entity not found" 로 던지고, 어차피 지울 목록을 손보는 것도 무의미하다.

@@ -19,6 +19,14 @@ public static class AidXgtEndpointSynchronizer
     internal static Project? FindOwningProject(DsStore? store, Guid systemId) =>
         store?.Projects.Values.FirstOrDefault(project => project.ActiveSystemIds.Contains(systemId));
 
+    /// <summary>이 프로젝트의 AID. 소유는 Project 엔티티가 아니라 store 다
+    /// (분리 이유는 <c>DsStore.AssetInterfaces</c> 주석 참조). 없으면 null — 읽기 경로는 만들지 않는다.</summary>
+    internal static AssetInterfacesDescription? TryGetAid(DsStore? store, Project? project) =>
+        store is not null && project is not null
+        && store.AssetInterfaces.TryGetValue(project.Id, out var aid)
+            ? aid
+            : null;
+
     private static Guid? TryGetOnlyActiveSystemId(Project? project) =>
         project is not null && project.ActiveSystemIds.Count == 1
             ? project.ActiveSystemIds[0]
@@ -48,24 +56,22 @@ public static class AidXgtEndpointSynchronizer
         if (TryGetOnlyActiveSystemId(project) is null)
             return null;
 
-        var aidOption = project?.AssetInterfaces;
-        if (aidOption is null
-            || !Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
+        var aid = TryGetAid(store, project);
+        if (aid is null)
             return null;
 
-        return AidXgtEndpointSettings.TryReadFirst(aidOption.Value);
+        return AidXgtEndpointSettings.TryReadFirst(aid);
     }
 
     /// <summary>지정한 active System에 연결된 AID InterfaceXGT endpoint를 읽는다.</summary>
     public static AidXgtConnectionInfo? TryReadFromStore(DsStore? store, Guid systemId)
     {
         var project = FindOwningProject(store, systemId);
-        var aidOption = project?.AssetInterfaces;
-        if (aidOption is null
-            || !Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
+        var aid = TryGetAid(store, project);
+        if (aid is null)
             return null;
 
-        return AidXgtEndpointSettings.TryReadForSystem(aidOption.Value, systemId);
+        return AidXgtEndpointSettings.TryReadForSystem(aid, systemId);
     }
 
     /// <summary>Promaker PLC 입력값 → AID endpoint 쓰기 요청. 접속 축(이더넷 host:port / USB selector)의
@@ -121,19 +127,7 @@ public static class AidXgtEndpointSynchronizer
         if (project is null)
             return false;
 
-        AssetInterfacesDescription aid;
-        var aidOption = project.AssetInterfaces;
-        if (aidOption is not null
-            && Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.get_IsSome(aidOption))
-        {
-            aid = aidOption.Value;
-        }
-        else
-        {
-            aid = new AssetInterfacesDescription();
-            project.AssetInterfaces =
-                Microsoft.FSharp.Core.FSharpOption<AssetInterfacesDescription>.Some(aid);
-        }
+        var aid = store.GetOrCreateAssetInterfaces(project.Id);
 
         return AidXgtEndpointSettings.EnsureBindingForSystem(
             aid, systemId, ToRequest(settings), addresses ?? System.Array.Empty<string>()) > 0;

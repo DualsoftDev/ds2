@@ -506,10 +506,11 @@ public sealed class MonitoringSupervisor : IAsyncDisposable
             AidXgtConfigResult? aidXgtPlan = null;
             AidSouthboundConfigResult? aidSouthboundPlan = null;
             var project = store.Projects.Values.FirstOrDefault();
-            if (project?.AssetInterfaces is { } aid)
+            // AID 의 소유는 store (Project 엔티티에서 분리 — DsStore.AssetInterfaces 주석 참조).
+            if (project is not null && store.AssetInterfaces.TryGetValue(project.Id, out var aid))
             {
-                aidXgtPlan = AidXgtGatewayConfig.buildForProject(store, project, aid.Value);
-                aidSouthboundPlan = AidSouthboundConfig.buildForProject(store, project, aid.Value);
+                aidXgtPlan = AidXgtGatewayConfig.buildForProject(store, project, aid);
+                aidSouthboundPlan = AidSouthboundConfig.buildForProject(store, project, aid);
                 if (aidSouthboundPlan is { HasBinding: true, Success: false })
                 {
                     error = $"AID southbound config build failed: {string.Join(" / ", aidSouthboundPlan.Errors)}";

@@ -141,7 +141,7 @@ let ``SequenceKpiGenerator · passive-only legacy project stays untouched`` () =
     let stats = SequenceKpiGenerator.appendForProject store project
 
     Assert.Equal(0, stats.Walked)
-    Assert.True(project.AssetInterfaces.IsNone)
+    Assert.True((store.TryGetAssetInterfaces project.Id).IsNone)
     Assert.True(project.AssetInterfacesMapping.IsNone)
     Assert.True(project.OperationalDataDef.IsNone)
 
@@ -153,13 +153,13 @@ let ``SequenceKpiGenerator · passive-only legacy project stays untouched`` () =
 let ``SequenceKpiGenerator · appendForProject populates 3 submodels`` () =
     let store, project = buildSmallProject ()
 
-    Assert.True(project.AssetInterfaces.IsNone)
+    Assert.True((store.TryGetAssetInterfaces project.Id).IsNone)
     Assert.True(project.OperationalDataDef.IsNone)
     Assert.True(project.AssetInterfacesMapping.IsNone)
 
     let stats = SequenceKpiGenerator.appendForProject store project
 
-    Assert.True(project.AssetInterfaces.IsSome)
+    Assert.True((store.TryGetAssetInterfaces project.Id).IsSome)
     Assert.True(project.OperationalDataDef.IsSome)
     Assert.True(project.AssetInterfacesMapping.IsSome)
 
@@ -211,7 +211,7 @@ let ``SequenceKpiGenerator · AIMC mapping source and sink coherence`` () =
     let _ = SequenceKpiGenerator.appendForProject store project
 
     let aidItems =
-        match project.AssetInterfaces with
+        match store.TryGetAssetInterfaces project.Id with
         | Some aid ->
             aid.Interfaces
             |> Seq.collect (fun b ->

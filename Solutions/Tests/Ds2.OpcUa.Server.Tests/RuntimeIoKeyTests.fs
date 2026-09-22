@@ -151,7 +151,7 @@ let ``AID interaction is projected to deterministic UA variable on store load`` 
         SignalId = SignalId "line1.cnc01.barcode-scan"
     }
     aid.Interfaces.Add(OpcUa(EndpointMetadata.empty, [interaction], [eventBinding]))
-    project.AssetInterfaces <- Some aid
+    store.SetAssetInterfaces(project.Id, aid)
 
     let server, root = mkServer ()
     try

@@ -315,10 +315,10 @@ module internal SystemPackageOps =
 
         // ── Pass 3: 트랜잭션 1회 = Undo 1스텝 ──────────────────────────────────
         // Project 는 **한 번만** mutate 한다. trackMutate 는 undo/redo 스냅샷으로 엔티티를
-        // 통째로 JSON 왕복 복제하는데, Project 엔티티가 AID(AssetInterfaces)·시뮬레이션 결과 등
-        // 대형 서브모델을 안고 있어 스냅샷 1쌍이 수 MB 왕복이다 (Agent 업로드를 한 번이라도 한
-        // 모델은 IO맵/UserTag 주소 전량이 AID 에 박혀 있다 — 실측 9,600 interaction = 1.8MB,
-        // 왕복 1.1초). System 마다 부르면 그 비용이 (루트+디바이스) 배로 늘어 UI 가 수십 초 얼어붙는다.
+        // 통째로 JSON 왕복 복제하는데, Project 엔티티가 AIMC·OperationalData·시뮬레이션 결과 등
+        // 대형 서브모델을 안고 있어 스냅샷이 모델 규모에 비례해 커진다. System 마다 부르면 그
+        // 비용이 (루트+디바이스) 배로 늘어난다 — AID 가 Project 에 실려 있던 시절엔 이 경로가
+        // 16개 가져오기에 16.7초씩 UI 를 얼렸다(AID 는 DsStore 소유로 분리됨).
         let activeIdsToAdd = ResizeArray<Guid>()
         let passiveIdsToAdd = ResizeArray<Guid>()
         for old, clone in rootClones do

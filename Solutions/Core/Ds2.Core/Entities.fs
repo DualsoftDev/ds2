@@ -27,8 +27,17 @@ type Project [<JsonConstructor>] internal (name) =
 
     // ── Phase 0 · AAS × OPC UA 통합 스택 신규 서브모델 ────────────────────────
     // 모두 별도 AASX Submodel 로 직렬화되므로 Skip = true (Phase 1 Export 가 담당).
+    /// ⚠ **레거시 로드 전용.** AID 의 소유는 `DsStore.AssetInterfaces` 로 이관됐다(2026-09-22).
+    /// 이유: undo 스냅샷(trackMutate)이 엔티티를 통째로 JSON 왕복 복제하는데 AID 는 모델의 PLC 주소
+    /// 전량을 담아 수 MB 로 자란다 — Project 를 건드리는 모든 편집이 초 단위로 느려졌다(시스템
+    /// 가져오기 16초, 다중 삭제 16초). AID 편집은 원래 undo 대상이 아니었으므로 잃는 것은 없다.
+    ///
+    /// 구버전 .sdf/.json 은 이 자리(`assetInterfaces`)에 AID 를 싣고 있어, 로드 직후
+    /// `DsStore.MigrateProjectAidToStore` 가 store 로 옮기고 None 으로 비운다.
+    /// 저장 시엔 항상 None 이라 WhenWritingNull 로 빠진다 — 새 파일엔 이 키가 없다.
     [<AasxField("AssetInterfacesDescription",           Skip = true)>]
-    member val AssetInterfaces        : AssetInterfacesDescription option              = None with get, set
+    [<JsonPropertyName("assetInterfaces")>]
+    member val LegacyAssetInterfaces  : AssetInterfacesDescription option              = None with get, set
 
     [<AasxField("AssetInterfacesMappingConfiguration",  Skip = true)>]
     member val AssetInterfacesMapping : AssetInterfacesMappingConfiguration option     = None with get, set

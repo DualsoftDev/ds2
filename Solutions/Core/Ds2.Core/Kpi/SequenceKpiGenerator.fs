@@ -42,16 +42,11 @@ type KpiGenerationStats = {
 [<RequireQualifiedAccess>]
 module SequenceKpiGenerator =
 
-    let private appendTargets (project: Project) (targets: KpiTarget list) : KpiGenerationStats =
+    let private appendTargets (store: DsStore) (project: Project) (targets: KpiTarget list) : KpiGenerationStats =
         // KPI 대상이 확인된 뒤에만 3개 서브모델을 생성한다.
         // Passive-only/빈 구형 프로젝트를 export할 때 빈 Phase 0 모델이 생기는 것을 방지한다.
-        let aid =
-            match project.AssetInterfaces with
-            | Some a -> a
-            | None ->
-                let fresh = AssetInterfacesDescription()
-                project.AssetInterfaces <- Some fresh
-                fresh
+        // AID 의 소유는 store 다 (Project 엔티티에서 분리 — DsStore.AssetInterfaces 주석 참조).
+        let aid = store.GetOrCreateAssetInterfaces project.Id
         let od =
             match project.OperationalDataDef with
             | Some o -> o
@@ -114,4 +109,4 @@ module SequenceKpiGenerator =
         let targets = KpiWalker.walk store project
         match targets with
         | [] -> KpiGenerationStats.empty
-        | _ -> appendTargets project targets
+        | _ -> appendTargets store project targets
