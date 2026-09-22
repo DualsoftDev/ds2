@@ -143,15 +143,35 @@ public class OeePlannedStopsController : OeeControllerBase
         var (plannedWindows, _, applyLongStop) = await ResolvePlannedWindowsAsync(thresholds, ct);
         if (detected) applyLongStop = true;   // 실측 패턴 조회 — 수동 시간대가 감지를 끄지 못하게
         var agg = await ComputeCycleAggregateAsync(flowName, fromUtc, toUtc, thresholds, plannedWindows, applyLongStop, ct);
-        var merged = new List<(double S, double E)>();
-        merged.AddRange(await _repo.GetNonProdIntervalsFromLogAsync(fromUtc, toUtc, flowName, ct));
-        merged.AddRange(ExpandPlannedIntervalsMs(plannedWindows, fromUtc, toUtc));
-        if (agg.NonProdIntervals is { Count: > 0 })
-            merged.AddRange(agg.NonProdIntervals);   // 방금 감지·강제(사용자 보내기 포함)한 실측 구간 직접 포함 —
-                                                     // 로그 왕복·materialize 신뢰게이트 의존 제거 + 수동 non_production 이벤트 표시
-        List<(double S, double E)> intervals = merged.Count > 0
-            ? Intervals.Union(merged)
-            : (agg.NonProdIntervals ?? new List<(double S, double E)>());
+        var plannedIv = ExpandPlannedIntervalsMs(plannedWindows, fromUtc, toUtc);
+
+        // ── 라인 스코프(flow 미지정)의 비생산 범위 = flow별 비생산의 교집합 (2026-09-22 수정) ──
+        //   비생산은 doc/25 §3.1 부터 flow 귀속이다 — "이 설비가 안 돌았다"의 모임이지 라인의 상태가 아니다.
+        //   종전엔 이걸 합집합해 그렸다 — 설비가 24대면 "한 대라도 쉬는 순간"은 사실상 항상이라
+        //   어제·그제가 24시간 통째로 칠해졌다(현장 실측: 22대가 돌았던 날도 종일 비생산).
+        //   라인이 비생산이라 말할 수 있는 건 판정 가능한 설비가 모두 동시에 비생산일 때뿐이다.
+        //   판정 불가(표본 게이트) flow 는 모집단에서 뺀다 — 기준선이 없어 비생산도 가동도 주장할 근거가 없다.
+        //   (flow 스코프는 그 flow 하나뿐이라 합집합이 곧 교집합 — 종전 경로 그대로.)
+        List<(double S, double E)> intervals;
+        if (flowName is null && agg.JudgedFlows is { Count: > 0 })
+        {
+            var common = OeeMath.IntersectNonProdAcrossFlows(
+                agg.JudgedFlows, agg.NonProdScoped ?? new List<(string? Flow, double S, double E)>());
+            // 지정 시각대는 설비와 무관한 라인 공통 결정(경영 판단) — 교집합과 무관하게 항상 남는다.
+            intervals = Intervals.Union(common.Concat(plannedIv).ToList());
+        }
+        else
+        {
+            var merged = new List<(double S, double E)>();
+            merged.AddRange(await _repo.GetNonProdIntervalsFromLogAsync(fromUtc, toUtc, flowName, ct));
+            merged.AddRange(plannedIv);
+            if (agg.NonProdIntervals is { Count: > 0 })
+                merged.AddRange(agg.NonProdIntervals);   // 방금 감지·강제(사용자 보내기 포함)한 실측 구간 직접 포함 —
+                                                         // 로그 왕복·materialize 신뢰게이트 의존 제거
+            intervals = merged.Count > 0
+                ? Intervals.Union(merged)
+                : (agg.NonProdIntervals ?? new List<(double S, double E)>());
+        }
         // 미계측(수신 공백, §3.4) — 데이터로는 비생산과 분리하되(별도 필드·학습 §3.5 차집합·A 별도 제외),
         // 화면 표시는 비생산에 합친다(사용자 결정 2026-07-04): 사용자 눈에는 "제외된 시간" 하나로 보이고,
         // 14일 이동평균 학습과 KPI 카빙에는 절대 안 들어간다. displayIv = 비생산 ∪ 미계측.

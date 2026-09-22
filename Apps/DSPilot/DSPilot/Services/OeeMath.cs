@@ -475,6 +475,75 @@ public static class OeeMath
     }
 
     /// <summary>
+    /// 라인(전체) 비생산 구간 = flow별 비생산의 <b>교집합</b> (2026-09-22).
+    ///
+    /// 비생산은 doc/25 §3.1 부터 flow 귀속이다 — "이 설비가 안 돌았다"의 모임이지 라인의 상태가 아니다.
+    /// 종전 planned-stops/actual 은 이걸 합집합해 하나의 24h 트랙으로 그렸는데, 설비가 24대면
+    /// "한 대라도 쉬는 순간"은 사실상 항상이라 라인이 멀쩡하게 돌았던 날까지 24시간 통째로
+    /// 비생산으로 칠해졌다(현장 실측: 22대가 3,707사이클을 돌린 날도 종일 비생산).
+    /// 라인이 비생산이라 말할 수 있는 건 <b>판정 가능한 설비가 모두 동시에</b> 비생산일 때뿐이다.
+    ///
+    /// 판정 불가(표본 게이트) flow 는 <paramref name="judgedFlows"/> 에서 빠져 있어 모집단 밖이다 —
+    /// 기준선이 없어 비생산도 가동도 주장할 근거가 없으므로, 그 flow 때문에 교집합이 비면 안 된다.
+    /// 거꾸로 비생산이 한 번도 없는 judged flow 가 하나라도 있으면 결과는 공집합이다(그 설비는 내내 돌았다).
+    ///
+    /// 구현 = 깊이 스윕(+1/-1). flow 당 먼저 union 해 자기 겹침을 없앤다 — 안 그러면 한 flow 가
+    /// 두 번 세져 깊이가 정원에 닿는 가짜 교집합이 생긴다.
+    /// </summary>
+    /// <param name="judgedFlows">판정 가능한 flow 키(가상 flow 이름 축) — 교집합의 모집단.</param>
+    /// <param name="nonProdScoped">flow 귀속 비생산 구간(기간 클립·미계측 차감 완료) — CycleAgg.NonProdScoped.</param>
+    public static List<(double S, double E)> IntersectNonProdAcrossFlows(
+        IEnumerable<string> judgedFlows,
+        IEnumerable<(string? Flow, double S, double E)> nonProdScoped)
+    {
+        var judged = new HashSet<string>(judgedFlows, StringComparer.Ordinal);
+        var res = new List<(double S, double E)>();
+        if (judged.Count == 0) return res;
+
+        var byFlow = new Dictionary<string, List<(double S, double E)>>(StringComparer.Ordinal);
+        foreach (var (f, s, e) in nonProdScoped)
+        {
+            if (f is null || e <= s || !judged.Contains(f)) continue;
+            if (!byFlow.TryGetValue(f, out var l)) byFlow[f] = l = new List<(double S, double E)>();
+            l.Add((s, e));
+        }
+        if (byFlow.Count < judged.Count) return res;   // 비생산이 없는 judged flow 가 있다 = 그 시간 라인은 돌았다
+
+        // At 오름차순, 같은 지점은 +1 먼저 — [a,b) 와 [b,c) 가 맞닿을 때 깊이가 잠깐 떨어지지 않게.
+        var events = new List<(double At, int D)>();
+        foreach (var l in byFlow.Values)
+            foreach (var (s, e) in MergeOverlaps(l))
+            {
+                events.Add((s, +1));
+                events.Add((e, -1));
+            }
+        events.Sort((x, y) => x.At != y.At ? x.At.CompareTo(y.At) : y.D.CompareTo(x.D));
+
+        int depth = 0, n = judged.Count;
+        double start = 0;
+        foreach (var ev in events)
+        {
+            if (depth == n && ev.At > start) res.Add((start, ev.At));
+            depth += ev.D;
+            if (depth == n) start = ev.At;
+        }
+        return res;
+    }
+
+    /// <summary>같은 flow 의 겹치는·맞닿는 구간 병합(정렬 후 1패스).</summary>
+    private static List<(double S, double E)> MergeOverlaps(List<(double S, double E)> segs)
+    {
+        var xs = segs.Where(x => x.E > x.S).OrderBy(x => x.S).ToList();
+        var res = new List<(double S, double E)>();
+        foreach (var x in xs)
+        {
+            if (res.Count > 0 && x.S <= res[^1].E) res[^1] = (res[^1].S, Math.Max(res[^1].E, x.E));
+            else res.Add(x);
+        }
+        return res;
+    }
+
+    /// <summary>
     /// 구간(UTC epoch ms)들을 [clipS, clipE) 로 클립해 minute-of-day(0~1440) 커버리지로 접어 병합
     /// windows 로 반환 — planned-stops/actual 의 "하루 접기"(기간 마지막 날)와 "날짜별 접기"(TEEP
     /// 날짜별 비생산 패턴, 날마다 그 날의 자정 경계로 클립해 호출) 공용 순수함수.

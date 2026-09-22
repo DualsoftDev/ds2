@@ -617,7 +617,7 @@
                     <template x-if="teepNpDays().length > 0">
                         <div>
                             <div class="up-teep-legend" style="margin-top:0; margin-bottom:9px;">
-                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 (사이클 길이 판정)</div>
+                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 (라인 전체 정지)</div>
                                 <div class="up-teep-leg"><span class="sw" style="width:3px; background:var(--color-primary);"></span>지금</div>
                             </div>
                             <div class="up-npd" :class="teepNpDense() ? 'is-dense' : ''">
@@ -632,7 +632,7 @@
                                                 <div class="up-npd-now" :style="`left:${nowMin() / 1440 * 100}%;`"></div>
                                             </template>
                                         </div>
-                                        <div class="up-npd-sum" x-text="teepNpDayMs(d) > 0 ? durSum(teepNpDayMs(d)) : '—'" :title="sumFlowNote(teepNpDayMs(d))"></div>
+                                        <div class="up-npd-sum" x-text="teepNpDayMs(d) > 0 ? durWall(teepNpDayMs(d)) : '—'" title="그 날 라인 전체가 비생산이었던 시간의 합(벽시계) — 설비 합산 아님"></div>
                                     </div>
                                 </template>
                                 <div class="up-npd-row up-npd-axis">
@@ -644,7 +644,7 @@
                                 </div>
                             </div>
                             <div class="up-form-hint" style="margin-top:10px;">
-                                행 = 그 날 가용성 계산에서 빠진 <b>비생산</b> 시간대, 우측 = 일 합계.
+                                행 = <b>라인 전체가 멈췄던</b> 비생산 시간대 — 설비 한 대라도 돌았다면 여기 안 들어갑니다. 우측 = 일 합계.
                                 <span x-show="availComp.npBoundary" x-cloak x-text="'사이클이 비생산 기준 ' + availComp.npBoundary + ' 이상이면 자동으로 여기 들어옵니다.'"></span>
                             </div>
                         </div>

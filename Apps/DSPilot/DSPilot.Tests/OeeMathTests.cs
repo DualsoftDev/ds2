@@ -793,6 +793,84 @@ public class OeeMathTests
         Assert.Equal(1, cells[1].CycleCount);
     }
 
+    // ── IntersectNonProdAcrossFlows — 라인 비생산 = flow별 비생산의 교집합 (2026-09-22) ──
+    // 회귀 방지 대상: 합집합으로 그리면 설비가 여럿이라 라인이 돌았던 날까지 24시간 비생산이 된다.
+
+    private static (string?, double, double) Np(string flow, double startMin, double endMin)
+        => (flow, startMin * 60_000.0, endMin * 60_000.0);
+
+    [Fact]
+    public void LineNonProd_is_only_where_every_judged_flow_is_non_producing()
+    {
+        // A 는 00:00~10:00, B 는 06:00~12:00 비생산 → 라인은 겹치는 06:00~10:00 만 비생산.
+        var res = OeeMath.IntersectNonProdAcrossFlows(
+            new[] { "A", "B" },
+            new List<(string?, double, double)> { Np("A", 0, 600), Np("B", 360, 720) });
+
+        var seg = Assert.Single(res);
+        Assert.Equal(360 * 60_000.0, seg.S);
+        Assert.Equal(600 * 60_000.0, seg.E);
+    }
+
+    [Fact]
+    public void LineNonProd_is_empty_when_some_flow_kept_running()
+    {
+        // 버그 재현: 설비들이 서로 다른 시간에 쉬면 합집합은 24시간을 덮는다 — 교집합은 공집합이어야 한다.
+        var res = OeeMath.IntersectNonProdAcrossFlows(
+            new[] { "A", "B" },
+            new List<(string?, double, double)> { Np("A", 0, 720), Np("B", 720, 1440) });
+
+        Assert.Empty(res);
+    }
+
+    [Fact]
+    public void LineNonProd_ignores_unjudged_flows()
+    {
+        // 판정 불가(표본 게이트) flow C 는 모집단 밖 — 비생산이 없다고 교집합을 비워도 안 되고,
+        // 있다고 넓혀도 안 된다(judged 목록에 없으면 어느 쪽으로도 결과를 바꾸지 않는다).
+        var withC = OeeMath.IntersectNonProdAcrossFlows(
+            new[] { "A", "B" },
+            new List<(string?, double, double)> { Np("A", 0, 600), Np("B", 360, 720), Np("C", 0, 1440) });
+        var withoutC = OeeMath.IntersectNonProdAcrossFlows(
+            new[] { "A", "B" },
+            new List<(string?, double, double)> { Np("A", 0, 600), Np("B", 360, 720) });
+
+        Assert.Equal(withoutC, withC);
+    }
+
+    [Fact]
+    public void LineNonProd_is_empty_when_a_judged_flow_has_no_non_production()
+    {
+        // B 는 기간 내내 돌았다(비생산 구간 0건) → 라인은 한 순간도 전체 정지가 아니다.
+        var res = OeeMath.IntersectNonProdAcrossFlows(
+            new[] { "A", "B" },
+            new List<(string?, double, double)> { Np("A", 0, 1440) });
+
+        Assert.Empty(res);
+    }
+
+    [Fact]
+    public void LineNonProd_merges_self_overlap_before_counting()
+    {
+        // 같은 flow 의 겹치는 두 구간이 깊이 2 로 세져 "두 설비가 동시에 비생산"으로 오인되면 안 된다.
+        var res = OeeMath.IntersectNonProdAcrossFlows(
+            new[] { "A", "B" },
+            new List<(string?, double, double)> { Np("A", 0, 600), Np("A", 300, 900) });
+
+        Assert.Empty(res);
+    }
+
+    [Fact]
+    public void LineNonProd_does_not_bridge_adjacent_windows_of_different_flows()
+    {
+        // A=[0,600), B=[600,1200) — 맞닿긴 해도 동시에 쉬는 순간은 없다(길이 0 구간도 내지 않는다).
+        var res = OeeMath.IntersectNonProdAcrossFlows(
+            new[] { "A", "B" },
+            new List<(string?, double, double)> { Np("A", 0, 600), Np("B", 600, 1200) });
+
+        Assert.Empty(res);
+    }
+
     // ── FoldIntervalsToMinuteOfDay — planned-stops/actual 하루/날짜별 접기 (TEEP 날짜별 비생산 패턴) ──
     // epoch 0 = 그 날 00:00 로 두고 minute-of-day 변환기를 주입해 서버 타임존과 무관하게 검증한다.
 

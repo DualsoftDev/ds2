@@ -1103,7 +1103,10 @@ public abstract class OeeControllerBase : ControllerBase
         //   없으므로 미계측·진행 중과 같은 자리(분모·분자 밖). 종전 "전부 정상"은 긴 정지까지 가동으로 세어 "측정 안 되는 설비를
         //   만점으로" 오류를 되살렸다. 빼는 것과 뺐다고 보고하는 것(커버리지)이 한 세트 — 이 두 필드가 그 보고다.
         double UnjudgedWallMs = 0,                                       // Σ_판정불가 flow 의 생산가능(카빙 후) — 종전엔 AvailableWallMs 에 들어갔던 양
-        List<string>? UnjudgedFlows = null);                             // 그 flow 이름(가상 flow 키) — 무결성 카드 표기
+        List<string>? UnjudgedFlows = null,                              // 그 flow 이름(가상 flow 키) — 무결성 카드 표기
+        // 판정 가능한 flow(= 패스 2 의 게이트를 통과한 flow). 라인 표시가 "모든 설비가 동시에 비생산"인
+        // 시간대를 구할 때의 모집단 — 판정 불가 flow 는 비생산도 가동도 주장할 수 없어 교집합을 비우면 안 된다.
+        List<string>? JudgedFlows = null);
 
     private sealed class CycleAggRow { public long NormalCt { get; set; } public long NormalCount { get; set; } public long NonProdNormalCt { get; set; } }
     private sealed class DtCycleRaw { public string? RecordedAt { get; set; } public long? Ct { get; set; } public long? Mt { get; set; } public long? Wt { get; set; } }
@@ -1189,6 +1192,7 @@ public abstract class OeeControllerBase : ControllerBase
         InProgressScoped = v.InProgressScoped is null ? null : new List<(string? Flow, double S, double E)>(v.InProgressScoped),
         UnattributedByFlow = v.UnattributedByFlow is null ? null : new Dictionary<string, double>(v.UnattributedByFlow, StringComparer.OrdinalIgnoreCase),
         UnjudgedFlows = v.UnjudgedFlows is null ? null : new List<string>(v.UnjudgedFlows),
+        JudgedFlows = v.JudgedFlows is null ? null : new List<string>(v.JudgedFlows),
     };
 
     /// <summary>비생산 판정 배수 — 사용자 설정(설비효율 현황) 정규화 값. 집계·문구·DTO 공용.</summary>
@@ -1720,6 +1724,7 @@ public abstract class OeeControllerBase : ControllerBase
         var unattributedByFlow = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         double unjudgedWallMs = 0;                       // 판정 불가 flow 의 생산가능(카빙 후) 합 — 분모 밖, 커버리지 보고
         var unjudgedFlows = new List<string>();
+        var judgedFlows = new List<string>();            // 게이트 통과 flow — 라인 비생산 교집합의 모집단(planned-stops/actual)
         foreach (var (f, flowRun) in flowRunByFlow)
         {
             // flow별 비생산 창 = 지정 시각대(라인 공통, 구간) ∪ 이 flow 의 비생산 행 구간.
@@ -1757,6 +1762,8 @@ public abstract class OeeControllerBase : ControllerBase
                 unattributedByFlow[f] = 0;
                 continue;
             }
+
+            judgedFlows.Add(f);   // 게이트 통과 = 이 flow 의 비생산/가동 판정을 신뢰할 수 있다
 
             // 가동 = 이 flow 정상 행 ∩ 생산가능. 비가동 = 생산가능 − 가동. 유지보수 = 비가동 ∩ 유지보수 이벤트(부모 키).
             // 고장 = (비가동 − 유지보수) ∩ 고장 행 전체 구간. 잔여 = 사이클 행이 아예 없는 '기록 공백'(아래).
@@ -1861,7 +1868,7 @@ public abstract class OeeControllerBase : ControllerBase
             NonProdCount: nonProdCount,
             FaultMtCount: faultMtCount, FaultCtCount: faultCtCount,
             NonProdWtCount: nonProdWtCount, NonProdCtCount: nonProdCtCount, NonProdMtCount: nonProdMtCount,
-            UnjudgedWallMs: unjudgedWallMs, UnjudgedFlows: unjudgedFlows);
+            UnjudgedWallMs: unjudgedWallMs, UnjudgedFlows: unjudgedFlows, JudgedFlows: judgedFlows);
     }
 
     private static OeeNonProdDetectionLog NewNonProdDetection(

@@ -895,6 +895,8 @@
                     return Math.max(0, Math.min(100, this.teep[field] / this.teep.calendarMs * 100)).toFixed(1);
                 },
                 // ── 날짜별 비생산 패턴 (/api/oee/planned-stops/actual · days) — 생산효율 페이지 전용 ──
+                // 라인 스코프의 days[].windows 는 "판정 가능한 설비가 모두 동시에 비생산" 인 시간대다(교집합,
+                // 2026-09-22 서버 수정). 합집합이던 종전엔 설비 한 대만 쉬어도 라인 전체가 비생산으로 24시간 칠해졌다.
                 // ps.actualNonProd(설비효율 설정 타임라인, 자동 모드 전용)와 별도 상태 — 여기는 자동/수동 설정과
                 // 무관하게 그 범위의 실측 비생산 패턴을 조회한다(detected=true).
                 //   2026-09-22: OEE 페이지의 '날짜별 비생산 패턴'도 같은 것을 쓴다(종전 '비생산 시간대' 자리).
@@ -1982,6 +1984,8 @@
                     const s = new Date(r.from).getTime(), e = new Date(r.to).getTime();
                     return (isFinite(s) && isFinite(e) && e > s) ? (e - s) : 0;
                 },
+                // 벽시계 합(라인 24h 트랙) — 설비 합산이 아니라 그 날 실제 시각 길이다. 하루 최대 24시간이라 시간 단위 고정.
+                durWall(ms) { return window.dspFmt.dur(ms, undefined, { maxUnit: 'h' }); },
                 durSum(ms) {
                     const span = this._rangeSpanMs();
                     const capHours = this.sumFlowCount() > 1 && span > 0 && span <= SUM_HOUR_UNIT_MAX_MS;
@@ -2272,6 +2276,8 @@
                 // 날짜 행 배열(최근이 위) — 각 이벤트 [startAt, endAt|now] 를 기간으로 클립 후 로컬 자정 경계로 접고,
                 // 그 날의 비생산∪미계측 창(ps.actualNonProd.days — 가용성 정산이 A 분모에서 빼는 것과 동일 소스)을
                 // 차집합으로 뺀다. 안 빼면 주말·무오더 장기 정지가 통째로 빨갛게 나와 정산 바의 비가동(2%대)과 어긋난다.
+                // 빼는 창은 2026-09-22 부터 라인 전체 정지(flow별 비생산의 교집합)만이다 — 종전 합집합은 사실상
+                // 기간 전체를 덮어 주간 고장까지 통째로 지웠다(설비 귀속 비생산은 isNonProd 가 이미 걸러낸다).
                 // Alpine 렌더마다 재호출되므로 (downtime/actualNonProd identity, 필터, 기간) 메모로 재계산 억제 —
                 // 10초 폴링이 downtime 을 새 배열로 교체하면 자동 무효화(진행중 이벤트의 '현재까지' 연장도 그때 반영).
                 dtPatDays() {
