@@ -398,6 +398,37 @@ public class AbnormalAlarmSettings
     /// </summary>
     public List<UserTagDeviceBinding> UserTagDeviceBindings { get; set; } = [];
 
+    /// <summary>
+    /// System 이름·GUID 가 바뀌었을 때 과거를 잇는 별칭 이력 — <see cref="UserTagDeviceBindings"/> 의 리네임 내성.
+    /// <para>
+    /// 2026-09-21 현장에서 AASX 교체로 System 이름이 <c>ub1_#121_#134</c> → <c>UB_#121_#134</c> 로 바뀌자,
+    /// (System 이름, 주소) 복합키가 안 맞아 <b>사흘치 2,000여 건이 통째로 지표에서 빠졌다</b>(고장 0건).
+    /// 게다가 조용히 일어나 화면에는 '미지정' 으로만 보였다. 이름 하나에 매달리지 않도록 별칭을 남긴다.
+    /// </para>
+    /// </summary>
+    public List<SystemAlias> SystemAliases { get; set; } = [];
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+/// <summary>
+/// 옛 System 표식 → 새 System 표식. 이름과 GUID 를 둘 다 적어 두고, 조회 시 어느 쪽이든 맞으면 잇는다.
+/// </summary>
+public class SystemAlias
+{
+    /// <summary>옛 System 이름(알람 행에 박제된 값).</summary>
+    public string FromSystem { get; set; } = "";
+
+    /// <summary>옛 System GUID. 비어 있어도 된다(이름만 바뀐 경우).</summary>
+    public string FromSystemId { get; set; } = "";
+
+    /// <summary>현재 System 이름.</summary>
+    public string ToSystem { get; set; } = "";
+
+    /// <summary>현재 System GUID.</summary>
+    public string ToSystemId { get; set; } = "";
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
@@ -411,10 +442,18 @@ public class AbnormalAlarmSettings
 /// </summary>
 public class UserTagDeviceBinding
 {
-    /// <summary>UserTag 을 정의한 활성 System 의 이름.</summary>
+    /// <summary>UserTag 을 정의한 활성 System 의 이름. 표시용이자 최후 폴백 키다.</summary>
     public string System { get; set; } = "";
 
-    /// <summary>UserTag 정의의 태그 주소(정의 고유키).</summary>
+    /// <summary>
+    /// 그 System 의 GUID — <b>정본 키</b>(2026-09-22 신설). 이름은 AASX 교체로 바뀌지만 GUID 는 남는다.
+    /// 비어 있으면(이 필드 이전에 저장된 매핑) 이름으로 폴백하고, 저장 시 현재 모델에서 채워 넣는다.
+    /// GUID 도 통째로 재발급된 전례가 있어(2026-09-08) 이것만으로 충분하진 않다 —
+    /// <see cref="AbnormalAlarmSettings.SystemAliases"/> 가 그 경우를 받는다.
+    /// </summary>
+    public string SystemId { get; set; } = "";
+
+    /// <summary>UserTag 정의의 태그 주소(정의 고유키). PLC 프로그램에서 오는 값이라 AASX 변경에 안 흔들린다.</summary>
     public string TagAddress { get; set; } = "";
 
     /// <summary>

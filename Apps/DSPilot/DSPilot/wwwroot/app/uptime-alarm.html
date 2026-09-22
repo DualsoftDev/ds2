@@ -158,18 +158,43 @@
                                     </div>
 
                                     <div class="up-utkpi-row" style="margin-bottom:10px;">
-                                        <div class="up-utkpi" :title="'복구 완료 ' + rel.recoveredCount + '건의 평균 — 발생에서 재가동까지. 야간·주말을 빼지 않은 달력 시간입니다.'">
-                                            <div class="up-utkpi-label">평균 수리 시간 (eMTTR)</div>
+                                        <div class="up-utkpi" :title="'복구 완료 ' + rel.recoveredCount + '건의 평균 — 사건 발생에서 재가동까지. 야간·주말을 빼지 않은 달력 시간입니다.'">
+                                            <div class="up-utkpi-label">평균 정지 시간 (eMTTR)</div>
                                             <div class="up-utkpi-value" x-text="relValue(rel.eMttrMs, rel.recoveredCount)"
                                                  :style="rel.eMttrMs == null ? 'font-size:0.9rem;color:var(--color-text-disabled);' : ''"></div>
-                                            <div class="up-utkpi-sub" x-text="'등록 에러 태그 기준 · 복구 완료 ' + rel.recoveredCount + '건'"></div>
+                                            <div class="up-utkpi-sub" x-text="'발생→재가동 · 복구 완료 ' + rel.recoveredCount + '건'"></div>
                                         </div>
-                                        <div class="up-utkpi" :title="'복구에서 다음 고장까지의 평균 — 고장 건수는 ' + rel.faultCount + '건(발생 전체)이고 이 평균은 간격 ' + rel.mtbfIntervalCount + '개 위에 섭니다.'">
+                                        <div class="up-utkpi" :title="'가동시간 ÷ 고장 건수. 설비가 실제로 선 ' + rel.faultCount + '건만 셉니다 — 도는 중에 울린 경고는 빠집니다.'">
                                             <div class="up-utkpi-label">평균 고장 간격 (eMTBF)</div>
-                                            <div class="up-utkpi-value" x-text="relValue(rel.eMtbfMs, rel.mtbfIntervalCount)"
+                                            <div class="up-utkpi-value" x-text="relValue(rel.eMtbfMs, rel.faultCount)"
                                                  :style="rel.eMtbfMs == null ? 'font-size:0.9rem;color:var(--color-text-disabled);' : ''"></div>
-                                            <div class="up-utkpi-sub" x-text="'등록 에러 태그 기준 · 고장 ' + rel.faultCount + '건'"></div>
+                                            <div class="up-utkpi-sub" x-text="'가동시간 ÷ 고장 ' + rel.faultCount + '건'"></div>
                                         </div>
+                                    </div>
+
+                                    <!-- ★리네임으로 과거가 끊긴 경우 — 조용히 넘어가면 사용자는 '아직 안 묶었나' 로 읽는다.
+                                         실제로는 이미 묶었는데 System 이름이 바뀌어 키가 안 맞는 것이다(2026-09-21 현장). -->
+                                    <template x-if="rel.staleSystems && rel.staleSystems.length > 0">
+                                        <div class="settings-note" style="border-left:3px solid var(--color-warning);padding-left:10px;margin-bottom:10px;">
+                                            <small>
+                                                <strong>일부 구간이 집계에서 빠졌습니다.</strong>
+                                                <span x-text="rel.staleSystems.join(' · ')"></span> 은(는) 현재 모델에 없는 System 이름입니다 —
+                                                AASX 교체로 이름이 바뀌면 그 이전 알람이 디바이스 귀속과 이어지지 않습니다.
+                                                <a class="ds-selbar-link" href="/app/settings.html?tab=general#user-tags">설정 ▸ 사용자 태그에서 확인</a>
+                                            </small>
+                                        </div>
+                                    </template>
+
+                                    <!-- 분해 — 숫자 하나만 내놓고 틀리는 것보다 낫다. 칩 클릭 = 그 부류만 보기.
+                                         '무정지 경고' 가 이 블록의 실질 산출물이다(설비가 서지도 않았는데 고장으로 세던 것). -->
+                                    <div class="up-blk-tabs" style="flex-wrap:wrap;gap:6px;margin-bottom:8px;" x-show="relBreakdown.length > 0">
+                                        <template x-for="b in relBreakdown" :key="b.label">
+                                            <button class="up-blk-tab" :class="{ on: relState === b.key }" @click="setRelState(b.key)"
+                                                    :title="b.tip || '설비가 실제로 선 사건만 지표에 들어갑니다'"
+                                                    :style="b.cls === 'chip-warning' && b.n > 0 ? 'border-color:var(--color-warning);' : ''">
+                                                <span x-text="b.label"></span><span class="up-blk-tabcount" x-text="b.n"></span>
+                                            </button>
+                                        </template>
                                     </div>
 
                                     <!-- 회복 현황 — 칩 클릭 = 그 상태만 보기. '재가동 미확인' 이 이 기능의 실질 산출물이다
@@ -194,6 +219,38 @@
                                         </button>
                                     </div>
 
+                                    <!-- 디바이스별 — 보전 액션이 붙는 단위다. 라인 카드는 이 행들을 직렬 합산해 굴려 올린 것이라
+                                         표의 합과 카드가 어긋나지 않는다. 기본 정렬 = 총 정지시간(서버) — 그게 보전 우선순위다. -->
+                                    <div style="overflow-x:auto;margin-bottom:12px;" x-show="rel.devices && rel.devices.length > 0">
+                                        <table class="ds-table ut-table">
+                                            <thead><tr>
+                                                <th>디바이스</th><th>고장</th><th>복구</th>
+                                                <th title="알람은 울렸지만 설비가 돌고 있던 건">경고</th>
+                                                <th title="사이클 리듬이 유지된 구간의 합 — eMTBF 의 분모">가동시간</th>
+                                                <th>eMTBF</th><th>eMTTR</th><th>총 정지</th>
+                                            </tr></thead>
+                                            <tbody>
+                                                <template x-for="d in rel.devices" :key="d.systemName + '|' + d.device">
+                                                    <tr>
+                                                        <td data-label="디바이스">
+                                                            <strong x-text="d.device"></strong>
+                                                            <div style="font-size:0.72rem;color:var(--color-text-secondary);" x-text="d.systemName"></div>
+                                                        </td>
+                                                        <td data-label="고장" x-text="d.faultCount"></td>
+                                                        <td data-label="복구" x-text="d.recoveredCount"></td>
+                                                        <td data-label="경고" x-text="d.nonStopWarningCount || '—'"></td>
+                                                        <td data-label="가동시간" x-text="d.operatingMs > 0 ? durShort(d.operatingMs) : '—'"></td>
+                                                        <td data-label="eMTBF" x-text="relValue(d.eMtbfMs, d.faultCount)"
+                                                            :style="d.eMtbfMs == null ? 'font-size:0.72rem;color:var(--color-text-disabled);' : ''"></td>
+                                                        <td data-label="eMTTR" x-text="relValue(d.eMttrMs, d.recoveredCount)"
+                                                            :style="d.eMttrMs == null ? 'font-size:0.72rem;color:var(--color-text-disabled);' : ''"></td>
+                                                        <td data-label="총 정지" x-text="d.totalDownMs > 0 ? durShort(d.totalDownMs) : '—'"></td>
+                                                    </tr>
+                                                </template>
+                                            </tbody>
+                                        </table>
+                                    </div>
+
                                     <!-- 지표에서 빠진 태그 — 칩 한 줄(근거는 툴팁). 디바이스 미지정은 재가동을 확인할 설비를 특정할 수 없고,
                                          '값 변경' 조건은 발화와 동시에 해소되어 수리 시간이 없다. x-if = 인라인 display:flex 를 x-show 가 지우지 않게. -->
                                     <template x-if="rel.unboundTagCount > 0 || rel.skippedChangedCount > 0">
@@ -210,7 +267,7 @@
                                     <div style="overflow-x:auto;" x-show="relRows.length > 0">
                                         <table class="ds-table ut-table">
                                             <thead><tr>
-                                                <th>발생</th><th>이름</th><th>디바이스</th><th>해소</th><th>재가동</th><th>수리 시간</th><th>상태</th>
+                                                <th>발생</th><th>이름</th><th>디바이스</th><th>해소</th><th>재가동</th><th>정지 시간</th><th>상태</th>
                                             </tr></thead>
                                             <tbody>
                                                 <template x-for="a in relRows.slice(0, relLimit)" :key="a.occurredAtLocal + a.tagAddress">
@@ -226,13 +283,22 @@
                                                             <span x-text="a.restartedAtLocal || '—'"></span>
                                                             <div x-show="a.restartFlow" style="font-size:0.72rem;color:var(--color-text-secondary);" x-text="a.restartFlow"></div>
                                                         </td>
-                                                        <td data-label="수리 시간" x-text="a.repairMs != null ? durShort(a.repairMs) : '—'"></td>
+                                                        <td data-label="정지 시간" x-text="a.skip === 'None' && a.repairMs != null ? durShort(a.repairMs) : '—'"></td>
+                                                        <!-- 집계에서 빠진 건은 빠진 이유를 먼저 보인다 — '복구 완료' 로 보이면
+                                                             설비가 선 적 없는 경고를 고장으로 읽게 된다. -->
                                                         <td data-label="상태">
-                                                            <span class="chip" :class="{
-                                                                    'chip-success': a.state === 'Recovered',
-                                                                    'chip-warning': a.state === 'RestartUnconfirmed',
-                                                                    'chip-error': a.state === 'InProgress' }"
-                                                                  x-text="({ Recovered: '복구 완료', RestartUnconfirmed: '재가동 미확인', AwaitingRestart: '복구 확인 중', InProgress: '진행 중' })[a.state] || a.state"></span>
+                                                            <template x-if="a.skip !== 'None'">
+                                                                <span class="chip" :class="a.skip === 'NonStopWarning' ? 'chip-warning' : ''"
+                                                                      :title="a.skip === 'NonStopWarning' ? '알람이 울린 시각에 설비는 계속 돌고 있었습니다' : ''"
+                                                                      x-text="({ NonStopWarning: '무정지 경고', LinkSnapshot: '재접속 스냅샷', ChangedOp: '값 변경 조건', UnknownStop: '판정 불가' })[a.skip] || a.skip"></span>
+                                                            </template>
+                                                            <template x-if="a.skip === 'None'">
+                                                                <span class="chip" :class="{
+                                                                        'chip-success': a.state === 'Recovered',
+                                                                        'chip-warning': a.state === 'RestartUnconfirmed',
+                                                                        'chip-error': a.state === 'InProgress' }"
+                                                                      x-text="({ Recovered: '복구 완료', RestartUnconfirmed: '재가동 미확인', AwaitingRestart: '복구 확인 중', InProgress: '진행 중' })[a.state] || a.state"></span>
+                                                            </template>
                                                         </td>
                                                     </tr>
                                                 </template>

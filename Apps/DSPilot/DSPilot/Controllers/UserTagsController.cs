@@ -205,9 +205,13 @@ public class UserTagsController : ControllerBase
         var metaBySystem = new Dictionary<Guid, Dictionary<string, MonitorTagMeta>>();
         foreach (var id in activeIds) metaBySystem[id] = _project.GetMonitorMetaForSystem(id);
 
-        // 이상알람TAG 귀속은 AASX 가 아니라 DSPilot 설정에 산다 — (System 이름, 주소) 복합키로 한 번에 색인한다.
+        // 이상알람TAG 귀속은 AASX 가 아니라 DSPilot 설정에 산다 — GUID·이름 두 색인으로 한 번에 만든다
+        // (리네임 내성: 이름이 바뀌어도 GUID 로 이어진다).
+        var abnormal = _settings.LoadSettings().AbnormalAlarm;
         var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
-            _settings.LoadSettings().AbnormalAlarm.UserTagDeviceBindings);
+            abnormal.UserTagDeviceBindings,
+            _project.GetActiveSystems().Select(s => (s.Id.ToString(), s.Name ?? string.Empty)),
+            abnormal.SystemAliases);
 
         var tags = rows
             .Where(r => activeIds.Contains(r.SystemId))
@@ -220,7 +224,8 @@ public class UserTagsController : ControllerBase
                 // 미지정(키 부재)은 null, 전역은 "" 로 내려보낸다 — 화면이 둘을 구분해야 커버리지가 뜻을 갖는다.
                 string? device = null;
                 if (!UserTagEditorSupport.IsMonitorLevel(level)
-                    && AbnormalDeviceFilterHelpers.TryGetBoundDevice(deviceIndex, r.SystemName, r.TagAddress, out var bound))
+                    && AbnormalDeviceFilterHelpers.TryGetBoundDevice(
+                        deviceIndex, r.SystemId.ToString(), r.SystemName, r.TagAddress, out var bound))
                     device = bound;
                 return new UtEditorTagDto(
                     r.SystemId.ToString(), r.SystemName, r.Name, r.TagAddress,
@@ -301,9 +306,12 @@ public class UserTagsController : ControllerBase
                 {
                     // 거울상 — 귀속은 이상알람TAG 에만 뜻이 있어 모니터링TAG 에 섞여 오면 위 갈래에서 버려진다.
                     // null(미지정)은 항목을 만들지 않고, ""(전역)은 사용자가 고의로 고른 것이라 항목을 남긴다.
+                    // ★SystemId 를 같이 각인한다 — 이름은 AASX 교체로 바뀌지만 GUID 는 남는다.
+                    //   2026-09-21 현장에서 이름만 바뀌어 사흘치가 통째로 지표에서 빠진 전례가 있다.
                     bindings.Add(new UserTagDeviceBinding
                     {
                         System = sysName,
+                        SystemId = sid.ToString(),
                         TagAddress = entry.TagAddress,
                         Device = t.Device.Trim(),
                     });
@@ -369,12 +377,31 @@ public class UserTagsController : ControllerBase
             InProgressCount: s.InProgressCount,
             AwaitingRestartCount: s.AwaitingRestartCount,
             RestartUnconfirmedCount: s.RestartUnconfirmedCount,
-            MtbfIntervalCount: s.MtbfIntervalCount,
+            NonStopWarningCount: s.NonStopWarningCount,
+            LinkSnapshotCount: s.LinkSnapshotCount,
+            UnknownStopCount: s.UnknownStopCount,
+            OperatingMs: s.OperatingMs,
             MinSample: ErrorTagReliability.MinSample,
             UnboundTagCount: r.UnboundTagCount,
             GlobalTagCount: r.GlobalTagCount,
             SkippedChangedCount: r.SkippedChangedCount,
+            StaleSystems: r.StaleSystems,
             ProjectLoaded: r.ProjectLoaded,
+            Devices: [.. r.Devices.Select(d => new UtReliabilityDeviceDto(
+                SystemName: d.System,
+                Device: d.Device,
+                FaultCount: d.FaultCount,
+                RecoveredCount: d.RecoveredCount,
+                InProgressCount: d.InProgressCount,
+                AwaitingRestartCount: d.AwaitingRestartCount,
+                RestartUnconfirmedCount: d.RestartUnconfirmedCount,
+                NonStopWarningCount: d.NonStopWarningCount,
+                LinkSnapshotCount: d.LinkSnapshotCount,
+                UnknownStopCount: d.UnknownStopCount,
+                OperatingMs: d.OperatingMs,
+                TotalDownMs: d.TotalDownMs,
+                EMtbfMs: d.EMtbfMs,
+                EMttrMs: d.EMttrMs))],
             Alerts: [.. r.Alerts.Select(a => new UtReliabilityAlertDto(
                 OccurredAtLocal: a.OccurredAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 ClearedAtLocal: a.ClearedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
@@ -384,6 +411,9 @@ public class UserTagsController : ControllerBase
                 TagAddress: a.TagAddress,
                 Device: a.Device,
                 State: a.State.ToString(),
+                Stop: a.Stop.ToString(),
+                Skip: a.Skip.ToString(),
+                EventNo: a.EventNo,
                 RepairMs: a.RepairMs,
                 RestartFlow: a.RestartFlow))]);
     }

@@ -151,6 +151,7 @@ public static class AbnormalDeviceFilterHelpers
             merged[BindingKey(sys, addr)] = new UserTagDeviceBinding
             {
                 System = sys,
+                SystemId = NormId(b.SystemId),
                 TagAddress = addr,
                 Device = b.Device?.Trim() ?? string.Empty,
             };
@@ -162,27 +163,118 @@ public static class AbnormalDeviceFilterHelpers
             .ToList();
     }
 
+    /// <summary>GUID 표기 정규화 — 중괄호·대문자·공백 차이로 키가 어긋나지 않게 한다.</summary>
+    public static string NormId(string? id) =>
+        Guid.TryParse((id ?? string.Empty).Trim(), out var g) ? g.ToString("D") : string.Empty;
+
     /// <summary>
-    /// 조회 색인 — (System, 주소) → 디바이스. 값 <c>""</c> 는 전역, <b>키 부재는 미지정</b>이라
-    /// 호출부가 <c>TryGetValue</c> 로 둘을 구분할 수 있어야 한다(빈 문자열을 null 로 접지 말 것).
+    /// 이상알람TAG 귀속 조회 색인 — <b>리네임 내성</b>을 담당한다(2026-09-22).
+    /// <para>
+    /// 종전엔 (System 이름, 주소) 한 가지 키뿐이라, AASX 교체로 이름이 바뀌면 과거 알람이 통째로
+    /// '미지정' 으로 떨어졌다(현장 실측: 사흘치 2,000여 건). 이제 <b>GUID 와 이름 두 색인</b>을 만들고
+    /// 조회 때 순서대로 시도한다.
+    /// </para>
     /// </summary>
-    public static Dictionary<string, string> BuildUserTagDeviceIndex(IEnumerable<UserTagDeviceBinding>? bindings)
+    public sealed class UserTagDeviceIndex
     {
-        var index = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var b in NormalizeUserTagDeviceBindings(bindings))
-            index[BindingKey(b.System, b.TagAddress)] = b.Device;
-        return index;
+        /// <summary>(System GUID, 주소) → 디바이스.</summary>
+        public Dictionary<string, string> BySystemId { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>(System 이름, 주소) → 디바이스. GUID 가 없던 시절 매핑의 폴백.</summary>
+        public Dictionary<string, string> BySystemName { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>옛 이름 → 현재 이름. 별칭 이력 + 현재 모델(GUID 가 같은데 이름만 다른 경우)에서 만든다.</summary>
+        public Dictionary<string, string> NameOfAlias { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>System GUID → 현재 이름. 알람 행의 GUID 로 현재 이름을 찾아 이름 색인을 두드린다.</summary>
+        public Dictionary<string, string> NameOfId { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>옛 GUID → 현재 GUID(별칭 이력). GUID 재발급을 받는다.</summary>
+        public Dictionary<string, string> IdOfAlias { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public int Count => BySystemId.Count + BySystemName.Count;
     }
 
     /// <summary>
-    /// 색인에서 한 태그의 귀속을 찾는다. <c>false</c> = 미지정(지표 제외),
-    /// <c>true</c> + 빈 문자열 = 전역(역시 지표 제외지만 커버리지에서는 '묶을 필요 없음').
+    /// 조회 색인 생성. 값 <c>""</c> 는 전역, <b>키 부재는 미지정</b>이라 호출부가 둘을 구분할 수 있어야 한다
+    /// (빈 문자열을 null 로 접지 말 것).
+    /// </summary>
+    /// <param name="currentSystems">현재 모델의 (GUID, 이름) — 옛 이름의 알람을 현재 이름의 매핑으로 잇는다.</param>
+    /// <param name="aliases">별칭 이력 — GUID 까지 바뀐 경우를 받는다.</param>
+    public static UserTagDeviceIndex BuildUserTagDeviceIndex(
+        IEnumerable<UserTagDeviceBinding>? bindings,
+        IEnumerable<(string Id, string Name)>? currentSystems = null,
+        IEnumerable<SystemAlias>? aliases = null)
+    {
+        var idx = new UserTagDeviceIndex();
+
+        foreach (var b in NormalizeUserTagDeviceBindings(bindings))
+        {
+            idx.BySystemName[BindingKey(b.System, b.TagAddress)] = b.Device;
+            if (b.SystemId.Length > 0)
+                idx.BySystemId[BindingKey(b.SystemId, b.TagAddress)] = b.Device;
+        }
+
+        foreach (var (id, name) in currentSystems ?? [])
+        {
+            var gid = NormId(id);
+            if (gid.Length > 0 && !string.IsNullOrWhiteSpace(name))
+                idx.NameOfId[gid] = name.Trim();
+        }
+
+        foreach (var a in aliases ?? [])
+        {
+            var from = a?.FromSystem?.Trim() ?? string.Empty;
+            var to = a?.ToSystem?.Trim() ?? string.Empty;
+            if (from.Length > 0 && to.Length > 0) idx.NameOfAlias[from] = to;
+
+            var fromId = NormId(a?.FromSystemId);
+            var toId = NormId(a?.ToSystemId);
+            if (fromId.Length > 0 && toId.Length > 0) idx.IdOfAlias[fromId] = toId;
+        }
+
+        return idx;
+    }
+
+    /// <summary>
+    /// 한 알람의 귀속 디바이스를 찾는다 — <b>해석 사슬</b>. 첫 성공에서 멈춘다.
+    /// <list type="number">
+    ///   <item>알람의 System GUID 로 (이름이 바뀌어도 맞는다)</item>
+    ///   <item>별칭 이력으로 옛 GUID → 새 GUID 변환 후 재시도 (GUID 재발급)</item>
+    ///   <item>알람의 GUID → 현재 System 이름 → 이름 색인 (GUID 없이 저장된 옛 매핑)</item>
+    ///   <item>알람의 System 이름 그대로 (종전 동작)</item>
+    ///   <item>별칭 이력으로 옛 이름 → 새 이름 변환 후 재시도</item>
+    /// </list>
+    /// 반환 <c>false</c> = 미지정(지표 제외), <c>true</c> + 빈 문자열 = 전역.
     /// </summary>
     public static bool TryGetBoundDevice(
-        IReadOnlyDictionary<string, string>? index, string? systemName, string? tagAddress, out string device)
+        UserTagDeviceIndex? index, string? systemId, string? systemName, string? tagAddress, out string device)
     {
         device = string.Empty;
-        if (index is not { Count: > 0 } || string.IsNullOrWhiteSpace(tagAddress)) return false;
-        return index.TryGetValue(BindingKey(systemName, tagAddress), out device!);
+        if (index is null || index.Count == 0 || string.IsNullOrWhiteSpace(tagAddress)) return false;
+
+        var gid = NormId(systemId);
+
+        if (gid.Length > 0 && index.BySystemId.TryGetValue(BindingKey(gid, tagAddress), out device!)) return true;
+
+        if (gid.Length > 0 && index.IdOfAlias.TryGetValue(gid, out var newId)
+            && index.BySystemId.TryGetValue(BindingKey(newId, tagAddress), out device!)) return true;
+
+        if (gid.Length > 0 && index.NameOfId.TryGetValue(gid, out var curName)
+            && index.BySystemName.TryGetValue(BindingKey(curName, tagAddress), out device!)) return true;
+
+        if (index.BySystemName.TryGetValue(BindingKey(systemName, tagAddress), out device!)) return true;
+
+        var sys = (systemName ?? string.Empty).Trim();
+        if (sys.Length > 0 && index.NameOfAlias.TryGetValue(sys, out var aliasName)
+            && index.BySystemName.TryGetValue(BindingKey(aliasName, tagAddress), out device!)) return true;
+
+        device = string.Empty;
+        return false;
     }
+
+    /// <summary>GUID 를 모르는 호출부용 간편 오버로드 — 이름 색인만 두드린다.</summary>
+    public static bool TryGetBoundDevice(
+        UserTagDeviceIndex? index, string? systemName, string? tagAddress, out string device) =>
+        TryGetBoundDevice(index, null, systemName, tagAddress, out device);
 }

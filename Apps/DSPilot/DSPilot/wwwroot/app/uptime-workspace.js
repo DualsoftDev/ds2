@@ -698,14 +698,36 @@
                 setRelState(s) { this.relState = this.relState === s ? '' : s; this.relLimit = 50; },
                 // 건별 표는 50건씩 — 잘린 건수를 숨기지 않고 "N건 중 50건 표시 · 더보기" 로 밝힌다.
                 relMore() { this.relLimit += 50; },
+                // 칩 하나로 두 축을 거른다 — 집계에서 빠진 이유(skip=…) 와 회복 상태(state) 다.
+                // 빠진 이유가 먼저다: 무정지 경고를 '복구 완료' 로도 셀 수 있어 두 축을 겹치면 합이 안 맞는다.
                 get relRows() {
                     const rows = this.rel?.alerts || [];
-                    return this.relState ? rows.filter(a => a.state === this.relState) : rows;
+                    const s = this.relState;
+                    if (!s) return rows;
+                    if (s.startsWith('skip:')) return rows.filter(a => a.skip === s.slice(5));
+                    return rows.filter(a => a.skip === 'None' && a.state === s);
                 },
                 // 표본 미달이면 숫자 대신 근거를 보인다 — 0 이나 '—' 로 두면 "고장이 없다" 로 읽힌다.
                 relValue(ms, n) {
                     if (ms == null) return `표본 부족 (n=${n})`;
                     return window.dspFmt.dur(ms);
+                },
+                // 집계 대상이 K 에 못 미치면 카드에 숫자를 띄우지 않는다 — 구체적인 숫자로 틀린 답을
+                // 단정하는 것이 비어 있는 것보다 나쁘다(현장 실측: 34건 중 진짜 고장 2건인데 11.6분이 떴다).
+                get relHasNumbers() { return !!this.rel && (this.rel.eMtbfMs != null || this.rel.eMttrMs != null); },
+                // 화면 분해 — 합이 관측된 사건 전체와 맞아야 한다.
+                get relBreakdown() {
+                    const r = this.rel;
+                    if (!r) return [];
+                    return [
+                        { key: '', label: '집계 대상 고장', n: r.faultCount, cls: 'chip-error' },
+                        { key: 'skip:NonStopWarning', label: '무정지 경고', n: r.nonStopWarningCount, cls: 'chip-warning',
+                          tip: '알람은 울렸지만 설비는 계속 돌았습니다 — 고장이 아니라 경고입니다' },
+                        { key: 'skip:LinkSnapshot', label: '재접속 스냅샷', n: r.linkSnapshotCount, cls: '',
+                          tip: '통신이 붙는 순간 이미 켜져 있던 조건이 한꺼번에 발화한 것입니다' },
+                        { key: 'skip:UnknownStop', label: '판정 불가', n: r.unknownStopCount, cls: '',
+                          tip: '사이클 리듬 기준을 구하지 못해 정지 여부를 판정할 수 없었습니다' },
+                    ].filter(x => x.n > 0);
                 },
 
                 // 피드에서 at 으로 진입했을 때 해당 알람 행(data-at=occurredAtLocal 초단위)을 찾아 스크롤 + 잠깐 하이라이트.

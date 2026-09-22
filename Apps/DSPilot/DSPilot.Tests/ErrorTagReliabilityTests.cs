@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Kpi;
@@ -94,136 +94,291 @@ public class ErrorTagReliabilityTests
         Assert.Equal(6 * Min, r.RestartMs);
     }
 
-    // ── 재발화 병합 ────────────────────────────────────────────────────────
+    // ── 정지 게이트 (doc/31 §3.1) ─────────────────────────────────────────
+    // 실측 교훈: "다시 돌았나" 만 물으면 애초에 서지 않은 경고가 전부 고장으로 둔갑한다.
+    // 현장 복구 23건 중 21건이 이것이었다(경고 배수 0.5~1.6 vs 멈춤 3.3·4.9 — 사이가 비어 있다).
+
+    /// <summary>3분 리듬으로 도는 설비의 사이클 시작 시각.</summary>
+    private static List<long> Beats(int count, long step = 3 * Min, long from = 0)
+        => [.. Enumerable.Range(0, count).Select(i => from + i * step)];
 
     [Fact]
-    public void 회복_없이_다시_울리면_한_건이다()
+    public void 리듬이_안_끊겼으면_설비가_선_것이_아니다()
     {
-        // 채터링·반복 발화가 고장 건수를 부풀리면 eMTBF 가 무너진다.
-        var kept = DedupeReignitions(
-        [
-            (0, 10 * Min),        // 복구됨
-            (2 * Min, null),      // 복구 전 재발화 → 병합
-            (5 * Min, null),      // 역시 병합
-            (20 * Min, 30 * Min), // 복구 이후 → 새 고장
-        ]);
-
-        Assert.Equal([0, 3], kept);
+        var starts = Beats(10);                       // 0,3,6,9,… 분
+        var r = RhythmMs(starts);
+        Assert.Equal(3 * Min, r);
+        // 7분에 울린 알람 — 그 알람을 품은 간격은 6~9분(3분)이라 리듬 그대로다.
+        Assert.Equal(StopVerdict.NonStopWarning, JudgeStop(7 * Min, starts, r));
     }
 
     [Fact]
-    public void 복구되지_않은_건_뒤의_발생은_전부_같은_고장이다()
+    public void 리듬이_배수를_넘게_끊기면_멈춘_것이다()
     {
-        var kept = DedupeReignitions([(0, null), (5 * Min, null), (9 * Hour, null)]);
-        Assert.Equal([0], kept);
+        // 9분 뒤 20분까지 사이클이 없다 = 11분 공백(리듬의 3.7배).
+        List<long> starts = [0, 3 * Min, 6 * Min, 9 * Min, 20 * Min, 23 * Min, 26 * Min];
+        Assert.Equal(StopVerdict.Stopped, JudgeStop(10 * Min, starts, RhythmMs(starts)));
     }
 
     [Fact]
-    public void 복구_시각과_같은_순간의_재발화도_병합한다()
+    public void 리듬을_못_구하면_판정_불가지_경고가_아니다()
     {
-        var kept = DedupeReignitions([(0, 10 * Min), (10 * Min, null)]);
-        Assert.Equal([0], kept);
+        // 경고와 섞으면 v68 모델링 문제가 알람 축 통계로 둔갑한다.
+        Assert.Equal(StopVerdict.Unknown, JudgeStop(5 * Min, [], 0));
+        Assert.Equal(StopVerdict.Unknown, JudgeStop(5 * Min, [0], RhythmMs([0])));
+    }
+
+    [Fact]
+    public void 관측_구간_끝에_걸리면_판정하지_않는다()
+    {
+        // 다음 사이클이 없는 것과 설비가 선 것은 다르다.
+        var starts = Beats(5);
+        Assert.Equal(StopVerdict.Unknown, JudgeStop(99 * Min, starts, RhythmMs(starts)));
+    }
+
+    // ── 재접속 스냅샷 (doc/31 §4.1) ───────────────────────────────────────
+
+    [Fact]
+    public void 통신이_붙는_순간의_발화는_스냅샷이다()
+    {
+        // 실측: 재접속 12:30:01 ↔ 발화 12:30:01(같은 초), 재접속 12:07:13 ↔ 발화 12:07:24(11초).
+        Assert.True(IsLinkSnapshot(10 * Min, [10 * Min]));
+        Assert.True(IsLinkSnapshot(10 * Min + 11_000, [10 * Min]));
+        Assert.False(IsLinkSnapshot(10 * Min + 60_000, [10 * Min]));
+        Assert.False(IsLinkSnapshot(10 * Min, []));
+    }
+
+    [Fact]
+    public void 접속_이전의_발화는_스냅샷이_아니다()
+    {
+        Assert.False(IsLinkSnapshot(9 * Min, [10 * Min]));
+    }
+
+    // ── 사건 묶기 (doc/31 §2.1) ───────────────────────────────────────────
+
+    [Fact]
+    public void 한_정지에서_태그가_여럿_울리면_한_사건이다()
+    {
+        // 같은 디바이스의 서로 다른 태그 2개가 같은 정지에서 울렸다 — 사이에 재가동이 없다.
+        List<long> starts = [0, 30 * Min];
+        var events = BuildEvents(
+            [A(5 * Min, 10 * Min, window: Hour), A(6 * Min, 12 * Min, window: Hour)], starts, nowMs: Hour);
+
+        var e = Assert.Single(events);
+        Assert.Equal(5 * Min, e.OnsetMs);          // 고장이 시작된 시각 = 최소 발생
+        Assert.Equal(12 * Min, e.ClearedMs);       // 사건 해소 = 최대 해소
+        Assert.Equal(2, e.Members.Count);
+        Assert.Equal(30 * Min, e.Recovery.RestartMs);
+    }
+
+    [Fact]
+    public void 사이에_재가동이_끼면_별개_사건이다()
+    {
+        List<long> starts = [12 * Min, 40 * Min];
+        var events = BuildEvents(
+            [A(5 * Min, 10 * Min, window: Hour), A(20 * Min, 30 * Min, window: Hour)], starts, nowMs: 2 * Hour);
+
+        Assert.Equal(2, events.Count);
+        Assert.Equal(12 * Min, events[0].Recovery.RestartMs);
+        Assert.Equal(40 * Min, events[1].Recovery.RestartMs);
+    }
+
+    [Fact]
+    public void 해소가_끝났어도_아직_안_돌았으면_같은_사건이다()
+    {
+        // ★경계는 해소가 아니라 재가동이다. [발생,해소] 로 겹침을 보면 2건으로 세어 틀린다.
+        List<long> starts = [30 * Min];
+        var events = BuildEvents(
+            [A(5 * Min, 10 * Min, window: Hour), A(12 * Min, 20 * Min, window: Hour)], starts, nowMs: Hour);
+
+        Assert.Single(events);
+    }
+
+    [Fact]
+    public void 안_꺼지는_알람은_첫_재가동에서_흡수를_멈춘다()
+    {
+        // 실측 #셔틀 — 재접속 스냅샷 2건(미해소)이 12:56 의 진짜 고장을 삼키면 안 된다.
+        // 삼키면 고장 건수가 줄어 가장 나쁜 설비가 가장 좋아 보인다(방향이 나쁘다).
+        var starts = Beats(40);                                  // 3분마다 계속 돈다
+        var events = BuildEvents(
+            [A(1 * Min, null, window: Hour),                     // 래치 — 영영 안 꺼진다
+             A(30 * Min, 32 * Min, window: Hour)],               // 그 뒤의 진짜 고장
+            starts, nowMs: 2 * Hour);
+
+        Assert.Equal(2, events.Count);
+        Assert.Equal(RecoveryState.InProgress, events[0].Recovery.State);
+        Assert.Equal(RecoveryState.Recovered, events[1].Recovery.State);
+    }
+
+    [Fact]
+    public void 재가동이_아예_없으면_전부_한_사건이다()
+    {
+        var events = BuildEvents([A(0, null), A(5 * Min, null), A(9 * Hour, null)], [], nowMs: 10 * Hour);
+        Assert.Equal(3, Assert.Single(events).Members.Count);
+    }
+
+    // ── 분모 = 가동시간 (doc/31 §4) ───────────────────────────────────────
+
+    [Fact]
+    public void 가동시간은_리듬이_유지된_간격만_더한다()
+    {
+        // 0~9분 정상(3분×3) · 9~30분 공백(정지) · 30~36분 정상(3분×2)
+        List<long> starts = [0, 3 * Min, 6 * Min, 9 * Min, 30 * Min, 33 * Min, 36 * Min];
+        Assert.Equal(9 * Min + 6 * Min, OperatingMs(starts, RhythmMs(starts), 0, 36 * Min));
+    }
+
+    [Fact]
+    public void 가동시간은_조회_창으로_자른다()
+    {
+        // 창 잘림은 시간 합이라 '겹친 만큼'(doc/30 §7.2).
+        var starts = Beats(11);                                   // 0~30분
+        Assert.Equal(10 * Min, OperatingMs(starts, RhythmMs(starts), 5 * Min, 15 * Min));
+    }
+
+    [Fact]
+    public void 사이클이_없는_구간은_분모에_안_들어간다()
+    {
+        // 야간·주말이 저절로 빠진다 — κ 를 읽지 않고 '가동시간 분모' 가 되는 길이다.
+        Assert.Equal(0, OperatingMs([], 0, 0, Day));
     }
 
     // ── 집계 ──────────────────────────────────────────────────────────────
 
-    private static (AlertInput, Recovery) Done(long occurred, long cleared, long restart) =>
-        (A(occurred, cleared), new Recovery(RecoveryState.Recovered, restart));
+    private static FaultEvent Ev(long onset, long? cleared, long? restart, StopVerdict stop, SkipCause skip) =>
+        new(onset, cleared, [0])
+        {
+            Recovery = restart is { } r
+                ? new Recovery(RecoveryState.Recovered, r)
+                : new Recovery(cleared is null ? RecoveryState.InProgress : RecoveryState.RestartUnconfirmed, null),
+            Stop = stop,
+            Skip = skip,
+        };
+
+    private static FaultEvent Stopped(long onset, long cleared, long restart) =>
+        Ev(onset, cleared, restart, StopVerdict.Stopped, SkipCause.None);
 
     [Fact]
-    public void eMTTR_은_발생에서_재가동까지의_평균이다()
+    public void eMTBF_는_가동시간을_고장_건수로_나눈_값이다()
     {
-        var s = Aggregate(
+        // ★간격의 평균이 아니다 — 간격 평균은 관측창을 넘는 값을 낼 수 없어(실측 11.6분 = 상한의 91%)
+        //   설비가 아니라 창 길이를 재게 된다.
+        var d = AggregateDevice("Line1", "Conveyor1",
         [
-            Done(0, 5 * Min, 10 * Min),          // 10분
-            Done(1 * Hour, 0, 1 * Hour + 20 * Min),  // 20분
-            Done(5 * Hour, 0, 5 * Hour + 30 * Min),  // 30분
-        ], minSample: 3);
+            Stopped(0, 5 * Min, 10 * Min),
+            Stopped(2 * Hour, 2 * Hour + Min, 2 * Hour + 10 * Min),
+            Stopped(4 * Hour, 4 * Hour + Min, 4 * Hour + 10 * Min),
+        ], operatingMs: 9 * Hour, minSample: 3);
 
-        Assert.Equal(3, s.RecoveredCount);
-        Assert.Equal(20 * Min, s.EMttrMs);
+        Assert.Equal(3, d.FaultCount);
+        Assert.Equal(3 * Hour, d.EMtbfMs);
     }
 
     [Fact]
-    public void eMTBF_는_직전_복구에서_다음_발생까지의_평균이다()
+    public void 무정지_경고와_스냅샷은_고장이_아니다()
     {
-        // 복구 10분 → 발생 1시간(50분) · 복구 1h20m → 발생 5시간(3h40m) · 복구 5h30m → 발생 7시간(1h30m)
-        var s = Aggregate(
+        var d = AggregateDevice("Line1", "Conveyor1",
         [
-            Done(0, 5 * Min, 10 * Min),
-            Done(1 * Hour, 0, 1 * Hour + 20 * Min),
-            Done(5 * Hour, 0, 5 * Hour + 30 * Min),
-            Done(7 * Hour, 0, 7 * Hour + 10 * Min),
-        ], minSample: 3);
+            Stopped(0, 5 * Min, 10 * Min),
+            Ev(1 * Hour, 1 * Hour, 1 * Hour + Min, StopVerdict.NonStopWarning, SkipCause.NonStopWarning),
+            Ev(2 * Hour, null, null, StopVerdict.Unknown, SkipCause.LinkSnapshot),
+            Ev(3 * Hour, 3 * Hour, null, StopVerdict.Unknown, SkipCause.UnknownStop),
+        ], operatingMs: 4 * Hour, minSample: 1);
 
-        Assert.Equal(3, s.MtbfIntervalCount);
-        Assert.Equal((50 * Min + 220 * Min + 90 * Min) / 3.0, s.EMtbfMs);
+        Assert.Equal(1, d.FaultCount);
+        Assert.Equal(1, d.NonStopWarningCount);
+        Assert.Equal(1, d.LinkSnapshotCount);
+        Assert.Equal(1, d.UnknownStopCount);
+        Assert.Equal(4 * Hour, d.EMtbfMs);          // 분모는 고장 1건뿐
     }
 
     [Fact]
-    public void 고장_건수는_발생_전체이고_eMTTR_분모는_복구_완료만이다()
+    public void eMTTR_은_발생에서_재가동까지의_평균이고_복구_완료만_센다()
     {
-        // ★미확정 건을 건수에서도 빼면 고장이 과소 계상되어 eMTBF 가 부풀어 오른다.
-        var s = Aggregate(
+        var d = AggregateDevice("Line1", "Conveyor1",
         [
-            Done(0, 5 * Min, 10 * Min),
-            (A(1 * Hour, null), new Recovery(RecoveryState.InProgress, null)),
-            (A(2 * Hour, 2 * Hour + Min), new Recovery(RecoveryState.RestartUnconfirmed, null)),
-            (A(3 * Hour, 3 * Hour + Min), new Recovery(RecoveryState.AwaitingRestart, null)),
-        ], minSample: 1);
+            Stopped(0, 5 * Min, 10 * Min),                                  // 10분
+            Stopped(1 * Hour, 1 * Hour + Min, 1 * Hour + 30 * Min),         // 30분
+            Ev(2 * Hour, 2 * Hour + Min, null, StopVerdict.Stopped, SkipCause.None),  // 미확정 — 건수엔 들되 평균엔 안 든다
+        ], operatingMs: 3 * Hour, minSample: 1);
 
-        Assert.Equal(4, s.FaultCount);
-        Assert.Equal(1, s.RecoveredCount);
-        Assert.Equal(1, s.InProgressCount);
-        Assert.Equal(1, s.RestartUnconfirmedCount);
-        Assert.Equal(1, s.AwaitingRestartCount);
-    }
-
-    [Fact]
-    public void 복구되지_않은_건은_eMTBF_간격을_만들지_않는다()
-    {
-        // 복구를 모르면 그 사이가 가동 시간이었다고 주장할 근거가 없다.
-        var s = Aggregate(
-        [
-            (A(0, null), new Recovery(RecoveryState.InProgress, null)),
-            (A(1 * Hour, null), new Recovery(RecoveryState.InProgress, null)),
-        ], minSample: 1);
-
-        Assert.Equal(0, s.MtbfIntervalCount);
-        Assert.Null(s.EMtbfMs);
+        Assert.Equal(3, d.FaultCount);
+        Assert.Equal(2, d.RecoveredCount);
+        Assert.Equal(20 * Min, d.EMttrMs);
     }
 
     [Fact]
     public void 표본이_모자라면_숫자_대신_null_이다()
     {
-        var s = Aggregate([Done(0, 5 * Min, 10 * Min)], minSample: 3);
-
-        Assert.Equal(1, s.RecoveredCount);
-        Assert.Null(s.EMttrMs);
-        Assert.True(s.MttrBelowSample);
+        var d = AggregateDevice("Line1", "Conveyor1", [Stopped(0, 5 * Min, 10 * Min)], operatingMs: Hour, minSample: 3);
+        Assert.Equal(1, d.FaultCount);
+        Assert.Null(d.EMtbfMs);
+        Assert.Null(d.EMttrMs);
     }
 
     [Fact]
-    public void 두_지표_모두_달력_시간_그대로다()
+    public void 가동시간이_0_이면_eMTBF_를_내지_않는다()
     {
-        // 이 축은 κ 를 읽지 않는다 — 재가동은 "사이클이 시작됐나" 하나만 보고, 그 사이클의 판정
-        // (가동·비가동·비생산)은 쳐다보지 않는다. 그래서 OEE 설정을 바꿔도 이 숫자는 움직이지 않는다.
-        var s = Aggregate(
+        var d = AggregateDevice("Line1", "Conveyor1",
         [
-            Done(0, 30 * Min, 10 * Hour),           // 발생 0 → 재가동 10h  = 수리 10시간
-            Done(30 * Hour, 0, 40 * Hour),          // 발생 30h → 재가동 40h = 수리 10시간
-        ], minSample: 1);
+            Stopped(0, Min, 2 * Min),
+            Stopped(Hour, Hour + Min, Hour + 2 * Min),
+            Stopped(2 * Hour, 2 * Hour + Min, 2 * Hour + 2 * Min),
+        ], operatingMs: 0, minSample: 3);
 
-        Assert.Equal(10 * Hour, s.EMttrMs);         // 달력 그대로, 야간·주말을 빼지 않는다
-        Assert.Equal(20 * Hour, s.EMtbfMs);         // 직전 재가동 10h → 다음 발생 30h
+        Assert.Null(d.EMtbfMs);
+    }
+
+    // ── 라인 롤업 (직렬 합산) ─────────────────────────────────────────────
+
+    [Fact]
+    public void 같은_창을_공유하면_라인_값은_그_창을_총고장으로_나눈_값이다()
+    {
+        // ★ΣT/ΣN 이 아니라 T/ΣN 이다 — 두 디바이스가 같은 시간대에 돌았으면 그 시간은 한 번만 센다.
+        //   λ_d = N_d/T 이므로 Σλ = ΣN/T, 1/Σλ = T/ΣN. 가동시간을 더하면 라인이 두 배로 좋아 보인다.
+        var a = AggregateDevice("L", "A", [Stopped(0, Min, 2 * Min), Stopped(Hour, Hour + Min, Hour + 2 * Min)], 10 * Hour, minSample: 1);
+        var b = AggregateDevice("L", "B", [Stopped(0, Min, 2 * Min), Stopped(Hour, Hour + Min, Hour + 2 * Min)], 10 * Hour, minSample: 1);
+
+        var line = RollUp([a, b], minSample: 1);
+        Assert.Equal(4, line.FaultCount);
+        Assert.Equal(10 * Hour / 4.0, line.EMtbfMs!.Value, 3);
+    }
+
+    [Fact]
+    public void 라인_eMTBF_는_어느_설비든_서면_선다는_직렬_합산이다()
+    {
+        // λ_line = Σλ_d → 라인은 언제나 가장 나쁜 설비보다 짧다.
+        var a = AggregateDevice("L", "A", [Stopped(0, Min, 2 * Min)], 4 * Hour, minSample: 1);    // 4h
+        var b = AggregateDevice("L", "B", [Stopped(0, Min, 2 * Min)], 12 * Hour, minSample: 1);   // 12h
+
+        var line = RollUp([a, b], minSample: 1);
+        Assert.Equal(3 * Hour, line.EMtbfMs!.Value, 3);      // 1/(1/4 + 1/12) = 3
+        Assert.True(line.EMtbfMs < a.EMtbfMs);
+    }
+
+    [Fact]
+    public void 표본_미달_디바이스도_라인_합산에_들어간다()
+    {
+        // 빼면 고장이 과소 계상되어 라인 eMTBF 가 부풀어 오른다.
+        var big = AggregateDevice("L", "A",
+        [
+            Stopped(0, Min, 2 * Min),
+            Stopped(Hour, Hour + Min, Hour + 2 * Min),
+            Stopped(2 * Hour, 2 * Hour + Min, 2 * Hour + 2 * Min),
+        ], 6 * Hour);
+        var small = AggregateDevice("L", "B", [Stopped(0, Min, 2 * Min)], 6 * Hour);   // K 미달 → 자기 숫자는 없다
+
+        Assert.Null(small.EMtbfMs);
+        var line = RollUp([big, small]);
+        Assert.Equal(4, line.FaultCount);
+        Assert.Equal(6 * Hour / 4.0, line.EMtbfMs!.Value, 3);
     }
 
     [Fact]
     public void 빈_입력은_0_건이고_숫자가_없다()
     {
-        var s = Aggregate([], minSample: 1);
-        Assert.Equal(0, s.FaultCount);
-        Assert.Null(s.EMttrMs);
-        Assert.Null(s.EMtbfMs);
+        var line = RollUp([], minSample: 1);
+        Assert.Equal(0, line.FaultCount);
+        Assert.Null(line.EMttrMs);
+        Assert.Null(line.EMtbfMs);
     }
 }

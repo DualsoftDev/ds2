@@ -186,14 +186,41 @@ public record UtReliabilityDto(
     int InProgressCount,
     int AwaitingRestartCount,
     int RestartUnconfirmedCount,
-    int MtbfIntervalCount,
+    // ── 집계에서 빠진 것들(2026-09-22) — 숫자 하나만 내놓고 틀리는 것보다 분해를 보이는 편이 낫다.
+    //    실측에서 종전 '고장 34건' 의 82%가 이 셋이었다.
+    int NonStopWarningCount,     // 설비가 도는 중에 울린 경고
+    int LinkSnapshotCount,       // 통신 재접속 순간의 스냅샷
+    int UnknownStopCount,        // 리듬 기준이 없어 정지 여부 판정 불가
+    long OperatingMs,            // eMTBF 의 분모(리듬 유지 구간 합)
     int MinSample,
     // 묶이지 않아 계산에서 빠진 태그 수. 0 이 아니면 화면이 설정으로 유도한다.
     int UnboundTagCount,
     int GlobalTagCount,
     int SkippedChangedCount,
+    // 알람에는 나오는데 현재 모델에 없는 System 이름 — 리네임으로 과거가 끊겼다는 신호.
+    List<string> StaleSystems,
     bool ProjectLoaded,
+    List<UtReliabilityDeviceDto> Devices,
     List<UtReliabilityAlertDto> Alerts);
+
+/// <summary>
+/// 디바이스 1대의 지표 — 보전 액션이 붙는 단위다. 라인 값은 이것들을 직렬 합산해 굴려 올린 것이다.
+/// </summary>
+public record UtReliabilityDeviceDto(
+    string SystemName,
+    string Device,
+    int FaultCount,
+    int RecoveredCount,
+    int InProgressCount,
+    int AwaitingRestartCount,
+    int RestartUnconfirmedCount,
+    int NonStopWarningCount,
+    int LinkSnapshotCount,
+    int UnknownStopCount,
+    long OperatingMs,
+    long TotalDownMs,
+    double? EMtbfMs,
+    double? EMttrMs);
 
 /// <summary>
 /// 알람 1건의 판정. <paramref name="State"/> 는 InProgress · AwaitingRestart · RestartUnconfirmed · Recovered.
@@ -208,5 +235,11 @@ public record UtReliabilityAlertDto(
     string TagAddress,
     string Device,
     string State,
+    // 정지 판정 — Stopped(멈춤) · NonStopWarning(안 멈춤) · Unknown(판정 불가). doc/31 §3.1.
+    string Stop,
+    // 집계에서 빠진 이유 — None(집계 대상) · NonStopWarning · LinkSnapshot · ChangedOp · UnknownStop.
+    string Skip,
+    // 묶인 사건 번호. 같은 번호 = 같은 정지에서 울린 알람들이라 표에서 접어 보일 수 있다.
+    int EventNo,
     long? RepairMs,
     string? RestartFlow);
