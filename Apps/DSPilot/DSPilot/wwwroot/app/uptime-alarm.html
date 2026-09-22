@@ -157,7 +157,18 @@
                                         <h4 style="font-size:0.74rem;" title="해소 뒤 그 디바이스를 쓰는 설비의 사이클이 다시 시작되면 복구로 봅니다">고장 지표 <span style="font-weight:400;color:var(--color-text-secondary);">— 등록한 이상알람TAG 기준</span></h4>
                                     </div>
 
-                                    <div class="up-utkpi-row" style="margin-bottom:10px;">
+                                    <!-- PLC 가 여럿이면 합산 카드 대신 스코프 표를 보인다(실체 없는 숫자 금지). -->
+                                    <template x-if="relMultiSystem">
+                                        <div class="settings-note" style="border-left:3px solid var(--color-warning);padding-left:10px;margin-bottom:10px;">
+                                            <small>
+                                                <strong>PLC <span x-text="rel.systems.length"></span>대에 걸친 조회라 합산 값을 내지 않습니다.</strong>
+                                                DSPilot 에는 '라인' 개념이 없어 서로 다른 라인이 한 프로젝트에 섞여 있을 수 있고,
+                                                가동시간이 다른 집단을 합치면 값이 왜곡됩니다 — 아래 설비·PLC 단위로 보세요.
+                                            </small>
+                                        </div>
+                                    </template>
+
+                                    <div class="up-utkpi-row" style="margin-bottom:10px;" x-show="!relMultiSystem">
                                         <div class="up-utkpi" :title="'복구 완료 ' + rel.recoveredCount + '건의 평균 — 사건 발생에서 재가동까지. 야간·주말을 빼지 않은 달력 시간입니다.'">
                                             <div class="up-utkpi-label">평균 정지 시간 (eMTTR)</div>
                                             <div class="up-utkpi-value" x-text="relValue(rel.eMttrMs, rel.recoveredCount)"
@@ -168,7 +179,7 @@
                                             <div class="up-utkpi-label">평균 고장 간격 (eMTBF)</div>
                                             <div class="up-utkpi-value" x-text="relValue(rel.eMtbfMs, rel.faultCount)"
                                                  :style="rel.eMtbfMs == null ? 'font-size:0.9rem;color:var(--color-text-disabled);' : ''"></div>
-                                            <div class="up-utkpi-sub" x-text="'가동시간 ÷ 고장 ' + rel.faultCount + '건'"></div>
+                                            <div class="up-utkpi-sub" x-text="'가동 ' + durShort(rel.operatingMs) + ' ÷ 고장 ' + rel.faultCount + '건 · 설비 ' + (rel.flows ? rel.flows.length : 0) + '대'"></div>
                                         </div>
                                     </div>
 
@@ -227,6 +238,36 @@
                                               x-text="'디바이스 ' + relDevices.length + ' · 알람 ' + relRows.length + '건'"></span>
                                         <button type="button" class="ds-selbar-link" @click="setRelState(relState)">필터 해제</button>
                                     </div>
+
+                                    <!-- 스코프 롤업 — 설비(flow)가 현장 언어이고, 한 flow 안에서는 가동시간이
+                                         공유되어 집계가 가장 안전하다. PLC 는 그 위이자 지금 있는 가장 위 스코프다. -->
+                                    <template x-for="grp in [{k:'설비', rows: rel.flows}, {k:'PLC', rows: rel.systems}]" :key="grp.k">
+                                        <div style="overflow-x:auto;margin-bottom:12px;" x-show="grp.rows && grp.rows.length > 0">
+                                            <table class="ds-table ut-table">
+                                                <thead><tr>
+                                                    <th x-text="grp.k"></th><th>고장</th><th>복구</th><th>경고</th>
+                                                    <th title="그 스코프의 flow 가동 구간 합집합 — 겹친 시간은 한 번만 셉니다">가동시간</th>
+                                                    <th>eMTBF</th><th>eMTTR</th><th>총 정지</th>
+                                                </tr></thead>
+                                                <tbody>
+                                                    <template x-for="r in grp.rows" :key="grp.k + r.name">
+                                                        <tr>
+                                                            <td :data-label="grp.k"><strong x-text="r.name"></strong></td>
+                                                            <td data-label="고장" x-text="r.faultCount"></td>
+                                                            <td data-label="복구" x-text="r.recoveredCount"></td>
+                                                            <td data-label="경고" x-text="r.nonStopWarningCount || '—'"></td>
+                                                            <td data-label="가동시간" x-text="r.operatingMs > 0 ? durShort(r.operatingMs) : '—'"></td>
+                                                            <td data-label="eMTBF" x-text="relValue(r.eMtbfMs, r.faultCount)"
+                                                                :style="r.eMtbfMs == null ? 'font-size:0.72rem;color:var(--color-text-disabled);' : ''"></td>
+                                                            <td data-label="eMTTR" x-text="relValue(r.eMttrMs, r.recoveredCount)"
+                                                                :style="r.eMttrMs == null ? 'font-size:0.72rem;color:var(--color-text-disabled);' : ''"></td>
+                                                            <td data-label="총 정지" x-text="r.totalDownMs > 0 ? durShort(r.totalDownMs) : '—'"></td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </template>
 
                                     <!-- 디바이스별 — 보전 액션이 붙는 단위다. 라인 카드는 이 행들을 직렬 합산해 굴려 올린 것이라
                                          표의 합과 카드가 어긋나지 않는다. 기본 정렬 = 총 정지시간(서버) — 그게 보전 우선순위다. -->

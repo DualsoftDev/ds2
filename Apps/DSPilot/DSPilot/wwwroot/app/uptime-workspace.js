@@ -712,6 +712,10 @@
                     if (ms == null) return `표본 부족 (n=${n})`;
                     return window.dspFmt.dur(ms);
                 },
+                // ★스코프가 PLC 여러 대에 걸치면 합산 숫자를 내지 않는다 — DSPilot 에 '라인' 개념이 없어
+                // 서로 다른 라인이 한 프로젝트에 섞여 있을 수 있다(현장: UB 라인 2 PLC + SIDE 라인 1 PLC).
+                // 그런 합산은 물리적 실체가 없고, 가동시간이 다른 집단을 섞어 값도 왜곡된다.
+                get relMultiSystem() { return (this.rel?.systems?.length || 0) > 1; },
                 // 집계 대상이 K 에 못 미치면 카드에 숫자를 띄우지 않는다 — 구체적인 숫자로 틀린 답을
                 // 단정하는 것이 비어 있는 것보다 나쁘다(현장 실측: 34건 중 진짜 고장 2건인데 11.6분이 떴다).
                 get relHasNumbers() { return !!this.rel && (this.rel.eMtbfMs != null || this.rel.eMttrMs != null); },

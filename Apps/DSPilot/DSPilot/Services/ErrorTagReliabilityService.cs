@@ -91,8 +91,14 @@ public sealed class ErrorTagReliabilityService
     /// 알람에는 나오는데 현재 모델에 없는 System 이름 — <b>리네임으로 과거가 끊겼다는 신호</b>다.
     /// 비어 있지 않으면 화면이 조용히 넘어가지 말고 말해야 한다.
     /// </param>
+    /// <param name="Flows">설비(flow)별 롤업 — 현장이 '설비' 라고 부르는 단위이자, 한 flow 안에서는
+    /// 가동시간이 공유되어 집계가 가장 안전한 층이다.</param>
+    /// <param name="Systems">PLC(System)별 롤업. DSPilot 에 '라인' 개념이 없어 이것이 가장 위 스코프다 —
+    /// 한 라인이 PLC 두 대로 나뉘기도 하므로(현장 UB) System 합산이 곧 라인은 아니다.</param>
     public sealed record Result(
         Summary Summary,
+        List<ScopeSummary> Flows,
+        List<ScopeSummary> Systems,
         List<DeviceSummary> Devices,
         List<AlertVerdict> Alerts,
         int UnboundTagCount,
@@ -116,7 +122,7 @@ public sealed class ErrorTagReliabilityService
         var globalCount = bindings.Count - bound.Count;
 
         if (!_project.IsLoaded || bound.Count == 0)
-            return new Result(RollUp([]), [], [], 0, globalCount, 0, [], _project.IsLoaded);
+            return new Result(RollUp([], 0), [], [], [], [], 0, globalCount, 0, [], _project.IsLoaded);
 
         var currentSystems = CurrentSystems();
         var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
@@ -205,9 +211,12 @@ public sealed class ErrorTagReliabilityService
                 Classify([e], starts, rhythm, linkAt, changed);
             }
 
-            // ③ 분모 = 리듬이 유지된 구간(조회 창으로 자름).
-            var operating = OperatingMs(starts, rhythm, fromMs, toMs);
-            devices.Add(AggregateDevice(sysName, device, events, operating));
+            // ③ 분모 = 그 디바이스가 쓰이는 flow 들의 가동 구간 합집합(조회 창으로 자름).
+            var operating = OperatingMsUnion(FlowInputs(flows, flowFacts), fromMs, toMs);
+            // 실측에서 디바이스는 전부 flow 1개에만 걸렸다(31/31). 여럿이면 '·' 로 이어 붙여 한 칸으로
+            // 남긴다 — flow 마다 더하면 같은 고장이 두 번 세어진다.
+            var flowName = flows.Count switch { 0 => string.Empty, 1 => flows[0], _ => string.Join("·", flows) };
+            devices.Add(AggregateDevice(sysName, flowName, device, events, operating));
 
             foreach (var e in events)
             {
@@ -220,8 +229,28 @@ public sealed class ErrorTagReliabilityService
         devices.Sort((a, b) => b.TotalDownMs.CompareTo(a.TotalDownMs));   // 보전 우선순위 = 총 정지시간
         verdicts.Sort((a, b) => b.OccurredAtUtc.CompareTo(a.OccurredAtUtc));
 
+        // 스코프별 롤업. 가동시간은 그 스코프의 flow 들을 합집합해 한 번만 센다.
+        List<ScopeSummary> Scopes(string kind, Func<DeviceSummary, string> keyOf, Func<string, List<string>> flowsOf) =>
+            [.. devices.Where(d => keyOf(d).Length > 0)
+                .GroupBy(keyOf, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new ScopeSummary(kind, g.Key,
+                    RollUp([.. g], OperatingMsUnion(FlowInputs(flowsOf(g.Key), flowFacts), fromMs, toMs))))
+                .OrderByDescending(x => x.Totals.TotalDownMs)];
+
+        var flowScopes = Scopes("flow", d => d.Flow, name => [.. name.Split('·', StringSplitOptions.RemoveEmptyEntries)]);
+        var systemScopes = Scopes("system", d => d.System,
+            name => [.. devices.Where(d => string.Equals(d.System, name, StringComparison.OrdinalIgnoreCase))
+                .SelectMany(d => d.Flow.Split('·', StringSplitOptions.RemoveEmptyEntries))
+                .Distinct(StringComparer.OrdinalIgnoreCase)]);
+
+        // 전체 값 — System 이 여럿이면 물리적 실체가 없을 수 있다(현장 UB 라인 + SIDE 라인이 한 프로젝트에
+        // 있었다). 숫자는 계산해 두되 화면이 System 수를 보고 판단한다.
+        var allFlows = devices.SelectMany(d => d.Flow.Split('·', StringSplitOptions.RemoveEmptyEntries))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
         return new Result(
-            RollUp(devices), devices, verdicts,
+            RollUp(devices, OperatingMsUnion(FlowInputs(allFlows, flowFacts), fromMs, toMs)),
+            flowScopes, systemScopes, devices, verdicts,
             unboundAddresses.Count, globalCount, skippedChanged, [.. staleSystems], true);
     }
 
@@ -306,6 +335,11 @@ public sealed class ErrorTagReliabilityService
                 return flow;
         return null;
     }
+
+    /// <summary>가동시간 합집합 계산에 넘길 (시작 시각, 리듬) 쌍.</summary>
+    private static List<(IReadOnlyList<long> Starts, double RhythmMs)> FlowInputs(
+        IEnumerable<string> flows, Dictionary<string, FlowFacts> facts) =>
+        [.. flows.Where(facts.ContainsKey).Select(f => ((IReadOnlyList<long>)facts[f].Starts, facts[f].RhythmMs))];
 
     /// <summary>후보 flow 들의 사이클 시작 시각 합집합(오름차순). "하나라도 돌면" 이 OR 이므로 합집합이다.</summary>
     private static List<long> MergeStarts(IReadOnlyList<string> flows, Dictionary<string, FlowFacts> facts)

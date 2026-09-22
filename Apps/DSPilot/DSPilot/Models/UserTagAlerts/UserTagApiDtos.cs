@@ -191,7 +191,8 @@ public record UtReliabilityDto(
     int NonStopWarningCount,     // 설비가 도는 중에 울린 경고
     int LinkSnapshotCount,       // 통신 재접속 순간의 스냅샷
     int UnknownStopCount,        // 리듬 기준이 없어 정지 여부 판정 불가
-    long OperatingMs,            // eMTBF 의 분모(리듬 유지 구간 합)
+    long OperatingMs,            // eMTBF 의 분모 — flow 가동 구간의 합집합(겹친 시간은 한 번만)
+    long TotalDownMs,            // 총 정지시간 — 설비 수에 안 흔들려 스코프를 가로질러 비교 가능
     int MinSample,
     // 묶이지 않아 계산에서 빠진 태그 수. 0 이 아니면 화면이 설정으로 유도한다.
     int UnboundTagCount,
@@ -200,8 +201,24 @@ public record UtReliabilityDto(
     // 알람에는 나오는데 현재 모델에 없는 System 이름 — 리네임으로 과거가 끊겼다는 신호.
     List<string> StaleSystems,
     bool ProjectLoaded,
+    // 설비(flow)·PLC(System) 별 롤업. DSPilot 에 '라인' 개념이 없어 System 이 가장 위 스코프다 —
+    // 한 라인이 PLC 두 대로 나뉘기도 하므로(현장 UB) System 이 여럿이면 합산 값은 실체가 없을 수 있다.
+    List<UtReliabilityScopeDto> Flows,
+    List<UtReliabilityScopeDto> Systems,
     List<UtReliabilityDeviceDto> Devices,
     List<UtReliabilityAlertDto> Alerts);
+
+/// <summary>스코프 1칸(설비 또는 PLC). Kind = "flow" | "system".</summary>
+public record UtReliabilityScopeDto(
+    string Kind,
+    string Name,
+    int FaultCount,
+    int RecoveredCount,
+    int NonStopWarningCount,
+    long OperatingMs,
+    long TotalDownMs,
+    double? EMtbfMs,
+    double? EMttrMs);
 
 /// <summary>
 /// 디바이스 1대의 지표 — 보전 액션이 붙는 단위다. 라인 값은 이것들을 직렬 합산해 굴려 올린 것이다.

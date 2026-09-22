@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 namespace DSPilot.Kpi;
@@ -222,6 +222,41 @@ public static class ErrorTagReliability
         return total;
     }
 
+    /// <summary>
+    /// 여러 flow 의 가동 구간 <b>합집합</b>. 스코프(설비·PLC) 가동시간을 낼 때 쓴다 —
+    /// 단순 합으로 더하면 동시에 돈 시간을 중복해 세어 분모가 부풀고 지표가 좋아 보인다.
+    /// <para>"하나라도 돌면 가동" 은 §2 의 재가동 근거가 쓰는 OR 규약과 같다.</para>
+    /// </summary>
+    public static long OperatingMsUnion(
+        IEnumerable<(IReadOnlyList<long> Starts, double RhythmMs)> flows, long fromMs, long toMs,
+        double multiple = StopRhythmMultiple)
+    {
+        var spans = new List<(long S, long E)>();
+        foreach (var (starts, rhythm) in flows)
+        {
+            if (rhythm <= 0 || starts is not { Count: > 1 }) continue;
+            var bound = rhythm * multiple;
+            for (var i = 1; i < starts.Count; i++)
+            {
+                long a = starts[i - 1], b = starts[i];
+                if (b <= a || (b - a) > bound) continue;
+                long s = Math.Max(a, fromMs), e = Math.Min(b, toMs);
+                if (e > s) spans.Add((s, e));
+            }
+        }
+        if (spans.Count == 0) return 0;
+
+        spans.Sort((x, y) => x.S.CompareTo(y.S));
+        long total = 0, cs = spans[0].S, ce = spans[0].E;
+        for (var i = 1; i < spans.Count; i++)
+        {
+            var (s, e) = spans[i];
+            if (s <= ce) { if (e > ce) ce = e; continue; }
+            total += ce - cs; cs = s; ce = e;
+        }
+        return total + (ce - cs);
+    }
+
     // ── 재접속 스냅샷 ─────────────────────────────────────────────────────────
 
     /// <summary>
@@ -363,6 +398,8 @@ public static class ErrorTagReliability
     /// </summary>
     public readonly record struct DeviceSummary(
         string System,
+        /// <summary>그 디바이스가 쓰이는 설비. 여럿이면 '·' 로 이어 붙인 합성 이름(중복 집계 금지).</summary>
+        string Flow,
         string Device,
         int FaultCount,
         int RecoveredCount,
@@ -379,7 +416,7 @@ public static class ErrorTagReliability
 
     /// <summary>디바이스 1대의 사건들을 지표로 모은다. <paramref name="operatingMs"/> 는 eMTBF 의 분모다.</summary>
     public static DeviceSummary AggregateDevice(
-        string system, string device, IReadOnlyList<FaultEvent> events, long operatingMs,
+        string system, string flow, string device, IReadOnlyList<FaultEvent> events, long operatingMs,
         int minSample = MinSample)
     {
         int fault = 0, recovered = 0, inProg = 0, awaiting = 0, unconfirmed = 0;
@@ -410,6 +447,7 @@ public static class ErrorTagReliability
 
         return new DeviceSummary(
             System: system,
+            Flow: flow,
             Device: device,
             FaultCount: fault,
             RecoveredCount: recovered,
@@ -425,7 +463,7 @@ public static class ErrorTagReliability
             EMttrMs: recovered >= minSample ? (double)downTotal / recovered : null);
     }
 
-    /// <summary>라인/시스템 값 — 디바이스에서 굴려 올린 것. 화면의 KPI 카드 두 장이 이것이다.</summary>
+    /// <summary>스코프(설비·PLC·전체) 값 — 디바이스에서 굴려 올린 것. 화면의 KPI 카드 두 장이 이것이다.</summary>
     public readonly record struct Summary(
         int FaultCount,
         int RecoveredCount,
@@ -435,11 +473,10 @@ public static class ErrorTagReliability
         int NonStopWarningCount,
         int LinkSnapshotCount,
         int UnknownStopCount,
-        /// <summary>
-        /// 디바이스 가동시간의 <b>단순 합</b>. eMTBF 의 분모가 아니다(그쪽은 1/Σλ 라 겹친 시간을 한 번만
-        /// 센다) — 커버리지 감각용 표시 값이므로 화면도 "디바이스 가동시간 합" 이라고 밝혀야 한다.
-        /// </summary>
+        /// <summary>그 스코프의 가동시간 — flow 들의 <b>합집합</b>이라 겹친 시간을 한 번만 센다. eMTBF 의 분모.</summary>
         long OperatingMs,
+        /// <summary>정지시간 총합. 설비 수에 안 흔들려서 스코프를 가로질러 비교할 수 있는 값이다.</summary>
+        long TotalDownMs,
         double? EMttrMs,
         double? EMtbfMs)
     {
@@ -449,21 +486,21 @@ public static class ErrorTagReliability
     }
 
     /// <summary>
-    /// 라인 롤업 — <b>직렬 합산</b>이다. λ_line = Σ λ_d 이므로 eMTBF_line = 1 / Σ(고장_d / 가동_d).
+    /// 스코프 1개(설비·PLC)의 지표. <b>가동시간은 그 스코프의 것을 한 번만 센다</b>.
     /// <para>
-    /// ★디바이스들이 같은 시간대에 돌았으면 그 가동시간은 <b>한 번만</b> 센다 — λ_d = N_d/T 이므로
-    /// Σλ = ΣN/T 이고 1/Σλ = <b>T/ΣN</b> 이다(ΣT/ΣN 이 아니다). 가동시간을 더해 나누면 라인이 디바이스
-    /// 수만큼 좋아 보인다. 이 식은 그 함정을 구조적으로 피한다("어디가 서든 라인이 선다").
+    /// 종전엔 <c>1/Σλ</c>(직렬 합산)였다. 그 식은 모든 디바이스가 <b>같은 시간대에 함께 돌 때만</b> 맞는데,
+    /// 실측에서 디바이스 가동시간이 7.6시간~30.1시간으로 4배 차이가 났다(스코프에 서로 다른 라인이
+    /// 섞여 있었다). λ 를 합산하면 짧게 관측된 디바이스를 창 전체를 돈 것처럼 외삽해 값이 29% 짧아졌다.
+    /// 관측한 것만 세는 <c>T ÷ ΣN</c> 이 맞다.
     /// </para>
-    /// eMTTR 은 덧셈으로 굴러가지 않으므로 <b>건수 가중 pooled</b> 평균 그대로다.
-    /// <para>표본 미달 디바이스도 λ 합에 넣는다 — 빼면 고장이 과소 계상되어 라인 eMTBF 가 부풀어 오른다.</para>
     /// </summary>
-    public static Summary RollUp(IReadOnlyList<DeviceSummary> devices, int minSample = MinSample)
+    /// <param name="operatingMs">그 스코프의 가동시간(flow 들의 합집합 — <see cref="OperatingMsUnion"/>).</param>
+    public static Summary RollUp(
+        IReadOnlyList<DeviceSummary> devices, long operatingMs, int minSample = MinSample)
     {
         int fault = 0, recovered = 0, inProg = 0, awaiting = 0, unconfirmed = 0;
         int warn = 0, snapshot = 0, unknown = 0;
-        long downTotal = 0, operating = 0;
-        double lambda = 0;
+        long downTotal = 0;
 
         foreach (var d in devices)
         {
@@ -476,9 +513,6 @@ public static class ErrorTagReliability
             snapshot += d.LinkSnapshotCount;
             unknown += d.UnknownStopCount;
             downTotal += d.TotalDownMs;
-            operating += d.OperatingMs;
-            if (d.OperatingMs > 0 && d.FaultCount > 0)
-                lambda += (double)d.FaultCount / d.OperatingMs;
         }
 
         return new Summary(
@@ -490,8 +524,12 @@ public static class ErrorTagReliability
             NonStopWarningCount: warn,
             LinkSnapshotCount: snapshot,
             UnknownStopCount: unknown,
-            OperatingMs: operating,
+            OperatingMs: operatingMs,
+            TotalDownMs: downTotal,
             EMttrMs: recovered >= minSample ? (double)downTotal / recovered : null,
-            EMtbfMs: fault >= minSample && lambda > 0 ? 1.0 / lambda : null);
+            EMtbfMs: fault >= minSample && operatingMs > 0 ? (double)operatingMs / fault : null);
     }
+
+    /// <summary>설비(flow)·PLC(System) 한 칸. 스코프를 나눠 보이는 근거다.</summary>
+    public readonly record struct ScopeSummary(string Kind, string Name, Summary Totals);
 }

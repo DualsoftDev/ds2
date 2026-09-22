@@ -262,7 +262,7 @@ public class ErrorTagReliabilityTests
     {
         // ★간격의 평균이 아니다 — 간격 평균은 관측창을 넘는 값을 낼 수 없어(실측 11.6분 = 상한의 91%)
         //   설비가 아니라 창 길이를 재게 된다.
-        var d = AggregateDevice("Line1", "Conveyor1",
+        var d = AggregateDevice("Line1", "#1", "Conveyor1",
         [
             Stopped(0, 5 * Min, 10 * Min),
             Stopped(2 * Hour, 2 * Hour + Min, 2 * Hour + 10 * Min),
@@ -276,7 +276,7 @@ public class ErrorTagReliabilityTests
     [Fact]
     public void 무정지_경고와_스냅샷은_고장이_아니다()
     {
-        var d = AggregateDevice("Line1", "Conveyor1",
+        var d = AggregateDevice("Line1", "#1", "Conveyor1",
         [
             Stopped(0, 5 * Min, 10 * Min),
             Ev(1 * Hour, 1 * Hour, 1 * Hour + Min, StopVerdict.NonStopWarning, SkipCause.NonStopWarning),
@@ -294,7 +294,7 @@ public class ErrorTagReliabilityTests
     [Fact]
     public void eMTTR_은_발생에서_재가동까지의_평균이고_복구_완료만_센다()
     {
-        var d = AggregateDevice("Line1", "Conveyor1",
+        var d = AggregateDevice("Line1", "#1", "Conveyor1",
         [
             Stopped(0, 5 * Min, 10 * Min),                                  // 10분
             Stopped(1 * Hour, 1 * Hour + Min, 1 * Hour + 30 * Min),         // 30분
@@ -309,7 +309,7 @@ public class ErrorTagReliabilityTests
     [Fact]
     public void 표본이_모자라면_숫자_대신_null_이다()
     {
-        var d = AggregateDevice("Line1", "Conveyor1", [Stopped(0, 5 * Min, 10 * Min)], operatingMs: Hour, minSample: 3);
+        var d = AggregateDevice("Line1", "#1", "Conveyor1", [Stopped(0, 5 * Min, 10 * Min)], operatingMs: Hour, minSample: 3);
         Assert.Equal(1, d.FaultCount);
         Assert.Null(d.EMtbfMs);
         Assert.Null(d.EMttrMs);
@@ -318,7 +318,7 @@ public class ErrorTagReliabilityTests
     [Fact]
     public void 가동시간이_0_이면_eMTBF_를_내지_않는다()
     {
-        var d = AggregateDevice("Line1", "Conveyor1",
+        var d = AggregateDevice("Line1", "#1", "Conveyor1",
         [
             Stopped(0, Min, 2 * Min),
             Stopped(Hour, Hour + Min, Hour + 2 * Min),
@@ -328,57 +328,105 @@ public class ErrorTagReliabilityTests
         Assert.Null(d.EMtbfMs);
     }
 
-    // ── 라인 롤업 (직렬 합산) ─────────────────────────────────────────────
+    // ── 스코프 롤업 (2026-09-22 개정) ────────────────────────────────────
+    // 종전 1/Σλ(직렬 합산)를 버렸다. 그 식은 모든 디바이스가 같은 시간대에 함께 돌 때만 맞는데,
+    // 실측에서 가동시간이 7.6~30.1시간으로 4배 차이 났고(서로 다른 라인이 섞임) 값이 29% 짧아졌다.
 
     [Fact]
-    public void 같은_창을_공유하면_라인_값은_그_창을_총고장으로_나눈_값이다()
+    public void 스코프_값은_그_스코프_가동시간을_총고장으로_나눈_값이다()
     {
-        // ★ΣT/ΣN 이 아니라 T/ΣN 이다 — 두 디바이스가 같은 시간대에 돌았으면 그 시간은 한 번만 센다.
-        //   λ_d = N_d/T 이므로 Σλ = ΣN/T, 1/Σλ = T/ΣN. 가동시간을 더하면 라인이 두 배로 좋아 보인다.
-        var a = AggregateDevice("L", "A", [Stopped(0, Min, 2 * Min), Stopped(Hour, Hour + Min, Hour + 2 * Min)], 10 * Hour, minSample: 1);
-        var b = AggregateDevice("L", "B", [Stopped(0, Min, 2 * Min), Stopped(Hour, Hour + Min, Hour + 2 * Min)], 10 * Hour, minSample: 1);
+        var a = AggregateDevice("L", "#A", "A", [Stopped(0, Min, 2 * Min), Stopped(Hour, Hour + Min, Hour + 2 * Min)], 10 * Hour, minSample: 1);
+        var b = AggregateDevice("L", "#A", "B", [Stopped(0, Min, 2 * Min), Stopped(Hour, Hour + Min, Hour + 2 * Min)], 10 * Hour, minSample: 1);
 
-        var line = RollUp([a, b], minSample: 1);
-        Assert.Equal(4, line.FaultCount);
-        Assert.Equal(10 * Hour / 4.0, line.EMtbfMs!.Value, 3);
+        // 두 디바이스가 같은 창에서 돌았으므로 그 창은 한 번만 센다.
+        var scope = RollUp([a, b], operatingMs: 10 * Hour, minSample: 1);
+        Assert.Equal(4, scope.FaultCount);
+        Assert.Equal(10 * Hour / 4.0, scope.EMtbfMs!.Value, 3);
     }
 
     [Fact]
-    public void 라인_eMTBF_는_어느_설비든_서면_선다는_직렬_합산이다()
+    public void 가동시간이_다른_디바이스를_섞어도_외삽하지_않는다()
     {
-        // λ_line = Σλ_d → 라인은 언제나 가장 나쁜 설비보다 짧다.
-        var a = AggregateDevice("L", "A", [Stopped(0, Min, 2 * Min)], 4 * Hour, minSample: 1);    // 4h
-        var b = AggregateDevice("L", "B", [Stopped(0, Min, 2 * Min)], 12 * Hour, minSample: 1);   // 12h
+        // 7.6h 관측된 디바이스를 30h 돈 것처럼 늘려 잡던 것이 1/Σλ 의 결함이었다.
+        var big = AggregateDevice("L", "#A", "A", [Stopped(0, Min, 2 * Min)], 30 * Hour, minSample: 1);
+        var small = AggregateDevice("L", "#B", "B", [Stopped(0, Min, 2 * Min)], 3 * Hour, minSample: 1);
 
-        var line = RollUp([a, b], minSample: 1);
-        Assert.Equal(3 * Hour, line.EMtbfMs!.Value, 3);      // 1/(1/4 + 1/12) = 3
-        Assert.True(line.EMtbfMs < a.EMtbfMs);
+        var scope = RollUp([big, small], operatingMs: 30 * Hour, minSample: 1);
+        Assert.Equal(15 * Hour, scope.EMtbfMs!.Value, 3);      // 30h ÷ 2건
+
+        // 옛 식(1/Σλ)이라면 1/(1/30 + 1/3) = 2.73h 로 5배 이상 짧게 나왔다.
+        var oldWay = 1.0 / ((1.0 / (30 * Hour)) + (1.0 / (3 * Hour)));
+        Assert.True(oldWay < scope.EMtbfMs!.Value / 5);
     }
 
     [Fact]
-    public void 표본_미달_디바이스도_라인_합산에_들어간다()
+    public void 표본_미달_디바이스도_스코프_합산에_들어간다()
     {
-        // 빼면 고장이 과소 계상되어 라인 eMTBF 가 부풀어 오른다.
-        var big = AggregateDevice("L", "A",
+        // 빼면 고장이 과소 계상되어 스코프 eMTBF 가 부풀어 오른다.
+        var big = AggregateDevice("L", "#A", "A",
         [
             Stopped(0, Min, 2 * Min),
             Stopped(Hour, Hour + Min, Hour + 2 * Min),
             Stopped(2 * Hour, 2 * Hour + Min, 2 * Hour + 2 * Min),
         ], 6 * Hour);
-        var small = AggregateDevice("L", "B", [Stopped(0, Min, 2 * Min)], 6 * Hour);   // K 미달 → 자기 숫자는 없다
+        var small = AggregateDevice("L", "#A", "B", [Stopped(0, Min, 2 * Min)], 6 * Hour);
 
         Assert.Null(small.EMtbfMs);
-        var line = RollUp([big, small]);
-        Assert.Equal(4, line.FaultCount);
-        Assert.Equal(6 * Hour / 4.0, line.EMtbfMs!.Value, 3);
+        var scope = RollUp([big, small], operatingMs: 6 * Hour);
+        Assert.Equal(4, scope.FaultCount);
+        Assert.Equal(6 * Hour / 4.0, scope.EMtbfMs!.Value, 3);
+    }
+
+    [Fact]
+    public void 총_정지시간은_설비_수에_흔들리지_않고_합산된다()
+    {
+        var a = AggregateDevice("L", "#A", "A", [Stopped(0, Min, 10 * Min)], Hour, minSample: 1);
+        var b = AggregateDevice("L", "#B", "B", [Stopped(0, Min, 20 * Min)], Hour, minSample: 1);
+
+        Assert.Equal(30 * Min, RollUp([a, b], operatingMs: Hour, minSample: 1).TotalDownMs);
+    }
+
+    [Fact]
+    public void 가동시간이_0_이면_스코프_eMTBF_를_내지_않는다()
+    {
+        var a = AggregateDevice("L", "#A", "A", [Stopped(0, Min, 2 * Min)], Hour, minSample: 1);
+        Assert.Null(RollUp([a], operatingMs: 0, minSample: 1).EMtbfMs);
     }
 
     [Fact]
     public void 빈_입력은_0_건이고_숫자가_없다()
     {
-        var line = RollUp([], minSample: 1);
-        Assert.Equal(0, line.FaultCount);
-        Assert.Null(line.EMttrMs);
-        Assert.Null(line.EMtbfMs);
+        var scope = RollUp([], operatingMs: Hour, minSample: 1);
+        Assert.Equal(0, scope.FaultCount);
+        Assert.Null(scope.EMttrMs);
+        Assert.Null(scope.EMtbfMs);
+    }
+
+    // ── 스코프 가동시간 = flow 합집합 ────────────────────────────────────
+
+    [Fact]
+    public void 동시에_돈_설비의_가동시간은_한_번만_센다()
+    {
+        // 단순 합으로 더하면 분모가 두 배가 되어 지표가 두 배 좋아 보인다.
+        var f1 = ((IReadOnlyList<long>)Beats(11), 3.0 * Min);          // 0~30분
+        var f2 = ((IReadOnlyList<long>)Beats(11), 3.0 * Min);          // 같은 구간
+
+        Assert.Equal(30 * Min, OperatingMsUnion([f1, f2], 0, 30 * Min));
+    }
+
+    [Fact]
+    public void 엇갈려_돈_설비는_겹친_만큼만_합친다()
+    {
+        var f1 = ((IReadOnlyList<long>)Beats(6), 3.0 * Min);                        // 0~15분
+        var f2 = ((IReadOnlyList<long>)Beats(6, from: 9 * Min), 3.0 * Min);         // 9~24분
+
+        Assert.Equal(24 * Min, OperatingMsUnion([f1, f2], 0, 60 * Min));
+    }
+
+    [Fact]
+    public void 리듬이_끊긴_구간은_어느_설비에서도_가동이_아니다()
+    {
+        List<long> starts = [0, 3 * Min, 6 * Min, 30 * Min, 33 * Min];
+        Assert.Equal(9 * Min, OperatingMsUnion([((IReadOnlyList<long>)starts, RhythmMs(starts))], 0, 33 * Min));
     }
 }

@@ -386,12 +386,15 @@ public class UserTagsController : ControllerBase
             LinkSnapshotCount: s.LinkSnapshotCount,
             UnknownStopCount: s.UnknownStopCount,
             OperatingMs: s.OperatingMs,
+            TotalDownMs: s.TotalDownMs,
             MinSample: ErrorTagReliability.MinSample,
             UnboundTagCount: r.UnboundTagCount,
             GlobalTagCount: r.GlobalTagCount,
             SkippedChangedCount: r.SkippedChangedCount,
             StaleSystems: r.StaleSystems,
             ProjectLoaded: r.ProjectLoaded,
+            Flows: [.. r.Flows.Select(ToScopeDto)],
+            Systems: [.. r.Systems.Select(ToScopeDto)],
             Devices: [.. r.Devices.Select(d => new UtReliabilityDeviceDto(
                 SystemName: d.System,
                 Device: d.Device,
@@ -423,6 +426,17 @@ public class UserTagsController : ControllerBase
                 RepairMs: a.RepairMs,
                 RestartFlow: a.RestartFlow))]);
     }
+
+    private static UtReliabilityScopeDto ToScopeDto(ErrorTagReliability.ScopeSummary x) => new(
+        Kind: x.Kind,
+        Name: x.Name,
+        FaultCount: x.Totals.FaultCount,
+        RecoveredCount: x.Totals.RecoveredCount,
+        NonStopWarningCount: x.Totals.NonStopWarningCount,
+        OperatingMs: x.Totals.OperatingMs,
+        TotalDownMs: x.Totals.TotalDownMs,
+        EMtbfMs: x.Totals.EMtbfMs,
+        EMttrMs: x.Totals.EMttrMs);
 
     /// <summary>
     /// 이상알람TAG 디바이스 귀속 반영 — 요청에 든 System 의 것만 통째 교체하고 나머지는 그대로 둔다.
