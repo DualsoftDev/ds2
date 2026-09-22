@@ -24,8 +24,13 @@ public partial class MainViewModel
 
         if (scope.Contains(RefreshScope.Tree))
         {
-            // Tree 전용 갱신 path 가 없으므로 RebuildAll 로 통합 처리 — Tree | Canvas | PropertyPanel 모두 커버.
-            RequestRebuildAll();
+            // Tree 재구축은 캔버스 재구축과 분리돼 있다. Canvas 비트가 없는 trigger(속성 변경 등)는
+            // 캔버스 노드 집합이 그대로이므로 pane 을 다시 만들지 않는다 — 캔버스는 가상화가 없어
+            // 노드당 89 엘리먼트를 전부 새로 인플레이트하는 쪽이 이 경로에서 제일 비쌌다.
+            if (scope.Contains(RefreshScope.Canvas))
+                RequestRebuildAll();
+            else
+                RequestRebuildTrees();
             return;
         }
 

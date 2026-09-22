@@ -155,12 +155,19 @@
             </Border>
 
             <Grid x:Name="UpperPanelsHost" Grid.Row="1">
+                <!-- 가상화: WPF TreeView 는 기본이 비가상화라 명시해야 한다. 없으면 모든 행의
+                     TreeViewItem 이 실체화돼, 트리를 다시 채울 때마다 비용이 "보이는 행"이 아니라
+                     "모델 전체 행"에 비례한다(행당 템플릿 22 엘리먼트). Recycling 은 컨테이너를
+                     재사용해 스크롤 중 생성까지 없앤다. -->
                 <TreeView x:Name="ControlTree"
                           ItemsSource="{Binding ControlTreeRoots}"
                           SelectedItemChanged="Tree_SelectedItemChanged"
                           PreviewMouseDown="Tree_PreviewMouseDown"
                           PreviewKeyDown="Tree_PreviewKeyDown"
-                          ContextMenuOpening="Tree_ContextMenuOpening">
+                          ContextMenuOpening="Tree_ContextMenuOpening"
+                          VirtualizingStackPanel.IsVirtualizing="True"
+                          VirtualizingStackPanel.VirtualizationMode="Recycling"
+                          VirtualizingStackPanel.ScrollUnit="Pixel">
                     <TreeView.ItemContainerStyle>
                         <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
                     </TreeView.ItemContainerStyle>
@@ -178,7 +185,10 @@
                           SelectedItemChanged="Tree_SelectedItemChanged"
                           PreviewMouseDown="Tree_PreviewMouseDown"
                           PreviewKeyDown="Tree_PreviewKeyDown"
-                          ContextMenuOpening="Tree_ContextMenuOpening">
+                          ContextMenuOpening="Tree_ContextMenuOpening"
+                          VirtualizingStackPanel.IsVirtualizing="True"
+                          VirtualizingStackPanel.VirtualizationMode="Recycling"
+                          VirtualizingStackPanel.ScrollUnit="Pixel">
                     <TreeView.ItemContainerStyle>
                         <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
                     </TreeView.ItemContainerStyle>

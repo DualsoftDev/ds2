@@ -79,12 +79,6 @@ public partial class ExplorerPane
                 : $"탐색기에서 '{query}' 검색 결과가 없습니다.";
     }
 
-    private static void BringTreeNodeIntoView(TreeView tree, Guid nodeId)
-    {
-        if (TryFindTreeItem(tree, nodeId, out var item) && item is not null)
-            item.BringIntoView();
-    }
-
     private static void RebuildFilteredRoots(
         IEnumerable<EntityNode> sourceRoots,
         ObservableCollection<EntityNode> targetRoots,
@@ -176,29 +170,5 @@ public partial class ExplorerPane
         clone.SimState = source.SimState;
         clone.SimTokenDisplay = source.SimTokenDisplay;
         return clone;
-    }
-
-    private static bool TryFindTreeItem(ItemsControl parent, Guid nodeId, out TreeViewItem? item)
-    {
-        foreach (var current in parent.Items)
-        {
-            if (parent.ItemContainerGenerator.ContainerFromItem(current) is not TreeViewItem container)
-                continue;
-
-            if (container.DataContext is EntityNode node && node.Id == nodeId)
-            {
-                item = container;
-                return true;
-            }
-
-            container.ApplyTemplate();
-            container.UpdateLayout();
-
-            if (TryFindTreeItem(container, nodeId, out item))
-                return true;
-        }
-
-        item = null;
-        return false;
     }
 }

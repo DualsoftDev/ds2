@@ -97,12 +97,13 @@ public partial class MainViewModel
         Selection.Reset();
         CanvasManager.Reset();
         _rebuildQueued = false;
+        _rebuildNeedsCanvas = false;
         _pendingRebuildActions.Clear();
         _lastAddWorkTargetFlowId = null;
         SelectedNode = null;
         SelectedArrow = null;
 
-        RebuildAll();
+        RebuildAll(includeCanvas: true);
         UpdateTitle();
         StatusText = "Ready";
         RefreshEditorCommandStates();
@@ -164,6 +165,7 @@ public partial class MainViewModel
         Selection.Reset();
         CanvasManager.Reset();
         _rebuildQueued = false;
+        _rebuildNeedsCanvas = false;
         _pendingRebuildActions.Clear();
         SelectedNode = null;
         SelectedArrow = null;

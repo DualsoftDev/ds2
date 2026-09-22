@@ -30,6 +30,9 @@ public partial class MainViewModel : ObservableObject
     private bool _clipboardIsCut;
     public bool HasClipboardData => _clipboardSelection.Count > 0;
     private bool _rebuildQueued;
+    /// 예약된 재구축이 캔버스 pane 까지 다시 만들어야 하는지. 여러 요청이 한 tick 에 합쳐질 때
+    /// 하나라도 캔버스를 원하면 true 로 승격된다 (RequestRebuild 참조).
+    private bool _rebuildNeedsCanvas;
     private readonly List<Action> _pendingRebuildActions = [];
     private View3DWindow? _view3DWindow;
 
