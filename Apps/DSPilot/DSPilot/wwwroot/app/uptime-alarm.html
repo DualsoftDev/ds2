@@ -241,6 +241,12 @@
 
                                     <!-- 스코프 롤업 — 설비(flow)가 현장 언어이고, 한 flow 안에서는 가동시간이
                                          공유되어 집계가 가장 안전하다. PLC 는 그 위이자 지금 있는 가장 위 스코프다. -->
+                                    <!-- 공유 디바이스는 그걸 쓰는 설비 모두에 센다 — 그 디바이스가 고장 나면
+                                         설비가 전부 서기 때문이다. 그래서 설비 행의 합이 전체보다 클 수 있다. -->
+                                    <div class="settings-note" x-show="rel.multiFlowDeviceCount > 0" style="margin-bottom:8px;">
+                                        <small x-text="'디바이스 ' + rel.multiFlowDeviceCount + '대가 설비 여러 곳에 쓰입니다 — 그 고장은 해당 설비 모두에 셉니다(설비 행의 합 > 전체).'"></small>
+                                    </div>
+
                                     <template x-for="grp in [{k:'설비', rows: rel.flows}, {k:'PLC', rows: rel.systems}]" :key="grp.k">
                                         <div style="overflow-x:auto;margin-bottom:12px;" x-show="grp.rows && grp.rows.length > 0">
                                             <table class="ds-table ut-table">

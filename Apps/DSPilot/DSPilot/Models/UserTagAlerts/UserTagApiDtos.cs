@@ -198,6 +198,9 @@ public record UtReliabilityDto(
     int UnboundTagCount,
     int GlobalTagCount,
     int SkippedChangedCount,
+    // 여러 설비에 걸친 디바이스 수. 0 이 아니면 설비 행의 합이 전체보다 크다 — 공유 디바이스가
+    // 고장 나면 그걸 쓰는 설비가 전부 서기 때문이다(중복이 아니라 사실).
+    int MultiFlowDeviceCount,
     // 알람에는 나오는데 현재 모델에 없는 System 이름 — 리네임으로 과거가 끊겼다는 신호.
     List<string> StaleSystems,
     bool ProjectLoaded,

@@ -104,6 +104,11 @@ public sealed class ErrorTagReliabilityService
         int UnboundTagCount,
         int GlobalTagCount,
         int SkippedChangedCount,
+        /// <summary>
+        /// 여러 설비에 걸친 디바이스 수. 0 이 아니면 <b>설비 행의 합이 전체보다 크다</b> — 공유 디바이스가
+        /// 고장 나면 그걸 쓰는 설비가 전부 서기 때문이다(중복 집계가 아니라 사실). 화면이 밝혀야 한다.
+        /// </summary>
+        int MultiFlowDeviceCount,
         List<string> StaleSystems,
         bool ProjectLoaded);
 
@@ -122,7 +127,7 @@ public sealed class ErrorTagReliabilityService
         var globalCount = bindings.Count - bound.Count;
 
         if (!_project.IsLoaded || bound.Count == 0)
-            return new Result(RollUp([], 0), [], [], [], [], 0, globalCount, 0, [], _project.IsLoaded);
+            return new Result(RollUp([], 0), [], [], [], [], 0, globalCount, 0, 0, [], _project.IsLoaded);
 
         var currentSystems = CurrentSystems();
         var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
@@ -185,6 +190,8 @@ public sealed class ErrorTagReliabilityService
         var nowMs = KpiTime.NowMs();
         var nameBySignal = BuildCurrentNames();
         var devices = new List<DeviceSummary>();
+        // (디바이스, 그 디바이스가 쓰이는 flow 들) — 설비 롤업은 이 쌍 위에서 돈다.
+        var deviceFlows = new List<(DeviceSummary Summary, List<string> Flows)>();
         var verdicts = new List<AlertVerdict>();
         var skippedChanged = 0;
         var eventSeq = 0;
@@ -213,10 +220,14 @@ public sealed class ErrorTagReliabilityService
 
             // ③ 분모 = 그 디바이스가 쓰이는 flow 들의 가동 구간 합집합(조회 창으로 자름).
             var operating = OperatingMsUnion(FlowInputs(flows, flowFacts), fromMs, toMs);
-            // 실측에서 디바이스는 전부 flow 1개에만 걸렸다(31/31). 여럿이면 '·' 로 이어 붙여 한 칸으로
-            // 남긴다 — flow 마다 더하면 같은 고장이 두 번 세어진다.
+            // 표시 이름은 '·' 로 잇되, 설비 롤업에는 flow 목록을 그대로 넘긴다 — 공유 디바이스가 고장 나면
+            // 그걸 쓰는 flow 가 전부 서므로 각 flow 에 세는 것이 맞다(Queries.fs §findConflictingDeviceSystemType:
+            // "같은 devAlias 를 쓰는 Call 이 여러 Flow/Work 에 있어도"). 합성 이름 한 칸으로 두면 어느
+            // 설비에도 안 잡히는 구멍이 생긴다.
             var flowName = flows.Count switch { 0 => string.Empty, 1 => flows[0], _ => string.Join("·", flows) };
-            devices.Add(AggregateDevice(sysName, flowName, device, events, operating));
+            var summary = AggregateDevice(sysName, flowName, device, events, operating);
+            devices.Add(summary);
+            deviceFlows.Add((summary, flows));
 
             foreach (var e in events)
             {
@@ -230,28 +241,38 @@ public sealed class ErrorTagReliabilityService
         verdicts.Sort((a, b) => b.OccurredAtUtc.CompareTo(a.OccurredAtUtc));
 
         // 스코프별 롤업. 가동시간은 그 스코프의 flow 들을 합집합해 한 번만 센다.
-        List<ScopeSummary> Scopes(string kind, Func<DeviceSummary, string> keyOf, Func<string, List<string>> flowsOf) =>
-            [.. devices.Where(d => keyOf(d).Length > 0)
-                .GroupBy(keyOf, StringComparer.OrdinalIgnoreCase)
-                .Select(g => new ScopeSummary(kind, g.Key,
-                    RollUp([.. g], OperatingMsUnion(FlowInputs(flowsOf(g.Key), flowFacts), fromMs, toMs))))
-                .OrderByDescending(x => x.Totals.TotalDownMs)];
+        // ★설비 롤업은 디바이스를 그 디바이스가 쓰이는 flow <b>모두</b>에 센다 — 공유 디바이스가 고장 나면
+        //   그 flow 들이 전부 서기 때문이다. 그래서 설비 행의 합은 전체보다 클 수 있다(중복이 아니라 사실).
+        //   전체·PLC 값은 flow 를 합치지 않고 디바이스에서 직접 굴려 올리므로 영향받지 않는다.
+        var flowScopes = deviceFlows
+            .SelectMany(x => x.Flows.Select(f => (Flow: f, x.Summary)))
+            .GroupBy(x => x.Flow, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new ScopeSummary("flow", g.Key,
+                RollUp([.. g.Select(x => x.Summary)],
+                       OperatingMsUnion(FlowInputs([g.Key], flowFacts), fromMs, toMs))))
+            .OrderByDescending(x => x.Totals.TotalDownMs)
+            .ToList();
 
-        var flowScopes = Scopes("flow", d => d.Flow, name => [.. name.Split('·', StringSplitOptions.RemoveEmptyEntries)]);
-        var systemScopes = Scopes("system", d => d.System,
-            name => [.. devices.Where(d => string.Equals(d.System, name, StringComparison.OrdinalIgnoreCase))
-                .SelectMany(d => d.Flow.Split('·', StringSplitOptions.RemoveEmptyEntries))
-                .Distinct(StringComparer.OrdinalIgnoreCase)]);
+        var systemScopes = deviceFlows
+            .Where(x => x.Summary.System.Length > 0)
+            .GroupBy(x => x.Summary.System, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new ScopeSummary("system", g.Key,
+                RollUp([.. g.Select(x => x.Summary)],
+                       OperatingMsUnion(FlowInputs(
+                           g.SelectMany(x => x.Flows).Distinct(StringComparer.OrdinalIgnoreCase), flowFacts),
+                           fromMs, toMs))))
+            .OrderByDescending(x => x.Totals.TotalDownMs)
+            .ToList();
 
         // 전체 값 — System 이 여럿이면 물리적 실체가 없을 수 있다(현장 UB 라인 + SIDE 라인이 한 프로젝트에
         // 있었다). 숫자는 계산해 두되 화면이 System 수를 보고 판단한다.
-        var allFlows = devices.SelectMany(d => d.Flow.Split('·', StringSplitOptions.RemoveEmptyEntries))
-            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var allFlows = deviceFlows.SelectMany(x => x.Flows).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var multiFlowDevices = deviceFlows.Count(x => x.Flows.Count > 1);
 
         return new Result(
             RollUp(devices, OperatingMsUnion(FlowInputs(allFlows, flowFacts), fromMs, toMs)),
             flowScopes, systemScopes, devices, verdicts,
-            unboundAddresses.Count, globalCount, skippedChanged, [.. staleSystems], true);
+            unboundAddresses.Count, globalCount, skippedChanged, multiFlowDevices, [.. staleSystems], true);
     }
 
     /// <summary>

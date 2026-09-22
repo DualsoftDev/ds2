@@ -391,6 +391,7 @@ public class UserTagsController : ControllerBase
             UnboundTagCount: r.UnboundTagCount,
             GlobalTagCount: r.GlobalTagCount,
             SkippedChangedCount: r.SkippedChangedCount,
+            MultiFlowDeviceCount: r.MultiFlowDeviceCount,
             StaleSystems: r.StaleSystems,
             ProjectLoaded: r.ProjectLoaded,
             Flows: [.. r.Flows.Select(ToScopeDto)],

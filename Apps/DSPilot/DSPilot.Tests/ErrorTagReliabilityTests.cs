@@ -429,4 +429,43 @@ public class ErrorTagReliabilityTests
         List<long> starts = [0, 3 * Min, 6 * Min, 30 * Min, 33 * Min];
         Assert.Equal(9 * Min, OperatingMsUnion([((IReadOnlyList<long>)starts, RhythmMs(starts))], 0, 33 * Min));
     }
+
+    // ── 공유 디바이스 (Ds2 코어가 허용하는 모양) ──────────────────────────
+    // Queries.findConflictingDeviceSystemType: "같은 devAlias 를 쓰는 Call 이 여러 Flow/Work 에 있어도".
+    // 공유 디바이스가 고장 나면 그걸 쓰는 설비가 전부 서므로, 설비 롤업은 각 설비에 센다.
+    // 그래서 설비 행의 합 > 전체가 되는데, 그건 중복이 아니라 사실이다.
+
+    [Fact]
+    public void 공유_디바이스의_고장은_쓰는_설비_모두에_센다()
+    {
+        // D 는 #A·#B 가 함께 쓴다. D 가 서면 두 설비가 다 선다.
+        var shared = AggregateDevice("L", "#A·#B", "D", [Stopped(0, Min, 2 * Min)], 2 * Hour, minSample: 1);
+        var onlyA  = AggregateDevice("L", "#A", "E", [Stopped(Hour, Hour + Min, Hour + 2 * Min)], 2 * Hour, minSample: 1);
+
+        var a = RollUp([shared, onlyA], operatingMs: 2 * Hour, minSample: 1);   // 설비 #A
+        var b = RollUp([shared], operatingMs: 2 * Hour, minSample: 1);          // 설비 #B
+        var all = RollUp([shared, onlyA], operatingMs: 2 * Hour, minSample: 1); // 전체(디바이스에서 직접)
+
+        Assert.Equal(2, a.FaultCount);
+        Assert.Equal(1, b.FaultCount);
+        // 설비 합(3) > 전체(2) — 공유 디바이스가 양쪽에 세어진 결과다.
+        Assert.True(a.FaultCount + b.FaultCount > all.FaultCount);
+        Assert.Equal(2, all.FaultCount);
+    }
+
+    [Fact]
+    public void 전체_값은_설비를_합치지_않고_디바이스에서_굴려_올린다()
+    {
+        // 설비 행을 더해 전체를 내면 공유 디바이스가 이중 계상된다 — 그래서 전체는 디바이스 목록으로 낸다.
+        var shared = AggregateDevice("L", "#A·#B", "D",
+        [
+            Stopped(0, Min, 2 * Min),
+            Stopped(Hour, Hour + Min, Hour + 2 * Min),
+            Stopped(2 * Hour, 2 * Hour + Min, 2 * Hour + 2 * Min),
+        ], 6 * Hour);
+
+        var all = RollUp([shared], operatingMs: 6 * Hour);
+        Assert.Equal(3, all.FaultCount);
+        Assert.Equal(2 * Hour, all.EMtbfMs);       // 6h ÷ 3건 — 설비 수와 무관
+    }
 }
