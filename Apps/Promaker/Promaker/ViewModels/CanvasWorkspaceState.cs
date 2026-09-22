@@ -229,11 +229,10 @@ public partial class CanvasWorkspaceState : ObservableObject
 
     public void RefreshCanvasForActiveTab()
     {
-        CanvasNodes.Clear();
-        CanvasArrows.Clear();
-
         if (ActiveTab is null)
         {
+            CanvasNodes.Clear();
+            CanvasArrows.Clear();
             _host.Selection.ApplyNodeSelectionVisuals();
             return;
         }
@@ -242,7 +241,12 @@ public partial class CanvasWorkspaceState : ObservableObject
                 () => EditorCanvasProjection.CanvasContentForTab(Store, ActiveTab.Kind, ActiveTab.RootId),
                 out var content,
                 statusOverride: "[ERROR] Failed to refresh canvas content."))
+        {
+            // 투영 실패 시 빈 캔버스 — 낡은 내용을 남겨 두면 편집 대상이 어긋난다.
+            CanvasNodes.Clear();
+            CanvasArrows.Clear();
             return;
+        }
 
         // Flow 하이라이트: System 탭에서 특정 Flow의 Work만 활성화
         HashSet<Guid>? highlightWorkIds = null;
@@ -252,28 +256,8 @@ public partial class CanvasWorkspaceState : ObservableObject
             highlightWorkIds = works.Select(w => w.Id).ToHashSet();
         }
 
-        foreach (var n in content.Nodes)
-        {
-            var isGhost = n.IsGhost;
-            if (highlightWorkIds is not null && !highlightWorkIds.Contains(n.Id))
-                isGhost = true;
-
-            var node = new EntityNode(n.Id, n.EntityKind, n.Name, n.ParentId)
-            {
-                X = n.X,
-                Y = n.Y,
-                Width = n.Width,
-                Height = n.Height,
-                IsGhost = isGhost,
-                IsReference = n.IsReference,
-                ReferenceOfId = n.ReferenceOfId is { } refId ? refId.Value : null,
-            };
-            node.UpdateConditionTypes(n.ConditionTypes);
-            CanvasNodes.Add(node);
-        }
-
-        foreach (var a in content.Arrows)
-            CanvasArrows.Add(new ArrowNode(a.Id, a.SourceId, a.TargetId, a.ArrowType));
+        ReconcileCanvasNodes([.. content.Nodes], highlightWorkIds);
+        ReconcileCanvasArrows([.. content.Arrows]);
 
         RefreshArrowPaths();
         _host.Selection.ApplyNodeSelectionVisuals();

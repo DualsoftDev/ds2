@@ -12,55 +12,83 @@ using Xunit;
 namespace Promaker.Tests;
 
 /// <summary>
-/// 갱신 범위(RefreshScope) 분리 검증.
+/// 갱신 범위 분리(RefreshScope) + 캔버스 제자리 조정(reconcile) 검증.
 ///
-/// <para>캔버스는 가상화가 없어 <c>CanvasNodes.Clear()</c> + 재추가가 노드마다 89 엘리먼트짜리
-/// DataTemplate 을 새로 인플레이트한다. 그래서 큰 모델에서 "무슨 동작을 하면 멈췄다 동작"의 몫이
-/// 가장 컸다. 캔버스 노드 집합이 그대로인 갱신(속성 변경)은 캔버스를 건드리지 않아야 한다.</para>
+/// <para>큰 모델에서 "무슨 동작을 하면 멈췄다 동작"의 원인은 편집 후 화면을 통째로 다시 만드는
+/// 것이었다. 캔버스는 ItemsPanel=Canvas 라 가상화가 없어 노드당 89 엘리먼트를 새로 인플레이트한다.
+/// 그래서 두 가지를 못 박는다 — ① 캔버스 내용이 그대로인 갱신은 캔버스를 아예 건드리지 않는다,
+/// ② 건드려야 할 때도 살아남는 노드는 <b>같은 객체</b>로 유지된다.</para>
 ///
-/// <para>여기서 객체 동일성(<c>Assert.Same</c>)을 보는 이유: 같은 내용으로 다시 만들면 값 비교는
-/// 통과하지만 WPF 는 컨테이너를 통째로 새로 만든다. 멈춤의 원인은 값이 아니라 객체 교체다.</para>
+/// <para>객체 동일성(<c>Assert.Same</c>)을 보는 이유: 같은 값으로 다시 만들면 값 비교는 통과하지만
+/// WPF 는 컨테이너를 새로 만든다. 멈춤의 원인은 값이 아니라 객체 교체다.</para>
 /// </summary>
 public sealed class RebuildScopeTests
 {
-    /// 속성 변경(WorkPropsChanged) — 트리는 다시 굽되 캔버스 노드 객체는 그대로여야 한다.
+    /// 속성 변경(WorkPropsChanged) — 캔버스 갱신 자체가 일어나지 않아야 한다.
     [Fact]
-    public void Work_property_change_keeps_canvas_node_objects()
+    public void Work_property_change_does_not_refresh_canvas()
     {
         StaTestRunner.Run(() =>
         {
-            var (vm, store, workId) = SetupSystemTabWithWork();
-
+            var (vm, store, workIds) = SetupSystemTabWithWorks(1);
             var nodesBefore = vm.Canvas.CanvasNodes.ToArray();
-            Assert.NotEmpty(nodesBefore);
 
-            store.AddWorkCondition(workId, ConditionType.SkipAction);   // → WorkPropsChanged
+            var refreshes = 0;
+            vm.Canvas.RecalculateCanvasSizeRequested = () => refreshes++;
+
+            store.AddWorkCondition(workIds[0], ConditionType.SkipAction);   // → WorkPropsChanged
             StaTestRunner.PumpPendingUi();
 
+            Assert.Equal(0, refreshes);
             Assert.Equal(nodesBefore.Length, vm.Canvas.CanvasNodes.Count);
             for (var i = 0; i < nodesBefore.Length; i++)
                 Assert.Same(nodesBefore[i], vm.Canvas.CanvasNodes[i]);
         });
     }
 
-    /// 구조 변경(WorkAdded = RefreshScope.All) — 캔버스도 다시 만들어져야 한다.
+    /// 구조 변경(WorkAdded = RefreshScope.All) — 캔버스는 갱신되어야 한다.
     /// 위 테스트가 "캔버스를 영영 안 고침"으로 통과하는 것을 막는 짝 테스트.
     [Fact]
-    public void Structural_change_still_rebuilds_canvas()
+    public void Structural_change_refreshes_canvas_and_reuses_surviving_nodes()
     {
         StaTestRunner.Run(() =>
         {
-            var (vm, store, workId) = SetupSystemTabWithWork();
-
+            var (vm, store, workIds) = SetupSystemTabWithWorks(2);
             var nodesBefore = vm.Canvas.CanvasNodes.ToArray();
-            Assert.NotEmpty(nodesBefore);
 
-            var flowId = Queries.getWork(workId, store).Value.ParentId;
-            store.AddWork("Work2", flowId);                              // → WorkAdded (scope All)
+            var refreshes = 0;
+            vm.Canvas.RecalculateCanvasSizeRequested = () => refreshes++;
+
+            var flowId = Queries.getWork(workIds[0], store).Value.ParentId;
+            store.AddWork("WorkAdded", flowId);
             StaTestRunner.PumpPendingUi();
 
+            Assert.True(refreshes > 0);
             Assert.Equal(nodesBefore.Length + 1, vm.Canvas.CanvasNodes.Count);
-            Assert.DoesNotContain(vm.Canvas.CanvasNodes, n => ReferenceEquals(n, nodesBefore[0]));
+            // 살아남은 노드는 같은 객체 — 새로 만들면 WPF 가 컨테이너를 전부 다시 만든다.
+            for (var i = 0; i < nodesBefore.Length; i++)
+                Assert.Same(nodesBefore[i], vm.Canvas.CanvasNodes[i]);
+        });
+    }
+
+    /// 삭제 — 없어진 노드만 빠지고 나머지는 같은 객체로, 순서도 그대로 남아야 한다.
+    [Fact]
+    public void Canvas_refresh_drops_only_removed_node()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var (vm, store, workIds) = SetupSystemTabWithWorks(3);
+            var nodesBefore = vm.Canvas.CanvasNodes.ToArray();
+            Assert.Equal(3, nodesBefore.Length);
+
+            var removedId = nodesBefore[1].Id;
+            store.RemoveEntities(new[] { Tuple.Create(EntityKind.Work, removedId) });
+            StaTestRunner.PumpPendingUi();
+
+            Assert.Equal(2, vm.Canvas.CanvasNodes.Count);
+            Assert.Same(nodesBefore[0], vm.Canvas.CanvasNodes[0]);
+            Assert.Same(nodesBefore[2], vm.Canvas.CanvasNodes[1]);
+            Assert.DoesNotContain(vm.Canvas.CanvasNodes, n => n.Id == removedId);
         });
     }
 
@@ -71,23 +99,25 @@ public sealed class RebuildScopeTests
     {
         StaTestRunner.Run(() =>
         {
-            var (vm, store, workId) = SetupSystemTabWithWork();
+            var (vm, store, workIds) = SetupSystemTabWithWorks(1);
+            var countBefore = vm.Canvas.CanvasNodes.Count;
+            var flowId = Queries.getWork(workIds[0], store).Value.ParentId;
 
-            var nodesBefore = vm.Canvas.CanvasNodes.ToArray();
-            var flowId = Queries.getWork(workId, store).Value.ParentId;
+            var refreshes = 0;
+            vm.Canvas.RecalculateCanvasSizeRequested = () => refreshes++;
 
             // 같은 tick 에 속성 변경(트리 전용) + 구조 변경(캔버스 필요) 을 함께 낸다.
-            store.AddWorkCondition(workId, ConditionType.SkipAction);
-            store.AddWork("Work2", flowId);
+            store.AddWorkCondition(workIds[0], ConditionType.SkipAction);
+            store.AddWork("WorkAdded", flowId);
             StaTestRunner.PumpPendingUi();
 
-            Assert.Equal(nodesBefore.Length + 1, vm.Canvas.CanvasNodes.Count);
-            Assert.DoesNotContain(vm.Canvas.CanvasNodes, n => ReferenceEquals(n, nodesBefore[0]));
+            Assert.True(refreshes > 0);
+            Assert.Equal(countBefore + 1, vm.Canvas.CanvasNodes.Count);
         });
     }
 
     // ─── 헬퍼 ────────────────────────────────────────────────────────
-    private static (MainViewModel vm, DsStore store, Guid workId) SetupSystemTabWithWork()
+    private static (MainViewModel vm, DsStore store, Guid[] workIds) SetupSystemTabWithWorks(int workCount)
     {
         var vm = new MainViewModel();
         SetDialogService(vm, new SilentDialogService());
@@ -97,13 +127,16 @@ public sealed class RebuildScopeTests
         var projectId = Queries.allProjects(store).Head.Id;
         var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
         var flowId = Queries.flowsOf(systemId, store).Head.Id;
-        var workId = store.AddWork("Work1", flowId);
+        var workIds = Enumerable.Range(1, workCount)
+            .Select(i => store.AddWork($"Work{i}", flowId))
+            .ToArray();
 
         vm.Canvas.OpenTabs.Add(new CanvasTab(systemId, TabKind.System, "System"));
         vm.Canvas.ActiveTab = vm.Canvas.OpenTabs.First(t => t.Kind == TabKind.System);
         StaTestRunner.PumpPendingUi();
 
-        return (vm, store, workId);
+        Assert.Equal(workCount, vm.Canvas.CanvasNodes.Count);
+        return (vm, store, workIds);
     }
 
     private static void SetDialogService(MainViewModel vm, IDialogService dialogService) =>
