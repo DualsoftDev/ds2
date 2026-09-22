@@ -123,3 +123,43 @@ let ``ImportSystemsFrom is single undo step`` () =
     // undo 는 백업 클론으로 엔티티를 복원하므로 기존 참조는 stale — store 에서 재조회
     let restoredProject = target.Projects.[tProject.Id]
     Assert.Empty(restoredProject.ActiveSystemIds |> Seq.filter (fun id -> not (target.Systems.ContainsKey id)))
+
+/// Project 는 (루트 + 디바이스) 마다가 아니라 **한 번만** mutate 되어야 한다 — trackMutate 의
+/// undo/redo 스냅샷이 엔티티를 통째로 JSON 왕복 복제하는데, Project 는 AID(AssetInterfaces) 같은
+/// 대형 서브모델을 안고 있어 스냅샷 1쌍이 수 MB 왕복이다(Agent 업로드 모델 실측 1.8MB·1.1초).
+/// System 수만큼 부르면 그 비용이 배수로 늘어 UI 가 수십 초 얼어붙었다. 배치 mutate 가
+/// undo/redo 원복을 깨뜨리지 않는지 다중 루트 + 디바이스로 못 박는다.
+[<Fact>]
+let ``ImportSystemsFrom mutates target project once and survives undo redo`` () =
+    let source = createStore ()
+    let sProject, system1, _, work1 = setupBasicHierarchy source
+    source.AddCallsWithDevice(sProject.Id, work1.Id, [ "DevA.Api" ], true, None) |> ignore
+    let system2 = addSystem source "TestSystem2" sProject.Id true
+    let flow2 = addFlow source "Flow2" system2.Id
+    let work2 = addWork source "Work2" flow2.Id
+    source.AddCallsWithDevice(sProject.Id, work2.Id, [ "DevB.Api" ], true, None) |> ignore
+
+    let target = createStore ()
+    let tProject = addProject target "TargetProject"
+    let roots : SystemImportRoot list =
+        [ { Id = system1.Id; IsActive = true }; { Id = system2.Id; IsActive = true } ]
+    let summary = target.ImportSystemsFrom(source, tProject.Id, roots)
+
+    Assert.Equal(2, summary.SystemCount)
+    Assert.Equal(2, summary.DeviceCount)
+    Assert.Equal(2, tProject.ActiveSystemIds.Count)
+    Assert.Equal(2, tProject.PassiveSystemIds.Count)
+    let activeAfter = List.ofSeq tProject.ActiveSystemIds
+    let passiveAfter = List.ofSeq tProject.PassiveSystemIds
+
+    // undo 1스텝 = 루트/디바이스 등록 전량 원복 (mutate 기록이 1건이어도 충분해야 한다)
+    target.Undo()
+    let restored = target.Projects.[tProject.Id]
+    Assert.Empty(restored.ActiveSystemIds)
+    Assert.Empty(restored.PassiveSystemIds)
+
+    // redo 는 순서까지 그대로 (Active 먼저, 디바이스는 Passive 뒤쪽)
+    target.Redo()
+    let redone = target.Projects.[tProject.Id]
+    Assert.Equal<Guid list>(activeAfter, List.ofSeq redone.ActiveSystemIds)
+    Assert.Equal<Guid list>(passiveAfter, List.ofSeq redone.PassiveSystemIds)

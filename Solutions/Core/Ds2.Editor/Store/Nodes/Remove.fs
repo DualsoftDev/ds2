@@ -36,14 +36,28 @@ module internal CascadeRemove =
         for sid in systemIds do
             Queries.apiDefsOf    sid store |> List.iter (fun d -> store.TrackRemove(store.ApiDefs,      d.Id))
 
-    let removeSystem (store: DsStore) (systemId: Guid) =
-        for p in store.Projects.Values do
-            let inActive = p.ActiveSystemIds.Contains(systemId)
-            let inPassive = p.PassiveSystemIds.Contains(systemId)
-            if inActive || inPassive then
-                store.TrackMutate(store.Projects, p.Id, fun proj ->
-                    if inActive then proj.ActiveSystemIds.Remove(systemId) |> ignore
-                    if inPassive then proj.PassiveSystemIds.Remove(systemId) |> ignore)
+    /// 삭제된 System 들을 소속 프로젝트의 Active/Passive 목록에서 뺀다 — **프로젝트당 mutate 1회**.
+    ///
+    /// System 마다 따로 부르면 안 된다. trackMutate 는 undo/redo 스냅샷으로 엔티티를 통째로 JSON
+    /// 왕복 복제하는데, Project 는 AID(AssetInterfaces)·시뮬레이션 결과 같은 대형 서브모델을 안고
+    /// 있어 스냅샷 1쌍이 수 MB 왕복이다(실측 ≈1초). 16개 선택 삭제가 16초, 프로젝트 통째 삭제가
+    /// 21초씩 UI 를 얼렸다.
+    ///
+    /// skipProjectIds = 이 배치에서 통째로 삭제되는 프로젝트. 이미 사라진 엔티티를 mutate 하면
+    /// trackMutate 가 "Entity not found" 로 던지고, 어차피 지울 목록을 손보는 것도 무의미하다.
+    let private detachSystemsFromProjects
+        (store: DsStore) (systemIds: Set<Guid>) (skipProjectIds: Set<Guid>) =
+        if not (Set.isEmpty systemIds) then
+            for p in store.Projects.Values |> Seq.toList do
+                if not (skipProjectIds.Contains p.Id)
+                   && (p.ActiveSystemIds |> Seq.exists systemIds.Contains
+                       || p.PassiveSystemIds |> Seq.exists systemIds.Contains) then
+                    store.TrackMutate(store.Projects, p.Id, fun proj ->
+                        proj.ActiveSystemIds.RemoveAll(fun id -> systemIds.Contains id) |> ignore
+                        proj.PassiveSystemIds.RemoveAll(fun id -> systemIds.Contains id) |> ignore)
+
+    /// System 엔티티 자체만 제거. 프로젝트 목록 정리는 배치 말미의 detachSystemsFromProjects 담당.
+    let private removeSystemEntity (store: DsStore) (systemId: Guid) =
         store.TrackRemove(store.Systems, systemId)
 
     let rec cascadeRemoveCall (store: DsStore) (callId: Guid) =
@@ -74,10 +88,10 @@ module internal CascadeRemove =
         store.TrackRemove(store.Flows, flowId)
 
     let cascadeRemoveSystem (store: DsStore) (systemId: Guid) =
-        Queries.flowsOf systemId store 
+        Queries.flowsOf systemId store
         |> List.iter (fun flow -> cascadeRemoveFlow store flow.Id)
         removeHwComponents store [ systemId ]
-        removeSystem store systemId
+        removeSystemEntity store systemId
 
     let cascadeRemoveProject (store: DsStore) (projectId: Guid) =
         Queries.projectSystemsOf projectId store 
@@ -86,6 +100,9 @@ module internal CascadeRemove =
 
     let batchRemoveEntities (store: DsStore) (selections: (EntityKind * Guid) list) =
         let selIds = selections |> List.map snd |> Set.ofList
+        // 프로젝트 목록 정리는 모아서 말미에 1회 — detachSystemsFromProjects 주석 참조.
+        let removedSystemIds = System.Collections.Generic.HashSet<Guid>()
+        let removedProjectIds = System.Collections.Generic.HashSet<Guid>()
 
         for (ek, id) in selections do
             match ek with
@@ -97,8 +114,15 @@ module internal CascadeRemove =
                 | _ -> ()
             | EntityKind.Work      -> cascadeRemoveWork store id
             | EntityKind.Flow      -> cascadeRemoveFlow store id
-            | EntityKind.System    -> cascadeRemoveSystem store id
-            | EntityKind.Project   -> cascadeRemoveProject store id
+            | EntityKind.System    ->
+                cascadeRemoveSystem store id
+                removedSystemIds.Add id |> ignore
+            | EntityKind.Project   ->
+                // 프로젝트가 통째로 사라지므로 그 프로젝트의 목록은 손대지 않는다(skip 대상).
+                // 다른 프로젝트에도 걸려 있던 System 이면 거기서는 빠져야 하므로 id 는 수집한다.
+                for s in Queries.projectSystemsOf id store do removedSystemIds.Add s.Id |> ignore
+                removedProjectIds.Add id |> ignore
+                cascadeRemoveProject store id
             | EntityKind.ApiDef    ->
                 // ApiDef(Device) 제거 시, 이 ApiDef 를 ApiCall.ApiDefId 로 참조하는 ApiCall 을
                 // 각 Call 의 직접 참조 목록(call.ApiCalls)에서 떼어낸다. store 의 실제 제거는 아래
@@ -122,4 +146,5 @@ module internal CascadeRemove =
             | EntityKind.ArrowCall -> store.TrackRemove(store.ArrowCalls, id)
             | _ -> ()
 
+        detachSystemsFromProjects store (Set.ofSeq removedSystemIds) (Set.ofSeq removedProjectIds)
         removeOrphanApiCalls store

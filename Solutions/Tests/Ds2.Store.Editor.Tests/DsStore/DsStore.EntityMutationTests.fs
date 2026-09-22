@@ -19,6 +19,49 @@ module RemoveTests =
         Assert.Equal(0, store.Flows.Count)
         Assert.Equal(0, store.Works.Count)
 
+    /// 삭제된 System 을 프로젝트 목록에서 빼는 일은 System 마다가 아니라 **프로젝트당 1회** mutate 다
+    /// (trackMutate 스냅샷이 Project 를 통째로 JSON 왕복 복제해 AID 큰 모델에서 1회 ≈ 1초).
+    /// 배치로 묶어도 목록 정리와 undo 원복이 정확한지 못 박는다.
+    [<Fact>]
+    let ``RemoveEntities detaches every selected system from the project in one pass`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let systems = [ for i in 1 .. 4 -> addSystem store $"Sys{i}" project.Id (i % 2 = 1) ]
+        Assert.Equal(2, project.ActiveSystemIds.Count)
+        Assert.Equal(2, project.PassiveSystemIds.Count)
+
+        store.RemoveEntities(systems |> List.map (fun s -> (EntityKind.System, s.Id)))
+        Assert.Empty(project.ActiveSystemIds)
+        Assert.Empty(project.PassiveSystemIds)
+        Assert.Equal(0, store.Systems.Count)
+
+        store.Undo()
+        let restored = store.Projects.[project.Id]
+        Assert.Equal(4, store.Systems.Count)
+        Assert.Equal(2, restored.ActiveSystemIds.Count)
+        Assert.Equal(2, restored.PassiveSystemIds.Count)
+        // 목록에 남은 id 가 전부 실재해야 한다 (dangling 금지)
+        Assert.Empty(
+            Seq.append restored.ActiveSystemIds restored.PassiveSystemIds
+            |> Seq.filter (fun id -> not (store.Systems.ContainsKey id)))
+
+    /// 프로젝트와 그 소속 System 을 같은 선택으로 지우는 경우. 목록 정리를 배치 말미로 미뤘으므로
+    /// 이미 지워진 Project 를 mutate 하면 trackMutate 가 "Entity not found" 로 던진다 — skip 가드 확인.
+    [<Fact>]
+    let ``RemoveEntities handles a project deleted together with its own system`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let system = addSystem store "Sys1" project.Id true
+        addSystem store "Sys2" project.Id false |> ignore
+
+        store.RemoveEntities([ (EntityKind.System, system.Id); (EntityKind.Project, project.Id) ])
+        Assert.Equal(0, store.Projects.Count)
+        Assert.Equal(0, store.Systems.Count)
+
+        store.Undo()
+        Assert.Equal(1, store.Projects.Count)
+        Assert.Equal(2, store.Systems.Count)
+
     [<Fact>]
     let ``RemoveEntities with work removes descendant calls`` () =
         let store = createStore ()

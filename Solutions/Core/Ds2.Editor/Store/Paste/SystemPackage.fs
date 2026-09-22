@@ -314,17 +314,28 @@ module internal SystemPackageOps =
                 if remapArrow "Call" a clone then Some clone else None)
 
         // ── Pass 3: 트랜잭션 1회 = Undo 1스텝 ──────────────────────────────────
+        // Project 는 **한 번만** mutate 한다. trackMutate 는 undo/redo 스냅샷으로 엔티티를
+        // 통째로 JSON 왕복 복제하는데, Project 엔티티가 AID(AssetInterfaces)·시뮬레이션 결과 등
+        // 대형 서브모델을 안고 있어 스냅샷 1쌍이 수 MB 왕복이다 (Agent 업로드를 한 번이라도 한
+        // 모델은 IO맵/UserTag 주소 전량이 AID 에 박혀 있다 — 실측 9,600 interaction = 1.8MB,
+        // 왕복 1.1초). System 마다 부르면 그 비용이 (루트+디바이스) 배로 늘어 UI 가 수십 초 얼어붙는다.
+        let activeIdsToAdd = ResizeArray<Guid>()
+        let passiveIdsToAdd = ResizeArray<Guid>()
+        for old, clone in rootClones do
+            let isActive = roots |> List.exists (fun r -> r.Id = old.Id && r.IsActive)
+            (if isActive then activeIdsToAdd else passiveIdsToAdd).Add clone.Id
+        for _, clone in deviceClones do
+            passiveIdsToAdd.Add clone.Id
+
         let label = $"Import {closure.RootSystems.Length} System(s) (+{closure.DeviceSystems.Length} device)"
         target.WithTransaction(label, fun () ->
-            for old, clone in rootClones do
-                target.TrackAdd(target.Systems, clone)
-                let isActive = roots |> List.exists (fun r -> r.Id = old.Id && r.IsActive)
+            for _, clone in rootClones   do target.TrackAdd(target.Systems, clone)
+            for _, clone in deviceClones do target.TrackAdd(target.Systems, clone)
+            // 빈 폐포에 no-op undo 기록을 남기지 않는다 (records=0 이면 트랜잭션이 push 되지 않는 규약 유지).
+            if activeIdsToAdd.Count > 0 || passiveIdsToAdd.Count > 0 then
                 target.TrackMutate(target.Projects, targetProjectId, fun p ->
-                    (if isActive then p.ActiveSystemIds else p.PassiveSystemIds).Add clone.Id)
-            for _, clone in deviceClones do
-                target.TrackAdd(target.Systems, clone)
-                target.TrackMutate(target.Projects, targetProjectId, fun p ->
-                    p.PassiveSystemIds.Add clone.Id)
+                    p.ActiveSystemIds.AddRange activeIdsToAdd
+                    p.PassiveSystemIds.AddRange passiveIdsToAdd)
             for _, clone in flowClones   do target.TrackAdd(target.Flows, clone)
             for _, clone in workClones   do target.TrackAdd(target.Works, clone)
             for _, clone in callClones do
