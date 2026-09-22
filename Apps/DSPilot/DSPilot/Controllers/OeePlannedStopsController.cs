@@ -30,16 +30,6 @@ public class OeePlannedStopsController : OeeControllerBase
         ILogger<OeePlannedStopsController> logger)
         : base(repo, settings, project, pathResolver, ctStats, shiftInfer, commHealth, nonProdPattern, mirror, logger) { }
 
-    // ── GET /api/oee/planned-stops ────────────────────────────────────────
-    // 병행 모델(2026-07-08): 당일 자동 판정 상시 + Windows(수동 지정)는 추가 확정 비생산. Source=auto|both.
-    [HttpGet("planned-stops")]
-    public ActionResult<PlannedStopsDto> GetPlannedStops()
-    {
-        var manual = _settings.LoadSettings().OeeManual.PlannedStops ?? new List<PlannedStopWindow>();
-        var windows = manual.Select(w => new PlannedStopWindowDto(w.StartMinutes, w.EndMinutes, w.Label)).ToList();
-        return new PlannedStopsDto(windows.Count > 0 ? "both" : "auto", windows, ResolveNonProdWtMultiplier());
-    }
-
     // ── GET /api/oee/ct-multipliers ───────────────────────────────────────
     // 고장·비생산 판정 기준 배수 + flow별 기준선(중앙 MT/WT/CT·평균 CT·완료 표본 — 임계 환산 표시용, doc/28).
     // 설비효율 현황 '판정 기준' 카드 소스. 경로 이름은 호환 유지.
@@ -212,23 +202,10 @@ public class OeePlannedStopsController : OeeControllerBase
             Days: days, DaysClipped: daysClipped);
     }
 
-    // ── PUT /api/oee/planned-stops ────────────────────────────────────────
-    [HttpPut("planned-stops")]
-    public ActionResult<PlannedStopsDto> SetPlannedStops([FromBody] PlannedStopsRequest? req)
-    {
-        var windows = (req?.Windows ?? new List<PlannedStopWindowDto>())
-            .Select(w => new PlannedStopWindow { StartMinutes = w.StartMinutes, EndMinutes = w.EndMinutes, Label = w.Label })
-            .ToList();
-        _settings.SavePlannedStops(windows);
-        OeeChangeSignal.NotifyInvalidate();   // 사전계산 저장본 동기 폐기 — 적용 직후 재조회(loadOee)가 구 창 수치를 받지 않게
-        return GetPlannedStops();
-    }
-
-    // (구 PUT planned-stops/excluded-weekdays[생산 요일] 은 2026-07-08 당일 비생산 판정 모델로 제거 —
-    //  쉬는 날은 사이클이 없어 10×CT 규칙이 자동으로 비생산 처리한다.)
-
-    // (구 POST planned-stops/auto[자동/수동 배타 토글] 은 2026-07-08 병행 모델로 제거 — 자동 판정 상시,
-    //  지정 시간대는 PUT planned-stops 로 추가/삭제만 한다.)
+    // 수동 지정 시간대 쓰기(PUT planned-stops)는 2026-09-22 제거 — 비생산은 사이클 길이로만 판정한다
+    // (doc/30 §11.1). 사람이 창을 찍어 판정을 덮어쓰던 마지막 경로였고, 창을 넓히는 것만으로 A 를 올릴 수 있었다.
+    // 읽기(GET planned-stops)도 소비자가 없어졌다 — 화면은 GET planned-stops/actual(실제 감지분)만 읽는다.
+    // 저장된 설정 OeeManual.PlannedStops 는 지우지 않고 방치한다(무해) — 서버가 더 이상 읽지 않는다.
 
     // ── GET /api/oee/shift-exception?from&to&flow ─────────────────────────
     [HttpGet("shift-exception")]

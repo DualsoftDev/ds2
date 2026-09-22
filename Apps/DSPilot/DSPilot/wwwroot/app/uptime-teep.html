@@ -241,7 +241,7 @@
                     <template x-if="teepNpDays().length > 0">
                         <div>
                             <div class="up-teep-legend" style="margin-top:0; margin-bottom:9px;">
-                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 (자동 감지 + 수동 시간대)</div>
+                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 (사이클 길이 판정)</div>
                                 <div class="up-teep-leg"><span class="sw" style="width:3px; background:var(--color-primary);"></span>지금</div>
                             </div>
                             <div class="up-npd" :class="teepNpDense() ? 'is-dense' : ''">

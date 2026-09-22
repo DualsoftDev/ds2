@@ -868,23 +868,18 @@ public abstract class OeeControllerBase : ControllerBase
 
     // ── 비생산 판정 모드 ─────────────────────────────────────────────────────
 
-    // 비생산 시간대 해석 (2026-07-08 당일 판정 + 수동 지정 병행 모델 — 14일 학습창 KPI 적용·자동/수동 배타 토글 폐기):
-    //   ① 당일 자동 판정 — 항상 켜짐(applyLongStop=true): 실측 10×CT 장시간 정지를 그때그때 비생산으로 분류.
-    //      학습창이 못 덮는 불규칙 패턴을 당일 판정이 흡수하고, TEEP(캘린더)와 같은 실측 파티션 공유.
-    //   ② 수동 지정 시간대(PlannedStops) — 있으면 추가로 "무조건 비생산"으로 자르는 보조 규칙(창 안=가동/정지 불문 지표 밖).
-    //      자동이 못 잡는 임계 미만 반복 휴게·느린 CT 설비의 점심 등을 확정 지정.
-    // Source: "auto"=자동만 / "both"=자동+지정. 자동 판정이 어긋나면 정지 이벤트 로그의 '비생산↔비가동
-    // 보내기'(classifySource='manual')로 행 단위 확정 — ComputeCycleAggregateAsync 가 양방향 우선 적용.
-    // (14일 학습 패턴 OeeNonProdPatternService 는 auto-pattern 참고 표시 전용으로 존치.)
+    // 비생산 판정 = 사이클 길이 하나뿐이다 (2026-09-22).
+    //   종전엔 사용자가 24시간 연표에 '비생산 시간대'를 찍어 두면 그 구간을 무조건 분모 밖으로 잘라 냈다.
+    //   doc/30 §11.1 이 이 기능을 폐기로 잡아 둔 이유는 둘이다.
+    //   ① 규칙이 하나여야 한다 — "CT ≥ κ_비생산 × R" 이 정본인데, 시각대가 그 판정을 통째로 덮어썼다.
+    //      창 안이면 가동이든 정지든 지표 밖이라, 사람이 시각대를 넓히는 것만으로 A 를 올릴 수 있었다.
+    //   ② 불규칙 휴게·공휴일에 맞지 않는다. 매일 같은 시각이라는 전제가 현장에서 거의 성립하지 않았다.
+    //   저장된 설정값(OeeManual.PlannedStops)은 읽지 않는다 — 지우지는 않으므로 되돌리기는 이 함수 한 줄이다.
+    //   실제로 무엇이 비생산으로 잡혔는지는 '날짜별 비생산 패턴'(/api/oee/planned-stops/actual)이 보여 준다.
     protected Task<(List<(int StartMin, int EndMin)> Windows, string Source, bool ApplyLongStop)>
         ResolvePlannedWindowsAsync(
             IReadOnlyDictionary<string, (double AvgMs, double P10Ms, int Sample, double MedianMs)> thresholds, CancellationToken ct)
-    {
-        var manual = _settings.LoadSettings().OeeManual.PlannedStops;
-        return manual is { Count: > 0 }
-            ? Task.FromResult((manual.Select(w => (w.StartMinutes, w.EndMinutes)).ToList(), "both", true))
-            : Task.FromResult((new List<(int, int)>(), "auto", true));
-    }
+        => Task.FromResult((new List<(int, int)>(), "auto", true));
 
     private static string BuildNonProductionStartSql(IReadOnlyList<(int StartMin, int EndMin)> windows)
     {

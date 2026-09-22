@@ -213,7 +213,7 @@
                             · <span x-text="oee ? (oee.ctThresholdMs ? ('표준 CT ' + durShort(oee.ctThresholdMs) + ' · 14일 중앙') : (oee.idealCycleTimeMs ? ('표준 가동시간 ' + durShort(oee.idealCycleTimeMs)) : '표준 가동시간 미설정(클린샘플 0)')) : ''"></span>
                             <span x-show="oee && oee.normalCycleCount != null" x-text="oee ? (' · 정상 ' + (oee.normalCycleCount || 0) + '회') : ''"></span>
                             <span x-show="oee && oee.plannedDownMs > 0" style="font-weight:700;"
-                                  title="가용성(A) 분모에서 제외된 비생산 시간(설비 합산) — 자동 감지 + 수동 시간대."
+                                  title="가용성(A) 분모에서 제외된 비생산 시간(설비 합산) — 사이클 길이가 비생산 기준 이상인 구간."
                                   x-text="oee ? (' · 비생산 ' + durSum(oee.plannedDownMs)) : ''"></span>
                         </span>
                     </div>
@@ -328,7 +328,7 @@
                                  분모에 남아 A 를 깎는 항목을 "분모 밖"이라 적어 원인을 정확히 틀린 방향으로 안내하고 있었다. -->
                             <div class="up-acct-sum is-out" x-show="oee && (oee.plannedDownMs > 0 || oee.inProgressWallMs > 0 || oee.unjudgedWallMs > 0)">
                                 <span class="up-codeish" title="아래 시간은 가용성 계산(분모)에서 아예 빠집니다 — 위 막대의 100% 에도 포함되지 않습니다.">계산 제외</span>
-                                <span x-show="oee && oee.plannedDownMs > 0" :title="'생산하지 않기로 한 시간 — ' + (oee && oee.plannedStopSource === 'both' ? '당일 자동 감지 + 수동 지정' : '당일 자동 감지') + (oee ? (' · ' + sumFlowNote(oee.plannedDownMs)) : '')">비생산 <b x-text="oee ? durSum(oee.plannedDownMs) : ''"></b></span>
+                                <span x-show="oee && oee.plannedDownMs > 0" :title="'생산하지 않은 시간 — 사이클 길이가 비생산 기준 이상이라 분모에서 빠졌습니다' + (oee ? (' · ' + sumFlowNote(oee.plannedDownMs)) : '')">비생산 <b x-text="oee ? durSum(oee.plannedDownMs) : ''"></b></span>
                                 <span x-show="oee && oee.inProgressWallMs > 0" title="마지막 완료 사이클 이후 다음 시작 신호가 없는 시간 — 다음 사이클이 시작되면 확정·분류됩니다.">진행 중 <b x-text="oee ? durSum(oee.inProgressWallMs) : ''"></b></span>
                                 <span x-show="oee && oee.unjudgedWallMs > 0" style="color:var(--amber,#b7791f);" :title="'14일 완료 사이클 10건 미만으로 판정 불가한 설비의 시간 — A·P 어디에도 넣지 않음. 대상: ' + ((oee && oee.unjudgedFlows) || []).join(', ')">판정 불가 <b class="is-short" x-text="oee ? (durSum(oee.unjudgedWallMs) + ' · ' + oee.unjudgedFlowCount + '대') : ''"></b></span>
                                 <!-- 판정 경계를 드러낸다 — 이 한 줄이 없으면 어떤 정지는 빠지고 어떤 정지는 분모에 남는 이유를 알 수 없다. -->
@@ -592,14 +592,18 @@
                 <!-- 품질(양품률) 직접 입력은 설비효율(OEE)의 '품질 Q' 카드 클릭 → 다이얼로그로 이동(아래 #qDialog). -->
                 <!-- 설비별 OEE 순위는 위쪽으로 이동 — 여기 있던 전폭 순위 카드 제거. -->
 
-                <!-- ════ 비생산 시간대 (doc/22) — 24시간 연표 에디터. 자동 5일 패턴 ▸ 사용자 설정 시 수동 전환.
-                     이 시간대의 정상 가동시간·비가동은 모두 OEE 산출에서 제외(생산·비생산 가리지 않고 분모 밖). 설비효율 탭 맨 아래 배치(설정 성격). ════ -->
-                <section class="card up-section" id="planned-stops-section" x-show="!curFlow" x-cloak>
+                <!-- ════ 날짜별 비생산 패턴 — 종전 '비생산 시간대'(수동 24h 연표 에디터) 자리. 2026-09-22 교체.
+                     사람이 시각대를 찍어 비생산을 만드는 경로는 doc/30 §11.1 폐기 대상이었다("비생산은 CT 길이로만").
+                     판정을 사람이 우회하는 마지막 통로이기도 했다 — 창 안이면 가동이든 정지든 지표 밖으로 나갔다.
+                     대신 <b>실제로 무엇이 비생산으로 잡혔는지</b>를 보여 준다. 생산효율(TEEP) 페이지와 같은 컴포넌트·
+                     같은 소스(/api/oee/planned-stops/actual)라 두 화면이 어긋날 수 없다. ════ -->
+                <section class="card up-section" id="nonprod-pattern-section" x-show="!curFlow" x-cloak>
                     <div class="ds-card-h">
-                        <h4>비생산 시간대</h4>
+                        <h4>날짜별 비생산 패턴</h4>
+                        <span class="ds-card-h-sub" x-text="teepNpSub()"></span>
                         <span style="flex:1;"></span>
-                        <!-- 현재 비생산 상태 실시간 배지 (시스템 단위) — 실시간 조회(오늘/N일)일 때만 -->
-                        <!-- 표시 정책(2026-07-04): 미계측(수신 공백)은 사용자에게 비생산으로 합쳐 보임 — currentlyNonProd 가 이미 포함 -->
+                        <!-- 현재 비생산 상태 실시간 배지 (시스템 단위) — 실시간 조회(오늘/N일)일 때만.
+                             미계측(수신 공백)은 사용자에게 비생산으로 합쳐 보인다(2026-07-04 표시 정책). -->
                         <span x-show="ps.actualNonProd && period !== 'custom'" x-cloak
                               class="up-oee-chip"
                               :style="(ps.actualNonProd && ps.actualNonProd.currentlyNonProd)
@@ -608,108 +612,51 @@
                               :title="(ps.actualNonProd && ps.actualNonProd.currentlyNonProd) ? '현재 시스템이 비생산(제외) 구간입니다' : '현재 시스템이 가동 중입니다'">
                             <span x-text="(ps.actualNonProd && ps.actualNonProd.currentlyNonProd) ? '● 현재: 비생산 중' : '● 현재: 가동 중'"></span>
                         </span>
-                        <!-- 병행 모델(2026-07-08): 자동 판정 상시 + 수동 지정은 추가 확정 창 — 배타 토글 없음 -->
-                        <span class="up-oee-chip" :class="ps.editing ? '' : 'auto'"
-                              x-text="ps.editing ? ('수동 지정 편집 중' + (ps.dirty ? ' · 미저장' : ''))
-                                                 : ('자동 · 평소 대기의 ' + ps.ctMultiplier + '× 장시간정지' + (ps.windows.length ? (' + 수동 지정 ' + ps.windows.length + '개') : ''))"></span>
-                        <!-- [수동 편집] = 편집 모드 진입(기존 창 이동/조절/삭제). 새 창 추가는 편집 모드 안의 [시간 추가]. -->
-                        <button class="btn btn-sm" :class="ps.editing ? 'btn-outlined' : 'btn-filled'"
-                                :disabled="ps.busy"
-                                @click="ps.editing ? psCancelEdit() : psBeginEdit()"
-                                x-text="ps.editing ? '편집 취소' : '수동 편집'"></button>
                     </div>
 
-                    <!-- (구 '생산 요일' UI 는 2026-07-08 당일 비생산 판정 모델로 제거 — 쉬는 날은 사이클이 없어
-                         10×가동시간 장시간 정지 규칙이 자동으로 비생산 처리한다.) -->
-
-                    <!-- ════ 통합 24h 타임라인 (병행 모델 2026-07-08) — 자동 인식(점선)과 수동 지정(남색 솔리드)을
-                         한 트랙에 구분 표시. [수동 편집] → 편집 모드: 기존 창 이동/조절/삭제, [시간 추가] → 드래그로 새 창 생성, [적용] 저장.
-                         자동 판정은 항상 켜져 있고, 수동 지정 창은 매일 그 시간대를 무조건 비생산으로 자르는 추가 규칙. ════ -->
-                    <div class="up-ptl">
-                        <div class="up-ptl-legend">
-                            <span class="lg"><span class="sw auto"></span> 자동 인식된 비생산 (기간 마지막 날 실측)</span>
-                            <span class="lg"><span class="sw manual"></span> 수동 지정 (매일 반복 · 무조건 비생산)</span>
-                            <span class="lg"><span class="sw now"></span> 현재 <b x-text="minToHHMM(nowMin())"></b></span>
-                            <span style="flex:1;"></span>
-                            <button x-show="ps.editing" x-cloak class="btn btn-sm" :class="ps.addMode ? 'btn-filled' : 'btn-outlined'"
-                                    @click="ps.addMode ? psCancelAdd() : psBeginAdd()">
-                                <span class="material-icons" style="font-size:15px;" x-text="ps.addMode ? 'close' : 'add'"></span>
-                                <span x-text="ps.addMode ? '추가 취소' : '시간 추가'"></span>
-                            </button>
-                        </div>
-
-                        <!-- 드래그 추가 안내 배너 (편집 + 추가 모드일 때) -->
-                        <div class="up-ptl-arm" x-show="ps.editing && ps.addMode" x-cloak>
-                            <span class="material-icons">touch_app</span>
-                            차트에서 원하는 구간을 <b>드래그</b>하여 수동 지정 시간대를 그리세요 (5분 단위 스냅).
-                        </div>
-
-                        <!-- 24시간 트랙 — 보기: 자동(점선)+수동(남색) 읽기 전용 / 편집: 수동 막대만 드래그 생성·이동·조절·✕ -->
-                        <div class="up-ptl-track" :class="{ arming: ps.editing && ps.addMode }" x-ref="ptltrack"
-                             :style="ps.editing ? '' : 'cursor:default;'"
-                             @pointerdown="psTrackPointerDown($event)"
-                             :title="!ps.editing ? '' : (ps.addMode ? '드래그하여 새 수동 지정 시간대를 그리세요' : '막대를 드래그해 이동, 양끝을 드래그해 시간 조절, ✕ 로 삭제')">
-                            <div class="up-ptl-now" :style="`left:${nowMin() / 1440 * 100}%`"></div>
-                            <!-- 자동 인식(점선, 읽기 전용) — 수동 지정과 겹친 부분은 차집합(psAutoWindows)이라 남색이 정체를 대변 -->
-                            <template x-for="(w, i) in psAutoWindows" :key="'act-' + i">
-                                <div class="up-ptl-win auto" style="pointer-events:none;" :style="psWinStyle(w)"
-                                     :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + ' · 자동 인식된 비생산 (기간 마지막 날 실측)'">
-                                    <span class="wl">자동</span>
-                                    <span class="wt" x-show="(w.endMinutes - w.startMinutes) >= 120" x-text="minToHHMM(w.startMinutes) + '–' + minToHHMM(w.endMinutes)"></span>
-                                </div>
-                            </template>
-                            <!-- 수동 지정(남색 솔리드) — 편집 모드에서 이동/조절/삭제. 보기 모드에서도 클릭하면 편집 모드로 진입 + 그 창 선택. -->
-                            <template x-for="(w, i) in ps.windows" :key="'man-' + i">
-                                <div class="up-ptl-win" :class="{ 'sel': ps.editing && ps.selected === i, 'ro': !ps.editing }"
-                                     :style="psWinStyle(w)"
-                                     @pointerdown.stop.prevent="psMoveStart($event, i)"
-                                     :title="minToHHMM(w.startMinutes) + ' – ' + minToHHMM(w.endMinutes) + (w.label ? (' · ' + w.label) : '') + ' · 수동 지정 (매일 무조건 비생산)' + (ps.editing ? '' : ' · 클릭하여 편집/삭제')">
-                                    <span class="up-ptl-handle l" x-show="ps.editing" @pointerdown.stop.prevent="psResizeStart($event, i, 'l')" title="시작 시각 조절"></span>
-                                    <span class="wl" x-text="w.label || '수동'"></span>
-                                    <span class="wt" x-show="(w.endMinutes - w.startMinutes) >= 150" x-text="minToHHMM(w.startMinutes) + '–' + minToHHMM(w.endMinutes)"></span>
-                                    <button class="wx" x-show="ps.editing" @click.stop="psRemove(i)" @pointerdown.stop title="이 시간대 삭제"><span class="material-icons">close</span></button>
-                                    <span class="up-ptl-handle r" x-show="ps.editing" @pointerdown.stop.prevent="psResizeStart($event, i, 'r')" title="끝 시각 조절"></span>
-                                </div>
-                            </template>
-                            <div class="up-ptl-empty" x-show="psAutoWindows.length === 0 && ps.windows.length === 0"
-                                 x-text="ps.editing ? (ps.addMode ? '차트에서 드래그하여 시간대를 그리세요' : '[시간 추가] 를 눌러 차트에 드래그하세요') : '기간 마지막 날에 제외된 비생산 없음'"></div>
-                        </div>
-                        <!-- 시각 눈금 (3시간 간격, 격자선과 정렬) -->
-                        <div class="up-ptl-hours">
-                            <span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span>
-                        </div>
-                        <div style="font-size:0.6rem; color:var(--color-text-secondary); margin-top:5px;" x-show="ps.editing" x-cloak>드래그로 이동·길이 조절, 클릭 후 라벨 입력, <span class="material-icons" style="font-size:11px; vertical-align:-1px;">close</span> 삭제 · 새 시간대는 <b>[시간 추가]</b> (자동 점선은 편집 불가)</div>
-
-                        <!-- 선택된 막대 편집 — 라벨 입력 + 시각 미세조정(드래그 보조) + 삭제 (편집 모드) -->
-                        <template x-if="ps.editing && ps.selected >= 0 && ps.windows[ps.selected]">
-                            <div class="up-ptl-edit is-edit">
-                                <span class="up-ptl-edit-tag">선택됨</span>
-                                <div class="up-qfield"><label>시작</label><input type="time" :value="minToTimeInput(ps.windows[ps.selected].startMinutes)" @input="psSetTime('start', $event.target.value)" /></div>
-                                <span class="up-qeq">–</span>
-                                <div class="up-qfield"><label>끝</label><input type="time" :value="minToTimeInput(ps.windows[ps.selected].endMinutes)" @input="psSetTime('end', $event.target.value)" /></div>
-                                <div class="up-qfield" style="flex:1; min-width:120px;"><label>라벨(선택)</label><input type="text" x-model="ps.windows[ps.selected].label" @input="ps.dirty = true" placeholder="점심 / 정기정비" style="width:100%; font-family:var(--font-family);" /></div>
-                                <button class="btn btn-sm btn-outlined" @click="psRemove(ps.selected)"><span class="material-icons" style="font-size:15px;">delete</span> 삭제</button>
-                                <button class="btn btn-sm btn-outlined" @click="psDeselect()">선택 해제</button>
+                    <template x-if="teepNpDays().length > 0">
+                        <div>
+                            <div class="up-teep-legend" style="margin-top:0; margin-bottom:9px;">
+                                <div class="up-teep-leg"><span class="sw hatch-nonprod"></span>비생산 (사이클 길이 판정)</div>
+                                <div class="up-teep-leg"><span class="sw" style="width:3px; background:var(--color-primary);"></span>지금</div>
                             </div>
-                        </template>
-
-                        <!-- 보기 모드 설명 -->
-                        <div x-show="!ps.editing" x-cloak
-                             style="display:flex; align-items:flex-start; gap:9px; padding:11px 13px; border:1px dashed var(--color-border); border-radius:8px; color:var(--color-text-secondary); font-size:0.78rem; line-height:1.5; margin-top:8px;">
-                            <span class="material-icons" style="font-size:18px; color:var(--teal,#1FA8B8);">auto_mode</span>
-                            <span>장시간 정지는 <b>자동 비생산</b>(점선), 점심 등 반복 휴게는 <b>[수동 편집]</b> → <b>[시간 추가]</b>(남색, 매일 무조건 비생산)로 지정하세요.
-                                  <span x-show="ps.windows.length" x-cloak>이미 지정된 남색 시간대는 <b>클릭</b>하면 바로 편집·삭제할 수 있습니다.</span></span>
+                            <div class="up-npd" :class="teepNpDense() ? 'is-dense' : ''">
+                                <template x-for="d in teepNpDays()" :key="d.date">
+                                    <div class="up-npd-row" :class="teepNpDayInfo(d).isToday ? 'is-today' : ''">
+                                        <div class="up-npd-date" :class="{ 'is-sun': teepNpDayInfo(d).dow === 0, 'is-sat': teepNpDayInfo(d).dow === 6 }" x-text="teepNpDayInfo(d).label"></div>
+                                        <div class="up-npd-track">
+                                            <template x-for="(w, i) in (d.windows || [])" :key="'n' + i">
+                                                <div class="up-npd-win hatch-nonprod" :style="psWinStyle(w)" :title="teepNpWinTitle(d, w, '비생산')"></div>
+                                            </template>
+                                            <template x-if="teepNpDayInfo(d).isToday">
+                                                <div class="up-npd-now" :style="`left:${nowMin() / 1440 * 100}%;`"></div>
+                                            </template>
+                                        </div>
+                                        <div class="up-npd-sum" x-text="teepNpDayMs(d) > 0 ? durSum(teepNpDayMs(d)) : '—'" :title="sumFlowNote(teepNpDayMs(d))"></div>
+                                    </div>
+                                </template>
+                                <div class="up-npd-row up-npd-axis">
+                                    <div class="up-npd-date"></div>
+                                    <div class="up-ptl-hours" style="flex:1; margin-top:0;">
+                                        <span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span>
+                                    </div>
+                                    <div class="up-npd-sum"></div>
+                                </div>
+                            </div>
+                            <div class="up-form-hint" style="margin-top:10px;">
+                                행 = 그 날 가용성 계산에서 빠진 <b>비생산</b> 시간대, 우측 = 일 합계.
+                                <span x-show="availComp.npBoundary" x-cloak x-text="'사이클이 비생산 기준 ' + availComp.npBoundary + ' 이상이면 자동으로 여기 들어옵니다.'"></span>
+                            </div>
                         </div>
-                    </div>
+                    </template>
 
-                    <!-- 적용 (편집 모드) -->
-                    <div class="up-blk-actions" style="margin-top:14px; justify-content:flex-end;" x-show="ps.editing" x-cloak>
-                        <button class="btn btn-sm" :class="ps.dirty ? 'btn-primary' : ''" @click="psApply()" :disabled="ps.busy"><span class="material-icons" style="font-size:15px;">save</span> 적용</button>
-                    </div>
-                    <div style="margin-top:6px; text-align:right;" x-show="ps.msg || ps.err" x-cloak>
-                        <span class="up-blk-msg ok" x-show="ps.msg" x-text="ps.msg"></span>
-                        <span class="up-blk-msg err" x-show="ps.err" x-text="ps.err"></span>
-                    </div>
+                    <template x-if="teepNpDays().length === 0">
+                        <div class="ds-empty">
+                            <span class="material-icons">event_busy</span>
+                            <div class="ds-empty-title" x-text="teepNonProdError ? '불러오기 실패' : (teepNonProd ? '이 기간 비생산으로 잡힌 시간 없음' : '불러오는 중…')"></div>
+                            <div class="ds-empty-desc" x-text="teepNonProdError || (teepNonProd ? '사이클 길이가 비생산 기준을 넘긴 구간이 없습니다.' : '')"></div>
+                        </div>
+                    </template>
                 </section>
 
                 <!-- ════ 비가동·비생산 판정 기준 (doc/28, 2026-09-11 두 규칙 · 사이클 단위) —

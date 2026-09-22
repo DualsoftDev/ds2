@@ -144,11 +144,11 @@
                 _qDown: false,
                 _dtDown: false, // 정지 이벤트 로그 다이얼로그 백드롭 닫힘 가드
                 // 비생산 시간대 (doc/22 §3.3, 2026-07-08 병행 모델) — 당일 자동 판정(10×장시간정지)은 항상 켜져 있고,
-                // windows=수동 지정 창(추가로 무조건 비생산, 매일 반복). source: auto(지정 없음)/both. editing=[수동 편집] 모드(addMode=[시간 추가] 드래그 무장).
                 // actualNonProd=이번 기간 실제 제외된 비생산(자동+지정 합산 실측 — 통합 타임라인의 자동(점선) 소스).
                 // (구 auto/pendingManual 배타 토글, excludedWeekdays/xw*[생산 요일] 는 병행 모델 전환으로 제거.)
-                ps: { source: 'auto', ctMultiplier: 30, windows: [], selected: -1, addMode: false, editing: false, msg: '', err: '', busy: false, actualNonProd: null, dirty: false },
-                _psDrag: null, // 진행 중 드래그 상태 { mode:'create'|'resize-l'|'resize-r', index, anchor } (비반응형)
+                // 비생산 실측 — actualNonProd 만 남았다. 수동 지정 시간대(windows/편집/드래그)는 2026-09-22 폐기 —
+                //   비생산은 사이클 길이로만 판정한다(doc/30 §11.1).
+                ps: { actualNonProd: null, err: '' },
                 // 고장·비생산 판정 기준 (doc/28 두 규칙, 2026-09-11) — fault = 중앙 MT 배수(불인정 행은 중앙 CT), nonProd = 중앙 WT 배수(불인정 행·완료 신호
                 // 미정의 flow 는 중앙 CT). preview=저장 전 what-if 재분류(서버 오버라이드 계산, 저장·기록 없음). nonProdFloor/faultFloorMs/minSamples 는
                 // 서버 상수(GET ct-multipliers) — 화면 환산(cmBound)이 서버 경계 함수와 같은 값을 내도록 서버가 내려준다.
@@ -237,7 +237,7 @@
                     const initLoad = async () => {
                         await this.load();
                         // OEE 도메인 로드 — CT 표(수동 오버라이드 UI)는 설비효율 페이지 전용,
-                        // 비생산 시간대(ps.ctMultiplier 등)는 설비효율·생산효율 둘 다 사용.
+                        // 비생산 실측(actualNonProd)은 설비효율·생산효율 둘 다 사용.
                         if (this.view === 'oee' || this.view === 'both') await this.loadCtTable();
                         if (this.view !== 'alarm') await this.loadPlannedStops();
                         // 판정 기준 카드(비가동/비생산 배수)는 설비효율 페이지 전용.
@@ -262,10 +262,6 @@
                         // 차단 상태는 항상 로드(툴바 버튼의 차단 수 배지) — ?blockMgr=1 진입(설정 페이지 링크)이면 모달 자동 열기.
                         if (qp.has('blockMgr')) this.openBlockMgr();
                         else { this.loadBlockState(); this.loadUserTagBlockState(); }
-                    }
-                    // 더티 가드 등록 — 비생산 시간대 수동 편집(ps.dirty) 중 이탈 방지(OEE 페이지만)
-                    if (this.view !== 'alarm') {
-                        window.dspDirtyRegister(() => this.ps.editing && this.ps.dirty);
                     }
                 },
 
@@ -414,16 +410,10 @@
                     const e = Math.max(0, Math.min(1440, w.endMinutes || 0));
                     return `left:${s / 1440 * 100}%; width:${Math.max(0, (e - s) / 1440 * 100)}%;`;
                 },
+                // 이번 기간 실제로 비생산으로 잡힌 구간 — '날짜별 비생산 패턴' 카드와 현재 상태 배지의 소스.
+                //   2026-09-22: 수동 지정 시간대(GET/PUT planned-stops)는 폐기됐다. 비생산은 사이클 길이로만
+                //   판정하므로(doc/30 §11.1) 읽을 설정이 없다 — 남은 것은 "무엇이 실제로 잡혔나" 하나다.
                 async loadPlannedStops() {
-                    try {
-                        const r = await this.apiGet('/api/oee/planned-stops');
-                        this.ps.source = r.source || 'auto';
-                        this.ps.ctMultiplier = r.nonProdWtMultiplier || 30;   // 비생산 자동판정 배수(WT 축) — 칩 표기용
-                        this.ps.windows = (r.windows || []).map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: w.label || '' }));
-                        this.ps.selected = -1; this.ps.addMode = false; this.ps.dirty = false; this.ps.editing = false;
-                    } catch (e) { this.ps.err = '비생산 시간대를 불러오지 못했습니다: ' + e.message; }
-                    // 이번 기간 실제 제외 비생산(자동+지정 합산 — 통합 타임라인의 자동(점선) 소스). 비생산 시간대는
-                    // 시스템(전역) 단위 — flow별 페이지에서도 curFlow 필터 없이 항상 시스템 전체로 표시.
                     const seq = ++this._anpSeq; // 진행 중인 refreshActualNonProd 의 stale 응답이 이 결과를 덮지 않도록
                     try {
                         const r = this.rangeForPeriod();
@@ -433,7 +423,7 @@
                     } catch (e) { if (seq === this._anpSeq) this.ps.actualNonProd = null; }
                 },
                 // 폴링·기간변경 경량 갱신 — '실제 제외 비생산'(+현재 상태 배지)만 다시 읽는다.
-                // 지정 창 편집 상태(ps.windows/selected/addMode)는 건드리지 않아 편집 중 클로버 방지.
+                // 폴링·기간변경 경량 갱신 — '실제 제외 비생산'(+현재 상태 배지)만 다시 읽는다.
                 async refreshActualNonProd() {
                     const seq = ++this._anpSeq;
                     try {
@@ -443,174 +433,6 @@
                         if (seq === this._anpSeq) this.ps.actualNonProd = dto; // stale 응답(이후 기간변경/폴링이 이미 시작) 폐기
                     } catch (e) { /* 이전 값 유지 */ }
                 },
-                // [수동 편집] — 지정 창 편집 모드 진입(자동 판정은 서버에서 계속 켜져 있음).
-                // 추가 드래그는 무장하지 않음 — 기존 창 이동/조절/삭제가 기본, 새 창은 [시간 추가]로만.
-                psBeginEdit() {
-                    this.ps.editing = true; this.ps.selected = -1; this.ps.addMode = false; this.ps.err = ''; this.ps.msg = '';
-                },
-                // 보기 모드에서 수동 막대 클릭 → 편집 모드 진입 + 그 막대 선택(추가 무장 없음).
-                psEditWindow(i) {
-                    this.psBeginEdit();
-                    this.ps.selected = i;
-                },
-                // 편집 취소 — 저장 안 한 편집 폐기, 서버 truth 재로드.
-                async psCancelEdit() {
-                    this.ps.editing = false; this.ps.dirty = false; this.ps.addMode = false; this.ps.selected = -1;
-                    this.ps.msg = ''; this.ps.err = '';
-                    await this.loadPlannedStops();
-                },
-                // 자동(점선) 표시용 — 실측 제외 비생산에서 수동 지정 창과 겹친 부분을 차집합(수동 남색이 정체를 대변).
-                get psAutoWindows() {
-                    const act = (this.ps.actualNonProd && this.ps.actualNonProd.windows) || [];
-                    const man = this.ps.windows || [];
-                    const res = [];
-                    for (const a of act) {
-                        let segs = [[a.startMinutes, a.endMinutes]];
-                        for (const m of man) {
-                            const next = [];
-                            for (const [s, e] of segs) {
-                                if (m.endMinutes <= s || m.startMinutes >= e) { next.push([s, e]); continue; }
-                                if (m.startMinutes > s) next.push([s, Math.min(m.startMinutes, e)]);
-                                if (m.endMinutes < e) next.push([Math.max(m.endMinutes, s), e]);
-                            }
-                            segs = next;
-                        }
-                        for (const [s, e] of segs) if (e - s > 0) res.push({ startMinutes: s, endMinutes: e });
-                    }
-                    return res;
-                },
-                // (구 psBeginManual/psCancelManual/psSetAuto[자동/수동 배타 토글], 생산 요일(xw*) 함수들은 병행 모델로 제거.)
-                psSelect(i) { if (this.ps.addMode) return; this.ps.selected = i; this.ps.err = ''; },
-                psDeselect() { this.ps.selected = -1; },
-                // [시간 추가] 토글 — 무장 시 트랙 드래그로 새 시간대 생성. 다시 누르면 취소.
-                psBeginAdd() { this.ps.addMode = true; this.ps.selected = -1; this.ps.err = ''; this.ps.msg = ''; },
-                psCancelAdd() { this.ps.addMode = false; },
-                // clientX → 분(0~1440, 5분 스냅) — $refs.ptltrack 기준
-                _psMinFromEvent(ev) {
-                    const el = this.$refs.ptltrack; if (!el) return 0;
-                    const rect = el.getBoundingClientRect(); if (rect.width <= 0) return 0;
-                    let f = (ev.clientX - rect.left) / rect.width;
-                    f = Math.max(0, Math.min(1, f));
-                    return Math.round(f * 1440 / 5) * 5; // 5분 단위 스냅
-                },
-                // 트랙 pointerdown — 추가 모드: 드래그 생성 시작 / 평소: 빈 곳이면 선택 해제(막대는 @click.stop)
-                psTrackPointerDown(ev) {
-                    if (!this.ps.editing) return;   // 보기 모드 — 통합 타임라인은 읽기 전용
-                    if (this.ps.addMode) {
-                        const m = this._psMinFromEvent(ev);
-                        this.ps.windows = [...this.ps.windows, { startMinutes: m, endMinutes: m, label: '' }];
-                        this._psDrag = { mode: 'create', index: this.ps.windows.length - 1, anchor: m };
-                        this._psStartDrag();
-                        ev.preventDefault();
-                    } else if (ev.target === ev.currentTarget) {
-                        this.ps.selected = -1;
-                    }
-                },
-                // 막대 본체 pointerdown → 선택 + 이동(전체 시간대 평행이동) 드래그 시작. 거의 안 움직이면 단순 선택(클릭)으로 처리.
-                psMoveStart(ev, i) {
-                    if (!this.ps.editing) { this.psEditWindow(i); return; }   // 보기 모드 클릭 → 편집 모드로 바로 진입
-                    if (this.ps.addMode) return;
-                    this.ps.selected = i; this.ps.err = '';
-                    const w = this.ps.windows[i];
-                    this._psDrag = { mode: 'move', index: i, anchor: this._psMinFromEvent(ev), downX: ev.clientX, dur: w.endMinutes - w.startMinutes, origStart: w.startMinutes, moved: false };
-                    this._psStartDrag();
-                },
-                // 막대 양끝 핸들 pointerdown → 리사이즈 드래그 시작
-                psResizeStart(ev, i, side) {
-                    if (!this.ps.editing || this.ps.addMode) return;
-                    this.ps.selected = i; this.ps.err = '';
-                    this._psDrag = { mode: side === 'l' ? 'resize-l' : 'resize-r', index: i, anchor: 0 };
-                    this._psStartDrag();
-                },
-                // 문서 레벨 move/up 바인딩 — 포인터가 트랙을 벗어나도 드래그 유지. 드래그 동안 커서 고정.
-                _psStartDrag() {
-                    const cur = this._psDrag.mode === 'move' ? 'grabbing' : (this._psDrag.mode === 'create' ? 'crosshair' : 'ew-resize');
-                    document.body.style.cursor = cur;
-                    this._psMoveBound = (e) => this._psDragMove(e);
-                    this._psUpBound = (e) => this._psDragEnd(e);
-                    document.addEventListener('pointermove', this._psMoveBound);
-                    document.addEventListener('pointerup', this._psUpBound);
-                    document.addEventListener('pointercancel', this._psUpBound);
-                },
-                _psDragMove(ev) {
-                    const d = this._psDrag; if (!d) return;
-                    const w = this.ps.windows[d.index]; if (!w) return;
-                    const m = this._psMinFromEvent(ev);
-                    if (d.mode === 'create') { w.startMinutes = Math.min(d.anchor, m); w.endMinutes = Math.max(d.anchor, m); }
-                    else if (d.mode === 'resize-l') { w.startMinutes = Math.max(0, Math.min(m, w.endMinutes - 5)); }
-                    else if (d.mode === 'resize-r') { w.endMinutes = Math.min(1440, Math.max(m, w.startMinutes + 5)); }
-                    else if (d.mode === 'move') {
-                        let ns = d.origStart + (m - d.anchor);           // 길이 유지한 채 평행이동
-                        ns = Math.max(0, Math.min(1440 - d.dur, ns));    // 0~24시 경계 클램프
-                        w.startMinutes = ns; w.endMinutes = ns + d.dur;
-                        if (Math.abs(ev.clientX - d.downX) >= 4) d.moved = true; // 픽셀 기준 드래그 판정(클릭과 구분)
-                    }
-                    ev.preventDefault();
-                },
-                _psDragEnd() {
-                    document.removeEventListener('pointermove', this._psMoveBound);
-                    document.removeEventListener('pointerup', this._psUpBound);
-                    document.removeEventListener('pointercancel', this._psUpBound);
-                    document.body.style.cursor = '';
-                    const d = this._psDrag; this._psDrag = null;
-                    if (!d) return;
-                    const w = this.ps.windows[d.index];
-                    // 거의 안 움직인 생성(<10분 ≈ 클릭/손떨림)은 폐기 — 추가 모드는 유지(다시 드래그 가능)
-                    if (d.mode === 'create' && (!w || (w.endMinutes - w.startMinutes) < 10)) {
-                        if (w) this.ps.windows = this.ps.windows.filter((_, i) => i !== d.index);
-                        return;
-                    }
-                    // 이동인데 거의 안 움직였으면 클릭으로 간주 → 원위치 복원(선택 상태는 유지)
-                    if (d.mode === 'move' && !d.moved) {
-                        if (w) { w.startMinutes = d.origStart; w.endMinutes = d.origStart + d.dur; }
-                        return;
-                    }
-                    const ref = w;                                       // 정렬 후 동일 객체로 선택 복원
-                    this.ps.windows = this.ps.windows.slice().sort((a, b) => a.startMinutes - b.startMinutes);
-                    this.ps.selected = this.ps.windows.indexOf(ref);
-                    if (d.mode === 'create') this.ps.addMode = false;    // 생성 완료 → 추가 모드 종료
-                    this.ps.dirty = true;
-                },
-                // 선택된 윈도의 시작/끝 시각 인라인 수정(type=time → 분). 라이브 재배치(재정렬은 적용 시).
-                psSetTime(which, val) {
-                    const m = this.hhmmToMin(val);
-                    if (m == null || this.ps.selected < 0) return;
-                    const w = this.ps.windows[this.ps.selected];
-                    if (!w) return;
-                    if (which === 'start') w.startMinutes = m; else w.endMinutes = m;
-                    this.ps.err = '';
-                    this.ps.dirty = true;
-                },
-                psRemove(i) {
-                    this.ps.windows = this.ps.windows.filter((_, idx) => idx !== i);
-                    this.ps.dirty = true;
-                    if (this.ps.selected === i) this.ps.selected = -1;
-                    else if (this.ps.selected > i) this.ps.selected -= 1;
-                },
-                async psApply() {
-                    // 검증: 모든 윈도 0~24시 범위 + 끝>시작(드래그 생성/리사이즈 결과를 적용 직전 재확인)
-                    for (const w of this.ps.windows) {
-                        if (w.startMinutes == null || w.endMinutes == null || w.endMinutes <= w.startMinutes || w.startMinutes < 0 || w.endMinutes > 1440) {
-                            this.ps.err = '시간대가 올바르지 않습니다 (끝 > 시작, 00:00~24:00). 자정을 넘기는 정지는 두 칸으로 분리하세요.';
-                            return;
-                        }
-                    }
-                    this.ps.busy = true; this.ps.msg = ''; this.ps.err = '';
-                    try {
-                        const windows = this.ps.windows.slice()
-                            .sort((a, b) => a.startMinutes - b.startMinutes)
-                            .map(w => ({ startMinutes: w.startMinutes, endMinutes: w.endMinutes, label: (w.label || '').trim() || null }));
-                        await this.apiPut('/api/oee/planned-stops', { windows });
-                        const okMsg = windows.length
-                            ? `수동 지정 ${windows.length}개 적용 — 매일 이 시간대는 무조건 비생산 (자동 판정은 계속 동작)`
-                            : '수동 지정 없음으로 저장 — 당일 자동 판정만 적용';
-                        await this.loadPlannedStops();   // editing/dirty 리셋 + 서버 truth 재로드
-                        this.ps.msg = okMsg;
-                        await this.loadOee();
-                    } catch (e) { this.ps.err = '적용 실패: ' + e.message; }
-                    finally { this.ps.busy = false; setTimeout(() => { this.ps.msg = ''; }, 5000); }
-                },
-
                 // ── 비가동·비생산 판정 기준 (GET/PUT /api/oee/ct-multipliers, doc/28 두 규칙) — 레인 밴드 + 슬라이더 2개 + flow 환산 + 저장 전 재분류 미리보기 ──
                 //    어휘: '고장' 은 쓰지 않는다(2026-09-21). 길이로만 판정하면서 원인을 단정하는 이름이라 doc/30 §11.1 에서 폐기됐다.
                 cmDirty() {
@@ -1074,10 +896,10 @@
                 },
                 // ── 날짜별 비생산 패턴 (/api/oee/planned-stops/actual · days) — 생산효율 페이지 전용 ──
                 // ps.actualNonProd(설비효율 설정 타임라인, 자동 모드 전용)와 별도 상태 — 여기는 자동/수동 설정과
-                // 무관하게 그 범위의 "실측" 비생산 패턴을 조회한다(detected=true 로 10×CT 감지 강제 — 수동 지정이
-                // 걸려 있어도 실제 패턴이 드러나게. 수동 시간대도 union 으로 함께 표시).
+                // 무관하게 그 범위의 실측 비생산 패턴을 조회한다(detected=true).
+                //   2026-09-22: OEE 페이지의 '날짜별 비생산 패턴'도 같은 것을 쓴다(종전 '비생산 시간대' 자리).
+                //   두 화면이 같은 소스를 보므로 어긋날 수 없다 — 런타임 뷰 가드를 두지 않는다.
                 async loadTeepNonProd() {
-                    if (this.view !== 'teep') return;
                     const r = this.rangeForPeriod();
                     const seq = ++this._teepNpSeq;
                     try {
@@ -1477,6 +1299,7 @@
                         this.oeeError = 'OEE 데이터를 불러오지 못했습니다: ' + e.message;
                     }
                     this.loadMeasureQuality();   // 별개 축 — OEE 실패와 독립(await 안 함, 카드가 따로 비어 있을 뿐)
+                    this.loadTeepNonProd();      // 날짜별 비생산 패턴(2026-09-22) — 생산효율 페이지와 같은 컬포넌트·같은 소스
                     this.$nextTick(() => this.drawDailyChart());
                 },
 
