@@ -30,6 +30,12 @@
 #ifndef PromakerSetup
   #define PromakerSetup "..\..\Promaker\Installer\Output\Promaker_Setup_0.1.21_sc.exe"
 #endif
+; 산출물 이름 꼬리표 — 표준 빌드는 빈 문자열, 저용량 빌드는 build-suite.sh 가 "_Lite" 를 준다.
+;   ★없으면 Lite 컴파일이 표준본 Setup_Dualsoft_<ver>.exe 를 덮어쓴다(ISCC 는 컴파일 시작 시
+;     기존 출력 exe 를 먼저 지운다 — 2026-09-08 에 표준 DSPilot 출고본을 이렇게 날린 적 있다).
+#ifndef OutputSuffix
+  #define OutputSuffix ""
+#endif
 
 ; 런타임에 {tmp} 로 풀린 뒤 실행할 파일명(컴파일 시점에 경로에서 basename 추출).
 #define DsPilotSetupName ExtractFileName(DsPilotSetup)
@@ -60,7 +66,7 @@ DefaultGroupName={#MyAppName}
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 OutputDir=Output
-OutputBaseFilename=Setup_Dualsoft_{#SuiteVersion}
+OutputBaseFilename=Setup_Dualsoft_{#SuiteVersion}{#OutputSuffix}
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -336,6 +342,13 @@ begin
     S := S + '■ 공통' + #13#10 +
       '    · 공유 폴더: %ProgramData%\DualSoft\Shared (모델 파일 공유)' + #13#10 +
       '    · 필요한 Windows 방화벽 인바운드 규칙 자동 등록';
+#ifdef Lite
+    // 저용량 설치본 — 런타임/CCTV 구성요소를 설치 중에 내려받는다. 오프라인 현장은 표준 설치본을 써야 한다.
+    S := S + #13#10#13#10 + '■ 저용량(Lite) 설치본 — 설치 중 인터넷 연결 필요' + #13#10 +
+      '    · .NET 9 런타임(웹/데스크톱)을 자동으로 내려받아 설치합니다(약 70MB).' + #13#10 +
+      '    · CCTV 를 선택하면 영상 구성요소를 추가로 내려받습니다(약 140MB).' + #13#10 +
+      '    · 인터넷이 없는 현장은 표준(오프라인) 설치본을 사용하세요.';
+#endif
     SummaryPage.RichEditViewer.Lines.Text := S;
   end;
 end;
