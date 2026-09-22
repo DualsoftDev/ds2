@@ -716,11 +716,13 @@
                 // 단정하는 것이 비어 있는 것보다 나쁘다(현장 실측: 34건 중 진짜 고장 2건인데 11.6분이 떴다).
                 get relHasNumbers() { return !!this.rel && (this.rel.eMtbfMs != null || this.rel.eMttrMs != null); },
                 // 화면 분해 — 합이 관측된 사건 전체와 맞아야 한다.
+                // ★key 를 빈 문자열로 두면 setRelState 가 해제로만 동작해 "눌러도 반응 없음" 이 된다.
                 get relBreakdown() {
                     const r = this.rel;
                     if (!r) return [];
                     return [
-                        { key: '', label: '집계 대상 고장', n: r.faultCount, cls: 'chip-error' },
+                        { key: 'skip:None', label: '집계 대상 고장', n: r.faultCount, cls: 'chip-error',
+                          tip: '설비가 실제로 선 사건 — 이것만 eMTBF·eMTTR 에 들어갑니다' },
                         { key: 'skip:NonStopWarning', label: '무정지 경고', n: r.nonStopWarningCount, cls: 'chip-warning',
                           tip: '알람은 울렸지만 설비는 계속 돌았습니다 — 고장이 아니라 경고입니다' },
                         { key: 'skip:LinkSnapshot', label: '재접속 스냅샷', n: r.linkSnapshotCount, cls: '',
@@ -728,6 +730,35 @@
                         { key: 'skip:UnknownStop', label: '판정 불가', n: r.unknownStopCount, cls: '',
                           tip: '사이클 리듬 기준을 구하지 못해 정지 여부를 판정할 수 없었습니다' },
                     ].filter(x => x.n > 0);
+                },
+                // 고른 칩이 디바이스 행의 어느 칸을 가리키는지 — 표도 같은 기준으로 걸러야 한다.
+                // 이력 표만 걸러 놓으면 화면을 채우는 디바이스 표가 그대로라 "반응이 없다" 로 보인다.
+                _relDeviceCount(d, s) {
+                    switch (s) {
+                        case 'skip:None': return d.faultCount;
+                        case 'skip:NonStopWarning': return d.nonStopWarningCount;
+                        case 'skip:LinkSnapshot': return d.linkSnapshotCount;
+                        case 'skip:UnknownStop': return d.unknownStopCount;
+                        case 'Recovered': return d.recoveredCount;
+                        case 'RestartUnconfirmed': return d.restartUnconfirmedCount;
+                        case 'AwaitingRestart': return d.awaitingRestartCount;
+                        case 'InProgress': return d.inProgressCount;
+                        default: return 0;
+                    }
+                },
+                get relDevices() {
+                    const all = this.rel?.devices || [];
+                    if (!this.relState) return all;
+                    return all.filter(d => this._relDeviceCount(d, this.relState) > 0);
+                },
+                // 필터가 걸린 동안 그 사실과 해제 수단을 표 바로 위에 둔다(칩만으로는 안 보인다).
+                get relFilterLabel() {
+                    const s = this.relState;
+                    if (!s) return '';
+                    const fromChip = this.relBreakdown.find(b => b.key === s);
+                    if (fromChip) return fromChip.label;
+                    return ({ Recovered: '복구 완료', RestartUnconfirmed: '재가동 미확인',
+                              AwaitingRestart: '복구 확인 중', InProgress: '진행 중' })[s] || s;
                 },
 
                 // 피드에서 at 으로 진입했을 때 해당 알람 행(data-at=occurredAtLocal 초단위)을 찾아 스크롤 + 잠깐 하이라이트.

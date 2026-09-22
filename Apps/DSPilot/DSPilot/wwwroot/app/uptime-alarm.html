@@ -219,9 +219,18 @@
                                         </button>
                                     </div>
 
+                                    <!-- 필터 상태 줄 — 칩만으로는 무엇이 걸렸는지 안 보인다. 아래 두 표가 함께 걸러진다. -->
+                                    <div class="ds-selbar" x-show="relState" x-cloak style="margin-bottom:8px;">
+                                        <span class="ds-selbar-count" x-text="relFilterLabel + ' 만 보는 중'"></span>
+                                        <span class="ds-selbar-sp"></span>
+                                        <span style="font-size:0.74rem;color:var(--color-text-secondary);"
+                                              x-text="'디바이스 ' + relDevices.length + ' · 알람 ' + relRows.length + '건'"></span>
+                                        <button type="button" class="ds-selbar-link" @click="setRelState(relState)">필터 해제</button>
+                                    </div>
+
                                     <!-- 디바이스별 — 보전 액션이 붙는 단위다. 라인 카드는 이 행들을 직렬 합산해 굴려 올린 것이라
                                          표의 합과 카드가 어긋나지 않는다. 기본 정렬 = 총 정지시간(서버) — 그게 보전 우선순위다. -->
-                                    <div style="overflow-x:auto;margin-bottom:12px;" x-show="rel.devices && rel.devices.length > 0">
+                                    <div style="overflow-x:auto;margin-bottom:12px;" x-show="relDevices.length > 0">
                                         <table class="ds-table ut-table">
                                             <thead><tr>
                                                 <th>디바이스</th><th>고장</th><th>복구</th>
@@ -230,7 +239,7 @@
                                                 <th>eMTBF</th><th>eMTTR</th><th>총 정지</th>
                                             </tr></thead>
                                             <tbody>
-                                                <template x-for="d in rel.devices" :key="d.systemName + '|' + d.device">
+                                                <template x-for="d in relDevices" :key="d.systemName + '|' + d.device">
                                                     <tr>
                                                         <td data-label="디바이스">
                                                             <strong x-text="d.device"></strong>
@@ -249,6 +258,9 @@
                                                 </template>
                                             </tbody>
                                         </table>
+                                    </div>
+                                    <div class="settings-note" x-show="relState && relDevices.length === 0">
+                                        <small x-text="relFilterLabel + ' 에 해당하는 디바이스가 없습니다 — 필터를 해제하면 전체를 봅니다.'"></small>
                                     </div>
 
                                     <!-- 지표에서 빠진 태그 — 칩 한 줄(근거는 툴팁). 디바이스 미지정은 재가동을 확인할 설비를 특정할 수 없고,
