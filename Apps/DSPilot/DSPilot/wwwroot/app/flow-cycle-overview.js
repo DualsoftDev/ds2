@@ -73,7 +73,8 @@ function overviewCycleApp() {
                 clearTimeout(_rt);
                 _rt = setTimeout(() => {
                     for (const s of this.flows) {
-                        if (s.callLanes.length) { this.measurePlotWidth(s); s.svgMarkup = CG.buildSvg(s); }
+                        // 보이지 않는(필터로 빠진) 카드는 못 잰다 — 건너뛰고, 다시 보일 때 onOvFilter 가 잰다.
+                        if (s.callLanes.length && this.measurePlotWidth(s)) s.svgMarkup = CG.buildSvg(s);
                     }
                     this.syncPanAllSoon();
                 }, 180);
@@ -338,8 +339,9 @@ function overviewCycleApp() {
 
             slice.svgMarkup = CG.buildSvg(slice);
             this.$nextTick(() => {
-                this.measurePlotWidth(slice); slice.svgMarkup = CG.buildSvg(slice);
-                this.syncPanAllSoon();
+                // 카드 본문(x-if)이 방금 붙었어도 폭은 다음 프레임에야 확정될 수 있다 — 못 재면 한 프레임 더 기다린다.
+                const fit = () => { this.measurePlotWidth(slice); slice.svgMarkup = CG.buildSvg(slice); this.syncPanAllSoon(); };
+                if (this.measurePlotWidth(slice)) fit(); else requestAnimationFrame(fit);
             });
         },
 
@@ -357,11 +359,15 @@ function overviewCycleApp() {
 
         // ── 간트 지오메트리 / 줌 ──
         areaEl(slice) { return document.getElementById('cta-' + slice.id); },
+        // 폭을 실제로 쟀으면 true. 카드가 필터로 DOM 에서 빠졌거나 아직 안 그려졌으면 clientWidth 가 0/없음이고,
+        // 그 값을 쓰면 간트가 최소폭으로 쪼그라든다 — 그때는 직전 baseWidth 를 유지한다(줌은 그대로 반영).
         measurePlotWidth(slice) {
             const el = this.areaEl(slice);
-            const avail = el ? el.clientWidth : 1100;
-            slice.baseWidth = Math.max(MIN, Math.round(avail - LEFT_PAD - RIGHT_PAD - 4));
+            const avail = el ? el.clientWidth : 0;
+            const ok = avail > 0;
+            if (ok) slice.baseWidth = Math.max(MIN, Math.round(avail - LEFT_PAD - RIGHT_PAD - 4));
             slice.plotWidth = Math.max(MIN, Math.round(slice.baseWidth * slice.zoom));
+            return ok;
         },
         resetZoomAll() {
             this.zoom = 1;

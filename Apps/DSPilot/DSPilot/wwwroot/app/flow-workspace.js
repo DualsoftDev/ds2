@@ -155,6 +155,7 @@
                 panPct: 0,          // 이동 슬라이더 값 0~1000 (= 가로 스크롤 비율)
                 canPan: false,      // 스크롤 여지가 있을 때만 이동 슬라이더 활성
                 _geo: null, _drag: null, _timeReloadTimer: null,
+                _needMeasure: false,   // 숨은 간트(탭 뒤)에서 폭 측정이 불발됐다 — 다시 보일 때 재측정
 
                 // ── 최근 히스토리 (구 대시보드 하단) ──
                 flowHistory: [],
@@ -219,7 +220,7 @@
                         clearTimeout(_rt);
                         _rt = setTimeout(() => {
                             if (this._drag) return;
-                            if (this.callLanes.length) { this.measurePlotWidth(); this.render(); this.syncPanSoon(); }
+                            if (this.callLanes.length && this.measurePlotWidth()) { this.render(); this.syncPanSoon(); }
                             _resizeCharts();
                         }, 150);
                     });
@@ -878,12 +879,25 @@
                 // ════════════════════════════════════════════════════════════════
                 //  사이클 분석 (구 cycle-time-analysis @code — 이 Flow 스코프)
                 // ════════════════════════════════════════════════════════════════
+                // 보이는 간트의 폭으로 플롯 폭을 다시 잰다. 잰 값을 썼으면 true.
+                // ★ display:none 인 간트는 clientWidth 가 0 이다 — 그대로 쓰면 baseWidth 가 최소폭(640)으로
+                //   고정돼 차트가 쪼그라든다(분기 탭에서 창 크기를 바꿀 때 재현, 2026-09-22).
+                //   못 잰 순간에는 폭을 건드리지 않고 예약만 걸어 두고, 다시 보일 때 잰다.
                 measurePlotWidth() {
                     const el = this.chartAreaEl();
-                    const avail = el ? el.clientWidth : 1100;
+                    const avail = el ? el.clientWidth : 0;
+                    const ok = avail > 0;
+                    this._needMeasure = !ok;
                     const minW = minPlotW();
-                    this.baseWidth = Math.max(minW, Math.round(avail - LEFT_PAD - RIGHT_PAD - 4));
-                    this.plotWidth = Math.max(minW, Math.round(this.baseWidth * this.zoom));
+                    if (ok) this.baseWidth = Math.max(minW, Math.round(avail - LEFT_PAD - RIGHT_PAD - 4));
+                    this.plotWidth = Math.max(minW, Math.round(this.baseWidth * this.zoom));   // 줌은 못 잰 순간에도 반영(폭맞춤만 미룬다)
+                    return ok;
+                },
+                // 재측정 → 폭이 실제로 바뀌었을 때만 다시 그린다(탭 전환처럼 대개 그대로인 경로용).
+                remeasureAndRender() {
+                    const before = this.plotWidth;
+                    if (!this.measurePlotWidth()) return;
+                    if (this.plotWidth !== before) this.render();
                 },
                 // Call 막대 / IN·OUT 파형 각각 토글. 마지막 하나는 끌 수 없다(빈 간트 방지).
                 toggleView(kind) {
@@ -927,12 +941,20 @@
                     if (!el || !window.ResizeObserver) return;
                     // 관찰 대상 el 을 그대로 넘긴다 — 첫 mount 시점엔 $refs.chartArea 가 아직 미등록일 수
                     // 있어(중첩 x-if 레이스) syncPan 이 빈손으로 돌아가고 슬라이더가 비활성으로 굳는다.
-                    const ro = new ResizeObserver(() => this.syncPan(el));
+                    // 숨은 탭에서 놓친 폭 측정(_needMeasure)은 이 간트가 다시 크기를 갖는 순간 보정한다.
+                    const ro = new ResizeObserver(() => { if (this._needMeasure) this.remeasureAndRender(); this.syncPan(el); });
                     ro.observe(el);
                     if (el.firstElementChild) ro.observe(el.firstElementChild);   // .ct-gantt-wrapper (SVG 폭)
                 },
                 // 간트 스크롤 컨테이너. 상단 flow 간트가 이동/확대 슬라이더의 기준(둘은 폭·줌 공유).
-                chartAreaEl() { return this.$refs.flowChart || document.querySelector('.ct-gantt-hscroll'); },
+                // 단, 분기 탭을 보는 동안 상단 flow 간트는 x-show 로 숨겨져(display:none) 폭·스크롤이 모두 0 이다 —
+                // 그때는 지금 보이는 간트(분기)를 기준으로 삼는다. 두 간트는 같은 레이아웃 폭을 쓰므로 값은 같다.
+                chartAreaEl() {
+                    const ref = this.$refs.flowChart;
+                    if (ref && ref.clientWidth > 0) return ref;
+                    const vis = this.chartAreaEls().find(el => el.clientWidth > 0);
+                    return vis || ref || document.querySelector('.ct-gantt-hscroll');
+                },
                 // 현재 존재하는 모든 간트 스크롤 컨테이너(상단 flow + 하단 분기) — 이동/확대는 둘을 함께 맞춘다.
                 chartAreaEls() { return Array.from(document.querySelectorAll('.ct-gantt-hscroll')); },
                 // 현재 스크롤 위치 → 이동 슬라이더 값(+ 활성 여부). 스크롤 이벤트/줌/로드 후 호출. 기준 = flow 간트.
@@ -1600,7 +1622,7 @@
                     this.selClear(); this.selMsg = '';       // 선택은 분기 단위 — 탭 바꾸면 비움
                     if (this.selectedRange && this.selectedRange.gantt === 'branch') this.selectedRange = null;
                     this.render();
-                    this.syncPanSoon();
+                    this.remeasureSoon();
                 },
                 /// 전체(FLOW) 탭으로 — 분기가 있으면 이 탭은 '분기 합산' 읽기 뷰다(경계 편집은 분기 탭에서).
                 setFlowTab() {
@@ -1608,7 +1630,12 @@
                     this.selClear(); this.selMsg = '';
                     if (this.selectedRange && this.selectedRange.gantt === 'branch') this.selectedRange = null;
                     this.render();
-                    this.syncPanSoon();
+                    this.remeasureSoon();
+                },
+                // 탭을 바꾸면 방금까지 숨어 있던 간트가 드러난다 — x-show 가 반영된 프레임에서 폭을 다시 재고
+                // (숨은 동안 창 크기가 바뀌었을 수 있다) 이동 슬라이더도 새 기준으로 맞춘다.
+                remeasureSoon() {
+                    this.$nextTick(() => requestAnimationFrame(() => { this.remeasureAndRender(); this.syncPanSoon(); }));
                 },
                 // 표시 순서 — 'signal': 시작 맨 위·끝 맨 아래·사이는 첫 신호 시각(Work 헤더 없음) / 'work': Work 그룹 고정(모델 순).
                 _orderedLanes(headId) {
