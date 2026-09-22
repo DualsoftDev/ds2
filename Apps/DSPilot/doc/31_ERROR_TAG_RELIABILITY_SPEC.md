@@ -285,6 +285,10 @@ v68 코어에서 빌려 읽는 것은 `cycle.startMs` **하나뿐**이고 방향
 - **라인 값을 ΣT/ΣN 으로 내지 말 것.** 직렬 합산은 T/ΣN 이다(§4).
 - **`userTagAlertLog` 스키마는 두 곳에 있다** — `DspRepositoryAdapter` 의 DDL 과 `UserTagAlertClearTests`
   의 픽스처. 한쪽만 고치면 INSERT 가 통째로 깨진다(endpoint 칸을 더할 때 실제로 잡혔다).
+- **같은 병이 IO 축에도 있었다** — `system.guid` 가 바뀌면 `plcTagLog` 읽기 필터(`p.systemId = Flow.ParentId`)가
+  옛 로그를 전부 걸러 간트·분기 판별·heatmap 의 과거가 사라진다(2026-09-08 현장). `PlcOwnerReconciler` 가
+  받아내는데, 2026-09-22 까지는 **이름이 같을 때만** 구출했다. 같은 엔드포인트 근거를 얹어 이름·GUID 가
+  동시에 바뀌어도 재키잉하도록 고쳤다 — 이 문서의 (endpoint, 주소) 원리와 같은 처방이다.
 - **`SystemPackage` 는 Guid 를 전면 remap 한다** — 같은 프로젝트 재붙여넣기와 다른 프로젝트 병합을
   한 코드로 처리하려는 설계다. 그래서 시스템을 이관할 때마다 System·Flow·Work·Call GUID 가 전부
   새로 태어난다. GUID 를 안정 키로 기대하지 말 것.

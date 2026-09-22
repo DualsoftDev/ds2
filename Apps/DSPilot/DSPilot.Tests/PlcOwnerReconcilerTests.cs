@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using System;
@@ -169,5 +169,91 @@ public class PlcOwnerReconcilerTests
     public void BaseName_strips_only_unique_suffix(string input, string expected)
     {
         Assert.Equal(expected, BaseName(input));
+    }
+
+    // ── 엔드포인트 근거 (2026-09-22) ──────────────────────────────────────
+    // 2026-09-21 현장: AASX 를 갈면서 System 이름까지 정리해(ub1_#121_#134 → UB_#121_#134)
+    // 이름이라는 마지막 끈이 끊어졌다. 엔드포인트(PLC ip:port)는 물리 접속이라 둘 다 바뀌어도 남는다.
+
+    private const string EpA = "192.168.0.10:2004";
+    private const string EpB = "192.168.0.11:2004";
+
+    [Fact]
+    public void 이름과_GUID_가_둘_다_바뀌어도_엔드포인트가_같으면_재키잉한다()
+    {
+        var report = Reconcile(
+            [new ModelSystem(New, "UB_#121_#134", EpA)],
+            [Default(), new PlcRow(7, K(Old), "ub1_#121_#134", EpA)]);
+
+        var d = Assert.Single(report.Decisions);
+        Assert.Equal(DecisionKind.Rekey, d.Kind);
+        Assert.Equal(7, d.PlcId);
+        Assert.Equal(K(Old), d.OldSystemKey);
+        // 이름이 다른데 이었으므로 조용히 넘어가지 않는다.
+        Assert.NotEmpty(report.Warnings);
+    }
+
+    [Fact]
+    public void 엔드포인트가_다르면_잇지_않는다()
+    {
+        // 진짜 설비 교체일 수 있다 — 근거가 없으면 새 행이 맞다.
+        var report = Reconcile(
+            [new ModelSystem(New, "UB_#121_#134", EpA)],
+            [Default(), new PlcRow(7, K(Old), "ub1_#121_#134", EpB)]);
+
+        Assert.Equal(DecisionKind.Create, Assert.Single(report.Decisions).Kind);
+    }
+
+    [Fact]
+    public void 같은_엔드포인트_고아가_둘이면_모호하여_이름으로_넘어간다()
+    {
+        var report = Reconcile(
+            [new ModelSystem(New, "LineA", EpA)],
+            [Default(), new PlcRow(7, K(Old), "LineA", EpA), new PlcRow(8, K(Other), "LineB", EpA)]);
+
+        // 엔드포인트는 모호 → 이름으로 떨어져 'LineA' 유일 후보를 잡는다.
+        var d = Assert.Single(report.Decisions);
+        Assert.Equal(DecisionKind.Rekey, d.Kind);
+        Assert.Equal(7, d.PlcId);
+        Assert.NotEmpty(report.Warnings);
+    }
+
+    [Fact]
+    public void 엔드포인트가_없으면_종전대로_이름으로_잇는다()
+    {
+        // 이 칸 이전에 만들어진 행은 엔드포인트가 비어 있다 — 기존 동작이 그대로 살아야 한다.
+        var report = Reconcile(
+            [new ModelSystem(New, "LineA")],
+            [Default(), new PlcRow(7, K(Old), "LineA")]);
+
+        var d = Assert.Single(report.Decisions);
+        Assert.Equal(DecisionKind.Rekey, d.Kind);
+        Assert.Equal(7, d.PlcId);
+    }
+
+    [Fact]
+    public void 대소문자만_바뀐_리네임도_이름으로_잇는다()
+    {
+        // 사용자 눈에는 "이름 안 바꿈" 인데 Ordinal 비교는 조용히 실패했다.
+        var report = Reconcile(
+            [new ModelSystem(New, "UB1_#121")],
+            [Default(), new PlcRow(7, K(Old), "ub1_#121")]);
+
+        var d = Assert.Single(report.Decisions);
+        Assert.Equal(DecisionKind.Rekey, d.Kind);
+        Assert.Equal(7, d.PlcId);
+    }
+
+    [Fact]
+    public void 엔드포인트_근거가_이름_근거보다_우선한다()
+    {
+        // 이름이 같은 고아(id=8)와 엔드포인트가 같은 고아(id=7)가 함께 있으면 엔드포인트를 택한다.
+        var report = Reconcile(
+            [new ModelSystem(New, "LineA", EpA)],
+            [Default(), new PlcRow(7, K(Old), "옛이름", EpA), new PlcRow(8, K(Other), "LineA", EpB)]);
+
+        var d = Assert.Single(report.Decisions);
+        Assert.Equal(DecisionKind.Rekey, d.Kind);
+        Assert.Equal(7, d.PlcId);
     }
 }

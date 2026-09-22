@@ -890,18 +890,25 @@ public sealed class SimulationEngineService : IDisposable
 
         // 재해석 입력: 모델 System 은 활성 전체(이름 있는 것) ∪ 주소 소유자로 등장한 것. 고아 판정의
         // 기준 집합이 좁으면 살아 있는 다른 System 의 행을 고아로 오판할 수 있으므로 활성 전체를 넣는다.
+        // 엔드포인트(PLC ip:port)는 이름·GUID 가 동시에 바뀌어도 남는 물리 식별자다 — 재키잉의 가장 강한 근거.
+        var endpointById = new Dictionary<Guid, string>();
+        try { endpointById = _projectService.GetEndpointLabelsBySystemId(); }
+        catch (Exception ex) { _logger.LogDebug(ex, "[Engine] System 엔드포인트 조회 실패 — 이름 근거로만 진행"); }
+        string EndpointOf(Guid sid) => endpointById.TryGetValue(sid, out var e) ? e : string.Empty;
+
         var modelSystems = new Dictionary<Guid, PlcOwnerReconciler.ModelSystem>();
         foreach (var kv in nameById)
-            modelSystems[kv.Key] = new PlcOwnerReconciler.ModelSystem(kv.Key, kv.Value);
+            modelSystems[kv.Key] = new PlcOwnerReconciler.ModelSystem(kv.Key, kv.Value, EndpointOf(kv.Key));
         foreach (var sid in systemIds)
             if (!modelSystems.ContainsKey(sid))
-                modelSystems[sid] = new PlcOwnerReconciler.ModelSystem(sid, SystemKeyConvention.Key(sid));
+                modelSystems[sid] = new PlcOwnerReconciler.ModelSystem(sid, SystemKeyConvention.Key(sid), EndpointOf(sid));
 
         PlcOwnerReconciler.Report? report = null;
         try
         {
-            var rows = conn.Query<(int Id, string? SystemId, string? Name)>("SELECT id, guid AS SystemId, name FROM system")
-                .Select(r => new PlcOwnerReconciler.PlcRow(r.Id, r.SystemId, r.Name ?? string.Empty))
+            var rows = conn.Query<(int Id, string? SystemId, string? Name, string? Endpoint)>(
+                    "SELECT id, guid AS SystemId, name, endpoint FROM system")
+                .Select(r => new PlcOwnerReconciler.PlcRow(r.Id, r.SystemId, r.Name ?? string.Empty, r.Endpoint ?? string.Empty))
                 .ToList();
             report = PlcOwnerReconciler.Reconcile(modelSystems.Values.ToList(), rows);
             foreach (var w in report.Warnings)
@@ -939,8 +946,10 @@ public sealed class SimulationEngineService : IDisposable
                     && decision.PlcId is int rekeyId)
                 {
                     var updated = conn.Execute(
-                        "UPDATE system SET guid = @Key WHERE id = @Id AND guid = @OldKey",
-                        new { Key = key, Id = rekeyId, OldKey = decision.OldSystemKey });
+                        // name 은 UNIQUE 라 여기서 갱신하면 다른 행과 충돌해 재키잉이 통째로 실패한다.
+                        // 행 이름은 표시·폴백용이라 옛것으로 남겨도 무해하다(정본 근거는 이제 엔드포인트다).
+                        "UPDATE system SET guid = @Key, endpoint = @Endpoint WHERE id = @Id AND guid = @OldKey",
+                        new { Key = key, Id = rekeyId, OldKey = decision.OldSystemKey, Endpoint = EndpointOf(sid) });
                     if (updated == 1)
                     {
                         result[sid] = rekeyId;
@@ -960,8 +969,8 @@ public sealed class SimulationEngineService : IDisposable
 
                 // ON CONFLICT 뒤 last_insert_rowid 는 신뢰할 수 없으므로 RETURNING 으로 받는다.
                 result[sid] = conn.QuerySingle<int>(
-                    "INSERT INTO system (name, guid) VALUES (@Name, @Key) RETURNING id",
-                    new { Name = name, Key = key });
+                    "INSERT INTO system (name, guid, endpoint) VALUES (@Name, @Key, @Endpoint) RETURNING id",
+                    new { Name = name, Key = key, Endpoint = EndpointOf(sid) });
                 _logger.LogInformation("[Engine] plc 행 생성 — system={System} name={Name} id={Id}",
                     key, name, result[sid]);
             }
