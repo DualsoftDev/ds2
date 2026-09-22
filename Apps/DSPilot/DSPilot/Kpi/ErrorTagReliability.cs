@@ -463,9 +463,13 @@ public static class ErrorTagReliability
             EMttrMs: recovered >= minSample ? (double)downTotal / recovered : null);
     }
 
-    /// <summary>스코프(설비·PLC·전체) 값 — 디바이스에서 굴려 올린 것. 화면의 KPI 카드 두 장이 이것이다.</summary>
+    /// <summary>
+    /// 스코프(설비·PLC·전체) 값. <b>고장 건수와 정지시간은 겹침을 합친 스코프 정지 사건</b>이라
+    /// 디바이스 행의 합보다 작다 — 동시에 선 것을 한 번으로 세기 때문이다.
+    /// </summary>
     public readonly record struct Summary(
         int FaultCount,
+        /// <summary>정지 구간이 확정된 스코프 사건 수 — eMTTR 의 분모.</summary>
         int RecoveredCount,
         int InProgressCount,
         int AwaitingRestartCount,
@@ -475,7 +479,7 @@ public static class ErrorTagReliability
         int UnknownStopCount,
         /// <summary>그 스코프의 가동시간 — flow 들의 <b>합집합</b>이라 겹친 시간을 한 번만 센다. eMTBF 의 분모.</summary>
         long OperatingMs,
-        /// <summary>정지시간 총합. 설비 수에 안 흔들려서 스코프를 가로질러 비교할 수 있는 값이다.</summary>
+        /// <summary>정지시간 — 겹친 구간을 한 번만 센 union. 설비 수에 안 흔들려 스코프 간 비교가 된다.</summary>
         long TotalDownMs,
         double? EMttrMs,
         double? EMtbfMs)
@@ -486,38 +490,71 @@ public static class ErrorTagReliability
     }
 
     /// <summary>
-    /// 스코프 1개(설비·PLC)의 지표. <b>가동시간은 그 스코프의 것을 한 번만 센다</b>.
+    /// 스코프 정지 사건 — 겹치는 디바이스 정지를 하나로 합친 것. <b>스코프가 몇 번 섰나</b>가 이것이다.
     /// <para>
-    /// 종전엔 <c>1/Σλ</c>(직렬 합산)였다. 그 식은 모든 디바이스가 <b>같은 시간대에 함께 돌 때만</b> 맞는데,
-    /// 실측에서 디바이스 가동시간이 7.6시간~30.1시간으로 4배 차이가 났다(스코프에 서로 다른 라인이
-    /// 섞여 있었다). λ 를 합산하면 짧게 관측된 디바이스를 창 전체를 돈 것처럼 외삽해 값이 29% 짧아졌다.
-    /// 관측한 것만 세는 <c>T ÷ ΣN</c> 이 맞다.
+    /// 두 디바이스가 같은 시각에 서면 스코프는 <b>한 번</b> 선 것이다. 그냥 더하면 건수가 부풀고 정지시간이
+    /// 이중 계상된다 — OEE 가 <c>downtimeMs</c> 에 이미 구간 union 을 쓰는 이유이고(그전엔 실측 6배),
+    /// 건수에는 안 써서 2026-09-08 에 라인 MTBF 가 무너졌던 바로 그 자리다.
+    /// </para>
+    /// <para>실측(2026-09-22): 사건 150건 → 병합 62건(59%↓), 정지 18.5시간 → 9.4시간(49%↓).</para>
+    /// </summary>
+    /// <param name="stops">[발생, 끝). 복구 못 한 사건은 끝 = 발생(길이 0)이라 건수엔 들되 시간엔 안 든다.</param>
+    public static List<(long StartMs, long EndMs)> MergeStops(IEnumerable<(long StartMs, long EndMs)> stops)
+    {
+        var list = stops.Where(x => x.EndMs >= x.StartMs).OrderBy(x => x.StartMs).ToList();
+        var merged = new List<(long StartMs, long EndMs)>();
+        foreach (var (s, e) in list)
+        {
+            if (merged.Count > 0 && s <= merged[^1].EndMs)
+            {
+                if (e > merged[^1].EndMs) merged[^1] = (merged[^1].StartMs, e);
+                continue;
+            }
+            merged.Add((s, e));
+        }
+        return merged;
+    }
+
+    /// <summary>
+    /// 스코프 1개(설비·PLC·전체)의 지표.
+    /// <para>
+    /// <b>건수·정지시간은 디바이스 합이 아니라 겹침을 합친 스코프 정지 사건</b>이다(<see cref="MergeStops"/>) —
+    /// 동시에 선 두 디바이스는 스코프를 한 번 세운 것이다. 그래서 디바이스 행의 합 &gt; 스코프 값이 된다.
+    /// </para>
+    /// <para>
+    /// 가동시간은 그 스코프 flow 들의 <b>합집합</b>이다. 2026-09-22 에 <c>1/Σλ</c>(직렬 합산)를 버렸다 —
+    /// 그 식은 모든 디바이스가 같은 시간대에 함께 돌 때만 맞는데, 실측 가동시간이 7.6~30.1시간으로 4배
+    /// 차이 나(스코프에 서로 다른 라인이 섞여 있었다) 짧게 관측된 디바이스를 창 전체를 돈 것처럼 외삽했다.
     /// </para>
     /// </summary>
-    /// <param name="operatingMs">그 스코프의 가동시간(flow 들의 합집합 — <see cref="OperatingMsUnion"/>).</param>
+    /// <param name="stops">스코프 안 <b>집계 대상 사건</b>들의 [발생, 재가동). 미복구는 끝 = 발생.</param>
+    /// <param name="operatingMs">그 스코프의 가동시간(<see cref="OperatingMsUnion"/>).</param>
     public static Summary RollUp(
-        IReadOnlyList<DeviceSummary> devices, long operatingMs, int minSample = MinSample)
+        IReadOnlyList<DeviceSummary> devices,
+        IReadOnlyList<(long StartMs, long EndMs)> stops,
+        long operatingMs,
+        int minSample = MinSample)
     {
-        int fault = 0, recovered = 0, inProg = 0, awaiting = 0, unconfirmed = 0;
-        int warn = 0, snapshot = 0, unknown = 0;
-        long downTotal = 0;
-
+        int inProg = 0, awaiting = 0, unconfirmed = 0, warn = 0, snapshot = 0, unknown = 0;
         foreach (var d in devices)
         {
-            fault += d.FaultCount;
-            recovered += d.RecoveredCount;
             inProg += d.InProgressCount;
             awaiting += d.AwaitingRestartCount;
             unconfirmed += d.RestartUnconfirmedCount;
             warn += d.NonStopWarningCount;
             snapshot += d.LinkSnapshotCount;
             unknown += d.UnknownStopCount;
-            downTotal += d.TotalDownMs;
         }
+
+        var merged = MergeStops(stops);
+        var fault = merged.Count;
+        var withDuration = merged.Count(x => x.EndMs > x.StartMs);
+        long downTotal = 0;
+        foreach (var m in merged) downTotal += m.EndMs - m.StartMs;
 
         return new Summary(
             FaultCount: fault,
-            RecoveredCount: recovered,
+            RecoveredCount: withDuration,
             InProgressCount: inProg,
             AwaitingRestartCount: awaiting,
             RestartUnconfirmedCount: unconfirmed,
@@ -526,7 +563,7 @@ public static class ErrorTagReliability
             UnknownStopCount: unknown,
             OperatingMs: operatingMs,
             TotalDownMs: downTotal,
-            EMttrMs: recovered >= minSample ? (double)downTotal / recovered : null,
+            EMttrMs: withDuration >= minSample ? (double)downTotal / withDuration : null,
             EMtbfMs: fault >= minSample && operatingMs > 0 ? (double)operatingMs / fault : null);
     }
 

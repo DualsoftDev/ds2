@@ -243,8 +243,13 @@
                                          공유되어 집계가 가장 안전하다. PLC 는 그 위이자 지금 있는 가장 위 스코프다. -->
                                     <!-- 공유 디바이스는 그걸 쓰는 설비 모두에 센다 — 그 디바이스가 고장 나면
                                          설비가 전부 서기 때문이다. 그래서 설비 행의 합이 전체보다 클 수 있다. -->
-                                    <div class="settings-note" x-show="rel.multiFlowDeviceCount > 0" style="margin-bottom:8px;">
-                                        <small x-text="'디바이스 ' + rel.multiFlowDeviceCount + '대가 설비 여러 곳에 쓰입니다 — 그 고장은 해당 설비 모두에 셉니다(설비 행의 합 > 전체).'"></small>
+                                    <div class="settings-note" style="margin-bottom:8px;">
+                                        <small>
+                                            스코프 행은 <strong>동시에 선 것을 한 번으로</strong> 셉니다 — 두 디바이스가 같은 시각에 서면 그 설비는 한 번 선 것입니다.
+                                            그래서 디바이스 행의 합보다 작습니다.
+                                            <span x-show="rel.multiFlowDeviceCount > 0"
+                                                  x-text="' 또 디바이스 ' + rel.multiFlowDeviceCount + '대가 설비 여러 곳에 쓰여, 그 고장은 해당 설비 모두에 셉니다.'"></span>
+                                        </small>
                                     </div>
 
                                     <template x-for="grp in [{k:'설비', rows: rel.flows}, {k:'PLC', rows: rel.systems}]" :key="grp.k">

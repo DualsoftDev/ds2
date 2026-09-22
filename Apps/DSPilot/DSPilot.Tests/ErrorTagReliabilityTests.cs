@@ -257,12 +257,27 @@ public class ErrorTagReliabilityTests
     private static FaultEvent Stopped(long onset, long cleared, long restart) =>
         Ev(onset, cleared, restart, StopVerdict.Stopped, SkipCause.None);
 
+    // 스코프 롤업은 겹치는 정지를 합치므로 구간이 필요하다. 테스트에서는 디바이스별 사건을 그대로 넘긴다.
+    private static readonly Dictionary<string, List<(long, long)>> DevStops = [];
+
+    private static DeviceSummary Dev(string system, string flow, string device,
+        IReadOnlyList<FaultEvent> events, long operatingMs, int minSample = MinSample)
+    {
+        DevStops[system + "|" + flow + "|" + device] =
+            [.. events.Where(e => e.Counts)
+                .Select(e => (e.OnsetMs, e.Recovery.RestartMs is { } r && r > e.OnsetMs ? r : e.OnsetMs))];
+        return AggregateDevice(system, flow, device, events, operatingMs, minSample);
+    }
+
+    private static List<(long, long)> Stops(params DeviceSummary[] devices) =>
+        [.. devices.SelectMany(d => DevStops.TryGetValue(d.System + "|" + d.Flow + "|" + d.Device, out var v) ? v : [])];
+
     [Fact]
     public void eMTBF_는_가동시간을_고장_건수로_나눈_값이다()
     {
         // ★간격의 평균이 아니다 — 간격 평균은 관측창을 넘는 값을 낼 수 없어(실측 11.6분 = 상한의 91%)
         //   설비가 아니라 창 길이를 재게 된다.
-        var d = AggregateDevice("Line1", "#1", "Conveyor1",
+        var d = Dev("Line1", "#1", "Conveyor1",
         [
             Stopped(0, 5 * Min, 10 * Min),
             Stopped(2 * Hour, 2 * Hour + Min, 2 * Hour + 10 * Min),
@@ -276,7 +291,7 @@ public class ErrorTagReliabilityTests
     [Fact]
     public void 무정지_경고와_스냅샷은_고장이_아니다()
     {
-        var d = AggregateDevice("Line1", "#1", "Conveyor1",
+        var d = Dev("Line1", "#1", "Conveyor1",
         [
             Stopped(0, 5 * Min, 10 * Min),
             Ev(1 * Hour, 1 * Hour, 1 * Hour + Min, StopVerdict.NonStopWarning, SkipCause.NonStopWarning),
@@ -294,7 +309,7 @@ public class ErrorTagReliabilityTests
     [Fact]
     public void eMTTR_은_발생에서_재가동까지의_평균이고_복구_완료만_센다()
     {
-        var d = AggregateDevice("Line1", "#1", "Conveyor1",
+        var d = Dev("Line1", "#1", "Conveyor1",
         [
             Stopped(0, 5 * Min, 10 * Min),                                  // 10분
             Stopped(1 * Hour, 1 * Hour + Min, 1 * Hour + 30 * Min),         // 30분
@@ -309,7 +324,7 @@ public class ErrorTagReliabilityTests
     [Fact]
     public void 표본이_모자라면_숫자_대신_null_이다()
     {
-        var d = AggregateDevice("Line1", "#1", "Conveyor1", [Stopped(0, 5 * Min, 10 * Min)], operatingMs: Hour, minSample: 3);
+        var d = Dev("Line1", "#1", "Conveyor1", [Stopped(0, 5 * Min, 10 * Min)], operatingMs: Hour, minSample: 3);
         Assert.Equal(1, d.FaultCount);
         Assert.Null(d.EMtbfMs);
         Assert.Null(d.EMttrMs);
@@ -318,7 +333,7 @@ public class ErrorTagReliabilityTests
     [Fact]
     public void 가동시간이_0_이면_eMTBF_를_내지_않는다()
     {
-        var d = AggregateDevice("Line1", "#1", "Conveyor1",
+        var d = Dev("Line1", "#1", "Conveyor1",
         [
             Stopped(0, Min, 2 * Min),
             Stopped(Hour, Hour + Min, Hour + 2 * Min),
@@ -335,23 +350,62 @@ public class ErrorTagReliabilityTests
     [Fact]
     public void 스코프_값은_그_스코프_가동시간을_총고장으로_나눈_값이다()
     {
-        var a = AggregateDevice("L", "#A", "A", [Stopped(0, Min, 2 * Min), Stopped(Hour, Hour + Min, Hour + 2 * Min)], 10 * Hour, minSample: 1);
-        var b = AggregateDevice("L", "#A", "B", [Stopped(0, Min, 2 * Min), Stopped(Hour, Hour + Min, Hour + 2 * Min)], 10 * Hour, minSample: 1);
+        // 서로 다른 시각에 선 두 디바이스 — 스코프는 4번 섰다.
+        var a = Dev("L", "#A", "A", [Stopped(0, Min, 2 * Min), Stopped(2 * Hour, 2 * Hour + Min, 2 * Hour + 2 * Min)], 10 * Hour, minSample: 1);
+        var b = Dev("L", "#A", "B", [Stopped(4 * Hour, 4 * Hour + Min, 4 * Hour + 2 * Min), Stopped(6 * Hour, 6 * Hour + Min, 6 * Hour + 2 * Min)], 10 * Hour, minSample: 1);
 
         // 두 디바이스가 같은 창에서 돌았으므로 그 창은 한 번만 센다.
-        var scope = RollUp([a, b], operatingMs: 10 * Hour, minSample: 1);
+        var scope = RollUp([a, b], Stops(a, b), operatingMs: 10 * Hour, minSample: 1);
         Assert.Equal(4, scope.FaultCount);
         Assert.Equal(10 * Hour / 4.0, scope.EMtbfMs!.Value, 3);
+    }
+
+    [Fact]
+    public void 동시에_선_두_디바이스는_스코프를_한_번_세운_것이다()
+    {
+        // ★실측에서 사건 150건 중 88건이 다른 디바이스와 겹쳤다(병합 후 62건).
+        //   그냥 더하면 건수가 부풀고 정지시간이 이중 계상된다 — OEE 가 downtimeMs 에 쓰는 union 과 같은 원칙.
+        var a = Dev("L", "#A", "A", [Stopped(0, 5 * Min, 10 * Min)], 10 * Hour, minSample: 1);
+        var b = Dev("L", "#A", "B", [Stopped(2 * Min, 6 * Min, 12 * Min)], 10 * Hour, minSample: 1);
+
+        var scope = RollUp([a, b], Stops(a, b), operatingMs: 10 * Hour, minSample: 1);
+        Assert.Equal(1, scope.FaultCount);            // 디바이스 합은 2건이지만 스코프는 한 번 섰다
+        Assert.Equal(12 * Min, scope.TotalDownMs);    // 0~12분 union (합산이면 22분)
+        Assert.Equal(10 * Hour / 1.0, scope.EMtbfMs);
+    }
+
+    [Fact]
+    public void 겹치지_않는_정지는_합치지_않는다()
+    {
+        var a = Dev("L", "#A", "A", [Stopped(0, 5 * Min, 10 * Min)], 10 * Hour, minSample: 1);
+        var b = Dev("L", "#A", "B", [Stopped(20 * Min, 25 * Min, 30 * Min)], 10 * Hour, minSample: 1);
+
+        var scope = RollUp([a, b], Stops(a, b), operatingMs: 10 * Hour, minSample: 1);
+        Assert.Equal(2, scope.FaultCount);
+        Assert.Equal(20 * Min, scope.TotalDownMs);
+    }
+
+    [Fact]
+    public void 복구되지_않은_사건은_건수엔_들되_정지시간엔_안_든다()
+    {
+        var a = Dev("L", "#A", "A",
+            [Ev(0, null, null, StopVerdict.Stopped, SkipCause.None)], 10 * Hour, minSample: 1);
+
+        var scope = RollUp([a], Stops(a), operatingMs: 10 * Hour, minSample: 1);
+        Assert.Equal(1, scope.FaultCount);
+        Assert.Equal(0, scope.TotalDownMs);
+        Assert.Equal(0, scope.RecoveredCount);
+        Assert.Null(scope.EMttrMs);
     }
 
     [Fact]
     public void 가동시간이_다른_디바이스를_섞어도_외삽하지_않는다()
     {
         // 7.6h 관측된 디바이스를 30h 돈 것처럼 늘려 잡던 것이 1/Σλ 의 결함이었다.
-        var big = AggregateDevice("L", "#A", "A", [Stopped(0, Min, 2 * Min)], 30 * Hour, minSample: 1);
-        var small = AggregateDevice("L", "#B", "B", [Stopped(0, Min, 2 * Min)], 3 * Hour, minSample: 1);
+        var big = Dev("L", "#A", "A", [Stopped(0, Min, 2 * Min)], 30 * Hour, minSample: 1);
+        var small = Dev("L", "#B", "B", [Stopped(5 * Hour, 5 * Hour + Min, 5 * Hour + 2 * Min)], 3 * Hour, minSample: 1);
 
-        var scope = RollUp([big, small], operatingMs: 30 * Hour, minSample: 1);
+        var scope = RollUp([big, small], Stops(big, small), operatingMs: 30 * Hour, minSample: 1);
         Assert.Equal(15 * Hour, scope.EMtbfMs!.Value, 3);      // 30h ÷ 2건
 
         // 옛 식(1/Σλ)이라면 1/(1/30 + 1/3) = 2.73h 로 5배 이상 짧게 나왔다.
@@ -363,40 +417,41 @@ public class ErrorTagReliabilityTests
     public void 표본_미달_디바이스도_스코프_합산에_들어간다()
     {
         // 빼면 고장이 과소 계상되어 스코프 eMTBF 가 부풀어 오른다.
-        var big = AggregateDevice("L", "#A", "A",
+        var big = Dev("L", "#A", "A",
         [
             Stopped(0, Min, 2 * Min),
             Stopped(Hour, Hour + Min, Hour + 2 * Min),
             Stopped(2 * Hour, 2 * Hour + Min, 2 * Hour + 2 * Min),
         ], 6 * Hour);
-        var small = AggregateDevice("L", "#A", "B", [Stopped(0, Min, 2 * Min)], 6 * Hour);
+        var small = Dev("L", "#A", "B", [Stopped(4 * Hour, 4 * Hour + Min, 4 * Hour + 2 * Min)], 6 * Hour);
 
         Assert.Null(small.EMtbfMs);
-        var scope = RollUp([big, small], operatingMs: 6 * Hour);
+        var scope = RollUp([big, small], Stops(big, small), operatingMs: 6 * Hour);
         Assert.Equal(4, scope.FaultCount);
         Assert.Equal(6 * Hour / 4.0, scope.EMtbfMs!.Value, 3);
     }
 
     [Fact]
-    public void 총_정지시간은_설비_수에_흔들리지_않고_합산된다()
+    public void 총_정지시간은_겹친_만큼만_센다()
     {
-        var a = AggregateDevice("L", "#A", "A", [Stopped(0, Min, 10 * Min)], Hour, minSample: 1);
-        var b = AggregateDevice("L", "#B", "B", [Stopped(0, Min, 20 * Min)], Hour, minSample: 1);
+        // 같은 시각에 선 두 디바이스의 정지는 한 번의 정지다 — 더하면 실제보다 길어진다.
+        var a = Dev("L", "#A", "A", [Stopped(0, Min, 10 * Min)], Hour, minSample: 1);
+        var b = Dev("L", "#B", "B", [Stopped(0, Min, 20 * Min)], Hour, minSample: 1);
 
-        Assert.Equal(30 * Min, RollUp([a, b], operatingMs: Hour, minSample: 1).TotalDownMs);
+        Assert.Equal(20 * Min, RollUp([a, b], Stops(a, b), operatingMs: Hour, minSample: 1).TotalDownMs);
     }
 
     [Fact]
     public void 가동시간이_0_이면_스코프_eMTBF_를_내지_않는다()
     {
-        var a = AggregateDevice("L", "#A", "A", [Stopped(0, Min, 2 * Min)], Hour, minSample: 1);
-        Assert.Null(RollUp([a], operatingMs: 0, minSample: 1).EMtbfMs);
+        var a = Dev("L", "#A", "A", [Stopped(0, Min, 2 * Min)], Hour, minSample: 1);
+        Assert.Null(RollUp([a], Stops(a), operatingMs: 0, minSample: 1).EMtbfMs);
     }
 
     [Fact]
     public void 빈_입력은_0_건이고_숫자가_없다()
     {
-        var scope = RollUp([], operatingMs: Hour, minSample: 1);
+        var scope = RollUp([], [], operatingMs: Hour, minSample: 1);
         Assert.Equal(0, scope.FaultCount);
         Assert.Null(scope.EMttrMs);
         Assert.Null(scope.EMtbfMs);
@@ -439,12 +494,13 @@ public class ErrorTagReliabilityTests
     public void 공유_디바이스의_고장은_쓰는_설비_모두에_센다()
     {
         // D 는 #A·#B 가 함께 쓴다. D 가 서면 두 설비가 다 선다.
-        var shared = AggregateDevice("L", "#A·#B", "D", [Stopped(0, Min, 2 * Min)], 2 * Hour, minSample: 1);
-        var onlyA  = AggregateDevice("L", "#A", "E", [Stopped(Hour, Hour + Min, Hour + 2 * Min)], 2 * Hour, minSample: 1);
+        var shared = Dev("L", "#A·#B", "D", [Stopped(0, Min, 2 * Min)], 2 * Hour, minSample: 1);
+        var onlyA  = Dev("L", "#A", "E", [Stopped(Hour, Hour + Min, Hour + 2 * Min)], 2 * Hour, minSample: 1);
+        // 두 정지는 시각이 달라 병합되지 않는다 — 공유 여부만 보려는 테스트다.
 
-        var a = RollUp([shared, onlyA], operatingMs: 2 * Hour, minSample: 1);   // 설비 #A
-        var b = RollUp([shared], operatingMs: 2 * Hour, minSample: 1);          // 설비 #B
-        var all = RollUp([shared, onlyA], operatingMs: 2 * Hour, minSample: 1); // 전체(디바이스에서 직접)
+        var a = RollUp([shared, onlyA], Stops(shared, onlyA), operatingMs: 2 * Hour, minSample: 1);   // 설비 #A
+        var b = RollUp([shared], Stops(shared), operatingMs: 2 * Hour, minSample: 1);          // 설비 #B
+        var all = RollUp([shared, onlyA], Stops(shared, onlyA), operatingMs: 2 * Hour, minSample: 1); // 전체(디바이스에서 직접)
 
         Assert.Equal(2, a.FaultCount);
         Assert.Equal(1, b.FaultCount);
@@ -457,14 +513,14 @@ public class ErrorTagReliabilityTests
     public void 전체_값은_설비를_합치지_않고_디바이스에서_굴려_올린다()
     {
         // 설비 행을 더해 전체를 내면 공유 디바이스가 이중 계상된다 — 그래서 전체는 디바이스 목록으로 낸다.
-        var shared = AggregateDevice("L", "#A·#B", "D",
+        var shared = Dev("L", "#A·#B", "D",
         [
             Stopped(0, Min, 2 * Min),
             Stopped(Hour, Hour + Min, Hour + 2 * Min),
             Stopped(2 * Hour, 2 * Hour + Min, 2 * Hour + 2 * Min),
         ], 6 * Hour);
 
-        var all = RollUp([shared], operatingMs: 6 * Hour);
+        var all = RollUp([shared], Stops(shared), operatingMs: 6 * Hour);
         Assert.Equal(3, all.FaultCount);
         Assert.Equal(2 * Hour, all.EMtbfMs);       // 6h ÷ 3건 — 설비 수와 무관
     }

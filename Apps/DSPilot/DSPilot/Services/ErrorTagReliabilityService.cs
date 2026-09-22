@@ -127,7 +127,7 @@ public sealed class ErrorTagReliabilityService
         var globalCount = bindings.Count - bound.Count;
 
         if (!_project.IsLoaded || bound.Count == 0)
-            return new Result(RollUp([], 0), [], [], [], [], 0, globalCount, 0, 0, [], _project.IsLoaded);
+            return new Result(RollUp([], [], 0), [], [], [], [], 0, globalCount, 0, 0, [], _project.IsLoaded);
 
         var currentSystems = CurrentSystems();
         var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
@@ -190,8 +190,8 @@ public sealed class ErrorTagReliabilityService
         var nowMs = KpiTime.NowMs();
         var nameBySignal = BuildCurrentNames();
         var devices = new List<DeviceSummary>();
-        // (디바이스, 그 디바이스가 쓰이는 flow 들) — 설비 롤업은 이 쌍 위에서 돈다.
-        var deviceFlows = new List<(DeviceSummary Summary, List<string> Flows)>();
+        // (디바이스, 쓰이는 flow 들, 집계 대상 정지 구간) — 스코프 롤업이 이 셋 위에서 돈다.
+        var deviceFlows = new List<(DeviceSummary Summary, List<string> Flows, List<(long, long)> Stops)>();
         var verdicts = new List<AlertVerdict>();
         var skippedChanged = 0;
         var eventSeq = 0;
@@ -227,7 +227,10 @@ public sealed class ErrorTagReliabilityService
             var flowName = flows.Count switch { 0 => string.Empty, 1 => flows[0], _ => string.Join("·", flows) };
             var summary = AggregateDevice(sysName, flowName, device, events, operating);
             devices.Add(summary);
-            deviceFlows.Add((summary, flows));
+            // 스코프 롤업은 겹치는 정지를 합쳐야 하므로 구간이 필요하다. 미복구는 길이 0(건수엔 들되 시간엔 안 듦).
+            deviceFlows.Add((summary, flows,
+                [.. events.Where(e => e.Counts)
+                    .Select(e => (e.OnsetMs, e.Recovery.RestartMs is { } r && r > e.OnsetMs ? r : e.OnsetMs))]));
 
             foreach (var e in events)
             {
@@ -245,10 +248,10 @@ public sealed class ErrorTagReliabilityService
         //   그 flow 들이 전부 서기 때문이다. 그래서 설비 행의 합은 전체보다 클 수 있다(중복이 아니라 사실).
         //   전체·PLC 값은 flow 를 합치지 않고 디바이스에서 직접 굴려 올리므로 영향받지 않는다.
         var flowScopes = deviceFlows
-            .SelectMany(x => x.Flows.Select(f => (Flow: f, x.Summary)))
+            .SelectMany(x => x.Flows.Select(f => (Flow: f, x.Summary, x.Stops)))
             .GroupBy(x => x.Flow, StringComparer.OrdinalIgnoreCase)
             .Select(g => new ScopeSummary("flow", g.Key,
-                RollUp([.. g.Select(x => x.Summary)],
+                RollUp([.. g.Select(x => x.Summary)], [.. g.SelectMany(x => x.Stops)],
                        OperatingMsUnion(FlowInputs([g.Key], flowFacts), fromMs, toMs))))
             .OrderByDescending(x => x.Totals.TotalDownMs)
             .ToList();
@@ -257,7 +260,7 @@ public sealed class ErrorTagReliabilityService
             .Where(x => x.Summary.System.Length > 0)
             .GroupBy(x => x.Summary.System, StringComparer.OrdinalIgnoreCase)
             .Select(g => new ScopeSummary("system", g.Key,
-                RollUp([.. g.Select(x => x.Summary)],
+                RollUp([.. g.Select(x => x.Summary)], [.. g.SelectMany(x => x.Stops)],
                        OperatingMsUnion(FlowInputs(
                            g.SelectMany(x => x.Flows).Distinct(StringComparer.OrdinalIgnoreCase), flowFacts),
                            fromMs, toMs))))
@@ -270,7 +273,8 @@ public sealed class ErrorTagReliabilityService
         var multiFlowDevices = deviceFlows.Count(x => x.Flows.Count > 1);
 
         return new Result(
-            RollUp(devices, OperatingMsUnion(FlowInputs(allFlows, flowFacts), fromMs, toMs)),
+            RollUp(devices, [.. deviceFlows.SelectMany(x => x.Stops)],
+                   OperatingMsUnion(FlowInputs(allFlows, flowFacts), fromMs, toMs)),
             flowScopes, systemScopes, devices, verdicts,
             unboundAddresses.Count, globalCount, skippedChanged, multiFlowDevices, [.. staleSystems], true);
     }
