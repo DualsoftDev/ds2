@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Ds2.CSV;
 using Promaker.Presentation;
 using Microsoft.FSharp.Collections;
@@ -24,12 +25,6 @@ public class CsvRowViewModel
     public string InAddress { get; set; } = "";
     public string OutName { get; set; } = "";
     public string OutAddress { get; set; } = "";
-}
-
-public enum CsvImportMode
-{
-    Standard9,
-    Basic3
 }
 
 public class BasicCsvRowViewModel
@@ -209,6 +204,17 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
 
 이제 공법을 설명해 주시면 위 규칙에 따라 CSV만 출력한다.";
 
+    private static readonly Brush RecognizedBadgeBackground = CreateBadgeBrush(0x30, 0x40, 0xC0, 0x57);
+    private static readonly Brush UnrecognizedBadgeBackground = CreateBadgeBrush(0x30, 0xFF, 0x50, 0x50);
+
+    private static Brush CreateBadgeBrush(byte a, byte r, byte g, byte b)
+    {
+        var brush = new SolidColorBrush(Color.FromArgb(a, r, g, b));
+        brush.Freeze();
+        return brush;
+    }
+
+    private CsvFormat _detectedFormat = CsvFormat.Unknown;
     private CsvDocument? _document;
     private BasicCsvDocument? _basicDocument;
     private string _lastErrorText = "";
@@ -225,7 +231,7 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
         SystemNameBox.Text = DefaultImportedName;
         SourceText.Text = DefaultSourceText;
         ResetPreview(EmptyPreviewText);
-        UpdatePreviewGridVisibility();
+        SetFormatBadgeIdle();
 
         Loaded += (_, _) => ContentBox.Focus();
     }
@@ -237,8 +243,8 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
     public CsvDocument Document =>
         _document ?? throw new InvalidOperationException("CSV document is not loaded.");
 
-    public CsvImportMode SelectedMode =>
-        BasicModeRadio?.IsChecked == true ? CsvImportMode.Basic3 : CsvImportMode.Standard9;
+    /// 헤더로 판별된 규격. 내용이 비었거나 판별에 실패했으면 직전 판별값(없으면 Unknown).
+    public CsvFormat DetectedFormat => _detectedFormat;
 
     /// 기본 3열 모드에서 Start/Clear Work 를 자동 추가할지. 기본 켜짐.
     public bool AutoAddStartClear => AutoStartClearCheck?.IsChecked == true;
@@ -318,6 +324,7 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
     private void ResetDirectInputPreview()
     {
         SetSourceDisplay("붙여넣기", DefaultSourceText);
+        SetFormatBadgeIdle();
         ResetPreview(EmptyPreviewText);
     }
 
@@ -433,16 +440,46 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
         return sb.ToString().TrimEnd();
     }
 
-    private void UpdatePreviewGridVisibility()
+    private void UpdateFormatDependentUi()
     {
-        var basic = SelectedMode == CsvImportMode.Basic3;
+        var basic = _detectedFormat == CsvFormat.Basic3;
         PreviewBorderOf(basic ? Visibility.Collapsed : Visibility.Visible,
                         basic ? Visibility.Visible : Visibility.Collapsed);
-        if (CopyPromptButton != null)
-            CopyPromptButton.Visibility = basic ? Visibility.Visible : Visibility.Collapsed;
         // Start/Clear 자동 추가는 기본 3열 매퍼에만 적용된다.
         if (AutoStartClearCheck != null)
             AutoStartClearCheck.Visibility = basic ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// 아직 판별할 내용이 없는 상태. 오류가 아니므로 중립 색으로 둔다.
+    private void SetFormatBadgeIdle()
+    {
+        _detectedFormat = CsvFormat.Unknown;
+        FormatBadgeText.Text = "CSV 내용을 입력하면 형식(기본 3열 / 표준 9열 / 표준 8열)을 자동으로 인식합니다.";
+        FormatBadge.SetResourceReference(Border.BackgroundProperty, "TertiaryBackgroundBrush");
+        FormatBadgeText.SetResourceReference(TextBlock.ForegroundProperty, "SecondaryTextBrush");
+        UpdateFormatDependentUi();
+    }
+
+    /// 어느 규격으로 해석했는지는 반드시 보여야 한다 — 두 규격은 만드는 모델이 다르다
+    /// (3열은 CALL DAG 해석·Start/Clear 자동 추가, 9열은 I/O 주소 배선).
+    private void ShowFormatBadge(CsvHeaderInfo header)
+    {
+        if (header.IsRecognized)
+        {
+            var note = CsvFormatDetector.formatNote(header.Format);
+            FormatBadgeText.Text =
+                $"감지: {CsvFormatDetector.formatName(header.Format)}"
+                + $" · {CsvFormatDetector.separatorName(header.Separator)} 구분 · {header.FieldCount}개 열"
+                + (string.IsNullOrEmpty(note) ? "" : $" · {note}");
+            FormatBadge.Background = RecognizedBadgeBackground;
+            FormatBadgeText.SetResourceReference(TextBlock.ForegroundProperty, "GreenAccentBrush");
+        }
+        else
+        {
+            FormatBadgeText.Text = "형식을 인식하지 못했습니다 — 아래 오류의 헤더 비교를 확인하세요.";
+            FormatBadge.Background = UnrecognizedBadgeBackground;
+            FormatBadgeText.SetResourceReference(TextBlock.ForegroundProperty, "RedAccentBrush");
+        }
     }
 
     private void PreviewBorderOf(Visibility standard, Visibility basic)
@@ -451,22 +488,6 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
             standardBorder.Visibility = standard;
         if (BasicPreviewBorder != null)
             BasicPreviewBorder.Visibility = basic;
-    }
-
-    private void ImportMode_Checked(object sender, RoutedEventArgs e)
-    {
-        if (!IsLoaded)
-            return;
-
-        UpdatePreviewGridVisibility();
-
-        if (string.IsNullOrWhiteSpace(ContentBox.Text))
-        {
-            ResetDirectInputPreview();
-            return;
-        }
-
-        TryLoadDocument();
     }
 
     private void ResetPreview(string message)
@@ -503,11 +524,28 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
         var content = ContentBox.Text ?? string.Empty;
         if (string.IsNullOrWhiteSpace(content))
         {
+            SetFormatBadgeIdle();
             ResetPreview(EmptyPreviewText);
             return false;
         }
 
-        if (SelectedMode == CsvImportMode.Basic3)
+        // 헤더가 곧 형식 선언이다. 세 규격의 헤더는 서로소라 판별이 결정적이므로 사용자에게 묻지 않는다.
+        var header = CsvFormatDetector.detect(content);
+        ShowFormatBadge(header);
+
+        if (!header.IsRecognized)
+        {
+            // 판별 실패면 본문은 파싱하지 않는다. 가까워 보이는 파서에 먹이면 헤더 한 글자 문제가
+            // 행마다 쏟아지는 데이터 오류로 둔갑해 진짜 원인을 가린다.
+            // _detectedFormat 은 직전 값을 유지한다 — 타이핑 도중 미리보기 격자가 튀지 않도록.
+            ShowErrors(new[] { header.Diagnostic });
+            return false;
+        }
+
+        _detectedFormat = header.Format;
+        UpdateFormatDependentUi();
+
+        if (_detectedFormat == CsvFormat.Basic3)
         {
             var basicResult = CsvImporter.parseBasicContent(content);
             if (basicResult.IsError)
@@ -543,9 +581,6 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
 
     private void CopyPrompt_Click(object sender, RoutedEventArgs e)
     {
-        if (SelectedMode != CsvImportMode.Basic3)
-            return;
-
         try
         {
             Clipboard.SetText(LlmPromptBasic);
@@ -561,14 +596,20 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
         }
     }
 
-    private void SaveSample_Click(object sender, RoutedEventArgs e)
+    private void SaveBasicSample_Click(object sender, RoutedEventArgs e) =>
+        SaveSample("sample_basic.csv", SampleBasicCsv);
+
+    private void SaveStandardSample_Click(object sender, RoutedEventArgs e) =>
+        SaveSample("sample.csv", SampleCsv);
+
+    /// 내용이 비어 있으면 판별할 게 없다 — 이 진입점만은 형식을 버튼 자체로 드러낸다.
+    private void SaveSample(string fileName, string content)
     {
-        var basic = SelectedMode == CsvImportMode.Basic3;
         var picker = new SaveFileDialog
         {
             Filter = "CSV Files (*.csv)|*.csv",
             DefaultExt = FileExtensions.Csv,
-            FileName = basic ? "sample_basic.csv" : "sample.csv"
+            FileName = fileName
         };
 
         if (picker.ShowDialog() != true)
@@ -576,7 +617,7 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
 
         try
         {
-            File.WriteAllText(picker.FileName, basic ? SampleBasicCsv : SampleCsv, Encoding.UTF8);
+            File.WriteAllText(picker.FileName, content, Encoding.UTF8);
             ShowInfo($"샘플 CSV 파일이 저장되었습니다.\n\n{picker.FileName}", "샘플 저장 완료");
         }
         catch (Exception ex)

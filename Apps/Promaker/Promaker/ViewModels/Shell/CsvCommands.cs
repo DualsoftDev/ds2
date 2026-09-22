@@ -37,7 +37,7 @@ public partial class MainViewModel
             return false;
 
         sourceName = dialog.SourceDisplayName;
-        var loadResult = dialog.SelectedMode == CsvImportMode.Basic3
+        var loadResult = dialog.DetectedFormat == CsvFormat.Basic3
             ? CsvImporter.loadBasicProjectWith(dialog.AutoAddStartClear, dialog.BasicDocument, dialog.ProjectName, dialog.SystemName)
             : CsvImporter.loadProject(dialog.Document, dialog.ProjectName, dialog.SystemName);
         return TryGetResult(

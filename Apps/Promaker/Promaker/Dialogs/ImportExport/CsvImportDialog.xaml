@@ -35,6 +35,8 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="8"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="12"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
@@ -44,20 +46,25 @@
                                 Padding="12,4"
                                 Click="Browse_Click"/>
                         <Button Grid.Column="2"
-                                Content="샘플 CSV 저장..."
+                                Content="3열 샘플 저장..."
                                 Style="{StaticResource DarkButton}"
                                 Padding="12,4"
-                                Click="SaveSample_Click"/>
-                        <Button x:Name="CopyPromptButton"
-                                Grid.Column="4"
+                                ToolTip="기본 3열(ds2-basic-csv/v1) 샘플 CSV를 저장합니다."
+                                Click="SaveBasicSample_Click"/>
+                        <Button Grid.Column="4"
+                                Content="9열 샘플 저장..."
+                                Style="{StaticResource DarkButton}"
+                                Padding="12,4"
+                                ToolTip="표준 9열 샘플 CSV를 저장합니다."
+                                Click="SaveStandardSample_Click"/>
+                        <Button Grid.Column="6"
                                 Content="LLM 지침 복사"
                                 Style="{StaticResource DarkButton}"
                                 Padding="12,4"
-                                Visibility="Collapsed"
                                 ToolTip="ds2-basic-csv/v1 생성 지침을 클립보드에 복사합니다. ChatGPT·Gemini 등에 붙여넣고 공법을 설명하면 3열 CSV가 생성됩니다."
                                 Click="CopyPrompt_Click"/>
                         <TextBlock x:Name="SourceText"
-                                   Grid.Column="6"
+                                   Grid.Column="8"
                                    VerticalAlignment="Center"
                                    FontSize="12"
                                    Foreground="{DynamicResource SecondaryTextBrush}"
@@ -68,43 +75,22 @@
                                FontSize="13"
                                FontWeight="SemiBold"
                                Margin="0,4,0,4"/>
-                    <StackPanel Orientation="Horizontal"
-                                Margin="0,0,0,12">
-                        <RadioButton x:Name="BasicModeRadio"
-                                     GroupName="CsvImportMode"
-                                     IsChecked="True"
-                                     Checked="ImportMode_Checked"
-                                     Margin="0,0,32,0"
-                                     VerticalContentAlignment="Top">
-                            <StackPanel Margin="4,0,0,0">
-                                <TextBlock Text="기본 3열 (ds2-basic-csv/v1)"
-                                           FontWeight="SemiBold"
-                                           FontSize="13"/>
-                                <TextBlock Text="FLOW,WORK,CALL — '&gt;' 순차 · ';' 병렬 DAG · 행 순서 = Work 실행 순서 · 'A.ADV=1000MS' 동작 시간"
-                                           Foreground="{DynamicResource SecondaryTextBrush}"
-                                           FontSize="11"
-                                           Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton x:Name="StandardModeRadio"
-                                     GroupName="CsvImportMode"
-                                     Checked="ImportMode_Checked"
-                                     VerticalContentAlignment="Top">
-                            <StackPanel Margin="4,0,0,0">
-                                <TextBlock Text="표준 9열"
-                                           FontWeight="SemiBold"
-                                           FontSize="13"/>
-                                <TextBlock Text="Flow,Work,Device,System,Api + I/O 태그·주소"
-                                           Foreground="{DynamicResource SecondaryTextBrush}"
-                                           FontSize="11"
-                                           Margin="0,2,0,0"/>
-                            </StackPanel>
-                        </RadioButton>
-                    </StackPanel>
+                    <Border x:Name="FormatBadge"
+                            CornerRadius="3"
+                            Padding="10,7"
+                            Margin="0,0,0,12"
+                            HorizontalAlignment="Left"
+                            Background="{DynamicResource TertiaryBackgroundBrush}">
+                        <TextBlock x:Name="FormatBadgeText"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    </Border>
 
                     <CheckBox x:Name="AutoStartClearCheck"
                               IsChecked="True"
                               Margin="0,0,0,12"
+                              Visibility="Collapsed"
                               VerticalContentAlignment="Top">
                         <StackPanel Margin="4,0,0,0">
                             <TextBlock Text="Start / Clear Work 자동 추가"

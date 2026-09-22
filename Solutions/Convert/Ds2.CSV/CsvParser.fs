@@ -5,8 +5,24 @@ open System.Text
 
 module CsvParser =
 
-    let private expectedHeader9 = [ "flow"; "work"; "device"; "system"; "api"; "inname"; "inaddress"; "outname"; "outaddress" ]
-    let private expectedHeader8 = [ "flow"; "work"; "device"; "api"; "inname"; "inaddress"; "outname"; "outaddress" ]
+    let internal expectedHeader9 = [ "flow"; "work"; "device"; "system"; "api"; "inname"; "inaddress"; "outname"; "outaddress" ]
+    let internal expectedHeader8 = [ "flow"; "work"; "device"; "api"; "inname"; "inaddress"; "outname"; "outaddress" ]
+
+    /// BOM 제거 + NFC 정규화 + 전각->반각 폴딩(U+FF01..U+FF5E, U+3000).
+    /// 한국어 LLM 출력의 전각 구분자(> ; , =)를 흡수한다.
+    /// 표준 9열/8열과 기본 3열이 같은 전처리를 거쳐야 형식 판별과 실제 파싱의 판정이 어긋나지 않는다.
+    let internal normalize (content: string) : string =
+        let noBom =
+            if not (String.IsNullOrEmpty content) && content.[0] = '\uFEFF'
+            then content.Substring(1) else content
+        let nfc = noBom.Normalize(NormalizationForm.FormC)
+        let sb = StringBuilder(nfc.Length)
+        for ch in nfc do
+            let code = int ch
+            if code >= 0xFF01 && code <= 0xFF5E then sb.Append(char (code - 0xFEE0)) |> ignore
+            elif code = 0x3000 then sb.Append(' ') |> ignore
+            else sb.Append(ch) |> ignore
+        sb.ToString()
 
     let private trim (value: string) =
         if isNull value then "" else value.Trim()
@@ -101,11 +117,7 @@ module CsvParser =
         splitLine ',' lineNumber line
 
     let parse (content: string) : Result<CsvDocument, ParseError list> =
-        let text =
-            if String.IsNullOrEmpty(content) then ""
-            elif content.[0] = '\uFEFF' then content[1..]
-            else content
-
+        let text = if String.IsNullOrEmpty(content) then "" else normalize content
         let normalized = text.Replace("\r\n", "\n").Replace("\r", "\n")
         let nonEmptyLines =
             normalized.Split('\n')

@@ -15,19 +15,8 @@ module BasicCsvParser =
     // ---------- 전처리 ----------
 
     /// BOM 제거 + NFC 정규화 + 전각→반각 폴딩(U+FF01..U+FF5E, U+3000).
-    /// 한국어 LLM 출력의 전각 구분자(＞ ； ， ＝)를 흡수한다.
-    let internal normalize (content: string) : string =
-        let noBom =
-            if not (String.IsNullOrEmpty content) && content.[0] = '\uFEFF'
-            then content.Substring(1) else content
-        let nfc = noBom.Normalize(NormalizationForm.FormC)
-        let sb = StringBuilder(nfc.Length)
-        for ch in nfc do
-            let code = int ch
-            if code >= 0xFF01 && code <= 0xFF5E then sb.Append(char (code - 0xFEE0)) |> ignore
-            elif code = 0x3000 then sb.Append(' ') |> ignore
-            else sb.Append(ch) |> ignore
-        sb.ToString()
+    /// 표준 9열/8열과 같은 전처리를 쓴다(CsvParser.normalize) — 형식 판별과 실제 파싱이 어긋나지 않도록.
+    let internal normalize (content: string) : string = CsvParser.normalize content
 
     // ---------- 이름 검증 ----------
 
@@ -209,7 +198,7 @@ module BasicCsvParser =
 
     // ---------- 문서 파싱 ----------
 
-    let private expectedHeaderFields = [ "flow"; "work"; "call" ]
+    let internal expectedHeaderFields = [ "flow"; "work"; "call" ]
 
     let parse (content: string) : Result<BasicCsvDocument, ParseError list> =
         let normalized = normalize content
