@@ -15,18 +15,34 @@ module internal SimIndexBuild =
     /// Condition 트리를 ConditionExpression 으로 변환. cc.IsOR / cc.IsInverted 보존.
     /// 여러 condition (top-level) 끼리는 AND (모두 충족 필요).
     /// Call/Work 공용 — `conditions` 컬렉션만 받음.
+    /// leaf 도 자식도 없는 «빈 그룹» 인가. 자식이 있어도 그 자식들이 모두 비어 있으면 빈 것이다.
+    ///
+    /// 빈 그룹을 그대로 변환하면 `Or []` = false 가 되고, 거기에 부정이 걸리면 `Not (Or [])` = true 가
+    /// 되어 그 Work/Call 이 **언제나** skip 된다. `| Some (And []) -> false` 가드는 문자 그대로
+    /// 빈 And 만 잡으므로 여기 걸리지 않는다. 게다가 그룹 부정 토글이 생기면서 이 상태는
+    /// «빈 그룹 추가 → 부정 클릭» 두 번으로 닿을 수 있게 되었다 — 트리에 넣기 전에 걸러 낸다.
+    let rec private isEmptyCondition (cc: Condition) =
+        cc.ApiCalls.Count = 0 && (cc.Children |> Seq.forall isEmptyCondition)
+
+    /// Condition 트리를 ConditionExpression 으로 변환. cc.IsOR / cc.IsInverted 보존.
+    /// 여러 condition (top-level) 끼리는 AND (모두 충족 필요).
+    /// Call/Work 공용 — `conditions` 컬렉션만 받음.
     let private buildConditionExpression store (conditionType: ConditionType) (conditions: ResizeArray<Condition>) : ConditionExpression =
         let rec convertOne (cc: Condition) : ConditionExpression =
             let leafExprs =
-                SimIndexAlgorithms.convertApiCallsToExpressions store cc.ApiCalls
-            let childExprs = cc.Children |> Seq.map convertOne |> Seq.toList
+                SimIndexAlgorithms.convertApiCallsToExpressions store conditionType cc.ApiCalls
+            let childExprs =
+                cc.Children
+                |> Seq.filter (isEmptyCondition >> not)
+                |> Seq.map convertOne
+                |> Seq.toList
             let all = leafExprs @ childExprs
             let grouped = if cc.IsOR then Or all else And all
             if cc.IsInverted then Not grouped else grouped
 
         let topExprs =
             conditions
-            |> Seq.filter (fun cc -> cc.Type = Some conditionType)
+            |> Seq.filter (fun cc -> cc.Type = Some conditionType && not (isEmptyCondition cc))
             |> Seq.map convertOne
             |> Seq.toList
         And topExprs

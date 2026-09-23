@@ -136,9 +136,26 @@ module internal SimIndexAlgorithms =
             | ContactKind.FallingPulse -> Const false
             | _ -> Const value)
 
+    /// SkipAction leaf 의 접점을 NoContact / NcContact 둘로 접는다.
+    ///
+    /// 펄스는 "이번 clock 에 값이 바뀌었는가" 를 함께 보는데, SkipAction 판정은
+    /// Ready→Going 전이 그 순간 1회뿐이다. IO 가 바뀐 clock 과 전이 clock 이 정확히
+    /// 같아야만 서므로 사실상 늘 거짓이고, 그 결과 펄스를 건 SkipAction 은 의도와
+    /// 무관하게 거의 항상 스킵된다. 엣지를 떼어 내면 남는 뜻 그대로 접는다.
+    ///   RisingPulse  = matched     && edge  →  matched      = NoContact
+    ///   FallingPulse = not matched && edge  →  not matched  = NcContact
+    /// (AutoAux / ComAux 는 조건 루프에서 반복 평가되므로 엣지가 뜻을 가진다 — 그대로 둔다.)
+    let private foldSkipActionContact (conditionType: ConditionType) (kind: ContactKind) : ContactKind =
+        if conditionType <> ConditionType.SkipAction then kind
+        else
+            match kind with
+            | ContactKind.RisingPulse  -> ContactKind.NoContact
+            | ContactKind.FallingPulse -> ContactKind.NcContact
+            | k -> k
+
     /// 한 Condition 의 직접 ApiCall list 를 ConditionExpression list 로.
     /// children 은 호출자가 별도 재귀 처리 (트리 구조 보존).
-    let convertApiCallsToExpressions (store: DsStore) (apiCalls: ApiCall seq) : ConditionExpression list =
+    let convertApiCallsToExpressions (store: DsStore) (conditionType: ConditionType) (apiCalls: ApiCall seq) : ConditionExpression list =
         apiCalls
         |> Seq.choose (fun apiCall ->
             match apiCall.ApiDefId with
@@ -151,7 +168,7 @@ module internal SimIndexAlgorithms =
                             RxWorkGuid = rxWorkGuid
                             ApiCallGuid = Some apiCall.Id
                             InputSpec = apiCall.InputSpec
-                            ContactKind = apiCall.ContactKind
+                            ContactKind = foldSkipActionContact conditionType apiCall.ContactKind
                         })
                     | None -> Some (Const false)
                 | None -> Some (Const false)

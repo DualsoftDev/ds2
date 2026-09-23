@@ -35,7 +35,8 @@ public sealed class ConditionFormulaColorizerTests
         new(Guid.NewGuid(), name, name,
             "", 0,            // outputSpec — condition leaf 표시에 쓰지 않음
             inputSpec, 0,     // inputSpec — 기대값(=spec)
-            kind, ValueSpec.UndefinedValue);
+            kind, ValueSpec.UndefinedValue,
+            Microsoft.FSharp.Core.FSharpOption<Guid>.None);  // rxWorkGuid — 수식 표시에는 쓰지 않음
 
     private static ConditionPanelItem Cond(
         bool isOR, bool isInverted,
@@ -253,7 +254,8 @@ public sealed class ConditionFormulaColorizerTests
         new(Guid.NewGuid(), name, name,
             "", 0,
             ValueSpecText.format(inputSpec), 0,
-            kind, inputSpec);
+            kind, inputSpec,
+            Microsoft.FSharp.Core.FSharpOption<Guid>.None);  // rxWorkGuid — 수식 표시에는 쓰지 않음
 
     [Fact]
     public void InputSpec_bool_true_shows_eq_true()
@@ -308,7 +310,8 @@ public sealed class ConditionFormulaColorizerTests
             Guid.NewGuid(), "A", "A",
             "true", 0,     // outputSpec — 표시에 쓰지 않음
             "", 0,         // inputSpec 비어 있음
-            ContactKind.NoContact, ValueSpec.UndefinedValue);
+            ContactKind.NoContact, ValueSpec.UndefinedValue,
+            Microsoft.FSharp.Core.FSharpOption<Guid>.None);  // rxWorkGuid — 수식 표시 검증에는 쓰지 않음
         var c = Cond(isOR: false, isInverted: false, item);
         Assert.Equal("A", ColorizedText(c));
         AssertMatchesProjection(c);

@@ -190,6 +190,23 @@ public sealed class ConditionItem
     /// <summary>그룹 결합자 표시용 — XAML 바인딩 편의.</summary>
     public string GroupOperator => IsOR ? "OR" : "AND";
 
+    /// <summary>
+    /// 그룹 부정 토글에 띄우는 말. `NOT` 같은 기호 대신 «그래서 무슨 일이 일어나는가» 를 적는다 —
+    /// 부정이 leaf 가 아니라 그룹에 걸리므로, 읽는 사람이 궁금한 것은 조건이 서면 어떻게 되는가다.
+    /// </summary>
+    public string InvertLabel => ConditionType == ConditionType.SkipAction
+        ? (IsInverted ? "불만족 시 건너뜀" : "만족 시 건너뜀")
+        : (IsInverted ? "불만족 시 시작"   : "만족 시 시작");
+
+    /// <summary>토글 툴팁 — 누르면 어느 쪽으로 바뀌는지.</summary>
+    public string InvertTip => ConditionType == ConditionType.SkipAction
+        ? (IsInverted
+            ? "지금: 조건이 만족하지 않으면 액션을 건너뜁니다. 누르면 «만족 시 건너뜀» 으로 바뀝니다."
+            : "지금: 조건이 만족하면 액션을 건너뜁니다. 누르면 «불만족 시 건너뜀» 으로 바뀝니다.")
+        : (IsInverted
+            ? "지금: 조건이 만족하지 않아야 시작합니다. 누르면 «만족 시 시작» 으로 바뀝니다."
+            : "지금: 조건이 만족해야 시작합니다. 누르면 «불만족 시 시작» 으로 바뀝니다.");
+
     /// <summary>트리 평면화 — children 의 leaf row 까지 모두 포함. 시뮬 런타임 표시용 ItemsControl 바인딩.</summary>
     public IReadOnlyList<ConditionApiCallRow> AllLeafRows { get; }
 
@@ -198,10 +215,12 @@ public sealed class ConditionItem
     /// ioValues 가 null 이면 런타임 표시를 비움 (시뮬 종료 / 미시작).
     /// row 의 RuntimeText/IsMatched 는 INotifyPropertyChanged 로 binding 자동 갱신.
     /// </summary>
-    public void RefreshRuntime(IReadOnlyDictionary<Guid, string>? ioValues)
+    public void RefreshRuntime(
+        IReadOnlyDictionary<Guid, string>? ioValues,
+        Func<Guid, Ds2.Core.Status4?>? workStateOf = null)
     {
         foreach (var row in AllLeafRows)
-            row.UpdateRuntime(ioValues);
+            row.UpdateRuntime(ioValues, workStateOf);
     }
 }
 
@@ -224,6 +243,10 @@ public sealed class ConditionApiCallRow : ObservableObject
         InputSpecTypeIndex   = item.InputSpecTypeIndex;
         ContactKind          = item.ContactKind;
         _inputSpec           = item.InputSpec;
+        // IO 값이 없을 때 런타임이 읽는 참조 Work — 패널도 같은 것을 보여 주기 위해 받아 둔다.
+        RxWorkGuid           = Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(item.RxWorkGuid)
+                                   ? item.RxWorkGuid.Value
+                                   : null;
         // v10: SkipInputSensor 폐기 — SensingType=Virtual 로 ApiDef 차원 표현.
     }
 
@@ -239,6 +262,9 @@ public sealed class ConditionApiCallRow : ObservableObject
 
     /// <summary>접점 종류 — 수식 표기에 `/`(B접) / `(R)` / `(F)` / `*` 로 반영 (F# ConditionFormulaProjection 규약과 일치).</summary>
     public ContactKind ContactKind          { get; }
+
+    /// <summary>이 leaf 가 참조하는 Work. IO 값이 없을 때 런타임이 신호로 읽는 대상.</summary>
+    public Guid?       RxWorkGuid           { get; }
 
     /// <summary>
     /// 시뮬 동작 중에만 채워지는 표시 — `NewFlow_clp.ADV ✓ [현재:true / 기대:true]`.
@@ -257,7 +283,9 @@ public sealed class ConditionApiCallRow : ObservableObject
         private set => SetProperty(ref _isMatched, value);
     }
 
-    public void UpdateRuntime(IReadOnlyDictionary<Guid, string>? ioValues)
+    public void UpdateRuntime(
+        IReadOnlyDictionary<Guid, string>? ioValues,
+        Func<Guid, Ds2.Core.Status4?>? workStateOf = null)
     {
         if (ioValues is null)
         {
@@ -269,17 +297,30 @@ public sealed class ConditionApiCallRow : ObservableObject
         var current = ioValues.TryGetValue(ApiCallId, out var v) ? v : null;
         // condition leaf 의 기대값은 InputSpec (Phase 2 eq 저장처, Runtime 평가 대상) — OutputSpec 은 condition 표시에 쓰지 않는다.
         var expected = !string.IsNullOrEmpty(InputSpecText) ? InputSpecText : "—";
-        if (current is null)
+
+        if (current is not null)
         {
-            IsMatched = null;
-            RuntimeText = $"{ApiDefDisplayName}  [현재:— / 기대:{expected}]";
+            var hit = Ds2.Core.ValueSpecModule.evaluate(_inputSpec, current);
+            IsMatched = hit;
+            RuntimeText = $"{ApiDefDisplayName} {(hit ? "✓" : "✗")} [현재:{current} / 기대:{expected}]";
             return;
         }
 
-        var matched = Ds2.Core.ValueSpecModule.evaluate(_inputSpec, current);
-        IsMatched = matched;
-        var mark = matched ? "✓" : "✗";
-        RuntimeText = $"{ApiDefDisplayName} {mark} [현재:{current} / 기대:{expected}]";
+        // IO 값이 없다 — 런타임은 이때 참조 Work 의 상태를 신호로 읽는다(Finish=켜짐, Ready=꺼짐).
+        // 패널이 «—» 만 띄우면 무엇 때문에 성립/불성립인지 알 수 없으므로 같은 규칙으로 적는다.
+        if (workStateOf is not null && RxWorkGuid is { } rxWork && workStateOf(rxWork) is { } st)
+        {
+            var matched = Ds2.Core.ValueSpecModule.isFalse(_inputSpec)
+                ? st == Ds2.Core.Status4.Ready
+                : st == Ds2.Core.Status4.Finish;
+            IsMatched = matched;
+            RuntimeText = $"{ApiDefDisplayName} {(matched ? "✓" : "✗")} "
+                        + $"[현재:{(matched ? "true" : "false")}({st}) / 기대:{expected}]";
+            return;
+        }
+
+        IsMatched = null;
+        RuntimeText = $"{ApiDefDisplayName}  [현재:— / 기대:{expected}]";
     }
 }
 

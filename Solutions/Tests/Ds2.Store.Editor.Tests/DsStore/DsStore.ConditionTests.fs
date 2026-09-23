@@ -282,7 +282,7 @@ module ConditionFormulaProjectionTests =
             Guid.NewGuid(), name, name,
             "", 0,        // outputSpec (text/index) — 기대값 없음
             "", 0,        // inputSpec (text/index)
-            kind, UndefinedValue)
+            kind, UndefinedValue, None)
 
     /// inputSpec 텍스트를 가진 leaf (= 기대값 표기 검증용).
     /// condition leaf 기대값은 InputSpec(Runtime 평가 대상)이므로 inputSpecText 인자에 채운다.
@@ -291,7 +291,7 @@ module ConditionFormulaProjectionTests =
             Guid.NewGuid(), name, name,
             "", 0,             // outputSpec — condition leaf 표시에 쓰지 않음
             specText, 0,       // inputSpec — 기대값(=spec)
-            ContactKind.NoContact, UndefinedValue)
+            ContactKind.NoContact, UndefinedValue, None)
 
     /// ValueSpec(InputSpec) 으로부터 leaf 를 만든다 — eq 기대값 표시(BoolValue/StringValue/numeric) 검증용.
     /// Panel.fs 생성부와 동일하게 PropertyPanelValueSpec.format 으로 InputSpecText 를 채운다.
@@ -300,7 +300,7 @@ module ConditionFormulaProjectionTests =
             Guid.NewGuid(), name, name,
             "", 0,
             PropertyPanelValueSpec.format inputSpec, PropertyPanelValueSpec.dataTypeIndex inputSpec,
-            kind, inputSpec)
+            kind, inputSpec, None)
 
     let private cond (isOR: bool) (isInverted: bool)
                      (items: ConditionApiCallItem list) (children: ConditionPanelItem list) : ConditionPanelItem =
@@ -365,7 +365,7 @@ module ConditionFormulaProjectionTests =
     [<Fact>]
     let ``ContactKind 표기는 기대값(=) 표기와 함께 보존된다`` () =
         // RisingPulse + inputSpec(기대값) → name=spec(R)
-        let item = ConditionApiCallItem(Guid.NewGuid(), "A", "A", "", 0, "true", 0, ContactKind.RisingPulse, UndefinedValue)
+        let item = ConditionApiCallItem(Guid.NewGuid(), "A", "A", "", 0, "true", 0, ContactKind.RisingPulse, UndefinedValue, None)
         let c = cond false false [ item ] []
         Assert.Equal("A=true(R)", formula c)
 
@@ -439,6 +439,6 @@ module ConditionFormulaProjectionTests =
     [<Fact>]
     let ``OutputSpec 만 있고 InputSpec 이 비면 기대값을 표시하지 않는다`` () =
         // condition leaf 표시는 InputSpec 기준 — OutputSpec 에 값이 있어도 InputSpec 이 비면 name 만.
-        let item = ConditionApiCallItem(Guid.NewGuid(), "A", "A", "true", 0, "", 0, ContactKind.NoContact, UndefinedValue)
+        let item = ConditionApiCallItem(Guid.NewGuid(), "A", "A", "true", 0, "", 0, ContactKind.NoContact, UndefinedValue, None)
         let c = cond false false [ item ] []
         Assert.Equal("A", formula c)

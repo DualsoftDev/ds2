@@ -391,11 +391,11 @@ public partial class EditorCanvas : UserControl
         if (isWorkTarget)
             ConditionDropHelper.ExecuteWorkConditionDrop(
                 host.Store, host, targetNode.Id, picker.SelectedConditionType, droppedCallNode.Id,
-                presetContactKind: picker.SelectedContactKind);
+                presetInverted: picker.SelectedInverted);
         else
             ConditionDropHelper.ExecuteConditionDrop(
                 host.Store, host, targetNode.Id, picker.SelectedConditionType, droppedCallNode.Id,
-                presetContactKind: picker.SelectedContactKind);
+                presetInverted: picker.SelectedInverted);
 
         e.Handled = true;
     }

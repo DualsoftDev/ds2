@@ -49,6 +49,11 @@ module internal DirectPanelOps =
 
     let toConditionApiCallItem (store: DsStore) (apiCall: ApiCall) : ConditionApiCallItem =
         let _, displayName = resolveApiDefDisplay store apiCall.ApiDefId
+        // 런타임이 IO 부재 시 읽는 참조 Work — 패널이 같은 것을 보여 주기 위해 함께 싣는다.
+        let rxWorkGuid =
+            apiCall.ApiDefId
+            |> Option.bind (fun id -> Queries.getApiDef id store)
+            |> Option.bind (fun apiDef -> apiDef.RxGuid)
         ConditionApiCallItem(
             apiCall.Id, apiCall.Name, displayName,
             PropertyPanelValueSpec.format apiCall.OutputSpec,
@@ -56,7 +61,8 @@ module internal DirectPanelOps =
             PropertyPanelValueSpec.format apiCall.InputSpec,
             PropertyPanelValueSpec.dataTypeIndex apiCall.InputSpec,
             apiCall.ContactKind,
-            apiCall.InputSpec)
+            apiCall.InputSpec,
+            rxWorkGuid)
 
     let buildApiCall
         (apiDef: ApiDef) (fallbackName: string) (apiCallNameOpt: string option)

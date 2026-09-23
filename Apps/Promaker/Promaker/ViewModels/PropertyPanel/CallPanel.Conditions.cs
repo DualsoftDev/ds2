@@ -45,6 +45,28 @@ public partial class PropertyPanelState
         RefreshConditionOwner(item.CallId);
     }
 
+    /// <summary>
+    /// 조건 그룹 전체의 부정을 뒤집는다.
+    ///
+    /// 부정을 leaf 접점에 걸면 `/A=false & /B=false` 처럼 이중 부정이 되어 읽히지 않는다.
+    /// 그룹 하나가 부정을 지고 leaf 는 기대값만 갖도록, 여기서 IsInverted 만 토글한다.
+    /// 엔진은 이미 `if cc.IsInverted then Not grouped` 로 평가한다.
+    /// </summary>
+    [RelayCommand]
+    private void ToggleConditionInverted(ConditionItem? item)
+    {
+        if (item is null) return;
+        if (!GuardSimulationSemanticEdit("조건 부정 변경"))
+            return;
+        var next = !item.IsInverted;
+        var ok =
+            IsWorkConditionContext
+                ? _host.TryAction(() => Store.SetWorkConditionInverted(item.CallId, item.ConditionId, next))
+                : _host.TryAction(() => Store.SetCallConditionInverted(item.CallId, item.ConditionId, next));
+        if (!ok) return;
+        RefreshConditionOwner(item.CallId);
+    }
+
     [RelayCommand]
     private void DropCallToConditionSection(ConditionDropInfo? info)
     {
@@ -238,8 +260,10 @@ public partial class PropertyPanelState
     public void RefreshConditionRuntime(IReadOnlyDictionary<Guid, string>? ioValues)
     {
         _lastIoSnapshot = ioValues;
+        // IO 가 없는 leaf 는 런타임이 참조 Work 상태로 판정한다 — 패널도 같은 것을 읽어야
+        // 화면의 «현재값» 과 실제 판정이 어긋나지 않는다.
         foreach (var section in ConditionSections)
             foreach (var cond in section.Conditions)
-                cond.RefreshRuntime(ioValues);
+                cond.RefreshRuntime(ioValues, _host.GetSimWorkState);
     }
 }

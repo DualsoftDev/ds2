@@ -217,7 +217,7 @@ type ConditionApiCallItem
     (apiCallId: Guid, apiCallName: string, apiDefDisplayName: string,
      outputSpecText: string, outputSpecTypeIndex: int,
      inputSpecText: string, inputSpecTypeIndex: int,
-     contactKind: ContactKind, inputSpec: ValueSpec) =
+     contactKind: ContactKind, inputSpec: ValueSpec, rxWorkGuid: Guid option) =
     member _.ApiCallId          = apiCallId
     member _.ApiCallName        = apiCallName
     member _.ApiDefDisplayName  = apiDefDisplayName
@@ -228,6 +228,9 @@ type ConditionApiCallItem
     member _.ContactKind        = contactKind
     /// 시뮬 IO 값 매칭 검사용 — 패널에 [현재:X / 기대:Y] 표시할 때 evaluate 에 그대로 전달.
     member _.InputSpec          = inputSpec
+    /// 이 leaf 가 참조하는 Work(ApiDef.RxGuid). IO 값이 아직 없을 때 런타임은 이 Work 의
+    /// 상태를 신호로 읽으므로, 패널도 같은 것을 보여 줘야 화면과 판정이 어긋나지 않는다.
+    member _.RxWorkGuid         = rxWorkGuid
 
 [<Sealed>]
 type ConditionPanelItem
