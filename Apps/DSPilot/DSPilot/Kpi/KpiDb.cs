@@ -42,11 +42,39 @@ public sealed class KpiDb
     public string ConnectionString { get; }
 
     /// <summary>
-    /// DI 생성자. 경로는 공유 폴더의 <see cref="FileName"/> 이며 설정 키 <c>Kpi:DbPath</c> 로 덮어쓸 수 있다
-    /// (비표준 배치·진단용). 생성자는 이 하나만 public 이어야 한다 — 둘이면 DI 가 모호하다고 거부한다.
+    /// DI 생성자. 경로는 <see cref="Services.IDatabasePathResolver"/>(= Database:ConnectionString 의 폴더 + 정본 파일명)
+    /// 에서 받고, 설정 키 <c>Kpi:DbPath</c> 로 덮어쓸 수 있다(비표준 배치·진단용).
+    /// 생성자는 이 하나만 public 이어야 한다 — 둘이면 DI 가 모호하다고 거부한다.
+    /// <para>★경로를 여기서 따로 계산하면 안 된다. 종전엔 이 클래스만 <c>SharedPaths.SharedDirectory</c> 를 썼는데,
+    /// 나머지 전부는 연결 문자열의 폴더를 쓴다. 구버전에서 올라온 현장은 연결 문자열이 옛 폴더를 가리켜
+    /// <c>system·tag·signal</c> 은 A 파일에, <c>dspFlow·dspCall</c> 은 B 파일에 생기는 분열이 났다. 그러면
+    /// <see cref="Adapters.DspRepositoryAdapter.CreateSchemaAsync"/> 의 <c>INSERT INTO system</c> 이 B 파일에서
+    /// 터지고 그 뒤 ALTER 마이그레이션이 통째로 건너뛰어져, dspFlow.flowId 누락으로 모델 적재가 영구 실패했다
+    /// (2026-09-22 현장: 엔진 미초기화 → Hub 태그 전량 폐기 → 화면 전체 공백).</para>
     /// </summary>
-    public KpiDb(ILogger<KpiDb> logger, Microsoft.Extensions.Configuration.IConfiguration config)
-        : this(logger, config["Kpi:DbPath"]) { }
+    public KpiDb(
+        ILogger<KpiDb> logger,
+        Microsoft.Extensions.Configuration.IConfiguration config,
+        Services.IDatabasePathResolver pathResolver)
+        : this(logger, ResolveDbPath(config, pathResolver)) { }
+
+    /// <summary>Kpi:DbPath 명시 > 공용 리졸버. 둘 다 없을 때만 공유 폴더 기본값으로 떨어진다.</summary>
+    private static string ResolveDbPath(
+        Microsoft.Extensions.Configuration.IConfiguration config,
+        Services.IDatabasePathResolver pathResolver)
+    {
+        var overridePath = config["Kpi:DbPath"];
+        if (!string.IsNullOrWhiteSpace(overridePath)) return overridePath;
+
+        try
+        {
+            var shared = pathResolver.GetSharedDbPath();
+            if (!string.IsNullOrWhiteSpace(shared)) return shared;
+        }
+        catch { /* 설정 미구성 — 아래 기본값 */ }
+
+        return System.IO.Path.Combine(SharedPaths.SharedDirectory, FileName);
+    }
 
     private KpiDb(ILogger<KpiDb> logger, string? pathOverride)
     {

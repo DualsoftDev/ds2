@@ -155,6 +155,10 @@ public class DspRepositoryAdapter : IDspRepository
                 CREATE TABLE IF NOT EXISTS dspFlow (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
                     flowName        NVARCHAR(128) NOT NULL UNIQUE,
+                    -- 모델 Flow GUID 스냅샷(FlowRenameDetector 의 리네임 판정 근거). 신규 DB 는 여기서 바로 생기고,
+                    -- 기존 DB 는 아래 EnsureColumn 이 ALTER 로 보충한다 — BulkInsertFlowsAsync 가 이 컬럼에
+                    -- INSERT 하므로 둘 중 하나라도 빠지면 모델 적재가 통째로 실패한다.
+                    flowId          TEXT,
                     mt              INTEGER,
                     wt              INTEGER,
                     ct              INTEGER,
@@ -329,8 +333,21 @@ public class DspRepositoryAdapter : IDspRepository
             await conn.ExecuteAsync(createFlowBoundaryChangeLogIdxFlow);
 
             // 기본 system 행 보장 (id=1) — 귀속 미상 태그가 떨어지는 버킷.
-            await conn.ExecuteAsync(
-                "INSERT INTO system (id, name) VALUES (1, 'DSPilot') ON CONFLICT(name) DO NOTHING");
+            // ★반드시 자체 try 로 감싼다. system 표는 KpiDb 가 만드는데, 이 문장이 예외를 던지면 바깥 catch 로
+            //   빠져 *아래 EnsureColumn 마이그레이션 전체가 실행되지 않는다*. 2026-09-22 현장에서 DB 경로가
+            //   갈라져 이 문장이 터졌고, 그 부작용으로 dspFlow.flowId 가 영영 안 생겨 모델 적재가 30회 실패 →
+            //   엔진 미초기화 → 화면 전체 공백이 됐다. 마이그레이션은 이 문장의 성패와 무관하게 돌아야 한다.
+            try
+            {
+                await conn.ExecuteAsync(
+                    "INSERT INTO system (id, name) VALUES (1, 'DSPilot') ON CONFLICT(name) DO NOTHING");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "기본 system 행을 만들지 못했습니다 — KPI 표가 같은 DB 파일에 없을 수 있습니다(경로 분열 점검). " +
+                    "아래 컬럼 마이그레이션은 계속 진행합니다.");
+            }
 
             // M2 — 옛 EV2 스키마 마이그레이션. CREATE TABLE IF NOT EXISTS 는 기존 테이블의 컬럼을
             // 추가하지 않으므로, 우리 코드가 쓰는 컬럼이 누락되어 있으면 SQL 에러가 fire-and-forget
