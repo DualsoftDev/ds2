@@ -397,9 +397,9 @@ module AasxExporter =
         |> Array.map (fun c -> if Array.contains c invalid then '_' else c)
         |> String.Concat
 
-    let internal exportToModelSubmodel (store: DsStore) (project: Project) (_iriPrefix: string) : Submodel =
-        let activeSystems  = Queries.activeSystemsOf  project.Id store |> List.map (fun s -> systemToSmc store s true project.Id)
-        let passiveSystems = Queries.passiveSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s false project.Id)
+    let internal exportToModelSubmodel (ctx: AasxExportContext) (store: DsStore) (project: Project) (_iriPrefix: string) : Submodel =
+        let activeSystems  = Queries.activeSystemsOf  project.Id store |> List.map (fun s -> systemToSmc ctx s true project.Id)
+        let passiveSystems = Queries.passiveSystemsOf project.Id store |> List.map (fun s -> systemToSmc ctx s false project.Id)
         let projectElems : ISubmodelElement list = [
             yield! mkPropsFromAasxFields project
             yield! mkSmlSem ActiveSystems_    activeSystems |> Option.toList
@@ -415,11 +415,12 @@ module AasxExporter =
         sm.SubmodelElements <- ResizeArray<ISubmodelElement>([projectSmc :> ISubmodelElement])
         sm
 
-    let private tryExportToDomainSubmodel (submodelType: SubmodelType) (store: DsStore) (project: Project) : Submodel option =
+    let private tryExportToDomainSubmodel (submodelType: SubmodelType) (ctx: AasxExportContext) (store: DsStore) (project: Project) : Submodel option =
+        let index = ctx.Hierarchy
         let activeSystems = Queries.activeSystemsOf project.Id store
-        let allFlows = activeSystems |> List.collect (fun sys -> Queries.flowsOf sys.Id store)
-        let allWorks = allFlows |> List.collect (fun flow -> Queries.worksOf flow.Id store)
-        let allCalls = allWorks |> List.collect (fun work -> Queries.callsOf work.Id store)
+        let allFlows = activeSystems |> List.collect (fun sys -> index.Flows sys.Id)
+        let allWorks = allFlows |> List.collect (fun flow -> index.Works flow.Id)
+        let allCalls = allWorks |> List.collect (fun work -> index.Calls work.Id)
 
         let sysPropsWithRefs =
             activeSystems |> List.choose (fun sys ->
@@ -469,7 +470,7 @@ module AasxExporter =
         let simulationResultElement : ISubmodelElement option =
             match submodelType with
             | SequenceSimulation ->
-                AasxExportTechnicalData.setActiveContext store project
+                AasxExportTechnicalData.setActiveContext ctx.Hierarchy store project
                 let r = AasxExportTechnicalData.simulationResultToSmcOpt project.SimulationResult
                 AasxExportTechnicalData.clearActiveContext ()
                 r
@@ -497,7 +498,7 @@ module AasxExporter =
 
 
     let internal exportToSubmodel (store: DsStore) (project: Project) (iriPrefix: string) : Submodel =
-        exportToModelSubmodel store project iriPrefix
+        exportToModelSubmodel (buildExportContext store) store project iriPrefix
 
     let internal deviceReferenceToSmc (device: DsSystem) (relativePath: string) : ISubmodelElement =
         mkSmc "DeviceReference" [
@@ -507,8 +508,8 @@ module AasxExporter =
             mkProp DeviceRelativePath_ relativePath
         ]
 
-    let internal exportToModelSubmodelSplit (store: DsStore) (project: Project) (_iriPrefix: string) (deviceRefs: ISubmodelElement list) : Submodel =
-        let activeSystems = Queries.activeSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s true project.Id)
+    let internal exportToModelSubmodelSplit (ctx: AasxExportContext) (store: DsStore) (project: Project) (_iriPrefix: string) (deviceRefs: ISubmodelElement list) : Submodel =
+        let activeSystems = Queries.activeSystemsOf project.Id store |> List.map (fun s -> systemToSmc ctx s true project.Id)
         let projectElems : ISubmodelElement list = [
             yield! mkPropsFromAasxFields project
             yield! mkSmlSem ActiveSystems_    activeSystems |> Option.toList
@@ -525,7 +526,7 @@ module AasxExporter =
         sm
 
     let internal exportToSubmodelSplit (store: DsStore) (project: Project) (iriPrefix: string) (deviceRefs: ISubmodelElement list) : Submodel =
-        exportToModelSubmodelSplit store project iriPrefix deviceRefs
+        exportToModelSubmodelSplit (buildExportContext store) store project iriPrefix deviceRefs
 
     let private resolveGlobalAssetId (iriPrefix: string) (projectName: string) : string =
         let prefix = if String.IsNullOrWhiteSpace(iriPrefix) then DefaultIriPrefix else iriPrefix
@@ -534,6 +535,9 @@ module AasxExporter =
     let internal exportToAasxFile (store: DsStore) (project: Project) (iriPrefix: string) (outputPath: string) (autoCreateEmptySubmodels: bool) : unit =
         let prefix = if String.IsNullOrWhiteSpace(iriPrefix) then DefaultIriPrefix else iriPrefix
         let thumbnail = selectThumbnail (AasxProjectCache.tryGetEntries store project)
+        // 이 export 전체가 쓰는 역인덱스 1벌. 아래 경로들이 모두 이 컨텍스트를 물려받아야
+        // Work 마다 전체 Call 을 훑는 비용이 되살아나지 않는다.
+        let ctx = buildExportContext store
 
         if autoCreateEmptySubmodels then
             let activeSystems = Queries.activeSystemsOf project.Id store
@@ -546,7 +550,7 @@ module AasxExporter =
                 if sys.GetCostAnalysisProperties().IsNone then sys.SetCostAnalysisProperties(CostAnalysisSystemProperties())
                 if sys.GetQualityProperties().IsNone then sys.SetQualityProperties(QualitySystemProperties())
                 if sys.GetHMIProperties().IsNone then sys.SetHMIProperties(HMISystemProperties())
-                let flows = Queries.flowsOf sys.Id store
+                let flows = ctx.Hierarchy.Flows sys.Id
                 for flow in flows do
                     if flow.GetSimulationProperties().IsNone then flow.SetSimulationProperties(SimulationFlowProperties())
                     if flow.GetControlProperties().IsNone then flow.SetControlProperties(ControlFlowProperties())
@@ -556,7 +560,7 @@ module AasxExporter =
                     if flow.GetCostAnalysisProperties().IsNone then flow.SetCostAnalysisProperties(CostAnalysisFlowProperties())
                     if flow.GetQualityProperties().IsNone then flow.SetQualityProperties(QualityFlowProperties())
                     if flow.GetHMIProperties().IsNone then flow.SetHMIProperties(HMIFlowProperties())
-                    let works = Queries.worksOf flow.Id store
+                    let works = ctx.Hierarchy.Works flow.Id
                     for work in works do
                         if work.GetSimulationProperties().IsNone then work.SetSimulationProperties(SimulationWorkProperties())
                         if work.GetControlProperties().IsNone then work.SetControlProperties(ControlWorkProperties())
@@ -566,7 +570,7 @@ module AasxExporter =
                         if work.GetCostAnalysisProperties().IsNone then work.SetCostAnalysisProperties(CostAnalysisWorkProperties())
                         if work.GetQualityProperties().IsNone then work.SetQualityProperties(QualityWorkProperties())
                         if work.GetHMIProperties().IsNone then work.SetHMIProperties(HMIWorkProperties())
-                        let calls = Queries.callsOf work.Id store
+                        let calls = ctx.Hierarchy.Calls work.Id
                         for call in calls do
                             if call.GetSimulationProperties().IsNone then call.SetSimulationProperties(SimulationCallProperties())
                             if call.GetControlProperties().IsNone then call.SetControlProperties(ControlCallProperties())
@@ -577,10 +581,10 @@ module AasxExporter =
                             if call.GetQualityProperties().IsNone then call.SetQualityProperties(QualityCallProperties())
                             if call.GetHMIProperties().IsNone then call.SetHMIProperties(HMICallProperties())
 
-        let modelSm = exportToModelSubmodel store project prefix
+        let modelSm = exportToModelSubmodel ctx store project prefix
         let optionalSubmodels =
             SubmodelType.AllDomains
-            |> List.choose (fun submodelType -> tryExportToDomainSubmodel submodelType store project)
+            |> List.choose (fun submodelType -> tryExportToDomainSubmodel submodelType ctx store project)
 
         // Convention-Driven KPI 자동 생성 — 시퀀스 서브모델의 System/Work/Call/Arrow/UserTag 로부터
         // AID + AIMC + OperationalData 를 append (idempotent).
@@ -787,9 +791,9 @@ module AasxExporter =
         writeEnvironment env outputPath thumbnail (AasxProjectCache.tryGetEntries store project)
         AasxProjectCache.updateEnvironment store project (box env)
 
-    let internal exportDeviceAasx (store: DsStore) (project: Project) (device: DsSystem) (iriPrefix: string) (outputPath: string) : unit =
+    let internal exportDeviceAasxWithContext (ctx: AasxExportContext) (project: Project) (device: DsSystem) (iriPrefix: string) (outputPath: string) : unit =
         let prefix = if String.IsNullOrWhiteSpace(iriPrefix) then DefaultIriPrefix else iriPrefix
-        let deviceSmc = systemToSmc store device false project.Id
+        let deviceSmc = systemToSmc ctx device false project.Id
         let projectElems : ISubmodelElement list = [
             yield! mkPropsFromAasxFields project
             yield! mkSmlSem ActiveSystems_    [deviceSmc] |> Option.toList
@@ -824,6 +828,11 @@ module AasxExporter =
         let thumbnail = selectThumbnail None
         writeEnvironment env outputPath thumbnail None
 
+    /// 단독 호출용. 디바이스를 연달아 내보낼 때는 컨텍스트를 한 번만 만들어
+    /// exportDeviceAasxWithContext 를 쓸 것 — 디바이스마다 새로 만들면 역인덱스의 의미가 없어진다.
+    let internal exportDeviceAasx (store: DsStore) (project: Project) (device: DsSystem) (iriPrefix: string) (outputPath: string) : unit =
+        exportDeviceAasxWithContext (buildExportContext store) project device iriPrefix outputPath
+
     let internal resolveDeviceFileName (usedNames: System.Collections.Generic.HashSet<string>) (device: DsSystem) : string =
         let baseName = sanitizeDeviceName device.Name
         if usedNames.Add(baseName) then
@@ -843,6 +852,8 @@ module AasxExporter =
 
         let passiveSystems = Queries.passiveSystemsOf project.Id store
         let usedNames = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        // 디바이스 수만큼 되풀이되지 않도록 여기서 1벌만 만들어 아래 전부에 물려준다.
+        let ctx = buildExportContext store
 
         let deviceRefs =
             passiveSystems
@@ -850,13 +861,13 @@ module AasxExporter =
                 let fileName = resolveDeviceFileName usedNames device
                 let deviceAasxPath = Path.Combine(devicesDir, $"{fileName}.aasx")
                 let relativePath = $"{baseName}_devices/{fileName}.aasx"
-                exportDeviceAasx store project device prefix deviceAasxPath
+                exportDeviceAasxWithContext ctx project device prefix deviceAasxPath
                 deviceReferenceToSmc device relativePath)
 
-        let modelSm = exportToModelSubmodelSplit store project prefix deviceRefs
+        let modelSm = exportToModelSubmodelSplit ctx store project prefix deviceRefs
         let optionalSubmodels =
             SubmodelType.AllDomains
-            |> List.choose (fun submodelType -> tryExportToDomainSubmodel submodelType store project)
+            |> List.choose (fun submodelType -> tryExportToDomainSubmodel submodelType ctx store project)
 
         // Convention-Driven KPI 자동 생성 (split 저장에서도 동일).
         let kpiSubmodels = appendKpiSubmodels store project

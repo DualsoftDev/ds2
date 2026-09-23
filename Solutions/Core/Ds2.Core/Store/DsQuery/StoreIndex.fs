@@ -79,15 +79,20 @@ module StoreIndex =
 /// <para>스냅샷 성질과 store 에 캐시하지 않는 이유는 <c>StoreIndex</c> 주석 참조.</para>
 /// </summary>
 type StoreHierarchyIndex =
-    { FlowsOfSystem   : Lazy<Dictionary<Guid, ResizeArray<Flow>>>
-      WorksOfFlow     : Lazy<Dictionary<Guid, ResizeArray<Work>>>
-      CallsOfWork     : Lazy<Dictionary<Guid, ResizeArray<Call>>>
-      ApiDefsOfSystem : Lazy<Dictionary<Guid, ResizeArray<ApiDef>>> }
+    { FlowsOfSystem      : Lazy<Dictionary<Guid, ResizeArray<Flow>>>
+      WorksOfFlow        : Lazy<Dictionary<Guid, ResizeArray<Work>>>
+      CallsOfWork        : Lazy<Dictionary<Guid, ResizeArray<Call>>>
+      ApiDefsOfSystem    : Lazy<Dictionary<Guid, ResizeArray<ApiDef>>>
+      ArrowWorksOfSystem : Lazy<Dictionary<Guid, ResizeArray<ArrowBetweenWorks>>>
+      ArrowCallsOfWork   : Lazy<Dictionary<Guid, ResizeArray<ArrowBetweenCalls>>> }
 
     member this.Flows(systemId: Guid)   = StoreIndex.find this.FlowsOfSystem.Value   systemId
     member this.Works(flowId: Guid)     = StoreIndex.find this.WorksOfFlow.Value     flowId
     member this.Calls(workId: Guid)     = StoreIndex.find this.CallsOfWork.Value     workId
     member this.ApiDefs(systemId: Guid) = StoreIndex.find this.ApiDefsOfSystem.Value systemId
+
+    member this.ArrowWorks(systemId: Guid) = StoreIndex.find this.ArrowWorksOfSystem.Value systemId
+    member this.ArrowCalls(workId: Guid)   = StoreIndex.find this.ArrowCallsOfWork.Value   workId
 
     /// 복사 없는 순회 — 순회 중 store 를 건드리지 않는 곳에서만.
     member this.CallsSeq(workId: Guid)  = StoreIndex.findSeq this.CallsOfWork.Value workId
@@ -106,4 +111,8 @@ module StoreHierarchyIndexBuilder =
           CallsOfWork =
             lazy (StoreIndex.groupBy (fun (c: Call) -> c.ParentId) store.CallsReadOnly.Values)
           ApiDefsOfSystem =
-            lazy (StoreIndex.groupBy (fun (d: ApiDef) -> d.ParentId) store.ApiDefsReadOnly.Values) }
+            lazy (StoreIndex.groupBy (fun (d: ApiDef) -> d.ParentId) store.ApiDefsReadOnly.Values)
+          ArrowWorksOfSystem =
+            lazy (StoreIndex.groupBy (fun (a: ArrowBetweenWorks) -> a.ParentId) store.ArrowWorksReadOnly.Values)
+          ArrowCallsOfWork =
+            lazy (StoreIndex.groupBy (fun (a: ArrowBetweenCalls) -> a.ParentId) store.ArrowCallsReadOnly.Values) }

@@ -60,6 +60,7 @@
     <Compile Include="DeviceDurationQueryTests.fs" />
     <Compile Include="AddTargetQueriesTests.fs" />
     <Compile Include="UndoCapacityTests.fs" />
+    <Compile Include="StoreIndexParityTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

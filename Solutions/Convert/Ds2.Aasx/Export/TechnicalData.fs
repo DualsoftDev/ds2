@@ -91,19 +91,19 @@ module internal AasxExportTechnicalData =
                 parts |> Array.exists activeNameSet.Contains
 
     /// 호출 측이 export 시작 시 한 번 호출 — active 시스템의 모든 하위 이름 수집.
-    let setActiveContext (store: DsStore) (project: Project) : unit =
+    let setActiveContext (index: StoreHierarchyIndex) (store: DsStore) (project: Project) : unit =
         let s = HashSet<string>(StringComparer.OrdinalIgnoreCase)
         for sys in Queries.activeSystemsOf project.Id store do
             s.Add sys.Name |> ignore
-            for flow in Queries.flowsOf sys.Id store do
+            for flow in index.Flows sys.Id do
                 s.Add flow.Name |> ignore
                 s.Add (sprintf "%s_%s" sys.Name flow.Name) |> ignore
                 s.Add (sprintf "%s.%s"  sys.Name flow.Name) |> ignore
-                for work in Queries.worksOf flow.Id store do
+                for work in index.Works flow.Id do
                     s.Add work.Name |> ignore
                     s.Add (sprintf "%s.%s" flow.Name work.Name) |> ignore
                     s.Add (sprintf "%s_%s.%s" sys.Name flow.Name work.Name) |> ignore
-                    for call in Queries.callsOf work.Id store do
+                    for call in index.Calls work.Id do
                         s.Add call.Name |> ignore
                         s.Add (sprintf "%s.%s" work.Name call.Name) |> ignore
                         s.Add (sprintf "%s.%s" flow.Name call.Name) |> ignore

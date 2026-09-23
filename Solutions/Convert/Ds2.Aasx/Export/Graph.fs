@@ -14,6 +14,29 @@ module internal AasxExportGraph =
 
     open AasxExportCore
 
+    /// Export 1회 동안 재사용하는 스냅샷 묶음.
+    ///
+    /// <para>store 의 부모→자식 질의는 하나하나가 해당 딕셔너리 전수 스캔이라, Work 마다 Call 을
+    /// 묻는 export 는 O(Work × Call) 로 자란다. 도메인 서브모델이 8종이라 그 값이 다시 8배가 된다.
+    /// 진입 시 한 번만 그룹핑해 그 안에서 쓴다.</para>
+    ///
+    /// <para>인덱스는 만든 시점의 스냅샷이다. Export 는 엔티티 속성만 채우고(빈 도메인 속성 생성)
+    /// 계층 자체는 바꾸지 않으므로 안전하다 — 노드를 추가·삭제하는 코드가 export 경로에 들어오면
+    /// 그 시점에 인덱스를 다시 만들어야 한다. store 에 얹지 않는 이유는 StoreIndex 주석 참조.</para>
+    type AasxExportContext =
+        { Hierarchy : StoreHierarchyIndex
+          /// 모든 ApiCall 이 가리키는 ApiDef 한 벌(중복 제거). System 마다 다시 모으면 O(System × ApiCall).
+          /// System 별 필터(자기 소유 제외) 는 꺼내 쓰는 쪽에서 건다 — 전체 목록은 System 과 무관하고,
+          /// distinctBy 는 Id 단위라 필터 순서를 바꿔도 남는 원소와 순서가 같다.
+          ReferencedApiDefs : Lazy<ApiDef list> }
+
+    let buildExportContext (store: DsStore) : AasxExportContext =
+        { Hierarchy = buildHierarchyIndex store
+          ReferencedApiDefs =
+            lazy (Queries.allApiCalls store
+                  |> List.choose (fun ac -> ac.ApiDefId |> Option.bind (fun id -> Queries.getApiDef id store))
+                  |> List.distinctBy (fun ad -> ad.Id)) }
+
     // ── CD URI 매핑: (TypeName, FieldName) → CD URI ───────────────────────────
     // BaseUrl 은 AasxSemantics.CdBaseUrl 단일 진실 원천에서 가져온다.
     // 필드 단위 CD 는 SequenceModel 서브모델 하위 네임스페이스에 둔다.
@@ -248,12 +271,12 @@ module internal AasxExportGraph =
     let private arrowCallToSmc (arrow: ArrowBetweenCalls) =
         mkArrowSmc arrow
 
-    let private workToSmc (store: DsStore) (work: Work) (projectId: Guid) =
-        let rawCalls = Queries.callsOf work.Id store
+    let private workToSmc (ctx: AasxExportContext) (work: Work) (projectId: Guid) =
+        let rawCalls = ctx.Hierarchy.Calls work.Id
         let calls = rawCalls |> List.map (fun c -> callToSmc c projectId)
         let callIds = rawCalls |> List.map (fun c -> c.Id) |> Set.ofList
         let arrows =
-            Queries.arrowCallsOf work.Id store
+            ctx.Hierarchy.ArrowCalls work.Id
             |> List.filter (fun a -> callIds.Contains a.SourceId && callIds.Contains a.TargetId)
             |> List.map arrowCallToSmc
         let domainRefs = mkDomainRefsForWork projectId work.Id work
@@ -282,19 +305,18 @@ module internal AasxExportGraph =
     let private apiDefToSmc (apiDef: ApiDef) =
         mkSmc "ApiDef" (mkPropsFromAasxFields apiDef)
 
-    let systemToSmc (store: DsStore) (system: DsSystem) (isActive: bool) (projectId: Guid) =
-        let allFlows = Queries.flowsOf system.Id store
+    let systemToSmc (ctx: AasxExportContext) (system: DsSystem) (isActive: bool) (projectId: Guid) =
+        let index = ctx.Hierarchy
+        let allFlows = index.Flows system.Id
         let flows = allFlows |> List.map (fun f -> flowToSmc f projectId)
-        let works = allFlows |> List.collect (fun f -> Queries.worksOf f.Id store)
-                             |> List.map (fun w -> workToSmc store w projectId)
-        let arrows = Queries.arrowWorksOf system.Id store |> List.map arrowWorkToSmc
-        let apiDefs = Queries.apiDefsOf system.Id store |> List.map apiDefToSmc
+        let works = allFlows |> List.collect (fun f -> index.Works f.Id)
+                             |> List.map (fun w -> workToSmc ctx w projectId)
+        let arrows = index.ArrowWorks system.Id |> List.map arrowWorkToSmc
+        let apiDefs = index.ApiDefs system.Id |> List.map apiDefToSmc
         let referencedApiDefs =
             if isActive then
-                Queries.allApiCalls store
-                |> List.choose (fun ac -> ac.ApiDefId |> Option.bind (fun id -> Queries.getApiDef id store))
+                ctx.ReferencedApiDefs.Value
                 |> List.filter (fun ad -> ad.ParentId <> system.Id)
-                |> List.distinctBy (fun ad -> ad.Id)
                 |> List.map apiDefToSmc
             else []
         let domainRefs = mkDomainRefsForSystem projectId system.Id system
