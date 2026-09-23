@@ -417,6 +417,12 @@ public partial class DockHost : UserControl, IDockManager
     /// <summary>
     /// AvalonDock <see cref="XmlLayoutSerializer"/> wrapping. ContentId 매칭으로 기존 LayoutContent 인스턴스 재연결.
     /// 상위 디렉토리 미존재 시 생성.
+    /// <para>
+    /// 쓰기는 메모리에서 완성 → 임시 파일 → <see cref="File.Move(string, string, bool)"/> 로 처리한다.
+    /// 대상 파일을 곧바로 <c>FileMode.Create</c> 로 열면 두 인스턴스가 동시에 종료할 때 서로의 절반 쓴
+    /// 내용이 남아, 다음 실행이 깨진 layout 을 읽는다. 임시 파일명에 pid 를 넣어 임시 파일끼리의 충돌도 막는다.
+    /// IO 실패는 삼키지 않고 호출 측으로 던진다 — 종료 경로에서의 처리는 MainWindow.Window_Closing 참조.
+    /// </para>
     /// </summary>
     public void SaveLayout(string filepath)
     {
@@ -424,9 +430,21 @@ public partial class DockHost : UserControl, IDockManager
         var dir = Path.GetDirectoryName(filepath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-        var serializer = new XmlLayoutSerializer(_dockManager);
-        using var fs = new FileStream(filepath, FileMode.Create, FileAccess.Write);
-        serializer.Serialize(fs);
+        // 직렬화 도중 실패해도 기존 파일이 온전하도록 메모리에서 먼저 완성한다.
+        var buffer = new MemoryStream();
+        new XmlLayoutSerializer(_dockManager).Serialize(buffer);
+
+        var tempPath = $"{filepath}.{Environment.ProcessId}.tmp";
+        try
+        {
+            File.WriteAllBytes(tempPath, buffer.ToArray());
+            File.Move(tempPath, filepath, overwrite: true);
+        }
+        catch
+        {
+            try { File.Delete(tempPath); } catch { /* 임시 파일 정리 실패는 원인 예외를 가리지 않도록 무시 */ }
+            throw;
+        }
     }
 
     /// <summary>

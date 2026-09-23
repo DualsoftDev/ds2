@@ -278,7 +278,19 @@ public partial class MainWindow : Window
         }
 
         _closeConfirmed = true;
-        dockHost.SaveLayout(LayoutXmlPath);
+
+        // layout 저장 실패가 종료를 막거나 프로세스를 죽여서는 안 된다. 창을 두 개 이상 띄워 두고
+        // 동시에 닫으면 같은 파일을 두고 IOException 이 나는데, App 의 DispatcherUnhandledException 은
+        // Handled=false 라 그 예외가 그대로 프로세스 종료가 된다 — 사용자에게는 "닫는 순간 튕김"으로 보인다.
+        // 여기서 잃는 것은 이번 창의 dock 배치뿐이므로 삼키고 기록만 한다.
+        try
+        {
+            dockHost.SaveLayout(LayoutXmlPath);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Dock layout 저장 실패 — 무시하고 종료한다: {LayoutXmlPath}", ex);
+        }
     }
 
     private void MainWindow_Closed(object? sender, EventArgs e)
