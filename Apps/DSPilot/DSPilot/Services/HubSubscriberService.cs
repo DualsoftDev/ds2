@@ -471,10 +471,13 @@ public sealed class HubSubscriberService : BackgroundService
         // baseline 정정(레벨 드리프트 자가치유)을 유지한다. plcTagLog 폭증은 SimulationEngineService
         // 의 기록 dedupe 가 이중 방어. (실변화·plc 등 다른 source 는 종전대로 전량 통과.)
         bool resyncFullPass = false, fullPassDecided = false;
+        // 조기 스킵되더라도 "이 배치가 도착했다"는 사실은 남겨야 한다 — 아래 루프 뒤에서 라이브니스를 찍는다.
+        string? resyncArrivalAddress = null;
         foreach (var it in items)
         {
             if (string.Equals(it.Source, HubSource.Resync, StringComparison.OrdinalIgnoreCase))
             {
+                resyncArrivalAddress ??= it.Address;
                 if (!fullPassDecided)
                 {
                     fullPassDecided = true;
@@ -500,6 +503,13 @@ public sealed class HubSubscriberService : BackgroundService
             if (result == EnqueueResult.Ignored)
                 _logger.LogTrace("[Hub] Ignored {Address}={Value} from={Source}", it.Address, it.Value, it.Source);
         }
+
+        // ★도착 도장 — 위에서 값 무변화 resync 를 통째로 버려도 "10초마다 PLC 와 말이 통하고 있다"는
+        //   사실은 사라지면 안 된다. 이 줄이 없으면 라인 정지 중(=값이 안 변하는 정상 상태) 헤더가
+        //   60초 중 45초를 "데이터 대기"로 표시해, 통신 장애와 설비 정지를 화면으로 구분할 수 없다.
+        //   전량 통과한 배치는 아래 엔진 경로에서도 찍히지만 도장은 멱등이라 무해하다.
+        if (resyncArrivalAddress is not null)
+            _engineService.MarkHubArrival(resyncArrivalAddress);
     }
 
     /// <summary>abnormal 이벤트 수신 — AbnormalEventService 적재 + AbnormalReceived 발화(UI 구독).</summary>

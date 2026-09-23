@@ -385,6 +385,22 @@ public sealed class SimulationEngineService : IDisposable
     }
 
     /// <summary>
+    /// 배치가 <b>도착했다는 사실</b>만으로 라이브니스를 도장한다 — 내용은 소비하지 않는다.
+    /// <para>주기 resync(10초 baseline)는 값이 안 바뀌면 <see cref="Services.HubSubscriberService"/> 가
+    /// enqueue 전에 버린다(채널 포화 방지). 그런데 라이브니스 도장은 그 enqueue 뒤에 있어서, 라인이 멈춰
+    /// 있는 동안엔 통신이 완벽히 정상인데도 60초 중 45초가 "데이터 대기"로 보였다(판정 창 15초).
+    /// 오퍼레이터가 "시스템 고장"과 "설비 정지"를 화면으로 구분할 수 없게 만드는 바로 그 증상이다.</para>
+    /// <para>모델에 있는 주소일 때만 찍는다 — <see cref="HandleHubTagChanged"/> 의 ③ 도장과 같은 규약이라
+    /// 모델과 무관한 태그가 라이브니스를 위조하지 못한다.</para>
+    /// </summary>
+    public void MarkHubArrival(string address)
+    {
+        if (string.IsNullOrEmpty(address)) return;
+        if (!_tagIdsByAddress.ContainsKey(address)) return;
+        _dspDbService.MarkInbound();
+    }
+
+    /// <summary>
     /// 모델(AASX) 주소 수신 커버리지 — "적힌 주소 중 실제로 신호가 들어온 주소가 몇 개인가".
     /// Expected = plcTag 부트스트랩 대상(IOMap Out/In + UserTag), Seen = 부팅 후 1건 이상 수신한 주소.
     /// Missing 은 표시용으로 주소 오름차순 상위 <paramref name="missingLimit"/> 개만 돌려준다.
