@@ -42,6 +42,12 @@ builder.Logging.AddConsole(o =>
     o.MaxQueueLength = 8192;
 });
 
+// 파일 로그 — Windows 서비스/systemd 로 기동되면 위 콘솔 출력은 어디에도 붙지 않아 통째로 증발한다.
+// 2026-09-22 현장 장애에서 "모델 적재 30회 실패 → 엔진 미초기화" 라는 결정적 예외가 서비스 모드에서는
+// 아무 데도 안 남아, 서비스를 멈추고 콘솔로 재기동한 뒤에야 원인이 보였다. Agent 와 같은 규약으로
+// 공유 폴더에 남긴다(%ProgramData%\DualSoft\Shared\dspilot\logs\dspilot.log).
+builder.Logging.AddSharedFile(builder.Configuration);
+
 // 호스트 전용 설정(설치 스크립트가 기록하는 바인딩 포트 "Urls" 등)을 사용자 설정 저장소와 분리.
 // appsettings.Production.json 은 AppSettingsService 의 사용자 설정 영속 저장소이므로 재설치(업그레이드) 시
 // 보존되어야 한다 → 설치 스크립트는 더 이상 Production.json 에 포트를 쓰지 않고 이 파일에만 쓴다.

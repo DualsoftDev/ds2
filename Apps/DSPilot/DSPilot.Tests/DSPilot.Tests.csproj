@@ -19,4 +19,10 @@
     <ProjectReference Include="..\DSPilot\DSPilot.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- SharedFileLoggingTests 는 *실제* log4net.config 로 파일 로그를 검증한다. None 항목은 프로젝트 참조로
+         전파되지 않으므로 여기서 직접 출력 폴더에 넣는다(사본이 아니라 원본을 링크해 설정이 어긋나지 않게). -->
+    <None Include="..\DSPilot\log4net.config" Link="log4net.config" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

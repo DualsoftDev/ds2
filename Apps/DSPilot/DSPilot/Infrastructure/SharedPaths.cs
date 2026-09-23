@@ -32,6 +32,12 @@ public static class SharedPaths
     /// Promaker.Shared.SharedPaths.AgentDirectory 와 동일 경로(SharedDirectory/agent)여야 세 앱이 같은 사이드카를 본다.</summary>
     public static string AgentDirectory { get; } = Path.Combine(SharedDirectory, "agent");
 
+    /// <summary>DSPilot 로그 디렉터리 — Agent 의 <c>SharedDirectory/agent/logs</c> 와 대칭 위치.
+    /// <para>설치 폴더(Program Files) 가 아니라 공유 폴더에 두는 이유: 현장 장애 때 두 앱의 로그를
+    /// 한 폴더 아래에서 시간순으로 대조해야 하고(Agent 가 태그를 내보냈는가 ↔ DSPilot 이 받았는가),
+    /// 재설치가 설치 폴더를 덮어써도 과거 로그가 남아야 하기 때문이다.</para></summary>
+    public static string DsPilotLogDirectory { get; } = Path.Combine(SharedDirectory, "dspilot", "logs");
+
     /// <summary>Agent OPC UA PKI 루트. DSPilot 이 발급한 사용자 공개 인증서와
     /// 접속 과정에서 거부된 클라이언트 애플리케이션 인증서를 Agent와 같은 저장소에서 관리한다.</summary>
     public static string AgentOpcUaCertificateDirectory { get; } =
