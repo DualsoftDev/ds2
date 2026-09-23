@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Windows;
@@ -114,6 +115,102 @@ public sealed class RebuildScopeTests
             Assert.True(refreshes > 0);
             Assert.Equal(countBefore + 1, vm.Canvas.CanvasNodes.Count);
         });
+    }
+
+    /// 트리 노드도 제자리 조정 — 속성 변경 후 같은 객체가 유지되어야 한다.
+    /// (Clear() 가 쏘는 Reset 이 탐색기 갱신 비용의 거의 전부였다.)
+    [Fact]
+    public void Work_property_change_keeps_tree_node_objects()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var (vm, store, workIds) = SetupSystemTabWithWorks(2);
+            var treeBefore = FlattenTree(vm.ControlTreeRoots).ToArray();
+            Assert.NotEmpty(treeBefore);
+
+            store.AddWorkCondition(workIds[0], ConditionType.SkipAction);
+            StaTestRunner.PumpPendingUi();
+
+            var treeAfter = FlattenTree(vm.ControlTreeRoots).ToArray();
+            Assert.Equal(treeBefore.Length, treeAfter.Length);
+            for (var i = 0; i < treeBefore.Length; i++)
+                Assert.Same(treeBefore[i], treeAfter[i]);
+        });
+    }
+
+    /// 트리 객체를 재사용해도 속성 패널은 갱신되어야 한다.
+    /// 종전엔 재구축이 SelectedNode 를 새 객체로 바꿔서 그 부수효과로 패널이 갱신됐다 —
+    /// 객체를 유지하면 그 신호가 사라지므로 갱신을 명시해야 한다.
+    [Fact]
+    public void Work_property_change_still_refreshes_property_panel()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var (vm, store, workIds) = SetupSystemTabWithWorks(2);
+
+            var workNode = FlattenTree(vm.ControlTreeRoots)
+                .First(n => n.EntityType == EntityKind.Work && n.Id == workIds[0]);
+            vm.Selection.SelectNodeFromTree(workNode, false, false);
+            StaTestRunner.PumpPendingUi();
+
+            var skip = vm.PropertyPanel.ConditionSections.First(s => s.ConditionType == ConditionType.SkipAction);
+            Assert.Empty(skip.Conditions);
+
+            store.AddWorkCondition(workIds[0], ConditionType.SkipAction);
+            StaTestRunner.PumpPendingUi();
+
+            skip = vm.PropertyPanel.ConditionSections.First(s => s.ConditionType == ConditionType.SkipAction);
+            Assert.Single(skip.Conditions);
+        });
+    }
+
+    /// 구조 변경 — 새 Work 만 트리에 추가되고 기존 행은 같은 객체로 남아야 한다.
+    [Fact]
+    public void Structural_change_adds_tree_row_and_reuses_the_rest()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var (vm, store, workIds) = SetupSystemTabWithWorks(2);
+            var treeBefore = FlattenTree(vm.ControlTreeRoots).ToArray();
+
+            var flowId = Queries.getWork(workIds[0], store).Value.ParentId;
+            store.AddWork("WorkAdded", flowId);
+            StaTestRunner.PumpPendingUi();
+
+            var treeAfter = FlattenTree(vm.ControlTreeRoots).ToArray();
+            Assert.Equal(treeBefore.Length + 1, treeAfter.Length);
+            foreach (var before in treeBefore)
+                Assert.Contains(treeAfter, n => ReferenceEquals(n, before));
+            Assert.Contains(treeAfter, n => n.Name.EndsWith("WorkAdded", StringComparison.Ordinal));
+        });
+    }
+
+    /// 삭제 — 없어진 Work 행만 빠지고 나머지는 같은 객체로 남아야 한다.
+    [Fact]
+    public void Deleting_a_work_drops_only_that_tree_row()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var (vm, store, workIds) = SetupSystemTabWithWorks(3);
+            var treeBefore = FlattenTree(vm.ControlTreeRoots).ToArray();
+
+            store.RemoveEntities(new[] { Tuple.Create(EntityKind.Work, workIds[1]) });
+            StaTestRunner.PumpPendingUi();
+
+            var treeAfter = FlattenTree(vm.ControlTreeRoots).ToArray();
+            Assert.DoesNotContain(treeAfter, n => n.Id == workIds[1]);
+            foreach (var before in treeBefore.Where(n => n.Id != workIds[1]))
+                Assert.Contains(treeAfter, n => ReferenceEquals(n, before));
+        });
+    }
+
+    private static IEnumerable<EntityNode> FlattenTree(IEnumerable<EntityNode> roots)
+    {
+        foreach (var n in roots)
+        {
+            yield return n;
+            foreach (var c in FlattenTree(n.Children)) yield return c;
+        }
     }
 
     // ─── 헬퍼 ────────────────────────────────────────────────────────
