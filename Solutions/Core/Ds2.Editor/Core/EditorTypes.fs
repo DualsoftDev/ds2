@@ -46,6 +46,10 @@ type UndoTransaction = {
     Label: string
     Records: UndoRecord list
     AffectedEntityIds: Guid list
+    /// 이 트랜잭션의 Undo/Redo 클로저가 붙들고 있는 엔티티 스냅샷의 크기 합(바이트 근사치).
+    /// UndoRedoManager 의 용량 상한이 이 값을 합산해 오래된 트랜잭션부터 버린다.
+    /// 스냅샷을 만들지 않는 레코드만 들어 있으면 0.
+    ApproxSnapshotBytes: int64
     /// Undo/Redo 적용 시 StoreRefreshed(heavy=tree+캔버스 재구축) 대신 발행할 가벼운 이벤트.
     /// pure 이동(좌표만 변경) 등 visual tree 재구축이 불필요한 트랜잭션에 설정한다.
     /// None 이면 종전대로 StoreRefreshed 발행.

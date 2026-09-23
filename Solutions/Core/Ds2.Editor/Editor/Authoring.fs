@@ -23,6 +23,11 @@ module internal StoreAuthoring =
         | Some ids -> if not (ids.Contains id) then ids.Add(id)
         | None -> ()
 
+    /// 방금 뜬 undo 스냅샷의 크기를 진행 중 트랜잭션에 더한다. 용량 상한의 계산 근거.
+    let private recordSnapshotBytes (store: DsStore) (bytes: int) =
+        let editorState = state store
+        editorState.CurrentSnapshotBytes <- editorState.CurrentSnapshotBytes + int64 bytes
+
     // Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md
     // (`§1.3 hook` 표기는 본 doc 참조)
 
@@ -36,12 +41,13 @@ module internal StoreAuthoring =
         let affectedIds = ResizeArray<Guid>()
         editorState.CurrentRecords <- Some records
         editorState.CurrentAffectedIds <- Some affectedIds
+        editorState.CurrentSnapshotBytes <- 0L
 
         try
             try
                 let result = action()
                 if records.Count > 0 then
-                    editorState.UndoManager.Push({ Label = label; Records = Seq.toList records; AffectedEntityIds = Seq.toList affectedIds; LightEventOnUndo = None })
+                    editorState.UndoManager.Push({ Label = label; Records = Seq.toList records; AffectedEntityIds = Seq.toList affectedIds; ApproxSnapshotBytes = editorState.CurrentSnapshotBytes; LightEventOnUndo = None })
                     // round-trip §1.3 hook: transaction commit 성공 + 실 변경 발생 시점.
                     // records.Count = 0 이면 wizard 빈 apply / read-only 등 — store 상태 무변경이므로 ++ skip.
                     store.BumpRevision()
@@ -50,6 +56,7 @@ module internal StoreAuthoring =
             with ex ->
                 editorState.CurrentRecords <- None
                 editorState.CurrentAffectedIds <- None
+                editorState.CurrentSnapshotBytes <- 0L
                 for i in records.Count - 1 .. -1 .. 0 do
                     records.[i].Undo()
                 log.Error($"Transaction failed: {label} - {ex.Message}", ex)
@@ -57,11 +64,13 @@ module internal StoreAuthoring =
         finally
             editorState.CurrentRecords <- None
             editorState.CurrentAffectedIds <- None
+            editorState.CurrentSnapshotBytes <- 0L
 
     let trackAdd<'T when 'T :> DsEntity> (store: DsStore) (dict: Dictionary<Guid, 'T>) (entity: 'T) =
-        let backup = DeepCopyHelper.backupEntityAs entity
+        let backup, backupBytes = DeepCopyHelper.backupEntitySizedAs entity
         dict.[entity.Id] <- entity
         recordAffectedId store entity.Id
+        recordSnapshotBytes store backupBytes
         recordUndo store {
             Undo = fun () -> dict.Remove(entity.Id) |> ignore
             Redo = fun () -> dict.[entity.Id] <- backup
@@ -71,9 +80,10 @@ module internal StoreAuthoring =
     let trackRemove<'T when 'T :> DsEntity> (store: DsStore) (dict: Dictionary<Guid, 'T>) (id: Guid) =
         match dict.TryGetValue(id) with
         | true, entity ->
-            let backup = DeepCopyHelper.backupEntityAs entity
+            let backup, backupBytes = DeepCopyHelper.backupEntitySizedAs entity
             dict.Remove(id) |> ignore
             recordAffectedId store id
+            recordSnapshotBytes store backupBytes
             recordUndo store {
                 Undo = fun () -> dict.[id] <- backup
                 Redo = fun () -> dict.Remove(id) |> ignore
@@ -84,10 +94,11 @@ module internal StoreAuthoring =
     let trackMutate<'T when 'T :> DsEntity> (store: DsStore) (dict: Dictionary<Guid, 'T>) (id: Guid) (mutate: 'T -> unit) =
         match dict.TryGetValue(id) with
         | true, entity ->
-            let oldSnapshot = DeepCopyHelper.backupEntityAs entity
+            let oldSnapshot, oldBytes = DeepCopyHelper.backupEntitySizedAs entity
             mutate entity
-            let newSnapshot = DeepCopyHelper.backupEntityAs entity
+            let newSnapshot, newBytes = DeepCopyHelper.backupEntitySizedAs entity
             recordAffectedId store id
+            recordSnapshotBytes store (oldBytes + newBytes)
             recordUndo store {
                 Undo = fun () -> dict.[id] <- oldSnapshot
                 Redo = fun () -> dict.[id] <- newSnapshot

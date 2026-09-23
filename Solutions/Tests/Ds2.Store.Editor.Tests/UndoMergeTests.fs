@@ -10,10 +10,10 @@ let private dummyRecord label = { Undo = noop; Redo = noop; Description = label 
 
 [<Fact>]
 let ``MergeTop combines two transactions into one`` () =
-    let mgr = UndoRedoManager(10)
+    let mgr = UndoRedoManager(10, 64L * 1024L * 1024L)
 
-    mgr.Push({ Label = "First"; Records = [dummyRecord "a"]; AffectedEntityIds = []; LightEventOnUndo = None })
-    mgr.Push({ Label = "Second"; Records = [dummyRecord "b"]; AffectedEntityIds = []; LightEventOnUndo = None })
+    mgr.Push({ Label = "First"; Records = [dummyRecord "a"]; AffectedEntityIds = []; ApproxSnapshotBytes = 0L; LightEventOnUndo = None })
+    mgr.Push({ Label = "Second"; Records = [dummyRecord "b"]; AffectedEntityIds = []; ApproxSnapshotBytes = 0L; LightEventOnUndo = None })
 
     Assert.Equal(2, mgr.UndoLabels.Length)
 
@@ -26,15 +26,15 @@ let ``MergeTop combines two transactions into one`` () =
 let ``MergeTop preserves record order for undo and redo`` () =
     let trace = ResizeArray<string>()
 
-    let mgr = UndoRedoManager(10)
+    let mgr = UndoRedoManager(10, 64L * 1024L * 1024L)
     let createRec = { Undo = fun () -> trace.Add("undo-create")
                       Redo = fun () -> trace.Add("redo-create")
                       Description = "c" }
     let moveRec =   { Undo = fun () -> trace.Add("undo-move")
                       Redo = fun () -> trace.Add("redo-move")
                       Description = "m" }
-    mgr.Push({ Label = "Create"; Records = [createRec]; AffectedEntityIds = []; LightEventOnUndo = None })
-    mgr.Push({ Label = "Move"; Records = [moveRec]; AffectedEntityIds = []; LightEventOnUndo = None })
+    mgr.Push({ Label = "Create"; Records = [createRec]; AffectedEntityIds = []; ApproxSnapshotBytes = 0L; LightEventOnUndo = None })
+    mgr.Push({ Label = "Move"; Records = [moveRec]; AffectedEntityIds = []; ApproxSnapshotBytes = 0L; LightEventOnUndo = None })
 
     mgr.MergeTop(2, "Create+Move")
 
@@ -58,8 +58,8 @@ let ``MergeTop preserves record order for undo and redo`` () =
 
 [<Fact>]
 let ``MergeTop with insufficient stack does nothing`` () =
-    let mgr = UndoRedoManager(10)
-    mgr.Push({ Label = "Only"; Records = [dummyRecord "x"]; AffectedEntityIds = []; LightEventOnUndo = None })
+    let mgr = UndoRedoManager(10, 64L * 1024L * 1024L)
+    mgr.Push({ Label = "Only"; Records = [dummyRecord "x"]; AffectedEntityIds = []; ApproxSnapshotBytes = 0L; LightEventOnUndo = None })
 
     mgr.MergeTop(2, "Merged")
 

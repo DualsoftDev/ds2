@@ -62,9 +62,14 @@ module DeepCopyHelper =
     let private jsonOptions = JsonOptions.createDeepCopyOptions ()
 
     // private 유지 — obj/Type 기반 비타입 API를 외부에 노출하지 않음
-    let private cloneViaJson (entity: obj) (t: Type) : obj =
+    // 크기는 직렬화 문자열이 차지하는 메모리(UTF-16, 문자당 2바이트) 근사치다. 복사본이 실제로 붙드는
+    // 힙과 1:1 은 아니지만 비례하므로 undo 이력 용량 예산의 단위로 쓴다 — 직렬화가 이미 끝난 자리라 공짜.
+    let private cloneViaJsonSized (entity: obj) (t: Type) : obj * int =
         let json = JsonSerializer.Serialize(entity, t, jsonOptions)
-        JsonSerializer.Deserialize(json, t, jsonOptions)
+        JsonSerializer.Deserialize(json, t, jsonOptions), json.Length * 2
+
+    let private cloneViaJson (entity: obj) (t: Type) : obj =
+        fst (cloneViaJsonSized entity t)
 
     /// Record, DU 등 DsEntity가 아닌 타입의 깊은 복사 (컴파일 타임 타입 사용)
     let jsonClone<'T> (value: 'T) : 'T =
@@ -77,6 +82,12 @@ module DeepCopyHelper =
     /// Undo 백업용 — 원본 GUID 유지 (ID 재할당 안 함)
     let backupEntityAs<'T when 'T :> DsEntity> (entity: 'T) : 'T =
         cloneViaJson entity (entity.GetType()) :?> 'T
+
+    /// Undo 백업용 — 복사본과 그 크기 근사치(바이트) 를 함께 돌려준다.
+    /// undo 이력의 용량 상한(UndoRedoManager) 이 이 값을 예산 단위로 쓴다.
+    let backupEntitySizedAs<'T when 'T :> DsEntity> (entity: 'T) : 'T * int =
+        let clone, bytes = cloneViaJsonSized entity (entity.GetType())
+        (clone :?> 'T), bytes
 
     /// 엔티티 복제용 DeepCopy — 새 GUID 할당
     let jsonCloneEntity<'T when 'T :> DsEntity> (entity: 'T) : 'T =

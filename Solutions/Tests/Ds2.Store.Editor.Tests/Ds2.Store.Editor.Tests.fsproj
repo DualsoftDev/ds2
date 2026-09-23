@@ -59,6 +59,7 @@
     <Compile Include="StoreRevisionTests.fs" />
     <Compile Include="DeviceDurationQueryTests.fs" />
     <Compile Include="AddTargetQueriesTests.fs" />
+    <Compile Include="UndoCapacityTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
