@@ -27,9 +27,12 @@ public partial class SimulationPanelState
         CollectTokenUnreachableWarning(sections, index);
         CollectWarning(sections, "Reset 연결 누락", WarningSeverity.Yellow,
             GraphValidator.findUnresetWorks(index), index: index);
+        // Device Work 는 Call 이 구동한다 — Token Source 로 지정할 수 있는 것은 Control 뿐이라
+        // Device 를 후보로 세워 두면 손쓸 수 없는 항목만 목록을 채운다.
         CollectWarning(sections, "Source 후보", WarningSeverity.Yellow,
             GraphValidator.findSourceCandidates(index),
-            "(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)", index);
+            "(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)", index,
+            controlOnly: true);
         CollectRaceConditionWarning(sections, index);
         CollectDurationWarning(sections, index);
         CollectTokenSpecWarning(sections, index);
@@ -79,15 +82,25 @@ public partial class SimulationPanelState
         }
     }
 
+    /// <param name="controlOnly">
+    /// Device(수동 시스템) Work 를 경고에서 빼고 Control 만 남긴다.
+    /// Device Work 는 Call 이 구동하므로 Token Source 로 지정할 대상이 아니다 —
+    /// 그런 Work 를 «Source 후보» 로 세워 두면 고칠 수 없는 항목만 늘어난다.
+    /// </param>
     private void CollectWarning(
         List<GraphWarningSection> sections,
         string title,
         WarningSeverity severity,
         IEnumerable<Tuple<Guid, string, string>> items,
         string? detail = null,
-        SimIndex? index = null)
+        SimIndex? index = null,
+        bool controlOnly = false)
     {
         var itemList = items.ToList();
+        if (controlOnly && index != null)
+            itemList = itemList.Where(i => index.ActiveSystemNames.Contains(i.Item2)).ToList();
+
+        // 캔버스 마킹도 걸러 낸 뒤의 목록을 따른다 — 경고에 없는 노드가 칠해지면 안 된다.
         foreach (var item in itemList)
             _warningGuids.Add(item.Item1);
 
