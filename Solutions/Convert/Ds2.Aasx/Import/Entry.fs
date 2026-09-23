@@ -244,7 +244,7 @@ module AasxImporter =
                         (newProject, newStore)
 
                 let entries = readAllZipEntries path |> Option.defaultValue (System.Collections.Generic.Dictionary<string, byte[]>())
-                AasxProjectCache.set project (box env) entries
+                AasxProjectCache.set store project (box env) entries
 
                 env.Submodels
                 |> Seq.tryFind (fun sm -> sm.IdShort = NameplateSubmodelIdShort)

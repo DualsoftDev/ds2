@@ -533,7 +533,7 @@ module AasxExporter =
 
     let internal exportToAasxFile (store: DsStore) (project: Project) (iriPrefix: string) (outputPath: string) (autoCreateEmptySubmodels: bool) : unit =
         let prefix = if String.IsNullOrWhiteSpace(iriPrefix) then DefaultIriPrefix else iriPrefix
-        let thumbnail = selectThumbnail (AasxProjectCache.tryGetEntries project)
+        let thumbnail = selectThumbnail (AasxProjectCache.tryGetEntries store project)
 
         if autoCreateEmptySubmodels then
             let activeSystems = Queries.activeSystemsOf project.Id store
@@ -610,7 +610,7 @@ module AasxExporter =
             shell :> IAssetAdministrationShell
 
         let (finalSubmodels, finalShells, finalConceptDescs, projectSmRefs) =
-            match AasxProjectCache.tryGetEnvironment project with
+            match AasxProjectCache.tryGetEnvironment store project with
             | Some envObj ->
                 try
                     let originalEnv = cloneEnvironment (envObj :?> Environment)
@@ -784,8 +784,8 @@ module AasxExporter =
                 assetAdministrationShells = finalShells,
                 conceptDescriptions = finalConceptDescs)
         sanitizeEnvironment env
-        writeEnvironment env outputPath thumbnail (AasxProjectCache.tryGetEntries project)
-        AasxProjectCache.updateEnvironment project (box env)
+        writeEnvironment env outputPath thumbnail (AasxProjectCache.tryGetEntries store project)
+        AasxProjectCache.updateEnvironment store project (box env)
 
     let internal exportDeviceAasx (store: DsStore) (project: Project) (device: DsSystem) (iriPrefix: string) (outputPath: string) : unit =
         let prefix = if String.IsNullOrWhiteSpace(iriPrefix) then DefaultIriPrefix else iriPrefix
@@ -880,7 +880,7 @@ module AasxExporter =
                 submodels = submodels,
                 assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
                 conceptDescriptions = conceptDescs)
-        let entries = AasxProjectCache.tryGetEntries project
+        let entries = AasxProjectCache.tryGetEntries store project
         let thumbnail = selectThumbnail entries
         writeEnvironment env outputPath thumbnail entries
         log.Info($"분리 저장 완료: {passiveSystems.Length}개 Device → {devicesDir}")

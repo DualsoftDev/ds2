@@ -252,7 +252,7 @@ public sealed partial class SimulationReportOrchestrator : ObservableObject
         while (CapturedRuns.Count > MaxCapturedRuns)
             CapturedRuns.RemoveAt(CapturedRuns.Count - 1);
 
-        if (!HasOriginalTechnicalData(project))
+        if (!HasOriginalTechnicalData(store, project))
             SimulationSnapshotBuilder.setSimulationResult(project, scenario);
 
         return scenario;
@@ -262,10 +262,11 @@ public sealed partial class SimulationReportOrchestrator : ObservableObject
     public void ApplySelectedScenario(SimulationResultSnapshotTypes.SimulationScenario scenario)
     {
         if (scenario == null) return;
-        var projects = Queries.allProjects(_storeProvider());
+        var store = _storeProvider();
+        var projects = Queries.allProjects(store);
         if (projects.IsEmpty) return;
         var project = projects.Head;
-        if (HasOriginalTechnicalData(project)) return;
+        if (HasOriginalTechnicalData(store, project)) return;
         SimulationSnapshotBuilder.setSimulationResult(project, scenario);
     }
 
@@ -279,11 +280,11 @@ public sealed partial class SimulationReportOrchestrator : ObservableObject
         project.SimulationResult = FSharpOption<SimulationResultSnapshotTypes.SimulationScenario>.None;
     }
 
-    private static bool HasOriginalTechnicalData(Project project)
+    private static bool HasOriginalTechnicalData(DsStore store, Project project)
     {
         try
         {
-            var envOpt = AasxProjectCache.tryGetEnvironment(project);
+            var envOpt = AasxProjectCache.tryGetEnvironment(store, project);
             if (!FSharpOption<object>.get_IsSome(envOpt)) return false;
             if (envOpt.Value is not AasCore.Aas3_1.Environment env || env.Submodels == null) return false;
             return env.Submodels.Any(sm =>

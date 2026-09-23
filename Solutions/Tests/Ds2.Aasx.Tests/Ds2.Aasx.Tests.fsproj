@@ -15,6 +15,7 @@
     <Compile Include="KpiExportIntegrationTests.fs" />
     <Compile Include="OpcUaScaleTests.fs" />
     <Compile Include="NewProjectExportTests.fs" />
+    <Compile Include="AasxProjectCacheTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
