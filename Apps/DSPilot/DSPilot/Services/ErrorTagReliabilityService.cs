@@ -127,7 +127,7 @@ public sealed class ErrorTagReliabilityService
         var globalCount = bindings.Count - bound.Count;
 
         if (!_project.IsLoaded || bound.Count == 0)
-            return new Result(RollUp([], [], 0), [], [], [], [], 0, globalCount, 0, 0, [], _project.IsLoaded);
+            return new Result(Combine([]), [], [], [], [], 0, globalCount, 0, 0, [], _project.IsLoaded);
 
         var currentSystems = CurrentSystems();
         var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
@@ -267,14 +267,13 @@ public sealed class ErrorTagReliabilityService
             .OrderByDescending(x => x.Totals.TotalDownMs)
             .ToList();
 
-        // 전체 값 — System 이 여럿이면 물리적 실체가 없을 수 있다(현장 UB 라인 + SIDE 라인이 한 프로젝트에
-        // 있었다). 숫자는 계산해 두되 화면이 System 수를 보고 판단한다.
-        var allFlows = deviceFlows.SelectMany(x => x.Flows).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        // 전체 값 = PLC 값들의 <b>합산</b>. 디바이스를 통째로 union 하면 서로 다른 라인이 동시에 선 것까지
+        // 한 번으로 깎인다 — 실측에서 고장 116→87(25%), 정지 47.5h→40.8h(14%)가 사라졌다.
+        // 라인끼리는 동시에 서도 두 번의 사고이고 가동시간도 별개 자원이다.
         var multiFlowDevices = deviceFlows.Count(x => x.Flows.Count > 1);
 
         return new Result(
-            RollUp(devices, [.. deviceFlows.SelectMany(x => x.Stops)],
-                   OperatingMsUnion(FlowInputs(allFlows, flowFacts), fromMs, toMs)),
+            Combine(systemScopes),
             flowScopes, systemScopes, devices, verdicts,
             unboundAddresses.Count, globalCount, skippedChanged, multiFlowDevices, [.. staleSystems], true);
     }

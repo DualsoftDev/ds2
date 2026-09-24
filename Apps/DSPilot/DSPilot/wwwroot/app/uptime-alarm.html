@@ -157,18 +157,7 @@
                                         <h4 style="font-size:0.74rem;" title="해소 뒤 그 디바이스를 쓰는 설비의 사이클이 다시 시작되면 복구로 봅니다">고장 지표 <span style="font-weight:400;color:var(--color-text-secondary);">— 등록한 이상알람TAG 기준</span></h4>
                                     </div>
 
-                                    <!-- PLC 가 여럿이면 합산 카드 대신 스코프 표를 보인다(실체 없는 숫자 금지). -->
-                                    <template x-if="relMultiSystem">
-                                        <div class="settings-note" style="border-left:3px solid var(--color-warning);padding-left:10px;margin-bottom:10px;">
-                                            <small>
-                                                <strong>PLC <span x-text="rel.systems.length"></span>대에 걸친 조회라 합산 값을 내지 않습니다.</strong>
-                                                DSPilot 에는 '라인' 개념이 없어 서로 다른 라인이 한 프로젝트에 섞여 있을 수 있고,
-                                                가동시간이 다른 집단을 합치면 값이 왜곡됩니다 — 아래 설비·PLC 단위로 보세요.
-                                            </small>
-                                        </div>
-                                    </template>
-
-                                    <div class="up-utkpi-row" style="margin-bottom:10px;" x-show="!relMultiSystem">
+                                    <div class="up-utkpi-row" style="margin-bottom:10px;">
                                         <div class="up-utkpi" :title="'복구 완료 ' + rel.recoveredCount + '건의 평균 — 사건 발생에서 재가동까지. 야간·주말을 빼지 않은 달력 시간입니다.'">
                                             <div class="up-utkpi-label">평균 정지 시간 (eMTTR)</div>
                                             <div class="up-utkpi-value" x-text="relValue(rel.eMttrMs, rel.recoveredCount)"
@@ -183,18 +172,12 @@
                                         </div>
                                     </div>
 
-                                    <!-- ★리네임으로 과거가 끊긴 경우 — 조용히 넘어가면 사용자는 '아직 안 묶었나' 로 읽는다.
-                                         실제로는 이미 묶었는데 System 이름이 바뀌어 키가 안 맞는 것이다(2026-09-21 현장). -->
-                                    <template x-if="rel.staleSystems && rel.staleSystems.length > 0">
-                                        <div class="settings-note" style="border-left:3px solid var(--color-warning);padding-left:10px;margin-bottom:10px;">
-                                            <small>
-                                                <strong>일부 구간이 집계에서 빠졌습니다.</strong>
-                                                <span x-text="rel.staleSystems.join(' · ')"></span> 은(는) 현재 모델에 없는 System 이름입니다 —
-                                                AASX 교체로 이름이 바뀌면 그 이전 알람이 디바이스 귀속과 이어지지 않습니다.
-                                                <a class="ds-selbar-link" href="/app/settings.html?tab=general#user-tags">설정 ▸ 사용자 태그에서 확인</a>
-                                            </small>
-                                        </div>
-                                    </template>
+                                    <!-- 끊긴 구간 — 칩 하나로. 근거는 툴팁에 둔다. -->
+                                    <div style="margin-bottom:10px;" x-show="rel.staleSystems && rel.staleSystems.length > 0">
+                                        <a class="chip chip-warning" href="/app/settings.html?tab=general#user-tags"
+                                           :title="'현재 모델에 없는 시스템 이름입니다 — ' + (rel.staleSystems || []).join(' · ') + ' 구간의 알람이 디바이스 귀속과 이어지지 않습니다.'"
+                                           x-text="'과거 구간 제외 ' + (rel.staleSystems ? rel.staleSystems.length : 0)"></a>
+                                    </div>
 
                                     <!-- 분해 — 숫자 하나만 내놓고 틀리는 것보다 낫다. 칩 클릭 = 그 부류만 보기.
                                          '무정지 경고' 가 이 블록의 실질 산출물이다(설비가 서지도 않았는데 고장으로 세던 것). -->
@@ -241,22 +224,13 @@
 
                                     <!-- 스코프 롤업 — 설비(flow)가 현장 언어이고, 한 flow 안에서는 가동시간이
                                          공유되어 집계가 가장 안전하다. PLC 는 그 위이자 지금 있는 가장 위 스코프다. -->
-                                    <!-- 공유 디바이스는 그걸 쓰는 설비 모두에 센다 — 그 디바이스가 고장 나면
-                                         설비가 전부 서기 때문이다. 그래서 설비 행의 합이 전체보다 클 수 있다. -->
-                                    <div class="settings-note" style="margin-bottom:8px;">
-                                        <small>
-                                            스코프 행은 <strong>동시에 선 것을 한 번으로</strong> 셉니다 — 두 디바이스가 같은 시각에 서면 그 설비는 한 번 선 것입니다.
-                                            그래서 디바이스 행의 합보다 작습니다.
-                                            <span x-show="rel.multiFlowDeviceCount > 0"
-                                                  x-text="' 또 디바이스 ' + rel.multiFlowDeviceCount + '대가 설비 여러 곳에 쓰여, 그 고장은 해당 설비 모두에 셉니다.'"></span>
-                                        </small>
-                                    </div>
-
                                     <template x-for="grp in [{k:'설비', rows: rel.flows}, {k:'PLC', rows: rel.systems}]" :key="grp.k">
                                         <div style="overflow-x:auto;margin-bottom:12px;" x-show="grp.rows && grp.rows.length > 0">
                                             <table class="ds-table ut-table">
                                                 <thead><tr>
-                                                    <th x-text="grp.k"></th><th>고장</th><th>복구</th><th>경고</th>
+                                                    <th x-text="grp.k"></th>
+                                                    <th title="동시에 선 것은 한 번으로 셉니다. 여러 설비가 함께 쓰는 디바이스의 고장은 그 설비 모두에 셉니다.">고장</th>
+                                                    <th>복구</th><th title="알람은 울렸지만 설비가 돌고 있던 건">경고</th>
                                                     <th title="그 스코프의 flow 가동 구간 합집합 — 겹친 시간은 한 번만 셉니다">가동시간</th>
                                                     <th>eMTBF</th><th>eMTTR</th><th>총 정지</th>
                                                 </tr></thead>
