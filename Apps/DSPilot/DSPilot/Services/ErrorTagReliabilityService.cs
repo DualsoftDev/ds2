@@ -46,6 +46,14 @@ public sealed class ErrorTagReliabilityService
     private readonly UserTagAlertService _alertService;
     private readonly ILogger<ErrorTagReliabilityService> _logger;
 
+    // AASX 를 통째로 훑는 두 색인은 모델이 안 바뀌면 같은 결과다. 10초 폴링마다 flow→work→call 전체와
+    // 정의 수천 건을 다시 도는 비용이 아까워 모델 로드 시각으로 캐시한다(모델이 바뀌면 자동 무효).
+    private readonly object _cacheLock = new();
+    private DateTime? _cacheStamp;
+    private (Dictionary<(string, string), List<string>> ByKey, Dictionary<string, List<string>> ByDevice)? _flowsCache;
+    private Dictionary<string, string>? _namesCache;
+    private List<(string Id, string Name, string Endpoint)>? _systemsCache;
+
     public ErrorTagReliabilityService(
         IUserTagAlertRepository alerts, KpiRepository kpi, DsProjectService project,
         AppSettingsService settings, UserTagAlertService alertService,
@@ -129,13 +137,14 @@ public sealed class ErrorTagReliabilityService
         if (!_project.IsLoaded || bound.Count == 0)
             return new Result(Combine([]), [], [], [], [], 0, globalCount, 0, 0, [], _project.IsLoaded);
 
-        var currentSystems = CurrentSystems();
+        InvalidateIfModelReloaded();
+        var currentSystems = CachedSystems();
         var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
             bindings, currentSystems, settings.AbnormalAlarm.SystemAliases);
 
         // (System, 디바이스) → flow 집합. 한 디바이스가 여러 flow 에 걸치는 것이 Ds2 모델의 정상이라 집합으로 받는다.
         // ★System 까지 키에 넣는 이유 — 디바이스 별칭은 PLC 가 둘이면 겹칠 수 있다(실측 주소 충돌 12%).
-        var (flowsByKey, flowsByDevice) = BuildFlowsByDevice();
+        var (flowsByKey, flowsByDevice) = CachedFlowsByDevice();
 
         var fromMs = KpiTime.ToMs(fromUtc);
         var toMs = KpiTime.ToMs(toUtc);
@@ -188,7 +197,7 @@ public sealed class ErrorTagReliabilityService
         var linkAt = await LoadLinkConnectsAsync(fromMs, cycleToMs, ct);
 
         var nowMs = KpiTime.NowMs();
-        var nameBySignal = BuildCurrentNames();
+        var nameBySignal = CachedNames();
         var devices = new List<DeviceSummary>();
         // (디바이스, 쓰이는 flow 들, 집계 대상 정지 구간) — 스코프 롤업이 이 셋 위에서 돈다.
         var deviceFlows = new List<(DeviceSummary Summary, List<string> Flows, List<(long, long)> Stops)>();
@@ -358,6 +367,44 @@ public sealed class ErrorTagReliabilityService
             if (facts.TryGetValue(flow, out var f) && f.Starts.BinarySearch(restartMs) >= 0)
                 return flow;
         return null;
+    }
+
+    /// <summary>모델이 다시 로드됐으면 색인을 버린다 — 그 외에는 폴링마다 재사용한다.</summary>
+    private void InvalidateIfModelReloaded()
+    {
+        var stamp = _project.LastLoadedUtc;
+        lock (_cacheLock)
+        {
+            if (_cacheStamp == stamp) return;
+            _cacheStamp = stamp;
+            _flowsCache = null;
+            _namesCache = null;
+            _systemsCache = null;
+        }
+    }
+
+    private (Dictionary<(string, string), List<string>>, Dictionary<string, List<string>>) CachedFlowsByDevice()
+    {
+        lock (_cacheLock) { if (_flowsCache is { } c) return c; }
+        var built = BuildFlowsByDevice();
+        lock (_cacheLock) { _flowsCache = built; }
+        return built;
+    }
+
+    private Dictionary<string, string> CachedNames()
+    {
+        lock (_cacheLock) { if (_namesCache is { } c) return c; }
+        var built = BuildCurrentNames();
+        lock (_cacheLock) { _namesCache = built; }
+        return built;
+    }
+
+    private List<(string Id, string Name, string Endpoint)> CachedSystems()
+    {
+        lock (_cacheLock) { if (_systemsCache is { } c) return c; }
+        var built = CurrentSystems();
+        lock (_cacheLock) { _systemsCache = built; }
+        return built;
     }
 
     /// <summary>가동시간 합집합 계산에 넘길 (시작 시각, 리듬) 쌍.</summary>

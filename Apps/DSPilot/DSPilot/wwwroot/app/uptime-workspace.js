@@ -688,6 +688,9 @@
                         const r = this.rangeForPeriod();
                         const qs = new URLSearchParams({ from: r.from, to: r.to });
                         if (this.curSystem) qs.set('system', this.curSystem);
+                        // 이력 표에 실을 갈래만 받는다 — 제외 행까지 늘 실어 오면 응답이 1MB 를 넘는다.
+                        // 요약·스코프·디바이스는 어느 갈래를 골라도 전체 기준이라 화면이 흔들리지 않는다.
+                        if (this.relState.startsWith('skip:')) qs.set('alerts', this.relState.slice(5));
                         const dto = await this.apiGet('/api/user-tags/reliability?' + qs.toString());
                         if (seq === this._relSeq) this.rel = dto;   // stale 응답 폐기(기간 변경 경합)
                     } catch (e) {
@@ -695,16 +698,22 @@
                     }
                 },
                 // 상태 칩 클릭 = 그 상태만 보기(같은 칩 다시 누르면 해제).
-                setRelState(s) { this.relState = this.relState === s ? '' : s; this.relLimit = 50; },
+                // 갈래가 바뀌면 그 갈래를 다시 받아 온다(제외 행은 기본 응답에 없다).
+                setRelState(s) {
+                    const next = this.relState === s ? '' : s;
+                    const refetch = next.startsWith('skip:') || this.relState.startsWith('skip:');
+                    this.relState = next;
+                    this.relLimit = 50;
+                    if (refetch) this.loadReliability(true);
+                },
                 // 건별 표는 50건씩 — 잘린 건수를 숨기지 않고 "N건 중 50건 표시 · 더보기" 로 밝힌다.
                 relMore() { this.relLimit += 50; },
                 // 칩 하나로 두 축을 거른다 — 집계에서 빠진 이유(skip=…) 와 회복 상태(state) 다.
-                // 빠진 이유가 먼저다: 무정지 경고를 '복구 완료' 로도 셀 수 있어 두 축을 겹치면 합이 안 맞는다.
+                // skip 갈래는 서버가 이미 그것만 보내 주므로 여기서 다시 거르지 않는다.
                 get relRows() {
                     const rows = this.rel?.alerts || [];
                     const s = this.relState;
-                    if (!s) return rows;
-                    if (s.startsWith('skip:')) return rows.filter(a => a.skip === s.slice(5));
+                    if (!s || s.startsWith('skip:')) return rows;
                     return rows.filter(a => a.skip === 'None' && a.state === s);
                 },
                 // 표본 미달이면 숫자 대신 근거를 보인다 — 0 이나 '—' 로 두면 "고장이 없다" 로 읽힌다.
