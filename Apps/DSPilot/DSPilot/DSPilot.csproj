@@ -1,10 +1,10 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>1.0.1.63</Version>
+    <Version>1.0.1.64</Version>
     <ApplicationIcon>DSPilot.ico</ApplicationIcon>
     <NoWarn>MSB3277</NoWarn>
     <!-- Tailwind(stitch) 빌드 의존성: node_modules 를 SDK 기본 glob(**/*.json 등)에서 제외.
