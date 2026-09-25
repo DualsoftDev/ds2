@@ -158,26 +158,49 @@ public sealed class ErrorTagReliabilityService
         // 태그를 디바이스로 접는다 — 여기서부터 계산 단위가 디바이스다.
         var byDevice = new Dictionary<(string System, string Device), List<UserTagAlertRecord>>();
         var unboundAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var currentNames = currentSystems.Select(s => s.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var staleSystems = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // 알람에 박제된 System 표식 → 현재 모델의 이름. 태그 이름과 같은 원칙이다(doc/31 §6.4) —
+        // 라벨은 언제나 현재 것으로 통일해야 옛 이름의 행이 같은 PLC 로 모인다. 못 찾으면 '끊긴 이름'.
+        var nameByEndpoint = currentSystems.Where(x => x.Endpoint.Length > 0)
+            .ToDictionary(x => x.Endpoint, x => x.Name, StringComparer.OrdinalIgnoreCase);
+        var nameById = currentSystems.Where(x => x.Id.Length > 0)
+            .ToDictionary(x => AbnormalDeviceFilterHelpers.NormId(x.Id), x => x.Name, StringComparer.OrdinalIgnoreCase);
+        var nameByName = currentSystems.Select(x => x.Name)
+            .ToDictionary(x => x, x => x, StringComparer.OrdinalIgnoreCase);
+
+        string? CurrentSystemName(UserTagAlertRecord r)
+        {
+            if (!string.IsNullOrWhiteSpace(r.Endpoint) && nameByEndpoint.TryGetValue(r.Endpoint.Trim(), out var byEp))
+                return byEp;
+            var gid = AbnormalDeviceFilterHelpers.NormId(r.SystemId.ToString());
+            if (gid.Length > 0 && nameById.TryGetValue(gid, out var byId)) return byId;
+            var nm = (r.SystemName ?? string.Empty).Trim();
+            return nm.Length > 0 && nameByName.TryGetValue(nm, out var byNm) ? byNm : null;
+        }
 
         foreach (var r in records)
         {
-            var sysName = r.SystemName ?? string.Empty;
+            var recorded = r.SystemName ?? string.Empty;
             var address = r.TagAddress ?? string.Empty;
+            var current = CurrentSystemName(r);
+
+            // 어느 표식으로도 현재 모델에 닿지 못하면 그 구간은 끊긴 것이다 — 귀속 성공 여부와 별개다.
+            // (종전엔 이름만 비교해, 이름이 바뀐 PLC 가 스코프 표엔 옛 이름으로 뜨면서 동시에 '끊김' 으로도
+            //  올라왔다 — 현장 UB_#121_#134 → UB_121_134.)
+            if (current is null && recorded.Length > 0) staleSystems.Add(recorded);
 
             if (!AbnormalDeviceFilterHelpers.TryGetBoundDevice(
-                    deviceIndex, r.Endpoint, r.SystemId.ToString(), sysName, address, out var device)
+                    deviceIndex, r.Endpoint, r.SystemId.ToString(), recorded, address, out var device)
                 || device.Length == 0)
             {
                 // 미지정·전역 — 계산에서 빠진다. 커버리지 안내를 위해 태그 수만 센다.
-                if (!string.IsNullOrWhiteSpace(address)) unboundAddresses.Add(sysName + "|" + address);
-                // 현재 모델에 없는 System 이름이면 리네임으로 끊긴 것이다 — 조용히 넘기지 않는다.
-                if (sysName.Length > 0 && !currentNames.Contains(sysName)) staleSystems.Add(sysName);
+                if (!string.IsNullOrWhiteSpace(address)) unboundAddresses.Add(recorded + "|" + address);
                 continue;
             }
 
-            var key = (System: sysName, Device: device);
+            // 스코프 라벨은 현재 이름으로 — 옛 이름의 행도 같은 PLC 한 칸에 모인다.
+            var key = (System: current ?? recorded, Device: device);
             if (!byDevice.TryGetValue(key, out var list)) byDevice[key] = list = [];
             list.Add(r);
         }
