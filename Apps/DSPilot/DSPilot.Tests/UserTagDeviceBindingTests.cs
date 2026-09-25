@@ -24,45 +24,6 @@ public class UserTagDeviceBindingTests
         new() { System = system, TagAddress = address, Device = device };
 
     [Fact]
-    public void 미지정과_전역은_다르게_읽힌다()
-    {
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([B("Line1", "M950", "")]);
-
-        // 전역 — 항목이 있고 값이 빈 문자열.
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDeviceByName(index, "Line1", "M950", out var global));
-        Assert.Equal(string.Empty, global);
-
-        // 미지정 — 항목 자체가 없다. 빈 문자열로 접어 버리면 이 구분이 사라진다.
-        Assert.False(AbnormalDeviceFilterHelpers.TryGetBoundDeviceByName(index, "Line1", "M901", out _));
-    }
-
-    [Fact]
-    public void 같은_주소라도_System_이_다르면_다른_귀속이다()
-    {
-        // 멀티 PLC 에서 두 System 이 같은 주소를 정의할 수 있다. 주소만으로 묶으면 한쪽이 다른 쪽을 덮는다
-        // (UserTagFilters 가 안고 있는 약점 — 여기서는 반복하지 않는다).
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
-        [
-            B("Line1", "M901", "Conveyor1"),
-            B("Line2", "M901", "Press2"),
-        ]);
-
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDeviceByName(index, "Line1", "M901", out var d1));
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDeviceByName(index, "Line2", "M901", out var d2));
-        Assert.Equal("Conveyor1", d1);
-        Assert.Equal("Press2", d2);
-    }
-
-    [Fact]
-    public void System_과_주소는_대소문자를_무시하고_공백을_턴다()
-    {
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([B("  Line1 ", " m901 ", " Conveyor1 ")]);
-
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDeviceByName(index, "LINE1", "M901", out var device));
-        Assert.Equal("Conveyor1", device);
-    }
-
-    [Fact]
     public void 같은_키가_여러_번_오면_뒤엣것이_이긴다()
     {
         // 편집기는 그 System 의 최종 목록을 통째로 보낸다 — 마지막 값이 사용자의 의도다.
@@ -103,27 +64,6 @@ public class UserTagDeviceBindingTests
             b => { Assert.Equal("Line1", b.System); Assert.Equal("M100", b.TagAddress); },
             b => { Assert.Equal("Line1", b.System); Assert.Equal("M200", b.TagAddress); },
             b => { Assert.Equal("Line2", b.System); Assert.Equal("M100", b.TagAddress); });
-    }
-
-    [Fact]
-    public void 빈_색인과_빈_주소는_미지정으로_떨어진다()
-    {
-        Assert.False(AbnormalDeviceFilterHelpers.TryGetBoundDeviceByName(null, "Line1", "M901", out _));
-        Assert.False(AbnormalDeviceFilterHelpers.TryGetBoundDeviceByName(
-            AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([]), "Line1", "M901", out _));
-
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([B("Line1", "M901", "Conveyor1")]);
-        Assert.False(AbnormalDeviceFilterHelpers.TryGetBoundDeviceByName(index, "Line1", "  ", out _));
-    }
-
-    [Fact]
-    public void System_이_비어도_주소만으로_귀속이_선다()
-    {
-        // System 이름을 못 얻는 경로(구 데이터·단일 PLC 현장)에서도 태그를 묶을 수 있어야 한다.
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([B("", "M901", "Conveyor1")]);
-
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDeviceByName(index, null, "M901", out var device));
-        Assert.Equal("Conveyor1", device);
     }
 
     // ── CSV 왕복 ──
@@ -218,118 +158,24 @@ public class UserTagDeviceBindingTests
         Assert.Equal("디바이스", UserTagEditorSupport.CsvHeaderAlarm[^1]);
     }
 
-    // ── 리네임 내성 (2026-09-22) ──────────────────────────────────────────
-    // 2026-09-21 현장: AASX 교체로 System 이름이 ub1_#121_#134 → UB_#121_#134 로 바뀌자
-    // (이름, 주소) 복합키가 안 맞아 사흘치 2,000여 건이 통째로 지표에서 빠졌다(고장 0건).
-    // 게다가 조용히 일어나 화면에는 '미지정' 으로만 보였다.
-
-    private const string IdA = "11111111-1111-1111-1111-111111111111";
-    private const string IdB = "22222222-2222-2222-2222-222222222222";
-
-    private static UserTagDeviceBinding BG(string system, string systemId, string address, string device) =>
-        new() { System = system, SystemId = systemId, TagAddress = address, Device = device };
-
-    [Fact]
-    public void 이름이_바뀌어도_GUID_로_이어진다()
-    {
-        // 매핑은 새 이름으로 저장돼 있고, 과거 알람 행에는 옛 이름이 박제돼 있다.
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([BG("UB_#121", IdA, "%MW147.8", "R121-2")]);
-
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, IdA, "ub1_#121", "%MW147.8", out var d));
-        Assert.Equal("R121-2", d);
-    }
-
-    [Fact]
-    public void GUID_없이_저장된_옛_매핑도_현재_이름을_거쳐_이어진다()
-    {
-        // 이 필드 이전에 저장된 매핑은 SystemId 가 비어 있다 — 알람의 GUID → 현재 이름 → 이름 색인.
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
-            [B("UB_#121", "%MW147.8", "R121-2")],
-            currentSystems: [(IdA, "UB_#121", "")]);
-
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, IdA, "ub1_#121", "%MW147.8", out var d));
-        Assert.Equal("R121-2", d);
-    }
-
-    [Fact]
-    public void GUID_까지_재발급되면_별칭_이력이_받는다()
-    {
-        // 2026-09-08 에 AASX GUID 가 통째로 재발급된 전례가 있다 — GUID 하나로는 부족하다.
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
-            [BG("UB_#121", IdB, "%MW147.8", "R121-2")],
-            currentSystems: [(IdB, "UB_#121", "")],
-            aliases: [new SystemAlias { FromSystem = "ub1_#121", FromSystemId = IdA, ToSystem = "UB_#121", ToSystemId = IdB }]);
-
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, IdA, "ub1_#121", "%MW147.8", out var d));
-        Assert.Equal("R121-2", d);
-    }
-
-    [Fact]
-    public void 옛_이름만_아는_경우에도_별칭_이력으로_이어진다()
-    {
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
-            [B("UB_#121", "%MW147.8", "R121-2")],
-            aliases: [new SystemAlias { FromSystem = "ub1_#121", ToSystem = "UB_#121" }]);
-
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, null, "ub1_#121", "%MW147.8", out var d));
-        Assert.Equal("R121-2", d);
-    }
-
-    [Fact]
-    public void 다른_PLC_의_같은_주소를_끌어오지_않는다()
-    {
-        // 실측: 알람 424행의 주소 149개 중 18개(12%)가 두 PLC 에 함께 존재했다.
-        // 주소 단독 매칭이었다면 #121 의 비상정지와 셔틀의 비상정지가 한 태그가 된다.
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
-        [
-            BG("UB_#121", IdA, "%MW7000.15", "R121-2"),
-            BG("UB_셔틀", IdB, "%MW7000.15", "셔틀"),
-        ]);
-
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, IdA, "UB_#121", "%MW7000.15", out var a));
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, IdB, "UB_셔틀", "%MW7000.15", out var b));
-        Assert.Equal("R121-2", a);
-        Assert.Equal("셔틀", b);
-    }
-
-    [Fact]
-    public void 이어지지_않으면_미지정이다()
-    {
-        // 조용히 엉뚱한 디바이스로 잇느니 미지정으로 남기는 편이 낫다 — 화면이 커버리지로 말한다.
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([BG("UB_#121", IdA, "%MW147.8", "R121-2")]);
-        Assert.False(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, IdB, "다른시스템", "%MW147.8", out _));
-    }
-
-    [Fact]
-    public void GUID_표기_차이는_무시한다()
-    {
-        // 중괄호·대문자로 저장된 값이 섞여도 키가 어긋나면 안 된다.
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
-            [BG("UB_#121", "{" + IdA.ToUpperInvariant() + "}", "%MW147.8", "R121-2")]);
-
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, IdA, "바뀐이름", "%MW147.8", out var d));
-        Assert.Equal("R121-2", d);
-    }
-
-    // ── 신호의 정체 = (엔드포인트, 주소) — doc/31 §6 (2026-09-22) ─────────
-    // 이름도 GUID 도 AASX 를 갈면 같이 바뀐다. 특히 프로젝트를 다시 만들어 시스템을 이관하면
-    // SystemPackage 가 Guid 를 전면 remap 하므로(설계상 의도) GUID 축은 매번 끊긴다.
-    // 엔드포인트는 물리 접속이라 남는다 — 그래서 이것이 정본 키다.
+    // ── 신호 기준 단일화 (2026-09-25) ────────────────────────────────────
+    // 키는 (엔드포인트, 주소) 하나다. 이름·GUID 는 엔드포인트가 빈 옛 매핑을 채우는 1회 백필에만 쓴다.
+    // 근거: 나흘 사이 System 이름이 두 번 바뀌었고(ub1_#121_#134 → UB_#121_#134 → UB_121_134),
+    // GUID 는 프로젝트를 다시 만들 때마다 바뀐다. 엔드포인트만 그대로였다.
 
     private const string EpA = "192.168.0.10:2004";
     private const string EpB = "192.168.0.11:2004";
+    private const string IdA = "11111111-1111-1111-1111-111111111111";
 
-    private static UserTagDeviceBinding BE(string system, string systemId, string endpoint, string address, string device) =>
-        new() { System = system, SystemId = systemId, Endpoint = endpoint, TagAddress = address, Device = device };
+    private static UserTagDeviceBinding BE(string endpoint, string address, string device) =>
+        new() { Endpoint = endpoint, TagAddress = address, Device = device };
 
     [Fact]
-    public void 이름과_GUID_가_둘_다_바뀌어도_엔드포인트로_이어진다()
+    public void 이름과_GUID_가_바뀌어도_엔드포인트로_찾는다()
     {
-        // 프로젝트 재생성 + 시스템 이관 — 이름도 GUID 도 새것이다.
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([BE("UB_#121", IdB, EpA, "%MW147.8", "R121-2")]);
+        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([BE(EpA, "%MW147.8", "R121-2")]);
 
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(
-            index, EpA, IdA, "ub1_#121", "%MW147.8", out var d));
+        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, EpA, "%MW147.8", out var d));
         Assert.Equal("R121-2", d);
     }
 
@@ -337,37 +183,73 @@ public class UserTagDeviceBindingTests
     public void 엔드포인트가_다르면_같은_주소라도_다른_신호다()
     {
         // 실측: 알람 주소 149개 중 18개(12%)가 두 PLC 에 함께 있었다(%MW7000.15 등).
-        // 주소만으로 묶으면 #121 의 비상정지와 셔틀의 비상정지가 한 태그가 된다.
         var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
-        [
-            BE("UB_#121", IdA, EpA, "%MW7000.15", "R121-2"),
-            BE("UB_셔틀", IdB, EpB, "%MW7000.15", "셔틀"),
-        ]);
+            [BE(EpA, "%MW7000.15", "R121-2"), BE(EpB, "%MW7000.15", "셔틀")]);
 
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, EpA, null, null, "%MW7000.15", out var a));
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, EpB, null, null, "%MW7000.15", out var b));
+        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, EpA, "%MW7000.15", out var a));
+        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, EpB, "%MW7000.15", out var b));
         Assert.Equal("R121-2", a);
         Assert.Equal("셔틀", b);
     }
 
     [Fact]
-    public void 엔드포인트가_없는_옛_행은_GUID_로_현재_엔드포인트를_찾아_이어진다()
+    public void 엔드포인트가_빈_옛_매핑은_GUID_로_백필한다()
     {
-        // 이 칸 이전에 쌓인 알람은 endpoint 가 NULL 이다 — 현재 모델에서 끌어올린다.
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
-            [BE("UB_#121", IdA, EpA, "%MW147.8", "R121-2")],
-            currentSystems: [(IdA, "UB_#121", EpA)]);
+        var old = new UserTagDeviceBinding { System = "옛이름", SystemId = IdA, TagAddress = "%MW147.8", Device = "R121-2" };
+        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([old], [(IdA, "UB_121_134", EpA)]);
 
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(
-            index, null, IdA, "아무이름", "%MW147.8", out var d));
+        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, EpA, "%MW147.8", out var d));
         Assert.Equal("R121-2", d);
+        Assert.Equal(0, index.DeadBindingCount);
+    }
+
+    [Fact]
+    public void GUID_가_안_맞으면_이름으로_백필한다()
+    {
+        // 프로젝트를 다시 만들면 GUID 가 통째로 바뀐다 — 이름이 마지막 단서다.
+        var old = new UserTagDeviceBinding { System = "UB_121_134", TagAddress = "%MW147.8", Device = "R121-2" };
+        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([old], [("22222222-2222-2222-2222-222222222222", "UB_121_134", EpA)]);
+
+        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, EpA, "%MW147.8", out var d));
+        Assert.Equal("R121-2", d);
+    }
+
+    [Fact]
+    public void 백필에_실패한_매핑은_죽은_것으로_센다()
+    {
+        // 그 System 이 모델에서 사라졌다 — 조용히 버리지 않고 커버리지로 알린다.
+        var old = new UserTagDeviceBinding { System = "사라진시스템", TagAddress = "%MW147.8", Device = "R121-2" };
+        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([old], [(IdA, "UB_121_134", EpA)]);
+
+        Assert.Equal(1, index.DeadBindingCount);
+        Assert.False(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, EpA, "%MW147.8", out _));
+    }
+
+    [Fact]
+    public void 엔드포인트가_없는_알람은_잇지_않는다()
+    {
+        // 2026-09-22 이전 행. 그 시절 표식은 이름·GUID 뿐인데 둘 다 그 뒤로 바뀌었다.
+        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([BE(EpA, "%MW147.8", "R121-2")]);
+
+        Assert.False(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, null, "%MW147.8", out _));
+        Assert.False(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, "  ", "%MW147.8", out _));
     }
 
     [Fact]
     public void 엔드포인트_표기는_공백과_대소문자를_무시한다()
     {
-        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([BE("L", IdA, " " + EpA + " ", "M901", "Conveyor1")]);
-        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, EpA, null, null, "M901", out var d));
+        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([BE(" " + EpA + " ", "M901", "Conveyor1")]);
+        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, EpA.ToUpperInvariant(), "M901", out var d));
         Assert.Equal("Conveyor1", d);
+    }
+
+    [Fact]
+    public void 미지정과_전역은_여전히_다르게_읽힌다()
+    {
+        var index = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex([BE(EpA, "M950", "")]);
+
+        Assert.True(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, EpA, "M950", out var global));
+        Assert.Equal(string.Empty, global);
+        Assert.False(AbnormalDeviceFilterHelpers.TryGetBoundDevice(index, EpA, "M901", out _));
     }
 }

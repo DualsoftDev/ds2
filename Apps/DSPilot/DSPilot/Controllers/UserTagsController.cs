@@ -212,8 +212,7 @@ public class UserTagsController : ControllerBase
         var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
             abnormal.UserTagDeviceBindings,
             _project.GetActiveSystems().Select(s =>
-                (s.Id.ToString(), s.Name ?? string.Empty, epById.TryGetValue(s.Id, out var ep) ? ep : string.Empty)),
-            abnormal.SystemAliases);
+                (s.Id.ToString(), s.Name ?? string.Empty, epById.TryGetValue(s.Id, out var ep) ? ep : string.Empty)));
 
         var tags = rows
             .Where(r => activeIds.Contains(r.SystemId))
@@ -227,7 +226,7 @@ public class UserTagsController : ControllerBase
                 string? device = null;
                 if (!UserTagEditorSupport.IsMonitorLevel(level)
                     && AbnormalDeviceFilterHelpers.TryGetBoundDevice(
-                        deviceIndex, r.SystemId.ToString(), r.SystemName, r.TagAddress, out var bound))
+                        deviceIndex, epById.TryGetValue(r.SystemId, out var rEp) ? rEp : null, r.TagAddress, out var bound))
                     device = bound;
                 return new UtEditorTagDto(
                     r.SystemId.ToString(), r.SystemName, r.Name, r.TagAddress,
@@ -418,7 +417,8 @@ public class UserTagsController : ControllerBase
             GlobalTagCount: r.GlobalTagCount,
             SkippedChangedCount: r.SkippedChangedCount,
             MultiFlowDeviceCount: r.MultiFlowDeviceCount,
-            StaleSystems: r.StaleSystems,
+            LegacyAlertCount: r.LegacyAlertCount,
+            DeadBindingCount: r.DeadBindingCount,
             ProjectLoaded: r.ProjectLoaded,
             Flows: [.. r.Flows.Select(ToScopeDto)],
             Systems: [.. r.Systems.Select(ToScopeDto)],

@@ -172,23 +172,15 @@
                                         </div>
                                     </div>
 
-                                    <!-- 끊긴 구간 — 칩 하나로. 근거는 툴팁에 둔다. -->
-                                    <div style="margin-bottom:10px;" x-show="rel.staleSystems && rel.staleSystems.length > 0">
-                                        <a class="chip chip-warning" href="/app/settings.html?tab=general#user-tags"
-                                           :title="'현재 모델에 없는 시스템 이름입니다 — ' + (rel.staleSystems || []).join(' · ') + ' 구간의 알람이 디바이스 귀속과 이어지지 않습니다.'"
-                                           x-text="'과거 구간 제외 ' + (rel.staleSystems ? rel.staleSystems.length : 0)"></a>
-                                    </div>
-
-                                    <!-- 분해 — 숫자 하나만 내놓고 틀리는 것보다 낫다. 칩 클릭 = 그 부류만 보기.
-                                         '무정지 경고' 가 이 블록의 실질 산출물이다(설비가 서지도 않았는데 고장으로 세던 것). -->
-                                    <div class="up-blk-tabs" style="flex-wrap:wrap;gap:6px;margin-bottom:8px;" x-show="relBreakdown.length > 0">
-                                        <template x-for="b in relBreakdown" :key="b.label">
-                                            <button class="up-blk-tab" :class="{ on: relState === b.key }" @click="setRelState(b.key)"
-                                                    :title="b.tip || '설비가 실제로 선 사건만 지표에 들어갑니다'"
-                                                    :style="b.cls === 'chip-warning' && b.n > 0 ? 'border-color:var(--color-warning);' : ''">
-                                                <span x-text="b.label"></span><span class="up-blk-tabcount" x-text="b.n"></span>
-                                            </button>
-                                        </template>
+                                    <!-- 집계 밖 — 칩. 근거는 툴팁에. -->
+                                    <div style="margin-bottom:10px;" x-show="rel.legacyAlertCount > 0 || rel.deadBindingCount > 0">
+                                        <span class="chip" x-show="rel.legacyAlertCount > 0"
+                                              title="PLC 접속 정보가 없던 시절(2026-09-22 이전)에 쌓인 알람입니다 — 어느 PLC 의 신호인지 확정할 수 없어 집계에서 뺍니다."
+                                              x-text="'구 데이터 제외 ' + rel.legacyAlertCount"></span>
+                                        <a class="chip chip-warning" x-show="rel.deadBindingCount > 0"
+                                           href="/app/settings.html?tab=general#user-tags"
+                                           title="묶어 둔 시스템이 현재 모델에 없습니다 — 다시 묶어야 집계에 들어갑니다."
+                                           x-text="'끊긴 매핑 ' + rel.deadBindingCount"></a>
                                     </div>
 
                                     <!-- 회복 현황 — 칩 클릭 = 그 상태만 보기. '재가동 미확인' 이 이 기능의 실질 산출물이다

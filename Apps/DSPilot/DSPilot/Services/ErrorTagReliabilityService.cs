@@ -95,10 +95,10 @@ public sealed class ErrorTagReliabilityService
 
     /// <summary>조회 결과 — 라인 지표 + 디바이스별 + 건별 판정 + 커버리지.</summary>
     /// <param name="UnboundTagCount">묶이지 않아 계산에서 빠진 에러 태그 수(전역 제외).</param>
-    /// <param name="StaleSystems">
-    /// 알람에는 나오는데 현재 모델에 없는 System 이름 — <b>리네임으로 과거가 끊겼다는 신호</b>다.
-    /// 비어 있지 않으면 화면이 조용히 넘어가지 말고 말해야 한다.
+    /// <param name="LegacyAlertCount">
+    /// 엔드포인트가 없어 계산에서 뺀 알람 수 — 2026-09-22 이전에 쌓인 행이다. 조용히 넘기지 않는다.
     /// </param>
+    /// <param name="DeadBindingCount">엔드포인트를 끝내 못 채운 매핑 수 — 그 System 이 모델에서 사라졌다.</param>
     /// <param name="Flows">설비(flow)별 롤업 — 현장이 '설비' 라고 부르는 단위이자, 한 flow 안에서는
     /// 가동시간이 공유되어 집계가 가장 안전한 층이다.</param>
     /// <param name="Systems">PLC(System)별 롤업. DSPilot 에 '라인' 개념이 없어 이것이 가장 위 스코프다 —
@@ -117,7 +117,8 @@ public sealed class ErrorTagReliabilityService
         /// 고장 나면 그걸 쓰는 설비가 전부 서기 때문이다(중복 집계가 아니라 사실). 화면이 밝혀야 한다.
         /// </summary>
         int MultiFlowDeviceCount,
-        List<string> StaleSystems,
+        int LegacyAlertCount,
+        int DeadBindingCount,
         bool ProjectLoaded);
 
     /// <summary>
@@ -135,12 +136,11 @@ public sealed class ErrorTagReliabilityService
         var globalCount = bindings.Count - bound.Count;
 
         if (!_project.IsLoaded || bound.Count == 0)
-            return new Result(Combine([]), [], [], [], [], 0, globalCount, 0, 0, [], _project.IsLoaded);
+            return new Result(Combine([]), [], [], [], [], 0, globalCount, 0, 0, 0, 0, _project.IsLoaded);
 
         InvalidateIfModelReloaded();
         var currentSystems = CachedSystems();
-        var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
-            bindings, currentSystems, settings.AbnormalAlarm.SystemAliases);
+        var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(bindings, currentSystems);
 
         // (System, 디바이스) → flow 집합. 한 디바이스가 여러 flow 에 걸치는 것이 Ds2 모델의 정상이라 집합으로 받는다.
         // ★System 까지 키에 넣는 이유 — 디바이스 별칭은 PLC 가 둘이면 겹칠 수 있다(실측 주소 충돌 12%).
@@ -158,49 +158,32 @@ public sealed class ErrorTagReliabilityService
         // 태그를 디바이스로 접는다 — 여기서부터 계산 단위가 디바이스다.
         var byDevice = new Dictionary<(string System, string Device), List<UserTagAlertRecord>>();
         var unboundAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var staleSystems = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var legacyAlerts = 0;
 
-        // 알람에 박제된 System 표식 → 현재 모델의 이름. 태그 이름과 같은 원칙이다(doc/31 §6.4) —
-        // 라벨은 언제나 현재 것으로 통일해야 옛 이름의 행이 같은 PLC 로 모인다. 못 찾으면 '끊긴 이름'.
+        // 엔드포인트 → 현재 모델의 이름. 라벨은 언제나 현재 것으로 통일한다(doc/31 §6.4) —
+        // 알람에 박제된 옛 이름을 쓰면 같은 PLC 가 화면에서 두 얼굴로 나온다.
         var nameByEndpoint = currentSystems.Where(x => x.Endpoint.Length > 0)
             .ToDictionary(x => x.Endpoint, x => x.Name, StringComparer.OrdinalIgnoreCase);
-        var nameById = currentSystems.Where(x => x.Id.Length > 0)
-            .ToDictionary(x => AbnormalDeviceFilterHelpers.NormId(x.Id), x => x.Name, StringComparer.OrdinalIgnoreCase);
-        var nameByName = currentSystems.Select(x => x.Name)
-            .ToDictionary(x => x, x => x, StringComparer.OrdinalIgnoreCase);
-
-        string? CurrentSystemName(UserTagAlertRecord r)
-        {
-            if (!string.IsNullOrWhiteSpace(r.Endpoint) && nameByEndpoint.TryGetValue(r.Endpoint.Trim(), out var byEp))
-                return byEp;
-            var gid = AbnormalDeviceFilterHelpers.NormId(r.SystemId.ToString());
-            if (gid.Length > 0 && nameById.TryGetValue(gid, out var byId)) return byId;
-            var nm = (r.SystemName ?? string.Empty).Trim();
-            return nm.Length > 0 && nameByName.TryGetValue(nm, out var byNm) ? byNm : null;
-        }
 
         foreach (var r in records)
         {
-            var recorded = r.SystemName ?? string.Empty;
             var address = r.TagAddress ?? string.Empty;
-            var current = CurrentSystemName(r);
+            var ep = (r.Endpoint ?? string.Empty).Trim();
 
-            // 어느 표식으로도 현재 모델에 닿지 못하면 그 구간은 끊긴 것이다 — 귀속 성공 여부와 별개다.
-            // (종전엔 이름만 비교해, 이름이 바뀐 PLC 가 스코프 표엔 옛 이름으로 뜨면서 동시에 '끊김' 으로도
-            //  올라왔다 — 현장 UB_#121_#134 → UB_121_134.)
-            if (current is null && recorded.Length > 0) staleSystems.Add(recorded);
+            // 엔드포인트가 없는 행 = 2026-09-22 이전에 쌓인 것. 그 시절 표식(이름·GUID)은 둘 다 그 뒤로
+            // 바뀌었고 억지로 이으면 조용히 틀린다 — 잇지 않고 개수만 센다(doc/31 §6).
+            if (ep.Length == 0) { legacyAlerts++; continue; }
 
-            if (!AbnormalDeviceFilterHelpers.TryGetBoundDevice(
-                    deviceIndex, r.Endpoint, r.SystemId.ToString(), recorded, address, out var device)
+            if (!AbnormalDeviceFilterHelpers.TryGetBoundDevice(deviceIndex, ep, address, out var device)
                 || device.Length == 0)
             {
                 // 미지정·전역 — 계산에서 빠진다. 커버리지 안내를 위해 태그 수만 센다.
-                if (!string.IsNullOrWhiteSpace(address)) unboundAddresses.Add(recorded + "|" + address);
+                if (!string.IsNullOrWhiteSpace(address)) unboundAddresses.Add(ep + "|" + address);
                 continue;
             }
 
-            // 스코프 라벨은 현재 이름으로 — 옛 이름의 행도 같은 PLC 한 칸에 모인다.
-            var key = (System: current ?? recorded, Device: device);
+            // 스코프 라벨은 현재 이름으로 — 접속이 같으면 옛 이름의 행도 같은 PLC 한 칸에 모인다.
+            var key = (System: nameByEndpoint.TryGetValue(ep, out var nm) ? nm : ep, Device: device);
             if (!byDevice.TryGetValue(key, out var list)) byDevice[key] = list = [];
             list.Add(r);
         }
@@ -307,7 +290,8 @@ public sealed class ErrorTagReliabilityService
         return new Result(
             Combine(systemScopes),
             flowScopes, systemScopes, devices, verdicts,
-            unboundAddresses.Count, globalCount, skippedChanged, multiFlowDevices, [.. staleSystems], true);
+            unboundAddresses.Count, globalCount, skippedChanged, multiFlowDevices,
+            legacyAlerts, deviceIndex.DeadBindingCount, true);
     }
 
     /// <summary>

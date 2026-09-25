@@ -201,8 +201,10 @@ public record UtReliabilityDto(
     // 여러 설비에 걸친 디바이스 수. 0 이 아니면 설비 행의 합이 전체보다 크다 — 공유 디바이스가
     // 고장 나면 그걸 쓰는 설비가 전부 서기 때문이다(중복이 아니라 사실).
     int MultiFlowDeviceCount,
-    // 알람에는 나오는데 현재 모델에 없는 System 이름 — 리네임으로 과거가 끊겼다는 신호.
-    List<string> StaleSystems,
+    // 엔드포인트가 없어 계산에서 뺀 알람 수 — 2026-09-22 이전에 쌓인 행이다.
+    int LegacyAlertCount,
+    // 엔드포인트를 끝내 못 채운 매핑 수 — 그 System 이 모델에서 사라졌다.
+    int DeadBindingCount,
     bool ProjectLoaded,
     // 설비(flow)·PLC(System) 별 롤업. DSPilot 에 '라인' 개념이 없어 System 이 가장 위 스코프다 —
     // 한 라인이 PLC 두 대로 나뉘기도 하므로(현장 UB) System 이 여럿이면 합산 값은 실체가 없을 수 있다.

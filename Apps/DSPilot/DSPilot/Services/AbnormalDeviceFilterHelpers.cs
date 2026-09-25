@@ -137,8 +137,12 @@ public static class AbnormalDeviceFilterHelpers
         (system ?? string.Empty).Trim() + "\u0001" + (tagAddress ?? string.Empty).Trim();
 
     /// <summary>
-    /// 귀속 목록 정규화: trim, 주소 빈 항목 제거, 같은 (System, 주소) 는 <b>뒤엣것이 이긴다</b>(편집기가
-    /// 최종 목록을 통째로 보내므로 마지막 값이 사용자의 의도다). System·주소 순 정렬.
+    /// 귀속 목록 정규화: trim, 주소 빈 항목 제거, 같은 스코프·주소는 <b>뒤엣것이 이긴다</b>(편집기가
+    /// 최종 목록을 통째로 보내므로 마지막 값이 사용자의 의도다).
+    /// <para>
+    /// ★중복 판정 스코프는 <b>엔드포인트 우선</b>이다. System 이름으로만 묶으면, 엔드포인트만 들고
+    /// 이름이 빈 매핑끼리 키가 겹쳐 다른 PLC 의 같은 주소가 서로를 덮어쓴다.
+    /// </para>
     /// </summary>
     public static List<UserTagDeviceBinding> NormalizeUserTagDeviceBindings(IEnumerable<UserTagDeviceBinding>? bindings)
     {
@@ -148,18 +152,19 @@ public static class AbnormalDeviceFilterHelpers
             var addr = b?.TagAddress?.Trim();
             if (string.IsNullOrEmpty(addr)) continue;
             var sys = b!.System?.Trim() ?? string.Empty;
-            merged[BindingKey(sys, addr)] = new UserTagDeviceBinding
+            var ep = b.Endpoint?.Trim() ?? string.Empty;
+            merged[BindingKey(ep.Length > 0 ? ep : sys, addr)] = new UserTagDeviceBinding
             {
                 System = sys,
                 SystemId = NormId(b.SystemId),
-                Endpoint = b.Endpoint?.Trim() ?? string.Empty,
+                Endpoint = ep,
                 TagAddress = addr,
                 Device = b.Device?.Trim() ?? string.Empty,
             };
         }
 
         return merged.Values
-            .OrderBy(b => b.System, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(b => b.Endpoint.Length > 0 ? b.Endpoint : b.System, StringComparer.OrdinalIgnoreCase)
             .ThenBy(b => b.TagAddress, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -169,145 +174,81 @@ public static class AbnormalDeviceFilterHelpers
         Guid.TryParse((id ?? string.Empty).Trim(), out var g) ? g.ToString("D") : string.Empty;
 
     /// <summary>
-    /// 이상알람TAG 귀속 조회 색인 — <b>리네임 내성</b>을 담당한다(2026-09-22).
+    /// 이상알람TAG 귀속 조회 색인 — 키는 <b>(엔드포인트, 주소)</b> 하나다(doc/31 §6, 2026-09-25 단일화).
     /// <para>
-    /// 종전엔 (System 이름, 주소) 한 가지 키뿐이라, AASX 교체로 이름이 바뀌면 과거 알람이 통째로
-    /// '미지정' 으로 떨어졌다(현장 실측: 사흘치 2,000여 건). 이제 <b>GUID 와 이름 두 색인</b>을 만들고
-    /// 조회 때 순서대로 시도한다.
+    /// 종전엔 엔드포인트·GUID·이름·별칭을 순서대로 시도하는 5단 사슬이었다. 과거를 최대한 이어 주려는
+    /// 설계였는데 대가가 컸다 — 어떤 건 이어지고 어떤 건 안 이어지는지 사용자가 예측할 수 없고, 이름이
+    /// 우연히 겹치면 조용히 엉뚱한 디바이스에 붙는다. 기준을 하나로 잡는다.
+    /// </para>
+    /// <para>
+    /// 근거는 실측이다 — 나흘 사이 System 이름이 두 번 바뀌었고(<c>ub1_#121_#134</c> → <c>UB_#121_#134</c>
+    /// → <c>UB_121_134</c>), GUID 는 프로젝트를 다시 만들 때마다 바뀌며(SystemPackage 가 전면 remap),
+    /// 엔드포인트만 그대로였다. 이름·GUID 는 AASX <b>안</b>에서 오고 엔드포인트와 주소는 <b>밖</b>에서 온다.
+    /// </para>
+    /// <para>
+    /// ★이름·GUID 지식은 <b>색인을 만들 때 한 번</b>만 쓴다 — 엔드포인트가 비어 있는 옛 매핑을 현재 모델로
+    /// 백필하는 용도다. 조회 자체는 키가 하나뿐이다.
     /// </para>
     /// </summary>
     public sealed class UserTagDeviceIndex
     {
-        /// <summary>
-        /// <b>(엔드포인트, 주소) → 디바이스 — 정본 색인.</b> 신호의 정체가 이것이다(doc/31 §6).
-        /// 이름·GUID 색인은 이 칸이 비어 있던 시절의 데이터를 받는 폴백이다.
-        /// </summary>
+        /// <summary>(엔드포인트, 주소) → 디바이스. 값 <c>""</c> 는 전역, <b>키 부재는 미지정</b>이다.</summary>
         public Dictionary<string, string> ByEndpoint { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>(System GUID, 주소) → 디바이스. 폴백.</summary>
-        public Dictionary<string, string> BySystemId { get; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>엔드포인트를 끝내 못 채운 매핑 수 — 그 System 이 모델에서 사라진 것이다(커버리지 경고).</summary>
+        public int DeadBindingCount { get; internal set; }
 
-        /// <summary>(System 이름, 주소) → 디바이스. GUID 가 없던 시절 매핑의 폴백.</summary>
-        public Dictionary<string, string> BySystemName { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>옛 이름 → 현재 이름. 별칭 이력 + 현재 모델(GUID 가 같은데 이름만 다른 경우)에서 만든다.</summary>
-        public Dictionary<string, string> NameOfAlias { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>System GUID → 현재 이름. 알람 행의 GUID 로 현재 이름을 찾아 이름 색인을 두드린다.</summary>
-        public Dictionary<string, string> NameOfId { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>옛 GUID → 현재 GUID(별칭 이력). GUID 재발급을 받는다.</summary>
-        public Dictionary<string, string> IdOfAlias { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>System GUID → 엔드포인트(현재 모델). 엔드포인트가 없는 옛 알람 행을 끌어올릴 때 쓴다.</summary>
-        public Dictionary<string, string> EndpointOfId { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        public int Count => ByEndpoint.Count + BySystemId.Count + BySystemName.Count;
+        public int Count => ByEndpoint.Count;
     }
 
     /// <summary>
-    /// 조회 색인 생성. 값 <c>""</c> 는 전역, <b>키 부재는 미지정</b>이라 호출부가 둘을 구분할 수 있어야 한다
-    /// (빈 문자열을 null 로 접지 말 것).
+    /// 조회 색인 생성. 엔드포인트가 빈 매핑은 <paramref name="currentSystems"/> 에서 GUID → 이름 순으로
+    /// 찾아 채운다(1회 백필). 못 찾으면 그 매핑은 죽은 것이고 개수만 센다.
     /// </summary>
-    /// <param name="currentSystems">
-    /// 현재 모델의 (GUID, 이름, 엔드포인트). 엔드포인트가 없던 시절의 알람 행을 현재 모델로 끌어올리고,
-    /// 옛 이름의 알람을 현재 이름의 매핑으로 잇는 데 쓴다.
-    /// </param>
-    /// <param name="aliases">별칭 이력 — 엔드포인트까지 바뀐 극단(진짜 설비 교체)을 받는 수동 예외.</param>
     public static UserTagDeviceIndex BuildUserTagDeviceIndex(
         IEnumerable<UserTagDeviceBinding>? bindings,
-        IEnumerable<(string Id, string Name, string Endpoint)>? currentSystems = null,
-        IEnumerable<SystemAlias>? aliases = null)
+        IEnumerable<(string Id, string Name, string Endpoint)>? currentSystems = null)
     {
         var idx = new UserTagDeviceIndex();
 
-        foreach (var b in NormalizeUserTagDeviceBindings(bindings))
-        {
-            idx.BySystemName[BindingKey(b.System, b.TagAddress)] = b.Device;
-            if (b.SystemId.Length > 0)
-                idx.BySystemId[BindingKey(b.SystemId, b.TagAddress)] = b.Device;
-            if (b.Endpoint.Length > 0)
-                idx.ByEndpoint[BindingKey(b.Endpoint, b.TagAddress)] = b.Device;
-        }
-
+        var epById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var epByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (id, name, endpoint) in currentSystems ?? [])
         {
+            if (string.IsNullOrWhiteSpace(endpoint)) continue;
+            var ep = endpoint.Trim();
             var gid = NormId(id);
-            if (gid.Length == 0) continue;
-            if (!string.IsNullOrWhiteSpace(name)) idx.NameOfId[gid] = name.Trim();
-            if (!string.IsNullOrWhiteSpace(endpoint)) idx.EndpointOfId[gid] = endpoint.Trim();
+            if (gid.Length > 0) epById[gid] = ep;
+            if (!string.IsNullOrWhiteSpace(name)) epByName[name.Trim()] = ep;
         }
 
-        foreach (var a in aliases ?? [])
+        foreach (var b in NormalizeUserTagDeviceBindings(bindings))
         {
-            var from = a?.FromSystem?.Trim() ?? string.Empty;
-            var to = a?.ToSystem?.Trim() ?? string.Empty;
-            if (from.Length > 0 && to.Length > 0) idx.NameOfAlias[from] = to;
+            var ep = b.Endpoint;
+            if (ep.Length == 0 && b.SystemId.Length > 0) epById.TryGetValue(b.SystemId, out ep!);
+            if (string.IsNullOrEmpty(ep) && b.System.Length > 0) epByName.TryGetValue(b.System, out ep!);
 
-            var fromId = NormId(a?.FromSystemId);
-            var toId = NormId(a?.ToSystemId);
-            if (fromId.Length > 0 && toId.Length > 0) idx.IdOfAlias[fromId] = toId;
+            if (string.IsNullOrEmpty(ep)) { idx.DeadBindingCount++; continue; }
+            idx.ByEndpoint[BindingKey(ep, b.TagAddress)] = b.Device;
         }
 
         return idx;
     }
 
     /// <summary>
-    /// 한 알람의 귀속 디바이스를 찾는다 — <b>해석 사슬</b>. 첫 성공에서 멈춘다.
+    /// 한 알람의 귀속 디바이스를 찾는다 — 키는 (엔드포인트, 주소) 하나다.
     /// <para>
-    /// <b>정본은 ①(엔드포인트, 주소)</b> 다 — 신호의 정체가 그것이므로 이름·GUID·프로젝트 재생성을
-    /// 전부 통과한다. ②~⑤는 엔드포인트가 없던 시절의 행을 받는 <b>과거 호환 폴백</b>이고, 앞으로
-    /// 쌓이는 데이터는 ①에서 끝난다.
+    /// 엔드포인트가 없는 알람(2026-09-22 이전에 쌓인 행)은 <b>잇지 않는다</b>. 그 시절 표식은
+    /// 이름과 GUID 뿐인데 둘 다 그 뒤로 바뀌었고, 억지로 이으면 조용히 틀릴 수 있다.
     /// </para>
-    /// <list type="number">
-    ///   <item>알람의 엔드포인트로 — 정본</item>
-    ///   <item>알람의 GUID → 현재 모델의 엔드포인트 → 엔드포인트 색인 (엔드포인트 없던 옛 행)</item>
-    ///   <item>알람의 System GUID 로 (이름만 바뀐 경우)</item>
-    ///   <item>알람의 GUID → 현재 System 이름 → 이름 색인 (GUID 없이 저장된 옛 매핑)</item>
-    ///   <item>알람의 System 이름 그대로, 그리고 별칭 이력을 거쳐 한 번 더 (종전 동작)</item>
-    /// </list>
     /// 반환 <c>false</c> = 미지정(지표 제외), <c>true</c> + 빈 문자열 = 전역.
     /// </summary>
     public static bool TryGetBoundDevice(
-        UserTagDeviceIndex? index, string? endpoint, string? systemId, string? systemName, string? tagAddress,
-        out string device)
+        UserTagDeviceIndex? index, string? endpoint, string? tagAddress, out string device)
     {
         device = string.Empty;
-        if (index is null || index.Count == 0 || string.IsNullOrWhiteSpace(tagAddress)) return false;
-
-        var gid = NormId(systemId);
-        var ep = (endpoint ?? string.Empty).Trim();
-
-        if (ep.Length > 0 && index.ByEndpoint.TryGetValue(BindingKey(ep, tagAddress), out device!)) return true;
-
-        if (ep.Length == 0 && gid.Length > 0 && index.EndpointOfId.TryGetValue(gid, out var curEp)
-            && index.ByEndpoint.TryGetValue(BindingKey(curEp, tagAddress), out device!)) return true;
-
-        if (gid.Length > 0 && index.BySystemId.TryGetValue(BindingKey(gid, tagAddress), out device!)) return true;
-
-        if (gid.Length > 0 && index.IdOfAlias.TryGetValue(gid, out var newId)
-            && index.BySystemId.TryGetValue(BindingKey(newId, tagAddress), out device!)) return true;
-
-        if (gid.Length > 0 && index.NameOfId.TryGetValue(gid, out var curName)
-            && index.BySystemName.TryGetValue(BindingKey(curName, tagAddress), out device!)) return true;
-
-        if (index.BySystemName.TryGetValue(BindingKey(systemName, tagAddress), out device!)) return true;
-
-        var sys = (systemName ?? string.Empty).Trim();
-        if (sys.Length > 0 && index.NameOfAlias.TryGetValue(sys, out var aliasName)
-            && index.BySystemName.TryGetValue(BindingKey(aliasName, tagAddress), out device!)) return true;
-
-        device = string.Empty;
-        return false;
+        if (index is null || index.Count == 0) return false;
+        if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(tagAddress)) return false;
+        return index.ByEndpoint.TryGetValue(BindingKey(endpoint.Trim(), tagAddress), out device!);
     }
-
-    /// <summary>엔드포인트를 모르는 호출부용 간편 오버로드 — ②부터 시작한다.</summary>
-    public static bool TryGetBoundDevice(
-        UserTagDeviceIndex? index, string? systemId, string? systemName, string? tagAddress, out string device) =>
-        TryGetBoundDevice(index, null, systemId, systemName, tagAddress, out device);
-
-    /// <summary>GUID 도 엔드포인트도 모르는 호출부용 — 이름 색인만 두드린다(테스트·구 경로).</summary>
-    public static bool TryGetBoundDeviceByName(
-        UserTagDeviceIndex? index, string? systemName, string? tagAddress, out string device) =>
-        TryGetBoundDevice(index, null, null, systemName, tagAddress, out device);
 }
