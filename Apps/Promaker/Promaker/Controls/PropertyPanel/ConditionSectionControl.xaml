@@ -62,6 +62,7 @@
                                 <Grid Margin="0,0,0,2">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
                                     <Button Grid.Column="0"
@@ -71,7 +72,31 @@
                                             ToolTip="조건 그룹 삭제"
                                             Command="{Binding RemoveConditionCommand, ElementName=Root}"
                                             CommandParameter="{Binding}"/>
-                                    <TextBlock Grid.Column="1"
+                                    <!-- 그룹 부정 토글 — 부정은 leaf 가 아니라 그룹이 진다.
+                                         기호(NOT) 대신 «그래서 무슨 일이 일어나는가» 를 적어 수식과 따로 읽히지 않게 한다. -->
+                                    <Button Grid.Column="1"
+                                            Margin="3,0,0,0"
+                                            Padding="5,0"
+                                            FontSize="9"
+                                            VerticalAlignment="Center"
+                                            Content="{Binding InvertLabel}"
+                                            ToolTip="{Binding InvertTip}"
+                                            Command="{Binding ToggleConditionInvertedCommand, ElementName=Root}"
+                                            CommandParameter="{Binding}">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsInverted}" Value="True">
+                                                        <Setter Property="Foreground" Value="{DynamicResource AlwaysLightTextBrush}"/>
+                                                        <Setter Property="Background" Value="{DynamicResource ConditionSkipBadgeBrush}"/>
+                                                        <Setter Property="FontWeight" Value="Bold"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                    <TextBlock Grid.Column="2"
                                                FontSize="10"
                                                VerticalAlignment="Center"
                                                Margin="6,0,0,0"

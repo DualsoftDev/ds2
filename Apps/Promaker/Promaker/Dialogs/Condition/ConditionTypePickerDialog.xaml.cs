@@ -3,19 +3,27 @@ using Ds2.Core;
 
 namespace Promaker.Dialogs;
 
-/// <summary>접점 선택 항목 — 접힌 상태(ShortText)와 드롭다운(FullText) 표기를 분리한다.</summary>
+/// <summary>
+/// SkipAction 을 만들 때 고르는 «그룹 부정 초기값». 접힌 상태(ShortText)와 드롭다운(FullText) 표기를 분리한다.
+///
+/// 예전에는 leaf 접점(ContactKind)을 골랐다. 그러면 화면에 `/A=false` 처럼 접점과 값이 같은 부정을
+/// 두 번 말해 읽을 수 없었다. 지금은 부정을 그룹이 지므로, 여기서도 그룹 부정을 고른다 —
+/// 속성 패널의 토글과 똑같은 말을 써서 두 곳이 어긋나지 않게 한다.
+/// </summary>
 public sealed class ContactKindChoice
 {
-    public ContactKindChoice(string shortText, string fullText, ContactKind kind)
+    public ContactKindChoice(string shortText, string fullText, bool inverted)
     {
         ShortText = shortText;
         FullText = fullText;
-        Kind = kind;
+        Inverted = inverted;
     }
 
     public string ShortText { get; }
     public string FullText { get; }
-    public ContactKind Kind { get; }
+
+    /// <summary>true = 조건이 어긋날 때 건너뜀 (Condition.IsInverted).</summary>
+    public bool Inverted { get; }
 }
 
 public partial class ConditionTypePickerDialog : Window
@@ -33,8 +41,9 @@ public partial class ConditionTypePickerDialog : Window
 
         ContactKindCombo.ItemsSource = new[]
         {
-            new ContactKindChoice("부정조건", "부정조건 (─┤/├─) · 참조 신호가 ON 일 때 실행", ContactKind.NcContact),
-            new ContactKindChoice("참조건",   "참조건 (─┤├─) · 참조 신호가 OFF 일 때 실행",  ContactKind.NoContact),
+            // 속성 패널 토글(InvertLabel)과 같은 문구 — 만든 뒤 그 토글로 언제든 바꿀 수 있다.
+            new ContactKindChoice("불만족 시 건너뜀", "불만족 시 건너뜀 · 조건이 만족하지 않으면 액션을 건너뜁니다", true),
+            new ContactKindChoice("만족 시 건너뜀",   "만족 시 건너뜀 · 조건이 만족하면 액션을 건너뜁니다",       false),
         };
         ContactKindCombo.SelectedIndex = 0;
 
@@ -64,10 +73,10 @@ public partial class ConditionTypePickerDialog : Window
         : SkipActionRadio.IsChecked == true ? ConditionType.SkipAction
         : ConditionType.AutoAux;
 
-    /// <summary>SkipAction 일 때만 의미 있는 접점 종류. 그 외 유형이면 null.</summary>
-    public ContactKind? SelectedContactKind =>
+    /// <summary>SkipAction 일 때 고른 그룹 부정 초기값. 그 외 유형이면 null(부정 없음).</summary>
+    public bool? SelectedInverted =>
         SkipActionRadio.IsChecked == true
-            ? (ContactKindCombo.SelectedItem as ContactKindChoice)?.Kind ?? ContactKind.NcContact
+            ? (ContactKindCombo.SelectedItem as ContactKindChoice)?.Inverted ?? false
             : null;
 
     private void ConditionType_Changed(object sender, RoutedEventArgs e)

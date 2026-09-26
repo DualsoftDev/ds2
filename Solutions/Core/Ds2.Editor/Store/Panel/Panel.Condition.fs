@@ -31,18 +31,30 @@ type ConditionTreeDto = {
 // =============================================================================
 
 module internal ConditionTreeOps =
-    /// SkipAction 조건 leaf 의 기본 기대값.
-    /// UndefinedValue 로 두면 런타임 checkConditionSpecBase 가 "RxWork 가 Finish 인가" 분기를 타서
-    /// 참조 신호의 값을 전혀 보지 않는다 → 어떤 상태에서도 skip 이 발생하지 않는다.
-    /// BoolValue(Single false) 로 두어야 "신호 off(디바이스 Work=Ready)" 를 값으로 판정하고,
-    /// ContactKind(참조건/부정조건) 선택이 그대로 실행/건너뜀으로 이어진다.
-    let internal defaultSkipActionInputSpec = ValueSpec.BoolValue(Single false)
+    /// 조건 leaf 의 기본 기대값.
+    ///
+    /// UndefinedValue 로 두면 `ValueSpec.evaluate` 가 늘 true 라 값 비교가 통째로 무력화된다
+    /// (참조 신호가 무엇이든 통과) — 그래서 반드시 채워야 한다.
+    ///
+    /// 예전에는 false 였다. 그때는 판정이 "만족하면 실행" 이었고 접점이 방향을 뒤집었으며,
+    /// InputSpec=false 는 값이 아니라 "참조 Work 가 Ready 인가" 를 보는 특례 분기를 탔다.
+    /// 지금은 ① 만족하면 skip ② 부정은 그룹(IsInverted)이 진다 ③ 값이 있으면 값이 기준 —
+    /// 세 규칙이 모두 값 중심이므로, leaf 는 "그 신호가 켜졌는가" 를 뜻하는 true 로 둔다.
+    /// 이렇게 하면 특례 분기(isFalse)를 타지 않아 화면의 값과 실제 판정이 어긋나지 않는다.
+    let internal defaultConditionInputSpec = ValueSpec.BoolValue(Single true)
 
-    /// SkipAction 조건에 들어가는 leaf 는 기대값이 비어 있으면 기본값을 채운다.
+    /// 조건에 들어가는 leaf 는 기대값이 비어 있으면 기본값을 채운다.
     /// (원본 ApiCall 은 디바이스 캐스케이드 기본값이라 InputSpec 이 UndefinedValue 다)
-    let internal applySkipActionInputSpec (condType: ConditionType option) (apiCall: ApiCall) =
-        if condType = Some ConditionType.SkipAction && apiCall.InputSpec = ValueSpec.UndefinedValue then
-            apiCall.InputSpec <- defaultSkipActionInputSpec
+    ///
+    /// 조건 유형을 가리지 않는다. 예전에는 SkipAction 에만 채웠는데 그 탓에 두 구멍이 났다:
+    ///   · 자식 그룹은 Type=None 으로 만들어져 게이트에 걸리지 않았다 → 하위 그룹 leaf 가
+    ///     Undefined 로 남아 늘 참이 되고, 판정이 «성립하면 skip» 인 지금은 무조건 skip 이다.
+    ///   · AutoAux/ComAux 는 UI(드롭 헬퍼)에서만 채워, 래더 편집기로 저장하면 트리가
+    ///     재구성되며 원본(Undefined)이 deep copy 되어 값이 사라졌다.
+    /// 기본값을 코어 한 곳에서 모든 유형에 적용하면 두 경로 모두 막힌다.
+    let internal applyDefaultInputSpec (apiCall: ApiCall) =
+        if apiCall.InputSpec = ValueSpec.UndefinedValue then
+            apiCall.InputSpec <- defaultConditionInputSpec
 
     let rec build (store: DsStore) (dto: ConditionTreeDto) (typeOpt: ConditionType option) : Condition =
         let cc = Condition(IsOR = dto.IsOR, IsInverted = dto.IsInverted, Type = typeOpt)
@@ -63,7 +75,7 @@ module internal ConditionTreeOps =
                     let copy = src.DeepCopy()
                     copy.Id <- src.Id
                     copy.ContactKind <- kind
-                    applySkipActionInputSpec typeOpt copy
+                    applyDefaultInputSpec copy
                     cc.ApiCalls.Add(copy)
                 | None -> ()
         // raw 심볼(_ON/_OFF 등 ApiCall 외 leaf) → dummy ApiCall 로 변환하여 cc.ApiCalls 에 추가.
@@ -134,7 +146,7 @@ type DsStorePanelConditionExtensions =
             for src in sources do
                 let copy = src.DeepCopy()
                 copy.Id <- src.Id
-                ConditionTreeOps.applySkipActionInputSpec (Some condType) copy
+                ConditionTreeOps.applyDefaultInputSpec copy
                 cond.ApiCalls.Add(copy))
         cond.Id
 
@@ -170,6 +182,22 @@ type DsStorePanelConditionExtensions =
             true
         else false
 
+    /// 조건 그룹 전체의 부정(IsInverted) 토글.
+    ///
+    /// leaf 마다 접점으로 부정을 걸면 `/A=false & /B=false` 처럼 이중 부정이 되어 읽을 수 없다.
+    /// 부정은 그룹 하나가 지고, leaf 는 값(기대값)만 갖게 하기 위한 API.
+    /// 엔진은 이미 `if cc.IsInverted then Not grouped` 로 평가하므로 판정 로직 변경은 없다.
+    [<Extension>]
+    static member SetCallConditionInverted(store: DsStore, callId: Guid, condId: Guid, isInverted: bool) : bool =
+        Queries.requireNonReferenceCall callId store
+        StoreLog.debug($"callId={callId}, condId={condId}, isInverted={isInverted}")
+        let cond = StoreLog.requireCallCondition(store, callId, condId)
+        if cond.IsInverted <> isInverted then
+            DirectPanelOps.mutateCallProps store callId "Call 조건 부정 변경" (fun _ ->
+                cond.IsInverted <- isInverted)
+            true
+        else false
+
     [<Extension>]
     static member AddApiCallsToConditionBatch(store: DsStore, callId: Guid, condId: Guid, sourceApiCallIds: Guid seq) : int =
         Queries.requireNonReferenceCall callId store
@@ -183,7 +211,7 @@ type DsStorePanelConditionExtensions =
                 for src in sources do
                     let copy = src.DeepCopy()
                     copy.Id <- src.Id
-                    ConditionTreeOps.applySkipActionInputSpec cond.Type copy
+                    ConditionTreeOps.applyDefaultInputSpec copy
                     cond.ApiCalls.Add(copy))
             sources.Length
 
@@ -292,7 +320,7 @@ type DsStorePanelWorkConditionExtensions =
             for src in sources do
                 let copy = src.DeepCopy()
                 copy.Id <- src.Id
-                ConditionTreeOps.applySkipActionInputSpec (Some condType) copy
+                ConditionTreeOps.applyDefaultInputSpec copy
                 cond.ApiCalls.Add(copy))
         cond.Id
 
@@ -324,6 +352,17 @@ type DsStorePanelWorkConditionExtensions =
             true
         else false
 
+    /// Work 조건 그룹 전체의 부정(IsInverted) 토글. Call 판과 동일한 뜻.
+    [<Extension>]
+    static member SetWorkConditionInverted(store: DsStore, workId: Guid, condId: Guid, isInverted: bool) : bool =
+        StoreLog.debug($"workId={workId}, condId={condId}, isInverted={isInverted}")
+        let cond = StoreLog.requireWorkCondition(store, workId, condId)
+        if cond.IsInverted <> isInverted then
+            DirectPanelOps.mutateWorkProps store workId "Work 조건 부정 변경" (fun _ ->
+                cond.IsInverted <- isInverted)
+            true
+        else false
+
     [<Extension>]
     static member AddApiCallsToWorkConditionBatch(store: DsStore, workId: Guid, condId: Guid, sourceApiCallIds: Guid seq) : int =
         let sources = sourceApiCallIds |> Seq.choose (fun id -> Queries.getApiCall id store) |> Seq.toList
@@ -336,7 +375,7 @@ type DsStorePanelWorkConditionExtensions =
                 for src in sources do
                     let copy = src.DeepCopy()
                     copy.Id <- src.Id
-                    ConditionTreeOps.applySkipActionInputSpec cond.Type copy
+                    ConditionTreeOps.applyDefaultInputSpec copy
                     cond.ApiCalls.Add(copy))
             sources.Length
 

@@ -133,6 +133,32 @@ module CsvImporter =
     let buildBasicSystemImportPlan (store: DsStore) (document: BasicCsvDocument) (systemId: Guid) : Result<ImportPlan, string list> =
         buildBasicSystemImportPlanWith false store document systemId
 
+    /// Source Work 마다 TokenSpec 을 하나씩 만들어 둔다.
+    ///
+    /// TokenRole.Source 만 주고 TokenSpec 을 비워 두면 그래프 검증이 «TokenSpec 미설정» 으로
+    /// 경고하고, 토큰 이름이 "Work이름#번호" 로 표시된다 — 불러오자마자 손댈 것이 남는다.
+    /// 라벨은 Work 이름을 그대로 쓴다(그 토큰이 어디서 나오는지가 곧 이름이다).
+    let private ensureTokenSpecsForSources (store: DsStore) =
+        let sources =
+            store.Works.Values
+            |> Seq.filter (fun w -> w.TokenRole.HasFlag(TokenRole.Source))
+            |> Seq.toList
+        if not sources.IsEmpty then
+            for project in store.Projects.Values do
+                let linked =
+                    project.TokenSpecs |> Seq.choose (fun spec -> spec.WorkId) |> Set.ofSeq
+                let mutable nextId =
+                    if project.TokenSpecs.Count = 0 then 1
+                    else (project.TokenSpecs |> Seq.map (fun spec -> spec.Id) |> Seq.max) + 1
+                for work in sources do
+                    if not (linked.Contains work.Id) then
+                        project.TokenSpecs.Add(
+                            { Id = nextId
+                              Label = work.LocalName
+                              Fields = Map.empty
+                              WorkId = Some work.Id })
+                        nextId <- nextId + 1
+
     let loadBasicProjectWith (autoStartClear: bool) (document: BasicCsvDocument) (projectName: string) (systemName: string) : Result<DsStore, string list> =
         match validateName "Project" projectName, validateName "System" systemName with
         | Error errors, _
@@ -142,6 +168,7 @@ module CsvImporter =
             buildBasicSystemImportPlanWith autoStartClear store document systemId
             |> Result.map (fun plan ->
                 ImportPlan.applyDirect store plan
+                ensureTokenSpecsForSources store
                 store)
 
     let loadBasicProject (document: BasicCsvDocument) (projectName: string) (systemName: string) : Result<DsStore, string list> =

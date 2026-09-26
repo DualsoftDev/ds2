@@ -74,20 +74,28 @@ module WorkConditionChecker =
         |> Map.tryFind apiCallGuid
         |> Option.exists ((=) state.Clock)
 
-    /// 단일 ConditionEntry 기본 평가 (RxWork 상태 + ValueSpec 비교)
+    /// 단일 ConditionEntry 기본 평가.
+    ///
+    /// **값이 있으면 값이 기준**이다 — 참조 Work 가 어느 단계인지 묻지 않는다.
+    /// 예전에는 Work 가 Finish 여야만 값을 봤는데, 그러면 아날로그·Range 스펙이
+    /// «선행 동작이 끝난 직후» 라는 좁은 창에서만 성립했다. 온도·압력·위치는 누가
+    /// 끝나야 생기는 값이 아니므로 그 게이트는 맞지 않는다.
+    /// 같은 파일의 runtimeInputSatisfied 도 IO 값을 먼저 보고 판정한다 — 그쪽에 맞춘다.
+    ///
+    /// 값이 없을 때는 **참조 Work 의 상태를 신호로 읽는다**.
+    ///   Finish = 동작이 끝났다(켜짐) · Ready = 아직 동작 전(꺼짐)
+    /// 시뮬레이션처럼 그 신호를 아무도 만들지 않는 모드에서는 IO 가 영영 비어 있으므로,
+    /// 값이 없다는 이유로 거짓을 돌려주면 조건이 영원히 서지 않는다. (참조 Work 가 Finish
+    /// 인데도 IO 가 없어 «불만족» 으로 판정되어 건너뛰던 증상이 이것이었다.)
     let private checkConditionSpecBase (state: SimState) (spec: ConditionEntry) : bool =
-        if ValueSpec.isFalse spec.InputSpec then
-            state.WorkStates |> Map.tryFind spec.RxWorkGuid = Some Status4.Ready
-        else
-            match state.WorkStates |> Map.tryFind spec.RxWorkGuid with
-            | Some s when s = Status4.Finish ->
-                match spec.ApiCallGuid with
-                | Some apiCallGuid ->
-                    match state.IOValues |> Map.tryFind apiCallGuid with
-                    | Some currentValue -> ValueSpec.evaluate spec.InputSpec currentValue
-                    | None -> false
-                | None -> true
-            | _ -> false
+        let ioValue =
+            spec.ApiCallGuid |> Option.bind (fun g -> state.IOValues |> Map.tryFind g)
+        match ioValue with
+        | Some currentValue -> ValueSpec.evaluate spec.InputSpec currentValue
+        | None ->
+            let rxState = state.WorkStates |> Map.tryFind spec.RxWorkGuid
+            if ValueSpec.isFalse spec.InputSpec then rxState = Some Status4.Ready
+            else rxState = Some Status4.Finish
 
     /// 단일 ConditionEntry 평가. ContactKind 를 런타임에도 적용한다.
     let checkConditionSpec (state: SimState) (spec: ConditionEntry) : bool =
@@ -118,17 +126,25 @@ module WorkConditionChecker =
             else exprs |> List.exists (evaluateConditionExpression state)
         | Not inner -> not (evaluateConditionExpression state inner)
 
-    /// SkipAction 공통 helper: 조건 expr 이 false → skip 해야 함을 의미.
+    /// SkipAction 공통 helper: 조건이 **성립하면** skip.
+    ///
+    /// leaf 는 ValueSpec 판정에 접점을 입힌 결과다 (NoContact=그대로, NcContact=부정).
+    /// 그 최종값이 참이면 건너뛴다 — 접점이 곧 «어느 쪽에서 건너뛸지» 를 고르는 스위치다.
+    ///   NoContact + ValueSpec 만족   → leaf true  → skip   (참일 때 skip)
+    ///   NcContact + ValueSpec 불만족 → leaf true  → skip   (거짓일 때 skip)
+    ///
+    /// 예전에는 `not (evaluate ...)` 였다 — 만족하면 실행하고 어긋나면 건너뛰었다.
+    /// 그래서 화면의 기대값과 실제 거동이 반대로 읽혔다. 조건이 없으면 건너뛰지 않는다.
     let private shouldSkipByExpr (state: SimState) (exprOpt: ConditionExpression option) : bool =
         match exprOpt with
         | Some (And []) | None -> false
-        | Some expr -> not (evaluateConditionExpression state expr)
+        | Some expr -> evaluateConditionExpression state expr
 
-    /// SkipAction (Call): ValueSpec 기준 unmatch 시 Going 없이 Finish로 skip
+    /// SkipAction (Call): 조건 성립 시 Going 없이 Finish 로 skip
     let shouldSkipCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
         shouldSkipByExpr state (Map.tryFind callGuid index.CallSkipActionConditions)
 
-    /// SkipAction (Work): ValueSpec 기준 unmatch 시 Work 가 Going 없이 Finish 로 skip
+    /// SkipAction (Work): 조건 성립 시 Work 가 Going 없이 Finish 로 skip
     let shouldSkipWork (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
         shouldSkipByExpr state (Map.tryFind workGuid index.WorkSkipActionConditions)
 

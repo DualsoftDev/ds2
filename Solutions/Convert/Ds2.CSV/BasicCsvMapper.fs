@@ -136,6 +136,16 @@ module internal BasicCsvMapper =
             | None -> firstWork <- Some work
             prevWork <- Some work
 
+        // 전용 Start/Clear Work 를 만들지 않는 경우에도 체인의 양 끝은 토큰 역할을 가져야 한다.
+        //
+        // 행 순서 StartReset 체인이라 첫 Work 는 선행이 없다. Source 로 지정하지 않으면
+        // 자동 시작되지 않고, 그래프 검증이 곧바로 «Source 후보» 로 경고한다 — 불러오자마자
+        // 손댈 것이 있는 모델이 나온다. 마지막 Work 는 Sink 로 두어 토큰이 회수되게 한다.
+        // (autoStartClear 를 켜면 전용 Start/Clear Work 가 그 역할을 맡으므로 건드리지 않는다.)
+        if not autoStartClear then
+            firstWork |> Option.iter (fun first -> first.TokenRole <- TokenRole.Source)
+            prevWork  |> Option.iter (fun last  -> last.TokenRole  <- TokenRole.Sink)
+
         // Start / Clear 자동 추가 — 라인 전체 체인의 양 끝에 하나씩.
         // Start : 첫 Work 로 StartReset 1줄만 연결한다.
         // Clear : 마지막 Work 에서 StartReset + Reset 2줄로 연결해 끝나면 항상 리셋되게 한다.

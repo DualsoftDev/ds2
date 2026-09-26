@@ -51,11 +51,11 @@
                              Unchecked="ConditionType_Changed"/>
                 <!-- 접힌 상태는 짧은 이름만, 드롭다운을 펼치면 전체 설명. (팝업은 항목 폭에 맞춰 넓어짐) -->
                 <ComboBox x:Name="ContactKindCombo" Grid.Column="2"
-                          Width="104" HorizontalAlignment="Left"
+                          Width="132" HorizontalAlignment="Left"
                           IsEnabled="False" Opacity="0.45"
                           VerticalAlignment="Center"
                           Padding="6,2"
-                          ToolTip="SkipAction 조건에서 참조 신호를 어느 상태일 때 통과시킬지 선택합니다.">
+                          ToolTip="조건이 설 때 건너뛸지, 어긋날 때 건너뛸지 — 만든 뒤 속성 패널에서도 바꿀 수 있습니다.">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
                             <TextBlock x:Name="Label" Text="{Binding FullText}"/>

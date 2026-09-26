@@ -607,3 +607,80 @@ module DurationTests =
         // 지정한 API 는 1200ms, 미지정 API 는 기존 기본값 500ms 를 유지한다.
         Assert.Equal(Some 1200.0, ms "실린더_Flow.전진")
         Assert.Equal(Some 500.0, ms "실린더_Flow.후진")
+
+
+// ── 불러오자마자 깨끗한 모델 ────────────────────────────────────────────────
+// 행 순서 StartReset 체인이라 첫 Work 는 선행이 없다. 토큰 역할을 주지 않으면
+// 자동 시작되지 않고 그래프 검증이 곧바로 «Source 후보» 로 경고한다.
+
+let private loadStore (csv: string) =
+    match CsvImporter.parseBasicContent csv with
+    | Error errors -> failwith (String.concat "\n" errors)
+    | Ok doc ->
+        match CsvImporter.loadBasicProject doc "P" "S" with
+        | Error errors -> failwith (String.concat "\n" errors)
+        | Ok store -> store
+
+[<Fact>]
+let ``CSV 로 불러온 모델은 체인 양 끝에 토큰 역할이 붙는다`` () =
+    let store = loadStore "FLOW,WORK,CALL\n투입,작업A,A.ADV>A.RET\n투입,작업B,B.ADV>B.RET"
+    let workOf name =
+        store.Works.Values |> Seq.find (fun w -> w.LocalName = name)
+    Assert.True((workOf "작업A").TokenRole.HasFlag(TokenRole.Source))
+    Assert.True((workOf "작업B").TokenRole.HasFlag(TokenRole.Sink))
+
+[<Fact>]
+let ``CSV 로 불러온 모델은 Source 후보 경고가 뜨지 않는다`` () =
+    let store = loadStore "FLOW,WORK,CALL\n투입,작업A,A.ADV>A.RET\n투입,작업B,B.ADV>B.RET"
+    let index = Ds2.Runtime.Engine.Core.SimIndex.build store 10
+    Assert.Empty(Ds2.Runtime.Engine.Core.GraphValidator.findSourceCandidates index)
+
+/// 현장 CSV 모양 — Flow 4개, 각 1 Work. 세차라인 예시.
+let private washLineCsv =
+    String.concat "\n" [
+        "FLOW,WORK,CALL"
+        "ST01_진입및하부,하부세차,진입게이트.열림=1.5S>차량센서1.감지=100MS>하부노즐.살수ON=3S>하부노즐.살수OFF=100MS>진입게이트.닫힘=1.5S"
+        "ST02_거품및브러쉬,세제브러쉬,세제노즐.도포ON=2S>사이드브러쉬.회전시작=1S>사이드브러쉬.전진=2S>사이드브러쉬.후진=2S>사이드브러쉬.회전정지=1S"
+        "ST03_고압헹굼,린스고압수,고압펌프.가동ON=1S>고압노즐1.스윙=4S>고압펌프.가동OFF=100MS"
+        "ST04_건조및반출,송풍반출,건조블로워1.가동ON=1.5S>진출게이트.열림=1.5S>차량센서4.이탈=100MS>건조블로워1.가동OFF=100MS>진출게이트.닫힘=1.5S"
+    ]
+
+let private loadStoreWith (autoStartClear: bool) (csv: string) =
+    match CsvImporter.parseBasicContent csv with
+    | Error errors -> failwith (String.concat "\n" errors)
+    | Ok doc ->
+        match CsvImporter.loadBasicProjectWith autoStartClear doc "P" "S" with
+        | Error errors -> failwith (String.concat "\n" errors)
+        | Ok store -> store
+
+[<Theory>]
+[<InlineData(false)>]
+[<InlineData(true)>]
+let ``CSV 로 불러온 모델은 Source 마다 TokenSpec 이 있다`` (autoStartClear: bool) =
+    // TokenRole 만 주고 TokenSpec 을 비워 두면 «TokenSpec 미설정» 경고가 뜨고
+    // 토큰 이름이 "Work이름#번호" 로 표시된다. Start/Clear 자동 추가 여부와 무관해야 한다.
+    let store = loadStoreWith autoStartClear washLineCsv
+    let sources =
+        store.Works.Values
+        |> Seq.filter (fun w -> w.TokenRole.HasFlag(TokenRole.Source))
+        |> Seq.toList
+    Assert.NotEmpty(sources)
+    let project = store.Projects.Values |> Seq.head
+    let linked = project.TokenSpecs |> Seq.choose (fun spec -> spec.WorkId) |> Set.ofSeq
+    for source in sources do
+        Assert.True(linked.Contains source.Id, $"TokenSpec 없음: {source.LocalName}")
+    // 라벨이 비어 있으면 UI 가 다시 "Work이름#번호" 로 떨어진다.
+    Assert.All(project.TokenSpecs, fun spec -> Assert.False(System.String.IsNullOrWhiteSpace spec.Label))
+
+[<Theory>]
+[<InlineData(false)>]
+[<InlineData(true)>]
+let ``CSV 로 불러온 모델은 Control Source 후보 경고가 없다`` (autoStartClear: bool) =
+    // findSourceCandidates 는 Device Work 도 돌려준다. Device 는 Call 이 구동해
+    // Token Source 로 지정할 수 없으므로 UI 가 걸러 낸다 — 같은 기준으로 본다.
+    let store = loadStoreWith autoStartClear washLineCsv
+    let index = Ds2.Runtime.Engine.Core.SimIndex.build store 10
+    let controlCandidates =
+        Ds2.Runtime.Engine.Core.GraphValidator.findSourceCandidates index
+        |> List.filter (fun (_, systemName, _) -> index.ActiveSystemNames.Contains systemName)
+    Assert.Empty(controlCandidates)

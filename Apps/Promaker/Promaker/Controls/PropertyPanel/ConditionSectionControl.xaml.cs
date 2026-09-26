@@ -31,6 +31,10 @@ public partial class ConditionSectionControl : UserControl
         DependencyProperty.Register(nameof(HelpTopic), typeof(string), typeof(ConditionSectionControl),
             new PropertyMetadata(string.Empty));
 
+    public static readonly DependencyProperty ToggleConditionInvertedCommandProperty =
+        DependencyProperty.Register(nameof(ToggleConditionInvertedCommand), typeof(ICommand), typeof(ConditionSectionControl),
+            new PropertyMetadata(null));
+
     public static readonly DependencyProperty EditConditionsCommandProperty =
         DependencyProperty.Register(nameof(EditConditionsCommand), typeof(ICommand), typeof(ConditionSectionControl),
             new PropertyMetadata(null));
@@ -66,6 +70,11 @@ public partial class ConditionSectionControl : UserControl
 
     public string HeaderText { get => (string)GetValue(HeaderTextProperty); set => SetValue(HeaderTextProperty, value); }
     public IEnumerable? ItemsSource { get => (IEnumerable?)GetValue(ItemsSourceProperty); set => SetValue(ItemsSourceProperty, value); }
+    public ICommand? ToggleConditionInvertedCommand
+    {
+        get => (ICommand?)GetValue(ToggleConditionInvertedCommandProperty);
+        set => SetValue(ToggleConditionInvertedCommandProperty, value);
+    }
     public object? ConditionType { get => GetValue(ConditionTypeProperty); set => SetValue(ConditionTypeProperty, value); }
     public ICommand? RemoveConditionCommand { get => (ICommand?)GetValue(RemoveConditionCommandProperty); set => SetValue(RemoveConditionCommandProperty, value); }
     public string HelpTopic { get => (string)GetValue(HelpTopicProperty); set => SetValue(HelpTopicProperty, value); }
