@@ -175,7 +175,7 @@
                         </div>
                         <!-- MTBF (연속 비가동 onset 간격 평균; 무비가동 = 가짜수치 대신 배지) -->
                         <div class="up-oee" :class="oee && oee.failureCount === 0 ? 'is-good' : (oee && oee.mtbf != null ? 'is-warn' : 'is-na')">
-                            <div class="up-oee-label">평균 고장 간격(MTBF) <span class="up-cm-info" title="근거는 비가동 구간입니다(doc/30 §7.1) — 원인을 선언한 고장이 아니라 사이클 길이로 판정한 것입니다.">ⓘ</span></div>
+                            <div class="up-oee-label">평균 비가동 간격(MTBF) <span class="up-cm-info" title="연속 비가동의 시작 간격 평균 — 비가동은 원인을 선언한 고장이 아니라 사이클 길이로 판정합니다(doc/30 §7.1).">ⓘ</span></div>
                             <template x-if="oee && oee.failureCount === 0">
                                 <div>
                                     <div class="up-nofault"><span class="led"></span>비가동 없음</div>
@@ -475,7 +475,7 @@
                                     title="고장(사이클 전체)/유지보수 — 가용성(A) 분모 안에서 깎이는 정지">
                                 고장·유지보수 <span x-text="'(' + dtDownCount + ')'"></span></button>
                             <button :class="dtTab === 'nonprod' ? 'is-active' : ''" @click="dtTab='nonprod'"
-                                    title="비생산 — 가용성(A) 분모 밖(정산 어디에도 계상하지 않음), 건수·평균 고장 간격 미반영">
+                                    title="비생산 — 가용성(A) 분모 밖(정산 어디에도 계상하지 않음), 건수·평균 비가동 간격 미반영">
                                 비생산 <span x-text="'(' + dtNonProdCount + ')'"></span></button>
                         </div>
                         <span style="flex:1;"></span>
