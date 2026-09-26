@@ -46,6 +46,14 @@ public sealed class ErrorTagReliabilityService
     private readonly UserTagAlertService _alertService;
     private readonly ILogger<ErrorTagReliabilityService> _logger;
 
+    // AASX 를 통째로 훑는 두 색인은 모델이 안 바뀌면 같은 결과다. 10초 폴링마다 flow→work→call 전체와
+    // 정의 수천 건을 다시 도는 비용이 아까워 모델 로드 시각으로 캐시한다(모델이 바뀌면 자동 무효).
+    private readonly object _cacheLock = new();
+    private DateTime? _cacheStamp;
+    private (Dictionary<(string, string), List<string>> ByKey, Dictionary<string, List<string>> ByDevice)? _flowsCache;
+    private Dictionary<string, string>? _namesCache;
+    private List<(string Id, string Name, string Endpoint)>? _systemsCache;
+
     public ErrorTagReliabilityService(
         IUserTagAlertRepository alerts, KpiRepository kpi, DsProjectService project,
         AppSettingsService settings, UserTagAlertService alertService,
@@ -87,10 +95,10 @@ public sealed class ErrorTagReliabilityService
 
     /// <summary>조회 결과 — 라인 지표 + 디바이스별 + 건별 판정 + 커버리지.</summary>
     /// <param name="UnboundTagCount">묶이지 않아 계산에서 빠진 에러 태그 수(전역 제외).</param>
-    /// <param name="StaleSystems">
-    /// 알람에는 나오는데 현재 모델에 없는 System 이름 — <b>리네임으로 과거가 끊겼다는 신호</b>다.
-    /// 비어 있지 않으면 화면이 조용히 넘어가지 말고 말해야 한다.
+    /// <param name="LegacyAlertCount">
+    /// 엔드포인트가 없어 계산에서 뺀 알람 수 — 2026-09-22 이전에 쌓인 행이다. 조용히 넘기지 않는다.
     /// </param>
+    /// <param name="DeadBindingCount">엔드포인트를 끝내 못 채운 매핑 수 — 그 System 이 모델에서 사라졌다.</param>
     /// <param name="Flows">설비(flow)별 롤업 — 현장이 '설비' 라고 부르는 단위이자, 한 flow 안에서는
     /// 가동시간이 공유되어 집계가 가장 안전한 층이다.</param>
     /// <param name="Systems">PLC(System)별 롤업. DSPilot 에 '라인' 개념이 없어 이것이 가장 위 스코프다 —
@@ -109,7 +117,8 @@ public sealed class ErrorTagReliabilityService
         /// 고장 나면 그걸 쓰는 설비가 전부 서기 때문이다(중복 집계가 아니라 사실). 화면이 밝혀야 한다.
         /// </summary>
         int MultiFlowDeviceCount,
-        List<string> StaleSystems,
+        int LegacyAlertCount,
+        int DeadBindingCount,
         bool ProjectLoaded);
 
     /// <summary>
@@ -127,15 +136,15 @@ public sealed class ErrorTagReliabilityService
         var globalCount = bindings.Count - bound.Count;
 
         if (!_project.IsLoaded || bound.Count == 0)
-            return new Result(RollUp([], [], 0), [], [], [], [], 0, globalCount, 0, 0, [], _project.IsLoaded);
+            return new Result(Combine([]), [], [], [], [], 0, globalCount, 0, 0, 0, 0, _project.IsLoaded);
 
-        var currentSystems = CurrentSystems();
-        var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
-            bindings, currentSystems, settings.AbnormalAlarm.SystemAliases);
+        InvalidateIfModelReloaded();
+        var currentSystems = CachedSystems();
+        var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(bindings, currentSystems);
 
         // (System, 디바이스) → flow 집합. 한 디바이스가 여러 flow 에 걸치는 것이 Ds2 모델의 정상이라 집합으로 받는다.
         // ★System 까지 키에 넣는 이유 — 디바이스 별칭은 PLC 가 둘이면 겹칠 수 있다(실측 주소 충돌 12%).
-        var (flowsByKey, flowsByDevice) = BuildFlowsByDevice();
+        var (flowsByKey, flowsByDevice) = CachedFlowsByDevice();
 
         var fromMs = KpiTime.ToMs(fromUtc);
         var toMs = KpiTime.ToMs(toUtc);
@@ -149,26 +158,32 @@ public sealed class ErrorTagReliabilityService
         // 태그를 디바이스로 접는다 — 여기서부터 계산 단위가 디바이스다.
         var byDevice = new Dictionary<(string System, string Device), List<UserTagAlertRecord>>();
         var unboundAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var currentNames = currentSystems.Select(s => s.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var staleSystems = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var legacyAlerts = 0;
+
+        // 엔드포인트 → 현재 모델의 이름. 라벨은 언제나 현재 것으로 통일한다(doc/31 §6.4) —
+        // 알람에 박제된 옛 이름을 쓰면 같은 PLC 가 화면에서 두 얼굴로 나온다.
+        var nameByEndpoint = currentSystems.Where(x => x.Endpoint.Length > 0)
+            .ToDictionary(x => x.Endpoint, x => x.Name, StringComparer.OrdinalIgnoreCase);
 
         foreach (var r in records)
         {
-            var sysName = r.SystemName ?? string.Empty;
             var address = r.TagAddress ?? string.Empty;
+            var ep = (r.Endpoint ?? string.Empty).Trim();
 
-            if (!AbnormalDeviceFilterHelpers.TryGetBoundDevice(
-                    deviceIndex, r.Endpoint, r.SystemId.ToString(), sysName, address, out var device)
+            // 엔드포인트가 없는 행 = 2026-09-22 이전에 쌓인 것. 그 시절 표식(이름·GUID)은 둘 다 그 뒤로
+            // 바뀌었고 억지로 이으면 조용히 틀린다 — 잇지 않고 개수만 센다(doc/31 §6).
+            if (ep.Length == 0) { legacyAlerts++; continue; }
+
+            if (!AbnormalDeviceFilterHelpers.TryGetBoundDevice(deviceIndex, ep, address, out var device)
                 || device.Length == 0)
             {
                 // 미지정·전역 — 계산에서 빠진다. 커버리지 안내를 위해 태그 수만 센다.
-                if (!string.IsNullOrWhiteSpace(address)) unboundAddresses.Add(sysName + "|" + address);
-                // 현재 모델에 없는 System 이름이면 리네임으로 끊긴 것이다 — 조용히 넘기지 않는다.
-                if (sysName.Length > 0 && !currentNames.Contains(sysName)) staleSystems.Add(sysName);
+                if (!string.IsNullOrWhiteSpace(address)) unboundAddresses.Add(ep + "|" + address);
                 continue;
             }
 
-            var key = (System: sysName, Device: device);
+            // 스코프 라벨은 현재 이름으로 — 접속이 같으면 옛 이름의 행도 같은 PLC 한 칸에 모인다.
+            var key = (System: nameByEndpoint.TryGetValue(ep, out var nm) ? nm : ep, Device: device);
             if (!byDevice.TryGetValue(key, out var list)) byDevice[key] = list = [];
             list.Add(r);
         }
@@ -188,7 +203,7 @@ public sealed class ErrorTagReliabilityService
         var linkAt = await LoadLinkConnectsAsync(fromMs, cycleToMs, ct);
 
         var nowMs = KpiTime.NowMs();
-        var nameBySignal = BuildCurrentNames();
+        var nameBySignal = CachedNames();
         var devices = new List<DeviceSummary>();
         // (디바이스, 쓰이는 flow 들, 집계 대상 정지 구간) — 스코프 롤업이 이 셋 위에서 돈다.
         var deviceFlows = new List<(DeviceSummary Summary, List<string> Flows, List<(long, long)> Stops)>();
@@ -267,16 +282,16 @@ public sealed class ErrorTagReliabilityService
             .OrderByDescending(x => x.Totals.TotalDownMs)
             .ToList();
 
-        // 전체 값 — System 이 여럿이면 물리적 실체가 없을 수 있다(현장 UB 라인 + SIDE 라인이 한 프로젝트에
-        // 있었다). 숫자는 계산해 두되 화면이 System 수를 보고 판단한다.
-        var allFlows = deviceFlows.SelectMany(x => x.Flows).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        // 전체 값 = PLC 값들의 <b>합산</b>. 디바이스를 통째로 union 하면 서로 다른 라인이 동시에 선 것까지
+        // 한 번으로 깎인다 — 실측에서 고장 116→87(25%), 정지 47.5h→40.8h(14%)가 사라졌다.
+        // 라인끼리는 동시에 서도 두 번의 사고이고 가동시간도 별개 자원이다.
         var multiFlowDevices = deviceFlows.Count(x => x.Flows.Count > 1);
 
         return new Result(
-            RollUp(devices, [.. deviceFlows.SelectMany(x => x.Stops)],
-                   OperatingMsUnion(FlowInputs(allFlows, flowFacts), fromMs, toMs)),
+            Combine(systemScopes),
             flowScopes, systemScopes, devices, verdicts,
-            unboundAddresses.Count, globalCount, skippedChanged, multiFlowDevices, [.. staleSystems], true);
+            unboundAddresses.Count, globalCount, skippedChanged, multiFlowDevices,
+            legacyAlerts, deviceIndex.DeadBindingCount, true);
     }
 
     /// <summary>
@@ -359,6 +374,44 @@ public sealed class ErrorTagReliabilityService
             if (facts.TryGetValue(flow, out var f) && f.Starts.BinarySearch(restartMs) >= 0)
                 return flow;
         return null;
+    }
+
+    /// <summary>모델이 다시 로드됐으면 색인을 버린다 — 그 외에는 폴링마다 재사용한다.</summary>
+    private void InvalidateIfModelReloaded()
+    {
+        var stamp = _project.LastLoadedUtc;
+        lock (_cacheLock)
+        {
+            if (_cacheStamp == stamp) return;
+            _cacheStamp = stamp;
+            _flowsCache = null;
+            _namesCache = null;
+            _systemsCache = null;
+        }
+    }
+
+    private (Dictionary<(string, string), List<string>>, Dictionary<string, List<string>>) CachedFlowsByDevice()
+    {
+        lock (_cacheLock) { if (_flowsCache is { } c) return c; }
+        var built = BuildFlowsByDevice();
+        lock (_cacheLock) { _flowsCache = built; }
+        return built;
+    }
+
+    private Dictionary<string, string> CachedNames()
+    {
+        lock (_cacheLock) { if (_namesCache is { } c) return c; }
+        var built = BuildCurrentNames();
+        lock (_cacheLock) { _namesCache = built; }
+        return built;
+    }
+
+    private List<(string Id, string Name, string Endpoint)> CachedSystems()
+    {
+        lock (_cacheLock) { if (_systemsCache is { } c) return c; }
+        var built = CurrentSystems();
+        lock (_cacheLock) { _systemsCache = built; }
+        return built;
     }
 
     /// <summary>가동시간 합집합 계산에 넘길 (시작 시각, 리듬) 쌍.</summary>

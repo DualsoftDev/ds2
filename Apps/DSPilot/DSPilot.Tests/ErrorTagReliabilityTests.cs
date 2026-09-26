@@ -524,4 +524,48 @@ public class ErrorTagReliabilityTests
         Assert.Equal(3, all.FaultCount);
         Assert.Equal(2 * Hour, all.EMtbfMs);       // 6h ÷ 3건 — 설비 수와 무관
     }
+
+    // ── 스코프 합치기 (2026-09-24) ───────────────────────────────────────
+    // 겹침 규칙은 층마다 다르다. 같은 라인 안 디바이스는 같은 시간을 공유해 동시에 서면 한 번이지만,
+    // 독립된 라인끼리는 동시에 서도 두 번의 사고이고 가동시간도 별개 자원이다.
+
+    private static ScopeSummary Sc(string name, Summary totals) => new("system", name, totals);
+
+    [Fact]
+    public void 서로_다른_라인은_동시에_서도_따로_센다()
+    {
+        // 두 PLC 가 같은 시각에 섰다. union 하면 한 번으로 깎이지만, 라인이 다르므로 두 번이 맞다.
+        var a = Dev("PLC-A", "#A", "A", [Stopped(0, 5 * Min, 10 * Min)], 10 * Hour, minSample: 1);
+        var b = Dev("PLC-B", "#B", "B", [Stopped(0, 5 * Min, 10 * Min)], 10 * Hour, minSample: 1);
+
+        var sa = RollUp([a], Stops(a), operatingMs: 10 * Hour, minSample: 1);
+        var sb = RollUp([b], Stops(b), operatingMs: 10 * Hour, minSample: 1);
+        var all = Combine([Sc("PLC-A", sa), Sc("PLC-B", sb)], minSample: 1);
+
+        Assert.Equal(2, all.FaultCount);                 // union 이면 1건으로 깎였다
+        Assert.Equal(20 * Min, all.TotalDownMs);         // union 이면 10분
+        Assert.Equal(20 * Hour, all.OperatingMs);        // 가동시간도 별개 자원이라 합산
+        Assert.Equal(20 * Hour / 2.0, all.EMtbfMs);
+    }
+
+    [Fact]
+    public void 스코프가_하나면_그_값_그대로다()
+    {
+        var a = Dev("PLC-A", "#A", "A", [Stopped(0, 5 * Min, 10 * Min)], 10 * Hour, minSample: 1);
+        var sa = RollUp([a], Stops(a), operatingMs: 10 * Hour, minSample: 1);
+
+        var all = Combine([Sc("PLC-A", sa)], minSample: 1);
+        Assert.Equal(sa.FaultCount, all.FaultCount);
+        Assert.Equal(sa.EMtbfMs, all.EMtbfMs);
+        Assert.Equal(sa.TotalDownMs, all.TotalDownMs);
+    }
+
+    [Fact]
+    public void 스코프가_없으면_숫자가_없다()
+    {
+        var all = Combine([], minSample: 1);
+        Assert.Equal(0, all.FaultCount);
+        Assert.Null(all.EMtbfMs);
+        Assert.Null(all.EMttrMs);
+    }
 }

@@ -569,4 +569,53 @@ public static class ErrorTagReliability
 
     /// <summary>설비(flow)·PLC(System) 한 칸. 스코프를 나눠 보이는 근거다.</summary>
     public readonly record struct ScopeSummary(string Kind, string Name, Summary Totals);
+
+    /// <summary>
+    /// 스코프 여럿을 하나로 — <b>합산</b>이다(union 아님).
+    /// <para>
+    /// 겹침을 합치는 규칙은 <b>층마다 다르다</b>. 같은 라인 안 디바이스는 같은 시간을 공유하므로 동시에
+    /// 서면 한 번이다(<see cref="MergeStops"/>). 그러나 <b>독립된 라인끼리는 동시에 서도 두 번의 사고</b>이고
+    /// 가동시간도 별개 자원이다 — 합쳐야 한다.
+    /// </para>
+    /// <para>
+    /// 2026-09-24 실측이 그 차이를 보여줬다. 전체를 디바이스 union 으로 내니 고장 116건 → 87건(25% 소실),
+    /// 정지 47.5시간 → 40.8시간(14% 소실)으로 깎였다. 라인이 셋인데 한 라인처럼 센 탓이다.
+    /// </para>
+    /// 결과는 설비군 pooled 값 — "라인 하나가 평균 얼마 만에 서나". 스코프가 하나뿐이면 그 값 그대로다.
+    /// </summary>
+    public static Summary Combine(IReadOnlyList<ScopeSummary> scopes, int minSample = MinSample)
+    {
+        int fault = 0, recovered = 0, inProg = 0, awaiting = 0, unconfirmed = 0;
+        int warn = 0, snapshot = 0, unknown = 0;
+        long operating = 0, down = 0;
+
+        foreach (var x in scopes)
+        {
+            var t = x.Totals;
+            fault += t.FaultCount;
+            recovered += t.RecoveredCount;
+            inProg += t.InProgressCount;
+            awaiting += t.AwaitingRestartCount;
+            unconfirmed += t.RestartUnconfirmedCount;
+            warn += t.NonStopWarningCount;
+            snapshot += t.LinkSnapshotCount;
+            unknown += t.UnknownStopCount;
+            operating += t.OperatingMs;
+            down += t.TotalDownMs;
+        }
+
+        return new Summary(
+            FaultCount: fault,
+            RecoveredCount: recovered,
+            InProgressCount: inProg,
+            AwaitingRestartCount: awaiting,
+            RestartUnconfirmedCount: unconfirmed,
+            NonStopWarningCount: warn,
+            LinkSnapshotCount: snapshot,
+            UnknownStopCount: unknown,
+            OperatingMs: operating,
+            TotalDownMs: down,
+            EMttrMs: recovered >= minSample ? (double)down / recovered : null,
+            EMtbfMs: fault >= minSample && operating > 0 ? (double)operating / fault : null);
+    }
 }

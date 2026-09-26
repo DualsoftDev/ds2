@@ -212,8 +212,7 @@ public class UserTagsController : ControllerBase
         var deviceIndex = AbnormalDeviceFilterHelpers.BuildUserTagDeviceIndex(
             abnormal.UserTagDeviceBindings,
             _project.GetActiveSystems().Select(s =>
-                (s.Id.ToString(), s.Name ?? string.Empty, epById.TryGetValue(s.Id, out var ep) ? ep : string.Empty)),
-            abnormal.SystemAliases);
+                (s.Id.ToString(), s.Name ?? string.Empty, epById.TryGetValue(s.Id, out var ep) ? ep : string.Empty)));
 
         var tags = rows
             .Where(r => activeIds.Contains(r.SystemId))
@@ -227,7 +226,7 @@ public class UserTagsController : ControllerBase
                 string? device = null;
                 if (!UserTagEditorSupport.IsMonitorLevel(level)
                     && AbnormalDeviceFilterHelpers.TryGetBoundDevice(
-                        deviceIndex, r.SystemId.ToString(), r.SystemName, r.TagAddress, out var bound))
+                        deviceIndex, epById.TryGetValue(r.SystemId, out var rEp) ? rEp : null, r.TagAddress, out var bound))
                     device = bound;
                 return new UtEditorTagDto(
                     r.SystemId.ToString(), r.SystemName, r.Name, r.TagAddress,
@@ -365,12 +364,38 @@ public class UserTagsController : ControllerBase
     public async Task<ActionResult<UtReliabilityDto>> GetReliability(
         [FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null,
         [FromQuery] string? system = null,
+        // 이력 표에 실을 갈래. 기본 = 집계 대상만. 제외 행(무정지 경고·스냅샷·판정 불가)은 칩을 눌렀을 때만
+        // 받는다 — 실측에서 2,778건 중 2,325건(84%)이 제외 행이었고 응답 1MB 의 거의 전부였다.
+        [FromQuery] string? alerts = null,
         CancellationToken ct = default)
     {
         // 기본 창 = 최근 30일. 표본이 얇은 축이라(실측 11일 164건) 기본을 짧게 잡으면 늘 "표본 부족" 이 뜬다.
         var endUtc = (to ?? DateTime.Now).ToUniversalTime();
         var startUtc = (from ?? (to ?? DateTime.Now).AddDays(-30)).ToUniversalTime();
+        var want = NormalizeAlertScope(alerts);
 
+        // 이 탭은 10초마다 폴링한다(uptime-workspace.js). 캐시가 없으면 폴링마다 AASX 전체 순회 +
+        // flow 별 사이클 조회 + 정의 수천 건 순회를 다시 돈다 — /snapshot 과 같은 10초 TTL 규약을 쓴다.
+        var cacheKey = $"usertags/reliability|{system}|{want}|{startUtc.Ticks}"
+                       + $"|{endUtc.Ticks / (TimeSpan.TicksPerSecond * 10)}";
+        return await TtlRequestCache.GetOrComputeAsync(cacheKey, TimeSpan.FromSeconds(10),
+            () => BuildReliabilityAsync(startUtc, endUtc, system, want, ct));
+    }
+
+    /// <summary>이력 표에 실을 갈래 — <c>None</c>(기본) · 제외 사유 이름 · <c>all</c>.</summary>
+    private static string NormalizeAlertScope(string? raw)
+    {
+        var v = (raw ?? string.Empty).Trim();
+        if (v.Length == 0) return nameof(ErrorTagReliability.SkipCause.None);
+        if (string.Equals(v, "all", StringComparison.OrdinalIgnoreCase)) return "all";
+        return Enum.TryParse<ErrorTagReliability.SkipCause>(v, ignoreCase: true, out var c)
+            ? c.ToString()
+            : nameof(ErrorTagReliability.SkipCause.None);
+    }
+
+    private async Task<UtReliabilityDto> BuildReliabilityAsync(
+        DateTime startUtc, DateTime endUtc, string? system, string want, CancellationToken ct)
+    {
         var r = await _reliability.AnalyzeAsync(startUtc, endUtc, system, ct);
         var s = r.Summary;
 
@@ -392,7 +417,8 @@ public class UserTagsController : ControllerBase
             GlobalTagCount: r.GlobalTagCount,
             SkippedChangedCount: r.SkippedChangedCount,
             MultiFlowDeviceCount: r.MultiFlowDeviceCount,
-            StaleSystems: r.StaleSystems,
+            LegacyAlertCount: r.LegacyAlertCount,
+            DeadBindingCount: r.DeadBindingCount,
             ProjectLoaded: r.ProjectLoaded,
             Flows: [.. r.Flows.Select(ToScopeDto)],
             Systems: [.. r.Systems.Select(ToScopeDto)],
@@ -411,7 +437,10 @@ public class UserTagsController : ControllerBase
                 TotalDownMs: d.TotalDownMs,
                 EMtbfMs: d.EMtbfMs,
                 EMttrMs: d.EMttrMs))],
-            Alerts: [.. r.Alerts.Select(a => new UtReliabilityAlertDto(
+            // 요약·스코프·디바이스는 언제나 전체 기준이고, 이력 표만 고른 갈래로 자른다.
+            Alerts: [.. r.Alerts
+                .Where(a => want == "all" || string.Equals(a.Skip.ToString(), want, StringComparison.Ordinal))
+                .Select(a => new UtReliabilityAlertDto(
                 OccurredAtLocal: a.OccurredAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 ClearedAtLocal: a.ClearedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 RestartedAtLocal: a.RestartedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
