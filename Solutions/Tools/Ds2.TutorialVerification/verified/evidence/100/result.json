@@ -1,0 +1,159 @@
+{
+  "Admitted": [
+    3
+  ],
+  "Calls": 8,
+  "Checks": [
+    {
+      "Name": "\uC815\uC2DD SDF \uC555\uCD95 \uD615\uC2DD",
+      "Passed": true,
+      "Actual": "gzip"
+    },
+    {
+      "Name": "\uC800\uC7A5 \uD6C4 \uC7AC\uC77D\uAE30 \uC694\uC18C \uC218",
+      "Passed": true,
+      "Actual": "12 Work / 8 Call"
+    },
+    {
+      "Name": "Call\uC744 \uC18C\uC720\uD55C Work\uC5D0 \uBB3C\uB9AC \uC2DC\uAC04 \uC911\uBCF5 \uC5C6\uC74C",
+      "Passed": true,
+      "Actual": "leaf Duration only"
+    },
+    {
+      "Name": "API\uC758 \uB300\uC0C1\uC740 \uD574\uB2F9 \uC2DC\uC2A4\uD15C \uB0B4\uBD80 Work",
+      "Passed": true,
+      "Actual": "peer systems"
+    },
+    {
+      "Name": "\uC2E4\uD589 Call\uC740 \uB2E4\uB978 \uC2DC\uC2A4\uD15C\uC744 \uD638\uCD9C",
+      "Passed": true,
+      "Actual": "peer API calls"
+    },
+    {
+      "Name": "\uC2DC\uAC04 \uD55C\uB3C4 \uC548\uC5D0 \uC815\uD55C \uCC98\uB9AC \uACBD\uACC4 \uB3C4\uB2EC",
+      "Passed": true,
+      "Actual": "{\r\n  \u0022Admitted\u0022: [\r\n    3\r\n  ],\r\n  \u0022Completed\u0022: [\r\n    3\r\n  ],\r\n  \u0022Time\u0022: 586\r\n}"
+    },
+    {
+      "Name": "\uC81C\uD488 \uCDA9\uB3CC\uACFC \uAC15\uC81C \uBC84\uB9BC \uC5C6\uC74C",
+      "Passed": true,
+      "Actual": "Conflict=0, Discard=0"
+    },
+    {
+      "Name": "\uC644\uB8CC \uB4A4 \uC81C\uD488\uD45C\uAC00 \uB0A8\uC9C0 \uC54A\uC74C",
+      "Passed": true,
+      "Actual": "0"
+    },
+    {
+      "Name": "\uB3D9\uC77C Flow\uC758 \uC548\uC815 \uC2DC\uC810 \uC81C\uD488 \uC218\uB294 \uCD5C\uB300 1",
+      "Passed": true,
+      "Actual": "1"
+    },
+    {
+      "Name": "\uC81C\uD488 \uBC88\uD638\uBCC4 \uC885\uB8CC \uD55C \uBC88",
+      "Passed": true,
+      "Actual": "3"
+    },
+    {
+      "Name": "\uC774\uBC88 \uC7A1\uAE30 \uC644\uB8CC \uB4A4 \uAC00\uACF5",
+      "Passed": true,
+      "Actual": "\uC55E\uB4A4\uB3D9\uC791.\uC7A1\uAE30 -\u003E \uC791\uC5C5\uB3D9\uC791.\uC6A9\uC811 (3,3)"
+    },
+    {
+      "Name": "\uAC19\uC740 \uC81C\uD488\uC758 \uB450 Work \uB3D9\uC2DC \uC2DC\uC791",
+      "Passed": true,
+      "Actual": "[|1L; 163L; 325L|] / [|1L; 163L; 325L|]"
+    },
+    {
+      "Name": "\uB9E4 \uC81C\uD488\uC5D0\uC11C \uC0C8 \uC7A5\uCE58 \uC2E4\uD589",
+      "Passed": true,
+      "Actual": "\uC55E\uB4A4\uB3D9\uC791.\uC7A1\uAE30: 3 / expected 3"
+    },
+    {
+      "Name": "\uB9E4 \uC81C\uD488\uC5D0\uC11C \uC0C8 \uC7A5\uCE58 \uC2E4\uD589",
+      "Passed": true,
+      "Actual": "\uC55E\uB4A4\uB3D9\uC791.\uB193\uAE30: 3 / expected 3"
+    },
+    {
+      "Name": "\uB9E4 \uC81C\uD488\uC5D0\uC11C \uC0C8 \uC7A5\uCE58 \uC2E4\uD589",
+      "Passed": true,
+      "Actual": "\uC791\uC5C5\uB3D9\uC791.\uC6A9\uC811: 3 / expected 3"
+    },
+    {
+      "Name": "\uB9E4 \uC81C\uD488\uC5D0\uC11C \uC0C8 \uC7A5\uCE58 \uC2E4\uD589",
+      "Passed": true,
+      "Actual": "\uC791\uC5C5\uB3D9\uC791.\uB2E4\uC74C\uC900\uBE44: 3 / expected 3"
+    },
+    {
+      "Name": "\uB2E4\uC74C \uC790\uB9AC\uC5D0\uC11C \uBAA8\uB4E0 \uC81C\uD488\uC744 \uC0C8\uB85C \uAC80\uC0AC",
+      "Passed": true,
+      "Actual": "\uAC80\uC0AC\uB3D9\uC791.\uAC80\uC0AC: 3 / expected 3"
+    },
+    {
+      "Name": "\uB9E4 \uC81C\uD488 \uAC00\uACF5 \uC790\uC138\uB85C \uC774\uB3D9",
+      "Passed": true,
+      "Actual": "\uD55C\uC81C\uD488\uC790\uC138.\uAC00\uACF5\uC790\uC138: 3 / expected 3"
+    },
+    {
+      "Name": "\uB9E4 \uC81C\uD488 \uBC30\uCD9C \uC790\uC138\uB85C \uB3CC\uC544\uC634",
+      "Passed": true,
+      "Actual": "\uD55C\uC81C\uD488\uC790\uC138.\uBC30\uCD9C\uC790\uC138: 3 / expected 3"
+    },
+    {
+      "Name": "\uBA85\uC2DC\uD55C \uB17C\uB9AC API \uC678\uC758 \uC815\uC801 \uC624\uB958 \uC5C6\uC74C",
+      "Passed": true,
+      "Actual": "V2=2 logicalApi=2"
+    }
+  ],
+  "Completed": [
+    3
+  ],
+  "EventCount": 259,
+  "Family": "combined",
+  "Graph": {
+    "GroupIgnore": [],
+    "SourcePred": [],
+    "Unreachable": [],
+    "Unreset": []
+  },
+  "Id": 100,
+  "InitialFinish": [
+    "\uD55C\uC81C\uD488\uC790\uC138.\uBC30\uCD9C\uC790\uC138",
+    "\uAC80\uC0AC\uB3D9\uC791.\uAC80\uC0AC",
+    "\uC791\uC5C5\uB3D9\uC791.\uC6A9\uC811",
+    "\uC55E\uB4A4\uB3D9\uC791.\uB193\uAE30"
+  ],
+  "Inputs": [],
+  "MaxProducts": 1,
+  "MaxProductsPerFlow": 1,
+  "Mode": "Simulation",
+  "Model": "100.ds2.sdf",
+  "ModelSHA256": "7eb121800a305d2a7be192f9d8b2abc234bed69040e7a0cbf02840fb17750b4d",
+  "Notes": [
+    "\uC81C\uD488\uC740 \uC774\uC804 \uC81C\uD488 \uC885\uB8CC\uC640 \uC804\uCCB4 \uC81C\uD488\uD45C \uBE44\uC6C0\uC744 \uD655\uC778\uD55C \uC2DC\uD5D8 \uACF5\uAE09\uAE30\uAC00 \uD22C\uC785\uD569\uB2C8\uB2E4. \uC7A5\uCE58 \uC13C\uC11C\uAC12\uC740 Simulation\uC774 \uC0DD\uC131\uD569\uB2C8\uB2E4.",
+    "\uC6A9\uC811 \uC790\uB9AC\uC5D0\uC11C \uAC80\uC0AC\u00B7\uBC30\uCD9C \uC790\uB9AC\uB85C \uAC19\uC740 \uC81C\uD488 \uBC88\uD638\uB97C \uC804\uB2EC\uD569\uB2C8\uB2E4. \uC774\uBC88 \uC2DC\uD5D8\uC740 \uC81C\uD488\uBCC4 \uC9C1\uB82C \uACF5\uAE09\uC774\uBA70 \uB450 \uC790\uB9AC\uC758 \uCD5C\uB300 \uCC98\uB9AC\uB7C9\uC744 \uCE21\uC815\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+    "\uD328\uB110 \uC7A1\uAE30\u00B7\uC790\uC138 \uD68C\uC804\u00B7\uC6A9\uC811\u00B7\uC6D0\uC704\uCE58\u00B7\uB193\uAE30\u00B7\uAC80\uC0AC\uB97C \uC5F0\uACB0\uD588\uC2B5\uB2C8\uB2E4. \uC7AC\uC791\uC5C5\uACFC \uACF5\uC720 \uB85C\uBD07\uC758 \uC120\uD0DD\uC740 \uC5F0\uACB0\uB41C 050\u00B7052 \uBAA8\uB378\uC5D0\uC11C \uBCC4\uB3C4\uB85C \uAC80\uC99D\uD569\uB2C8\uB2E4."
+  ],
+  "Rounds": 3,
+  "RuntimePassed": true,
+  "StaticValidationPassed": false,
+  "SupplyRequirements": [],
+  "Systems": 5,
+  "TimeMs": 586,
+  "Title": "\uCC98\uC74C \uBCF4\uB294 \uC124\uBE44\uB3C4 \uB2E4\uC12F \uC6D0\uB9AC\uB85C \uC124\uBA85\uD574 \uBCF4\uAE30",
+  "Unit": "\uC81C\uD488",
+  "Validation": [
+    {
+      "Message": "ApiCall \u0027\uC6A9\uC811\uC7A5\uCE58.\uB2E4\uC74C\uC900\uBE44\u0027 \u2014 SensingType\u2260Virtual \u21D2 InTag \uD544\uC218",
+      "Rule": "V2",
+      "Severity": "Error"
+    },
+    {
+      "Message": "ApiCall \u0027\uAC80\uC0AC\uC7A5\uCE58.\uC900\uBE44\u0027 \u2014 SensingType\u2260Virtual \u21D2 InTag \uD544\uC218",
+      "Rule": "V2",
+      "Severity": "Error"
+    }
+  ],
+  "Variant": "",
+  "Works": 12
+}

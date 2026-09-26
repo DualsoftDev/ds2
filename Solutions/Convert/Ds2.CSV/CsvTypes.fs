@@ -60,6 +60,8 @@ type CsvFormat =
     | Basic3 = 1
     | Standard9 = 2
     | Standard8 = 3
+    /// ds2-csv-for-ai/v1 — 7열(Kind,Name,Type,Detail,Time,InTag,OutTag).
+    | AiModel = 4
 
 /// 헤더 판별 결과. Format = Unknown 이면 Diagnostic 이 사용자에게 그대로 보여줄 오류 전문이다.
 type CsvHeaderInfo = {

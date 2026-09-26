@@ -1,0 +1,32 @@
+[
+  {
+    "ApiCall": "d0909118-d4ed-458b-a05c-e39ae731cf49",
+    "Time": 3,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "d0909118-d4ed-458b-a05c-e39ae731cf49",
+    "Time": 48,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "d0909118-d4ed-458b-a05c-e39ae731cf49",
+    "Time": 63,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "d0909118-d4ed-458b-a05c-e39ae731cf49",
+    "Time": 108,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "d0909118-d4ed-458b-a05c-e39ae731cf49",
+    "Time": 123,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "d0909118-d4ed-458b-a05c-e39ae731cf49",
+    "Time": 168,
+    "Value": "false"
+  }
+]

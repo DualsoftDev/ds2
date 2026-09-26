@@ -1,0 +1,98 @@
+{
+  "Case": {
+    "Id": 53,
+    "Title": "\uC77C\uC774 \uB05D\uB09C \uB54C\uC640 \uC7A5\uCE58\uB97C \uBE44\uC6CC \uC900 \uB54C",
+    "Family": "shared",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "c3dbb2f2-dd74-4062-873f-110f439b5ee6",
+    "a87d4a3a-deef-4dcc-b435-8425d4af39fd",
+    "5da8c756-7502-48fd-a7b3-45437b2b4558"
+  ],
+  "Sinks": [
+    "ed03da3b-e303-4aa5-8b75-93afae36b32e",
+    "d6071e9a-73a7-40ab-8684-84e57753bf9f",
+    "f4cbbf7d-95e0-411e-b86d-d95a69f6af13"
+  ],
+  "Rules": [
+    {
+      "Kind": "work-count",
+      "A": "baeee527-3058-4491-aaac-38f5126d6fb7",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uBCC4 \uB3C5\uB9BD \uC694\uCCAD \uC218\uB9CC\uD07C \uB85C\uBD07 \uC0C8 \uC2E4\uD589"
+    },
+    {
+      "Kind": "resource-exclusion",
+      "A": "baeee527-3058-4491-aaac-38f5126d6fb7",
+      "B": "686d74cd-30a0-4b66-a9a6-e8556afee69f",
+      "N": 0,
+      "Label": "\uB2E4\uB978 \uAC00\uACF5\uACFC \uBC18\uB0A9 \uC911\uC5D0\uB294 \uC0C8 \uAC00\uACF5 \uAE08\uC9C0"
+    },
+    {
+      "Kind": "work-count",
+      "A": "8e7ef539-9e1d-4a29-9c50-5d1460b6fb60",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uBCC4 \uB3C5\uB9BD \uC694\uCCAD \uC218\uB9CC\uD07C \uB85C\uBD07 \uC0C8 \uC2E4\uD589"
+    },
+    {
+      "Kind": "resource-exclusion",
+      "A": "8e7ef539-9e1d-4a29-9c50-5d1460b6fb60",
+      "B": "686d74cd-30a0-4b66-a9a6-e8556afee69f",
+      "N": 0,
+      "Label": "\uB2E4\uB978 \uAC00\uACF5\uACFC \uBC18\uB0A9 \uC911\uC5D0\uB294 \uC0C8 \uAC00\uACF5 \uAE08\uC9C0"
+    },
+    {
+      "Kind": "work-count",
+      "A": "7268f016-cbeb-426b-a4fe-cf865e7bfd38",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uBCC4 \uB3C5\uB9BD \uC694\uCCAD \uC218\uB9CC\uD07C \uB85C\uBD07 \uC0C8 \uC2E4\uD589"
+    },
+    {
+      "Kind": "resource-exclusion",
+      "A": "7268f016-cbeb-426b-a4fe-cf865e7bfd38",
+      "B": "686d74cd-30a0-4b66-a9a6-e8556afee69f",
+      "N": 0,
+      "Label": "\uB2E4\uB978 \uAC00\uACF5\uACFC \uBC18\uB0A9 \uC911\uC5D0\uB294 \uC0C8 \uAC00\uACF5 \uAE08\uC9C0"
+    },
+    {
+      "Kind": "work-count",
+      "A": "686d74cd-30a0-4b66-a9a6-e8556afee69f",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 9,
+      "Label": "\uAC01 \uC0AC\uC6A9 \uB4A4 \uBC18\uB0A9\uC744 \uC0C8\uB85C \uC2E4\uD589"
+    },
+    {
+      "Kind": "max-products",
+      "A": "00000000-0000-0000-0000-000000000000",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC138 \uC81C\uD488 \uC790\uB9AC\uC758 \uB3D9\uC2DC \uBCF4\uC720"
+    }
+  ],
+  "Channels": [],
+  "LogicalApis": [
+    "9b9ab4ce-321f-4c91-9e25-40f301348fb6",
+    "2b1104ad-24f4-4832-bbac-093a9326602f",
+    "89dcb5fa-a8c9-47b7-a85a-78e7667ae3bf",
+    "abfb8d73-fea4-4da6-bbd4-1b7cd594de78",
+    "1ad25c1e-444c-498a-996c-49b03ebef4a2",
+    "50687207-3b55-4209-b678-a67b1f4d953d"
+  ],
+  "Notes": [
+    "\uAC01 Flow\uC758 \uC774\uC804 \uC81C\uD488 \uC885\uB8CC\uC640 \uBE44\uC6C0\uC744 \uC2DC\uD5D8 \uACF5\uAE09\uAE30\uAC00 \uD655\uC778\uD569\uB2C8\uB2E4. \uCD08\uAE30 \uBC18\uB0A9 \uC644\uB8CC\uB294 \uC0C8 \uBB3C\uB9AC \uC2E4\uD589\uC73C\uB85C \uC138\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC790\uC6D0 \uCC28\uB840\uB294 \uAD00\uCC30 \uACB0\uACFC\uC774\uBA70 \uC77C\uBC18 FIFO \uBCF4\uC7A5\uC740 \uC544\uB2D9\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "e233db9d-ce0f-4d94-a20f-4ccb7ca7d2a0",
+    "b75f92a2-625b-4636-b90e-849f63acfe3e",
+    "bcfb2a23-3b6c-4bac-a4fc-078f44616f42"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

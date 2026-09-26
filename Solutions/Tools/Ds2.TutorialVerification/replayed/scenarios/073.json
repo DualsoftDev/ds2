@@ -1,0 +1,64 @@
+{
+  "Case": {
+    "Id": 73,
+    "Title": "\uC644\uB8CC\uB418\uBA74 \uC694\uCCAD \uCD9C\uB825\uC744 \uB044\uB294 \uBC29\uBC95",
+    "Family": "device",
+    "Variant": "normal-delay",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "a64be627-194f-4cce-942b-d367edf6f0ed"
+  ],
+  "Sinks": [
+    "b9961103-8b44-4875-906b-17f5d825897c"
+  ],
+  "Rules": [
+    {
+      "Kind": "work-count",
+      "A": "66ccfbb8-62f3-476d-a43e-12b9647c87d7",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uC2E4\uC81C \uB3D9\uC791 \uC0C8 \uC2DC\uC791"
+    },
+    {
+      "Kind": "work-count",
+      "A": "e1aaf8f1-0b80-4c25-abb2-4ca04438b469",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uC2E4\uC81C \uBCF5\uADC0 \uC0C8 \uC2DC\uC791"
+    },
+    {
+      "Kind": "finish-before-start",
+      "A": "66ccfbb8-62f3-476d-a43e-12b9647c87d7",
+      "B": "e1aaf8f1-0b80-4c25-abb2-4ca04438b469",
+      "N": 0,
+      "Label": "\uB3D9\uC791 \uC644\uB8CC \uB4A4 \uBCF5\uADC0"
+    },
+    {
+      "Kind": "output-observed",
+      "A": "d5fa516a-026f-4f3c-8318-88fecf44f311",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 0,
+      "Label": "\uC694\uCCAD \uCD9C\uB825\uC758 \uCF1C\uC9D0\uACFC \uAEBC\uC9D0 \uAE30\uB85D"
+    },
+    {
+      "Kind": "output-duration",
+      "A": "d5fa516a-026f-4f3c-8318-88fecf44f311",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 48,
+      "Label": "40 ms \uC644\uB8CC \uB4A4 8 ms\uB97C \uB354 \uC720\uC9C0"
+    }
+  ],
+  "Channels": [],
+  "LogicalApis": [],
+  "Notes": [
+    "\uC8FC\uC18C\uB294 \uC2E4\uC81C PLC\uC5D0 \uC5F0\uACB0\uB418\uC9C0 \uC54A\uC740 \uBAA8\uC758 \uC785\uCD9C\uB825\uC785\uB2C8\uB2E4. Simulation\uC758 \uB300\uC0C1 \uC644\uB8CC\uC640 \uBA54\uBAA8\uB9AC \uCD9C\uB825 \uBCC0\uD654\uB97C \uAC80\uC99D\uD558\uBA70 \uC2E4\uC81C \uD68C\uB85C\uC640 Control \uC6B4\uC804\uC740 \uBCC4\uB3C4\uC785\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "8e90dcd0-ed75-4043-bd67-9579fba99f8d"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

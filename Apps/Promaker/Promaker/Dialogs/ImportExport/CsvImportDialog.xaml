@@ -62,6 +62,7 @@
                                 Style="{StaticResource DarkButton}"
                                 Padding="12,4"
                                 ToolTip="ds2-basic-csv/v1 생성 지침을 클립보드에 복사합니다. ChatGPT·Gemini 등에 붙여넣고 공법을 설명하면 3열 CSV가 생성됩니다."
+                                x:Name="CopyPromptButton"
                                 Click="CopyPrompt_Click"/>
                         <TextBlock x:Name="SourceText"
                                    Grid.Column="8"

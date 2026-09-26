@@ -6,13 +6,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="docs\CSV_FOR_AI_GUIDE.md" />
     <Compile Include="CsvTypes.fs" />
     <Compile Include="BasicCsvTypes.fs" />
+    <Compile Include="AiCsvTypes.fs" />
     <Compile Include="CsvParser.fs" />
     <Compile Include="BasicCsvParser.fs" />
+    <Compile Include="AiCsvParser.fs" />
     <Compile Include="CsvFormatDetector.fs" />
     <Compile Include="CsvMapper.fs" />
     <Compile Include="BasicCsvMapper.fs" />
+    <Compile Include="AiCsvMapper.fs" />
     <Compile Include="CsvImporter.fs" />
     <Compile Include="CsvExporter.fs" />
   </ItemGroup>

@@ -1,0 +1,66 @@
+{
+  "Case": {
+    "Id": 47,
+    "Title": "\uBE48 \uBC1B\uCE68\uB3C4 \uC6C0\uC9C1\uC5EC\uC57C \uD560 \uB54C",
+    "Family": "empty-carrier",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uBC1B\uCE68 \uC6B4\uBC18 \uD68C\uCC28"
+  },
+  "Sources": [
+    "0dcf3f72-1581-44d8-9d0f-e2239d6e5691"
+  ],
+  "Sinks": [
+    "50532cf0-aa10-45fe-905b-9685f3c85bdd"
+  ],
+  "Rules": [
+    {
+      "Kind": "work-count",
+      "A": "14832f73-cedb-4f1f-af5f-0b2f1a643b54",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 1,
+      "Label": "\uC2E4\uC81C \uC81C\uD488\uC774 \uC788\uB294 \uD68C\uCC28\uC5D0\uC11C\uB9CC \uC81C\uD488 \uC791\uC5C5"
+    },
+    {
+      "Kind": "work-count",
+      "A": "8f66abed-4d49-47b6-b04e-bd24a5c18d0e",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uBE48 \uBC1B\uCE68\uB3C4 \uD3EC\uD568\uD574 \uC138 \uD68C\uCC28 \uBAA8\uB450 \uC774\uB3D9"
+    }
+  ],
+  "Channels": [
+    {
+      "Id": "c1cf27ae-307b-4cde-84d1-dbd22c147383",
+      "Values": [
+        "false",
+        "true",
+        "false"
+      ],
+      "Initial": "false",
+      "Delay": 15,
+      "Name": "\uBE48 \uBC1B\uCE68 / \uC81C\uD488 \uC788\uC74C / \uBE48 \uBC1B\uCE68"
+    },
+    {
+      "Id": "5d226065-4ea6-4aa1-a1e2-3562a0502bba",
+      "Values": [
+        "true"
+      ],
+      "Initial": "false",
+      "Delay": 15,
+      "Name": "\uC774\uBC88 \uBC1B\uCE68\uC758 \uC720\uBB34 \uD655\uC778"
+    }
+  ],
+  "LogicalApis": [
+    "ec1be735-9f8b-4366-8397-b9c7c08ac245"
+  ],
+  "Notes": [
+    "\uC5EC\uAE30\uC11C Source\uC758 \uCD94\uC801 \uB2E8\uC704\uB294 \uC81C\uD488\uC774 \uC544\uB2C8\uB77C \uBC1B\uCE68\uC758 \uC6B4\uBC18 \uD68C\uCC28\uC785\uB2C8\uB2E4. \uC81C\uD488 \uC5C6\uB294 \uB450 \uD68C\uCC28\uC5D0 \uAC00\uC9DC \uC81C\uD488 \uBC88\uD638\uB97C \uBC1C\uD589\uD558\uC9C0 \uC54A\uC73C\uBA70, \uC138 \uD68C\uCC28 \uC644\uB8CC\uB97C \uC81C\uD488 \uC138 \uAC1C\uC758 \uC0DD\uC0B0\uB7C9\uC73C\uB85C \uC138\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC81C\uD488\uC740 \uD55C \uAC1C\uC785\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "1cda1fb9-1215-493b-bc1d-137d1207498c"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

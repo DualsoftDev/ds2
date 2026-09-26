@@ -1,0 +1,108 @@
+{
+  "Case": {
+    "Id": 57,
+    "Title": "\uB204\uAC00 \uBA3C\uC800 \uC4F8\uC9C0 \uADDC\uCE59\uC73C\uB85C \uC815\uD558\uAE30",
+    "Family": "priority",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "68a02d07-86e5-4961-a272-33ac415d8d40",
+    "c9a88fb8-4a3d-41d5-b184-572ed3667b26",
+    "2481c074-8340-4885-a894-6a8083e4ee5b"
+  ],
+  "Sinks": [
+    "af2ecad7-7b96-45e2-b16d-7be965fa7b9f",
+    "c2d1f615-edf9-41a4-8a09-de3303bca9e6",
+    "fcfb5e3a-8ccf-4a86-b5a8-03eb5445dd3b"
+  ],
+  "Rules": [
+    {
+      "Kind": "work-count",
+      "A": "30966b9b-c3a7-4a0b-9764-0a16072e4ec7",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uBCC4 \uB3C5\uB9BD \uC694\uCCAD \uC218\uB9CC\uD07C \uB85C\uBD07 \uC0C8 \uC2E4\uD589"
+    },
+    {
+      "Kind": "resource-exclusion",
+      "A": "30966b9b-c3a7-4a0b-9764-0a16072e4ec7",
+      "B": "278b85d2-56b1-4bc5-9aec-1ce0675c9793",
+      "N": 0,
+      "Label": "\uB2E4\uB978 \uAC00\uACF5\uACFC \uBC18\uB0A9 \uC911\uC5D0\uB294 \uC0C8 \uAC00\uACF5 \uAE08\uC9C0"
+    },
+    {
+      "Kind": "work-count",
+      "A": "62c56afc-8b63-49be-b510-c46c5498bfcb",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uBCC4 \uB3C5\uB9BD \uC694\uCCAD \uC218\uB9CC\uD07C \uB85C\uBD07 \uC0C8 \uC2E4\uD589"
+    },
+    {
+      "Kind": "resource-exclusion",
+      "A": "62c56afc-8b63-49be-b510-c46c5498bfcb",
+      "B": "278b85d2-56b1-4bc5-9aec-1ce0675c9793",
+      "N": 0,
+      "Label": "\uB2E4\uB978 \uAC00\uACF5\uACFC \uBC18\uB0A9 \uC911\uC5D0\uB294 \uC0C8 \uAC00\uACF5 \uAE08\uC9C0"
+    },
+    {
+      "Kind": "work-count",
+      "A": "c5586a72-73cf-49d1-8b15-6d330f76ff37",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uBCC4 \uB3C5\uB9BD \uC694\uCCAD \uC218\uB9CC\uD07C \uB85C\uBD07 \uC0C8 \uC2E4\uD589"
+    },
+    {
+      "Kind": "resource-exclusion",
+      "A": "c5586a72-73cf-49d1-8b15-6d330f76ff37",
+      "B": "278b85d2-56b1-4bc5-9aec-1ce0675c9793",
+      "N": 0,
+      "Label": "\uB2E4\uB978 \uAC00\uACF5\uACFC \uBC18\uB0A9 \uC911\uC5D0\uB294 \uC0C8 \uAC00\uACF5 \uAE08\uC9C0"
+    },
+    {
+      "Kind": "work-count",
+      "A": "278b85d2-56b1-4bc5-9aec-1ce0675c9793",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 9,
+      "Label": "\uAC01 \uC0AC\uC6A9 \uB4A4 \uBC18\uB0A9\uC744 \uC0C8\uB85C \uC2E4\uD589"
+    },
+    {
+      "Kind": "fixed-order",
+      "A": "00000000-0000-0000-0000-000000000000",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 0,
+      "Label": "\uBAA8\uB378 \uCC28\uB840 Work\uAC00 1 2 3 \uC21C\uC11C\uB97C \uBC18\uBCF5"
+    },
+    {
+      "Kind": "max-products",
+      "A": "00000000-0000-0000-0000-000000000000",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC138 \uC81C\uD488 \uC790\uB9AC\uC758 \uB3D9\uC2DC \uBCF4\uC720"
+    }
+  ],
+  "Channels": [],
+  "LogicalApis": [
+    "a46a86b3-556d-4e04-95c4-3f669337d78b",
+    "2eb73970-f73c-4452-9311-37823625f922",
+    "4de62c98-04f5-4c00-bf81-4760359ccac1",
+    "b37ff873-c474-46d1-9135-aed7f8784dfd",
+    "9d0db0e2-5edc-44bb-90de-7a5f4c65b20a",
+    "8bd5baf3-8313-4f81-a8df-ed211fda8ef3",
+    "14082d11-11ee-45bd-b4ec-a6e2d2219d36",
+    "6c066efe-5a7b-4182-a654-a606b6db3a26",
+    "af2a5ac6-ccff-4a49-a2e4-1b0359037911"
+  ],
+  "Notes": [
+    "\uAC01 Flow\uC758 \uC774\uC804 \uC81C\uD488 \uC885\uB8CC\uC640 \uBE44\uC6C0\uC744 \uC2DC\uD5D8 \uACF5\uAE09\uAE30\uAC00 \uD655\uC778\uD569\uB2C8\uB2E4. \uCD08\uAE30 \uBC18\uB0A9 \uC644\uB8CC\uB294 \uC0C8 \uBB3C\uB9AC \uC2E4\uD589\uC73C\uB85C \uC138\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC790\uC6D0 \uCC28\uB840\uB294 \uAD00\uCC30 \uACB0\uACFC\uC774\uBA70 \uC77C\uBC18 FIFO \uBCF4\uC7A5\uC740 \uC544\uB2D9\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "f01e5d54-28fd-4153-b598-51a9ff257a88",
+    "04f80c04-f6b6-490f-8934-2701992bd8b0",
+    "1220d657-e5d8-42ce-a9a4-d6e22a3be96c"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

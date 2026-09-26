@@ -1,0 +1,92 @@
+[
+  {
+    "ApiCall": "4cd802eb-b259-431c-b3c4-e4ee9cb931e3",
+    "Time": 1,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "4cd802eb-b259-431c-b3c4-e4ee9cb931e3",
+    "Time": 26,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "2bf3be0a-f0ac-400a-88a8-d86ac07bded9",
+    "Time": 26,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "2bf3be0a-f0ac-400a-88a8-d86ac07bded9",
+    "Time": 61,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "2d77f3f3-8ddd-490d-8ff4-0cce49b25c54",
+    "Time": 61,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "2d77f3f3-8ddd-490d-8ff4-0cce49b25c54",
+    "Time": 106,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "4cd802eb-b259-431c-b3c4-e4ee9cb931e3",
+    "Time": 109,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "4cd802eb-b259-431c-b3c4-e4ee9cb931e3",
+    "Time": 134,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "2bf3be0a-f0ac-400a-88a8-d86ac07bded9",
+    "Time": 134,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "2bf3be0a-f0ac-400a-88a8-d86ac07bded9",
+    "Time": 169,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "2d77f3f3-8ddd-490d-8ff4-0cce49b25c54",
+    "Time": 169,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "2d77f3f3-8ddd-490d-8ff4-0cce49b25c54",
+    "Time": 214,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "4cd802eb-b259-431c-b3c4-e4ee9cb931e3",
+    "Time": 217,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "4cd802eb-b259-431c-b3c4-e4ee9cb931e3",
+    "Time": 242,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "2bf3be0a-f0ac-400a-88a8-d86ac07bded9",
+    "Time": 242,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "2bf3be0a-f0ac-400a-88a8-d86ac07bded9",
+    "Time": 277,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "2d77f3f3-8ddd-490d-8ff4-0cce49b25c54",
+    "Time": 277,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "2d77f3f3-8ddd-490d-8ff4-0cce49b25c54",
+    "Time": 322,
+    "Value": "false"
+  }
+]

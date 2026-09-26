@@ -1,0 +1,57 @@
+{
+  "Case": {
+    "Id": 76,
+    "Title": "\uC55E\uB4A4\uB85C \uC6C0\uC9C1\uC774\uB294 \uC2E4\uB9B0\uB354 \uC5F0\uACB0\uD558\uAE30",
+    "Family": "device",
+    "Variant": "normal",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "cc88dadb-b450-4804-a397-6e8d07106bf1"
+  ],
+  "Sinks": [
+    "e2118d53-3e3f-495d-9b9c-44719d26fba4"
+  ],
+  "Rules": [
+    {
+      "Kind": "work-count",
+      "A": "7787ff2d-4160-41c8-8c86-4709f6199b46",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uC2E4\uC81C \uB3D9\uC791 \uC0C8 \uC2DC\uC791"
+    },
+    {
+      "Kind": "work-count",
+      "A": "ede72030-d6f2-4b1b-848b-23fa6698c406",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uC2E4\uC81C \uBCF5\uADC0 \uC0C8 \uC2DC\uC791"
+    },
+    {
+      "Kind": "finish-before-start",
+      "A": "7787ff2d-4160-41c8-8c86-4709f6199b46",
+      "B": "ede72030-d6f2-4b1b-848b-23fa6698c406",
+      "N": 0,
+      "Label": "\uB3D9\uC791 \uC644\uB8CC \uB4A4 \uBCF5\uADC0"
+    },
+    {
+      "Kind": "output-observed",
+      "A": "5bdf1252-f02a-4c82-b132-71687f7387ee",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 0,
+      "Label": "\uC694\uCCAD \uCD9C\uB825\uC758 \uCF1C\uC9D0\uACFC \uAEBC\uC9D0 \uAE30\uB85D"
+    }
+  ],
+  "Channels": [],
+  "LogicalApis": [],
+  "Notes": [
+    "\uC8FC\uC18C\uB294 \uC2E4\uC81C PLC\uC5D0 \uC5F0\uACB0\uB418\uC9C0 \uC54A\uC740 \uBAA8\uC758 \uC785\uCD9C\uB825\uC785\uB2C8\uB2E4. Simulation\uC758 \uB300\uC0C1 \uC644\uB8CC\uC640 \uBA54\uBAA8\uB9AC \uCD9C\uB825 \uBCC0\uD654\uB97C \uAC80\uC99D\uD558\uBA70 \uC2E4\uC81C \uD68C\uB85C\uC640 Control \uC6B4\uC804\uC740 \uBCC4\uB3C4\uC785\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "7ba8a99e-3b64-457c-96e2-58f7c1555fed"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

@@ -1,0 +1,8966 @@
+{
+  "created_utc": "2026-09-25T08:01:47.123195+00:00",
+  "generation": "run08",
+  "replay": "run09",
+  "negative": [
+    {
+      "id": 22,
+      "mutations": [
+        "/calls/8989e4cc-504f-4891-a11d-0ad05d6dc791/conditions/length"
+      ],
+      "failures": [
+        {
+          "Name": "이번 잡기 완료 뒤 가공",
+          "Passed": false,
+          "Actual": "앞뒤동작.잡기 -> 작업동작.용접 (3,3)"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "mutations": [
+        "/calls/1db1cd1f-bbf7-486a-a7f6-f8e88ba33db6/conditions/length"
+      ],
+      "failures": [
+        {
+          "Name": "같은 A 또는 OK가 연속되어도 두 번 실제 실행",
+          "Passed": false,
+          "Actual": "값과처리.A처리: 0 / expected 2"
+        },
+        {
+          "Name": "B 또는 NG 제품에서만 실제 실행",
+          "Passed": false,
+          "Actual": "값과처리.B처리: 4 / expected 2"
+        },
+        {
+          "Name": "A A B B 결과와 실제 대상 실행 일치",
+          "Passed": false,
+          "Actual": "B,B,B,B"
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "mutations": [
+        "/calls/d0a9ecbc-1eba-4a6c-8dfd-7bcdf358d796/conditions/length"
+      ],
+      "failures": [
+        {
+          "Name": "시간 한도 안에 정한 처리 경계 도달",
+          "Passed": false,
+          "Actual": "{\r\n  \"Admitted\": [\r\n    2,\r\n    1,\r\n    1\r\n  ],\r\n  \"Completed\": [\r\n    1,\r\n    0,\r\n    0\r\n  ],\r\n  \"Time\": 20000\r\n}"
+        },
+        {
+          "Name": "완료 뒤 제품표가 남지 않음",
+          "Passed": false,
+          "Actual": "3"
+        },
+        {
+          "Name": "제품 번호별 종료 한 번",
+          "Passed": false,
+          "Actual": "1"
+        },
+        {
+          "Name": "제품별 독립 요청 수만큼 로봇 새 실행",
+          "Passed": false,
+          "Actual": "공용동작.요청1가공: 1 / expected 3"
+        },
+        {
+          "Name": "제품별 독립 요청 수만큼 로봇 새 실행",
+          "Passed": false,
+          "Actual": "공용동작.요청2가공: 1 / expected 3"
+        },
+        {
+          "Name": "제품별 독립 요청 수만큼 로봇 새 실행",
+          "Passed": false,
+          "Actual": "공용동작.요청3가공: 0 / expected 3"
+        },
+        {
+          "Name": "각 사용 뒤 반납을 새로 실행",
+          "Passed": false,
+          "Actual": "공용동작.공동반납: 1 / expected 9"
+        }
+      ]
+    },
+    {
+      "id": 64,
+      "mutations": [
+        "/calls/20923a80-577b-484e-9551-ebc3c76976fa/conditions/0/isInverted"
+      ],
+      "failures": [
+        {
+          "Name": "2번째 동작의 실제 실행 수",
+          "Passed": false,
+          "Actual": "최대세회작업.반복2: 1 / expected 2"
+        }
+      ]
+    },
+    {
+      "id": 95,
+      "mutations": [
+        "/calls/381f3f09-ea3b-4b56-b7d2-3931e5acbef0/conditions/length"
+      ],
+      "failures": [
+        {
+          "Name": "이번 잡기 완료 뒤 가공",
+          "Passed": false,
+          "Actual": "앞뒤동작.잡기 -> 작업동작.용접 (3,3)"
+        }
+      ]
+    }
+  ],
+  "models": 100,
+  "runtime_passed": 100,
+  "static_passed": 9,
+  "static_failed": 91,
+  "runtime_assertions": 1662,
+  "events": 18107,
+  "v2_issues": 187,
+  "checks": [
+    {
+      "check": "001 native header",
+      "passed": true
+    },
+    {
+      "check": "001 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "001 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "001 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "001 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "001 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "001 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "001 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "001 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "001 static status honest",
+      "passed": true
+    },
+    {
+      "check": "001 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "001 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "001 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "001 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "001 token final counts",
+      "passed": true
+    },
+    {
+      "check": "001 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "001 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "001 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "001 works positions",
+      "passed": true
+    },
+    {
+      "check": "001 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "001 calls positions",
+      "passed": true
+    },
+    {
+      "check": "001 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "002 native header",
+      "passed": true
+    },
+    {
+      "check": "002 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "002 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "002 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "002 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "002 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "002 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "002 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "002 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "002 static status honest",
+      "passed": true
+    },
+    {
+      "check": "002 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "002 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "002 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "002 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "002 token final counts",
+      "passed": true
+    },
+    {
+      "check": "002 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "002 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "002 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "002 works positions",
+      "passed": true
+    },
+    {
+      "check": "002 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "002 calls positions",
+      "passed": true
+    },
+    {
+      "check": "002 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "003 native header",
+      "passed": true
+    },
+    {
+      "check": "003 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "003 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "003 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "003 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "003 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "003 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "003 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "003 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "003 static status honest",
+      "passed": true
+    },
+    {
+      "check": "003 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "003 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "003 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "003 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "003 token final counts",
+      "passed": true
+    },
+    {
+      "check": "003 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "003 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "003 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "003 works positions",
+      "passed": true
+    },
+    {
+      "check": "003 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "003 calls positions",
+      "passed": true
+    },
+    {
+      "check": "003 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "004 native header",
+      "passed": true
+    },
+    {
+      "check": "004 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "004 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "004 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "004 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "004 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "004 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "004 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "004 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "004 static status honest",
+      "passed": true
+    },
+    {
+      "check": "004 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "004 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "004 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "004 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "004 token final counts",
+      "passed": true
+    },
+    {
+      "check": "004 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "004 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "004 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "004 works positions",
+      "passed": true
+    },
+    {
+      "check": "004 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "004 calls positions",
+      "passed": true
+    },
+    {
+      "check": "004 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "005 native header",
+      "passed": true
+    },
+    {
+      "check": "005 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "005 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "005 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "005 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "005 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "005 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "005 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "005 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "005 static status honest",
+      "passed": true
+    },
+    {
+      "check": "005 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "005 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "005 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "005 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "005 token final counts",
+      "passed": true
+    },
+    {
+      "check": "005 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "005 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "005 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "005 works positions",
+      "passed": true
+    },
+    {
+      "check": "005 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "005 calls positions",
+      "passed": true
+    },
+    {
+      "check": "005 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "006 native header",
+      "passed": true
+    },
+    {
+      "check": "006 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "006 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "006 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "006 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "006 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "006 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "006 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "006 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "006 static status honest",
+      "passed": true
+    },
+    {
+      "check": "006 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "006 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "006 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "006 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "006 token final counts",
+      "passed": true
+    },
+    {
+      "check": "006 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "006 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "006 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "006 works positions",
+      "passed": true
+    },
+    {
+      "check": "006 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "006 calls positions",
+      "passed": true
+    },
+    {
+      "check": "006 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "007 native header",
+      "passed": true
+    },
+    {
+      "check": "007 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "007 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "007 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "007 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "007 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "007 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "007 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "007 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "007 static status honest",
+      "passed": true
+    },
+    {
+      "check": "007 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "007 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "007 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "007 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "007 token final counts",
+      "passed": true
+    },
+    {
+      "check": "007 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "007 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "007 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "007 works positions",
+      "passed": true
+    },
+    {
+      "check": "007 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "007 calls positions",
+      "passed": true
+    },
+    {
+      "check": "007 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "008 native header",
+      "passed": true
+    },
+    {
+      "check": "008 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "008 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "008 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "008 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "008 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "008 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "008 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "008 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "008 static status honest",
+      "passed": true
+    },
+    {
+      "check": "008 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "008 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "008 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "008 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "008 token final counts",
+      "passed": true
+    },
+    {
+      "check": "008 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "008 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "008 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "008 works positions",
+      "passed": true
+    },
+    {
+      "check": "008 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "008 calls positions",
+      "passed": true
+    },
+    {
+      "check": "008 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "009 native header",
+      "passed": true
+    },
+    {
+      "check": "009 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "009 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "009 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "009 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "009 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "009 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "009 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "009 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "009 static status honest",
+      "passed": true
+    },
+    {
+      "check": "009 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "009 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "009 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "009 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "009 token final counts",
+      "passed": true
+    },
+    {
+      "check": "009 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "009 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "009 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "009 works positions",
+      "passed": true
+    },
+    {
+      "check": "009 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "009 calls positions",
+      "passed": true
+    },
+    {
+      "check": "009 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "010 native header",
+      "passed": true
+    },
+    {
+      "check": "010 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "010 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "010 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "010 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "010 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "010 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "010 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "010 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "010 static status honest",
+      "passed": true
+    },
+    {
+      "check": "010 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "010 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "010 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "010 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "010 token final counts",
+      "passed": true
+    },
+    {
+      "check": "010 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "010 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "010 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "010 works positions",
+      "passed": true
+    },
+    {
+      "check": "010 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "010 calls positions",
+      "passed": true
+    },
+    {
+      "check": "010 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "011 native header",
+      "passed": true
+    },
+    {
+      "check": "011 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "011 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "011 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "011 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "011 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "011 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "011 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "011 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "011 static status honest",
+      "passed": true
+    },
+    {
+      "check": "011 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "011 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "011 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "011 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "011 token final counts",
+      "passed": true
+    },
+    {
+      "check": "011 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "011 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "011 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "011 works positions",
+      "passed": true
+    },
+    {
+      "check": "011 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "011 calls positions",
+      "passed": true
+    },
+    {
+      "check": "011 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "012 native header",
+      "passed": true
+    },
+    {
+      "check": "012 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "012 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "012 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "012 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "012 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "012 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "012 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "012 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "012 static status honest",
+      "passed": true
+    },
+    {
+      "check": "012 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "012 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "012 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "012 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "012 token final counts",
+      "passed": true
+    },
+    {
+      "check": "012 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "012 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "012 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "012 works positions",
+      "passed": true
+    },
+    {
+      "check": "012 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "012 calls positions",
+      "passed": true
+    },
+    {
+      "check": "012 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "013 native header",
+      "passed": true
+    },
+    {
+      "check": "013 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "013 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "013 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "013 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "013 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "013 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "013 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "013 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "013 static status honest",
+      "passed": true
+    },
+    {
+      "check": "013 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "013 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "013 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "013 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "013 token final counts",
+      "passed": true
+    },
+    {
+      "check": "013 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "013 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "013 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "013 works positions",
+      "passed": true
+    },
+    {
+      "check": "013 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "013 calls positions",
+      "passed": true
+    },
+    {
+      "check": "013 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "014 native header",
+      "passed": true
+    },
+    {
+      "check": "014 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "014 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "014 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "014 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "014 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "014 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "014 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "014 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "014 static status honest",
+      "passed": true
+    },
+    {
+      "check": "014 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "014 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "014 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "014 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "014 token final counts",
+      "passed": true
+    },
+    {
+      "check": "014 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "014 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "014 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "014 works positions",
+      "passed": true
+    },
+    {
+      "check": "014 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "014 calls positions",
+      "passed": true
+    },
+    {
+      "check": "014 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "015 native header",
+      "passed": true
+    },
+    {
+      "check": "015 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "015 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "015 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "015 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "015 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "015 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "015 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "015 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "015 static status honest",
+      "passed": true
+    },
+    {
+      "check": "015 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "015 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "015 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "015 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "015 token final counts",
+      "passed": true
+    },
+    {
+      "check": "015 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "015 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "015 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "015 works positions",
+      "passed": true
+    },
+    {
+      "check": "015 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "015 calls positions",
+      "passed": true
+    },
+    {
+      "check": "015 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "016 native header",
+      "passed": true
+    },
+    {
+      "check": "016 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "016 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "016 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "016 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "016 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "016 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "016 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "016 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "016 static status honest",
+      "passed": true
+    },
+    {
+      "check": "016 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "016 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "016 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "016 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "016 token final counts",
+      "passed": true
+    },
+    {
+      "check": "016 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "016 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "016 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "016 works positions",
+      "passed": true
+    },
+    {
+      "check": "016 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "016 calls positions",
+      "passed": true
+    },
+    {
+      "check": "016 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "017 native header",
+      "passed": true
+    },
+    {
+      "check": "017 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "017 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "017 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "017 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "017 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "017 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "017 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "017 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "017 static status honest",
+      "passed": true
+    },
+    {
+      "check": "017 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "017 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "017 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "017 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "017 token final counts",
+      "passed": true
+    },
+    {
+      "check": "017 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "017 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "017 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "017 works positions",
+      "passed": true
+    },
+    {
+      "check": "017 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "017 calls positions",
+      "passed": true
+    },
+    {
+      "check": "017 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "018 native header",
+      "passed": true
+    },
+    {
+      "check": "018 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "018 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "018 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "018 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "018 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "018 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "018 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "018 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "018 static status honest",
+      "passed": true
+    },
+    {
+      "check": "018 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "018 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "018 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "018 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "018 token final counts",
+      "passed": true
+    },
+    {
+      "check": "018 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "018 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "018 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "018 works positions",
+      "passed": true
+    },
+    {
+      "check": "018 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "018 calls positions",
+      "passed": true
+    },
+    {
+      "check": "018 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "019 native header",
+      "passed": true
+    },
+    {
+      "check": "019 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "019 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "019 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "019 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "019 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "019 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "019 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "019 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "019 static status honest",
+      "passed": true
+    },
+    {
+      "check": "019 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "019 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "019 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "019 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "019 token final counts",
+      "passed": true
+    },
+    {
+      "check": "019 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "019 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "019 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "019 works positions",
+      "passed": true
+    },
+    {
+      "check": "019 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "019 calls positions",
+      "passed": true
+    },
+    {
+      "check": "019 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "020 native header",
+      "passed": true
+    },
+    {
+      "check": "020 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "020 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "020 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "020 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "020 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "020 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "020 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "020 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "020 static status honest",
+      "passed": true
+    },
+    {
+      "check": "020 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "020 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "020 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "020 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "020 token final counts",
+      "passed": true
+    },
+    {
+      "check": "020 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "020 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "020 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "020 works positions",
+      "passed": true
+    },
+    {
+      "check": "020 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "020 calls positions",
+      "passed": true
+    },
+    {
+      "check": "020 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "021 native header",
+      "passed": true
+    },
+    {
+      "check": "021 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "021 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "021 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "021 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "021 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "021 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "021 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "021 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "021 static status honest",
+      "passed": true
+    },
+    {
+      "check": "021 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "021 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "021 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "021 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "021 token final counts",
+      "passed": true
+    },
+    {
+      "check": "021 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "021 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "021 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "021 works positions",
+      "passed": true
+    },
+    {
+      "check": "021 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "021 calls positions",
+      "passed": true
+    },
+    {
+      "check": "021 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "022 native header",
+      "passed": true
+    },
+    {
+      "check": "022 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "022 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "022 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "022 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "022 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "022 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "022 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "022 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "022 static status honest",
+      "passed": true
+    },
+    {
+      "check": "022 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "022 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "022 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "022 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "022 token final counts",
+      "passed": true
+    },
+    {
+      "check": "022 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "022 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "022 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "022 works positions",
+      "passed": true
+    },
+    {
+      "check": "022 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "022 calls positions",
+      "passed": true
+    },
+    {
+      "check": "022 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "023 native header",
+      "passed": true
+    },
+    {
+      "check": "023 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "023 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "023 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "023 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "023 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "023 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "023 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "023 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "023 static status honest",
+      "passed": true
+    },
+    {
+      "check": "023 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "023 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "023 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "023 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "023 token final counts",
+      "passed": true
+    },
+    {
+      "check": "023 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "023 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "023 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "023 works positions",
+      "passed": true
+    },
+    {
+      "check": "023 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "023 calls positions",
+      "passed": true
+    },
+    {
+      "check": "023 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "024 native header",
+      "passed": true
+    },
+    {
+      "check": "024 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "024 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "024 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "024 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "024 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "024 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "024 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "024 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "024 static status honest",
+      "passed": true
+    },
+    {
+      "check": "024 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "024 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "024 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "024 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "024 token final counts",
+      "passed": true
+    },
+    {
+      "check": "024 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "024 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "024 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "024 works positions",
+      "passed": true
+    },
+    {
+      "check": "024 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "024 calls positions",
+      "passed": true
+    },
+    {
+      "check": "024 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "025 native header",
+      "passed": true
+    },
+    {
+      "check": "025 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "025 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "025 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "025 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "025 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "025 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "025 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "025 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "025 static status honest",
+      "passed": true
+    },
+    {
+      "check": "025 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "025 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "025 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "025 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "025 token final counts",
+      "passed": true
+    },
+    {
+      "check": "025 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "025 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "025 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "025 works positions",
+      "passed": true
+    },
+    {
+      "check": "025 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "025 calls positions",
+      "passed": true
+    },
+    {
+      "check": "025 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "026 native header",
+      "passed": true
+    },
+    {
+      "check": "026 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "026 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "026 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "026 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "026 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "026 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "026 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "026 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "026 static status honest",
+      "passed": true
+    },
+    {
+      "check": "026 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "026 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "026 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "026 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "026 token final counts",
+      "passed": true
+    },
+    {
+      "check": "026 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "026 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "026 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "026 works positions",
+      "passed": true
+    },
+    {
+      "check": "026 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "026 calls positions",
+      "passed": true
+    },
+    {
+      "check": "026 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "027 native header",
+      "passed": true
+    },
+    {
+      "check": "027 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "027 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "027 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "027 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "027 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "027 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "027 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "027 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "027 static status honest",
+      "passed": true
+    },
+    {
+      "check": "027 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "027 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "027 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "027 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "027 token final counts",
+      "passed": true
+    },
+    {
+      "check": "027 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "027 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "027 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "027 works positions",
+      "passed": true
+    },
+    {
+      "check": "027 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "027 calls positions",
+      "passed": true
+    },
+    {
+      "check": "027 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "028 native header",
+      "passed": true
+    },
+    {
+      "check": "028 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "028 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "028 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "028 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "028 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "028 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "028 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "028 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "028 static status honest",
+      "passed": true
+    },
+    {
+      "check": "028 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "028 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "028 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "028 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "028 token final counts",
+      "passed": true
+    },
+    {
+      "check": "028 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "028 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "028 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "028 works positions",
+      "passed": true
+    },
+    {
+      "check": "028 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "028 calls positions",
+      "passed": true
+    },
+    {
+      "check": "028 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "029 native header",
+      "passed": true
+    },
+    {
+      "check": "029 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "029 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "029 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "029 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "029 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "029 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "029 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "029 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "029 static status honest",
+      "passed": true
+    },
+    {
+      "check": "029 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "029 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "029 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "029 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "029 token final counts",
+      "passed": true
+    },
+    {
+      "check": "029 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "029 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "029 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "029 works positions",
+      "passed": true
+    },
+    {
+      "check": "029 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "029 calls positions",
+      "passed": true
+    },
+    {
+      "check": "029 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "030 native header",
+      "passed": true
+    },
+    {
+      "check": "030 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "030 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "030 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "030 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "030 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "030 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "030 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "030 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "030 static status honest",
+      "passed": true
+    },
+    {
+      "check": "030 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "030 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "030 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "030 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "030 token final counts",
+      "passed": true
+    },
+    {
+      "check": "030 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "030 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "030 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "030 works positions",
+      "passed": true
+    },
+    {
+      "check": "030 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "030 calls positions",
+      "passed": true
+    },
+    {
+      "check": "030 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "031 native header",
+      "passed": true
+    },
+    {
+      "check": "031 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "031 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "031 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "031 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "031 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "031 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "031 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "031 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "031 static status honest",
+      "passed": true
+    },
+    {
+      "check": "031 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "031 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "031 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "031 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "031 token final counts",
+      "passed": true
+    },
+    {
+      "check": "031 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "031 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "031 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "031 works positions",
+      "passed": true
+    },
+    {
+      "check": "031 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "031 calls positions",
+      "passed": true
+    },
+    {
+      "check": "031 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "032 native header",
+      "passed": true
+    },
+    {
+      "check": "032 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "032 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "032 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "032 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "032 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "032 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "032 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "032 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "032 static status honest",
+      "passed": true
+    },
+    {
+      "check": "032 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "032 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "032 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "032 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "032 token final counts",
+      "passed": true
+    },
+    {
+      "check": "032 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "032 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "032 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "032 works positions",
+      "passed": true
+    },
+    {
+      "check": "032 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "032 calls positions",
+      "passed": true
+    },
+    {
+      "check": "032 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "033 native header",
+      "passed": true
+    },
+    {
+      "check": "033 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "033 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "033 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "033 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "033 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "033 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "033 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "033 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "033 static status honest",
+      "passed": true
+    },
+    {
+      "check": "033 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "033 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "033 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "033 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "033 token final counts",
+      "passed": true
+    },
+    {
+      "check": "033 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "033 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "033 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "033 works positions",
+      "passed": true
+    },
+    {
+      "check": "033 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "033 calls positions",
+      "passed": true
+    },
+    {
+      "check": "033 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "034 native header",
+      "passed": true
+    },
+    {
+      "check": "034 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "034 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "034 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "034 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "034 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "034 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "034 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "034 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "034 static status honest",
+      "passed": true
+    },
+    {
+      "check": "034 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "034 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "034 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "034 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "034 token final counts",
+      "passed": true
+    },
+    {
+      "check": "034 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "034 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "034 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "034 works positions",
+      "passed": true
+    },
+    {
+      "check": "034 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "034 calls positions",
+      "passed": true
+    },
+    {
+      "check": "034 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "035 native header",
+      "passed": true
+    },
+    {
+      "check": "035 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "035 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "035 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "035 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "035 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "035 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "035 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "035 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "035 static status honest",
+      "passed": true
+    },
+    {
+      "check": "035 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "035 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "035 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "035 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "035 token final counts",
+      "passed": true
+    },
+    {
+      "check": "035 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "035 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "035 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "035 works positions",
+      "passed": true
+    },
+    {
+      "check": "035 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "035 calls positions",
+      "passed": true
+    },
+    {
+      "check": "035 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "036 native header",
+      "passed": true
+    },
+    {
+      "check": "036 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "036 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "036 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "036 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "036 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "036 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "036 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "036 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "036 static status honest",
+      "passed": true
+    },
+    {
+      "check": "036 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "036 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "036 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "036 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "036 token final counts",
+      "passed": true
+    },
+    {
+      "check": "036 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "036 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "036 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "036 works positions",
+      "passed": true
+    },
+    {
+      "check": "036 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "036 calls positions",
+      "passed": true
+    },
+    {
+      "check": "036 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "037 native header",
+      "passed": true
+    },
+    {
+      "check": "037 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "037 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "037 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "037 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "037 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "037 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "037 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "037 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "037 static status honest",
+      "passed": true
+    },
+    {
+      "check": "037 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "037 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "037 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "037 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "037 token final counts",
+      "passed": true
+    },
+    {
+      "check": "037 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "037 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "037 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "037 works positions",
+      "passed": true
+    },
+    {
+      "check": "037 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "037 calls positions",
+      "passed": true
+    },
+    {
+      "check": "037 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "038 native header",
+      "passed": true
+    },
+    {
+      "check": "038 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "038 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "038 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "038 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "038 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "038 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "038 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "038 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "038 static status honest",
+      "passed": true
+    },
+    {
+      "check": "038 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "038 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "038 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "038 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "038 token final counts",
+      "passed": true
+    },
+    {
+      "check": "038 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "038 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "038 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "038 works positions",
+      "passed": true
+    },
+    {
+      "check": "038 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "038 calls positions",
+      "passed": true
+    },
+    {
+      "check": "038 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "039 native header",
+      "passed": true
+    },
+    {
+      "check": "039 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "039 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "039 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "039 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "039 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "039 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "039 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "039 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "039 static status honest",
+      "passed": true
+    },
+    {
+      "check": "039 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "039 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "039 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "039 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "039 token final counts",
+      "passed": true
+    },
+    {
+      "check": "039 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "039 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "039 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "039 works positions",
+      "passed": true
+    },
+    {
+      "check": "039 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "039 calls positions",
+      "passed": true
+    },
+    {
+      "check": "039 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "040 native header",
+      "passed": true
+    },
+    {
+      "check": "040 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "040 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "040 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "040 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "040 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "040 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "040 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "040 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "040 static status honest",
+      "passed": true
+    },
+    {
+      "check": "040 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "040 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "040 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "040 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "040 token final counts",
+      "passed": true
+    },
+    {
+      "check": "040 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "040 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "040 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "040 works positions",
+      "passed": true
+    },
+    {
+      "check": "040 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "040 calls positions",
+      "passed": true
+    },
+    {
+      "check": "040 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "041 native header",
+      "passed": true
+    },
+    {
+      "check": "041 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "041 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "041 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "041 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "041 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "041 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "041 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "041 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "041 static status honest",
+      "passed": true
+    },
+    {
+      "check": "041 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "041 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "041 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "041 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "041 token final counts",
+      "passed": true
+    },
+    {
+      "check": "041 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "041 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "041 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "041 works positions",
+      "passed": true
+    },
+    {
+      "check": "041 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "041 calls positions",
+      "passed": true
+    },
+    {
+      "check": "041 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "042 native header",
+      "passed": true
+    },
+    {
+      "check": "042 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "042 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "042 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "042 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "042 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "042 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "042 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "042 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "042 static status honest",
+      "passed": true
+    },
+    {
+      "check": "042 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "042 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "042 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "042 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "042 token final counts",
+      "passed": true
+    },
+    {
+      "check": "042 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "042 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "042 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "042 works positions",
+      "passed": true
+    },
+    {
+      "check": "042 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "042 calls positions",
+      "passed": true
+    },
+    {
+      "check": "042 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "043 native header",
+      "passed": true
+    },
+    {
+      "check": "043 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "043 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "043 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "043 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "043 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "043 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "043 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "043 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "043 static status honest",
+      "passed": true
+    },
+    {
+      "check": "043 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "043 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "043 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "043 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "043 token final counts",
+      "passed": true
+    },
+    {
+      "check": "043 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "043 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "043 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "043 works positions",
+      "passed": true
+    },
+    {
+      "check": "043 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "043 calls positions",
+      "passed": true
+    },
+    {
+      "check": "043 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "044 native header",
+      "passed": true
+    },
+    {
+      "check": "044 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "044 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "044 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "044 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "044 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "044 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "044 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "044 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "044 static status honest",
+      "passed": true
+    },
+    {
+      "check": "044 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "044 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "044 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "044 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "044 token final counts",
+      "passed": true
+    },
+    {
+      "check": "044 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "044 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "044 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "044 works positions",
+      "passed": true
+    },
+    {
+      "check": "044 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "044 calls positions",
+      "passed": true
+    },
+    {
+      "check": "044 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "045 native header",
+      "passed": true
+    },
+    {
+      "check": "045 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "045 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "045 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "045 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "045 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "045 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "045 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "045 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "045 static status honest",
+      "passed": true
+    },
+    {
+      "check": "045 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "045 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "045 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "045 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "045 token final counts",
+      "passed": true
+    },
+    {
+      "check": "045 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "045 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "045 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "045 works positions",
+      "passed": true
+    },
+    {
+      "check": "045 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "045 calls positions",
+      "passed": true
+    },
+    {
+      "check": "045 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "046 native header",
+      "passed": true
+    },
+    {
+      "check": "046 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "046 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "046 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "046 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "046 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "046 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "046 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "046 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "046 static status honest",
+      "passed": true
+    },
+    {
+      "check": "046 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "046 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "046 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "046 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "046 token final counts",
+      "passed": true
+    },
+    {
+      "check": "046 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "046 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "046 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "046 works positions",
+      "passed": true
+    },
+    {
+      "check": "046 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "046 calls positions",
+      "passed": true
+    },
+    {
+      "check": "046 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "047 native header",
+      "passed": true
+    },
+    {
+      "check": "047 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "047 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "047 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "047 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "047 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "047 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "047 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "047 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "047 static status honest",
+      "passed": true
+    },
+    {
+      "check": "047 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "047 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "047 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "047 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "047 token final counts",
+      "passed": true
+    },
+    {
+      "check": "047 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "047 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "047 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "047 works positions",
+      "passed": true
+    },
+    {
+      "check": "047 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "047 calls positions",
+      "passed": true
+    },
+    {
+      "check": "047 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "048 native header",
+      "passed": true
+    },
+    {
+      "check": "048 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "048 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "048 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "048 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "048 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "048 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "048 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "048 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "048 static status honest",
+      "passed": true
+    },
+    {
+      "check": "048 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "048 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "048 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "048 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "048 token final counts",
+      "passed": true
+    },
+    {
+      "check": "048 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "048 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "048 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "048 works positions",
+      "passed": true
+    },
+    {
+      "check": "048 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "048 calls positions",
+      "passed": true
+    },
+    {
+      "check": "048 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "049 native header",
+      "passed": true
+    },
+    {
+      "check": "049 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "049 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "049 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "049 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "049 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "049 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "049 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "049 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "049 static status honest",
+      "passed": true
+    },
+    {
+      "check": "049 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "049 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "049 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "049 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "049 token final counts",
+      "passed": true
+    },
+    {
+      "check": "049 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "049 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "049 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "049 works positions",
+      "passed": true
+    },
+    {
+      "check": "049 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "049 calls positions",
+      "passed": true
+    },
+    {
+      "check": "049 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "050 native header",
+      "passed": true
+    },
+    {
+      "check": "050 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "050 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "050 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "050 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "050 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "050 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "050 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "050 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "050 static status honest",
+      "passed": true
+    },
+    {
+      "check": "050 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "050 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "050 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "050 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "050 token final counts",
+      "passed": true
+    },
+    {
+      "check": "050 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "050 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "050 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "050 works positions",
+      "passed": true
+    },
+    {
+      "check": "050 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "050 calls positions",
+      "passed": true
+    },
+    {
+      "check": "050 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "051 native header",
+      "passed": true
+    },
+    {
+      "check": "051 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "051 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "051 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "051 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "051 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "051 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "051 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "051 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "051 static status honest",
+      "passed": true
+    },
+    {
+      "check": "051 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "051 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "051 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "051 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "051 token final counts",
+      "passed": true
+    },
+    {
+      "check": "051 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "051 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "051 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "051 works positions",
+      "passed": true
+    },
+    {
+      "check": "051 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "051 calls positions",
+      "passed": true
+    },
+    {
+      "check": "051 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "052 native header",
+      "passed": true
+    },
+    {
+      "check": "052 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "052 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "052 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "052 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "052 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "052 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "052 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "052 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "052 static status honest",
+      "passed": true
+    },
+    {
+      "check": "052 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "052 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "052 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "052 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "052 token final counts",
+      "passed": true
+    },
+    {
+      "check": "052 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "052 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "052 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "052 works positions",
+      "passed": true
+    },
+    {
+      "check": "052 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "052 calls positions",
+      "passed": true
+    },
+    {
+      "check": "052 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "053 native header",
+      "passed": true
+    },
+    {
+      "check": "053 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "053 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "053 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "053 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "053 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "053 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "053 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "053 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "053 static status honest",
+      "passed": true
+    },
+    {
+      "check": "053 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "053 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "053 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "053 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "053 token final counts",
+      "passed": true
+    },
+    {
+      "check": "053 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "053 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "053 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "053 works positions",
+      "passed": true
+    },
+    {
+      "check": "053 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "053 calls positions",
+      "passed": true
+    },
+    {
+      "check": "053 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "054 native header",
+      "passed": true
+    },
+    {
+      "check": "054 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "054 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "054 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "054 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "054 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "054 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "054 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "054 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "054 static status honest",
+      "passed": true
+    },
+    {
+      "check": "054 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "054 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "054 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "054 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "054 token final counts",
+      "passed": true
+    },
+    {
+      "check": "054 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "054 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "054 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "054 works positions",
+      "passed": true
+    },
+    {
+      "check": "054 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "054 calls positions",
+      "passed": true
+    },
+    {
+      "check": "054 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "055 native header",
+      "passed": true
+    },
+    {
+      "check": "055 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "055 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "055 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "055 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "055 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "055 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "055 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "055 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "055 static status honest",
+      "passed": true
+    },
+    {
+      "check": "055 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "055 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "055 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "055 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "055 token final counts",
+      "passed": true
+    },
+    {
+      "check": "055 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "055 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "055 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "055 works positions",
+      "passed": true
+    },
+    {
+      "check": "055 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "055 calls positions",
+      "passed": true
+    },
+    {
+      "check": "055 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "056 native header",
+      "passed": true
+    },
+    {
+      "check": "056 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "056 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "056 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "056 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "056 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "056 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "056 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "056 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "056 static status honest",
+      "passed": true
+    },
+    {
+      "check": "056 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "056 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "056 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "056 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "056 token final counts",
+      "passed": true
+    },
+    {
+      "check": "056 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "056 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "056 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "056 works positions",
+      "passed": true
+    },
+    {
+      "check": "056 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "056 calls positions",
+      "passed": true
+    },
+    {
+      "check": "056 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "057 native header",
+      "passed": true
+    },
+    {
+      "check": "057 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "057 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "057 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "057 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "057 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "057 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "057 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "057 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "057 static status honest",
+      "passed": true
+    },
+    {
+      "check": "057 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "057 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "057 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "057 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "057 token final counts",
+      "passed": true
+    },
+    {
+      "check": "057 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "057 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "057 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "057 works positions",
+      "passed": true
+    },
+    {
+      "check": "057 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "057 calls positions",
+      "passed": true
+    },
+    {
+      "check": "057 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "058 native header",
+      "passed": true
+    },
+    {
+      "check": "058 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "058 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "058 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "058 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "058 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "058 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "058 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "058 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "058 static status honest",
+      "passed": true
+    },
+    {
+      "check": "058 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "058 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "058 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "058 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "058 token final counts",
+      "passed": true
+    },
+    {
+      "check": "058 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "058 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "058 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "058 works positions",
+      "passed": true
+    },
+    {
+      "check": "058 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "058 calls positions",
+      "passed": true
+    },
+    {
+      "check": "058 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "059 native header",
+      "passed": true
+    },
+    {
+      "check": "059 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "059 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "059 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "059 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "059 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "059 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "059 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "059 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "059 static status honest",
+      "passed": true
+    },
+    {
+      "check": "059 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "059 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "059 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "059 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "059 token final counts",
+      "passed": true
+    },
+    {
+      "check": "059 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "059 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "059 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "059 works positions",
+      "passed": true
+    },
+    {
+      "check": "059 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "059 calls positions",
+      "passed": true
+    },
+    {
+      "check": "059 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "060 native header",
+      "passed": true
+    },
+    {
+      "check": "060 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "060 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "060 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "060 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "060 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "060 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "060 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "060 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "060 static status honest",
+      "passed": true
+    },
+    {
+      "check": "060 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "060 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "060 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "060 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "060 token final counts",
+      "passed": true
+    },
+    {
+      "check": "060 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "060 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "060 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "060 works positions",
+      "passed": true
+    },
+    {
+      "check": "060 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "060 calls positions",
+      "passed": true
+    },
+    {
+      "check": "060 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "061 native header",
+      "passed": true
+    },
+    {
+      "check": "061 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "061 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "061 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "061 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "061 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "061 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "061 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "061 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "061 static status honest",
+      "passed": true
+    },
+    {
+      "check": "061 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "061 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "061 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "061 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "061 token final counts",
+      "passed": true
+    },
+    {
+      "check": "061 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "061 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "061 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "061 works positions",
+      "passed": true
+    },
+    {
+      "check": "061 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "061 calls positions",
+      "passed": true
+    },
+    {
+      "check": "061 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "062 native header",
+      "passed": true
+    },
+    {
+      "check": "062 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "062 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "062 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "062 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "062 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "062 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "062 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "062 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "062 static status honest",
+      "passed": true
+    },
+    {
+      "check": "062 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "062 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "062 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "062 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "062 token final counts",
+      "passed": true
+    },
+    {
+      "check": "062 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "062 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "062 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "062 works positions",
+      "passed": true
+    },
+    {
+      "check": "062 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "062 calls positions",
+      "passed": true
+    },
+    {
+      "check": "062 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "063 native header",
+      "passed": true
+    },
+    {
+      "check": "063 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "063 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "063 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "063 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "063 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "063 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "063 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "063 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "063 static status honest",
+      "passed": true
+    },
+    {
+      "check": "063 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "063 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "063 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "063 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "063 token final counts",
+      "passed": true
+    },
+    {
+      "check": "063 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "063 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "063 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "063 works positions",
+      "passed": true
+    },
+    {
+      "check": "063 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "063 calls positions",
+      "passed": true
+    },
+    {
+      "check": "063 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "064 native header",
+      "passed": true
+    },
+    {
+      "check": "064 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "064 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "064 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "064 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "064 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "064 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "064 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "064 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "064 static status honest",
+      "passed": true
+    },
+    {
+      "check": "064 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "064 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "064 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "064 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "064 token final counts",
+      "passed": true
+    },
+    {
+      "check": "064 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "064 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "064 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "064 works positions",
+      "passed": true
+    },
+    {
+      "check": "064 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "064 calls positions",
+      "passed": true
+    },
+    {
+      "check": "064 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "065 native header",
+      "passed": true
+    },
+    {
+      "check": "065 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "065 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "065 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "065 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "065 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "065 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "065 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "065 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "065 static status honest",
+      "passed": true
+    },
+    {
+      "check": "065 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "065 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "065 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "065 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "065 token final counts",
+      "passed": true
+    },
+    {
+      "check": "065 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "065 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "065 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "065 works positions",
+      "passed": true
+    },
+    {
+      "check": "065 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "065 calls positions",
+      "passed": true
+    },
+    {
+      "check": "065 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "066 native header",
+      "passed": true
+    },
+    {
+      "check": "066 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "066 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "066 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "066 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "066 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "066 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "066 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "066 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "066 static status honest",
+      "passed": true
+    },
+    {
+      "check": "066 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "066 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "066 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "066 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "066 token final counts",
+      "passed": true
+    },
+    {
+      "check": "066 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "066 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "066 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "066 works positions",
+      "passed": true
+    },
+    {
+      "check": "066 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "066 calls positions",
+      "passed": true
+    },
+    {
+      "check": "066 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "067 native header",
+      "passed": true
+    },
+    {
+      "check": "067 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "067 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "067 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "067 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "067 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "067 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "067 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "067 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "067 static status honest",
+      "passed": true
+    },
+    {
+      "check": "067 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "067 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "067 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "067 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "067 token final counts",
+      "passed": true
+    },
+    {
+      "check": "067 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "067 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "067 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "067 works positions",
+      "passed": true
+    },
+    {
+      "check": "067 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "067 calls positions",
+      "passed": true
+    },
+    {
+      "check": "067 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "068 native header",
+      "passed": true
+    },
+    {
+      "check": "068 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "068 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "068 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "068 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "068 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "068 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "068 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "068 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "068 static status honest",
+      "passed": true
+    },
+    {
+      "check": "068 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "068 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "068 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "068 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "068 token final counts",
+      "passed": true
+    },
+    {
+      "check": "068 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "068 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "068 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "068 works positions",
+      "passed": true
+    },
+    {
+      "check": "068 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "068 calls positions",
+      "passed": true
+    },
+    {
+      "check": "068 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "069 native header",
+      "passed": true
+    },
+    {
+      "check": "069 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "069 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "069 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "069 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "069 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "069 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "069 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "069 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "069 static status honest",
+      "passed": true
+    },
+    {
+      "check": "069 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "069 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "069 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "069 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "069 token final counts",
+      "passed": true
+    },
+    {
+      "check": "069 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "069 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "069 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "069 works positions",
+      "passed": true
+    },
+    {
+      "check": "069 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "069 calls positions",
+      "passed": true
+    },
+    {
+      "check": "069 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "070 native header",
+      "passed": true
+    },
+    {
+      "check": "070 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "070 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "070 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "070 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "070 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "070 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "070 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "070 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "070 static status honest",
+      "passed": true
+    },
+    {
+      "check": "070 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "070 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "070 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "070 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "070 token final counts",
+      "passed": true
+    },
+    {
+      "check": "070 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "070 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "070 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "070 works positions",
+      "passed": true
+    },
+    {
+      "check": "070 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "070 calls positions",
+      "passed": true
+    },
+    {
+      "check": "070 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "071 native header",
+      "passed": true
+    },
+    {
+      "check": "071 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "071 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "071 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "071 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "071 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "071 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "071 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "071 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "071 static status honest",
+      "passed": true
+    },
+    {
+      "check": "071 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "071 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "071 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "071 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "071 token final counts",
+      "passed": true
+    },
+    {
+      "check": "071 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "071 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "071 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "071 works positions",
+      "passed": true
+    },
+    {
+      "check": "071 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "071 calls positions",
+      "passed": true
+    },
+    {
+      "check": "071 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "072 native header",
+      "passed": true
+    },
+    {
+      "check": "072 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "072 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "072 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "072 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "072 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "072 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "072 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "072 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "072 static status honest",
+      "passed": true
+    },
+    {
+      "check": "072 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "072 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "072 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "072 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "072 token final counts",
+      "passed": true
+    },
+    {
+      "check": "072 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "072 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "072 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "072 works positions",
+      "passed": true
+    },
+    {
+      "check": "072 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "072 calls positions",
+      "passed": true
+    },
+    {
+      "check": "072 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "073 native header",
+      "passed": true
+    },
+    {
+      "check": "073 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "073 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "073 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "073 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "073 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "073 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "073 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "073 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "073 static status honest",
+      "passed": true
+    },
+    {
+      "check": "073 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "073 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "073 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "073 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "073 token final counts",
+      "passed": true
+    },
+    {
+      "check": "073 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "073 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "073 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "073 works positions",
+      "passed": true
+    },
+    {
+      "check": "073 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "073 calls positions",
+      "passed": true
+    },
+    {
+      "check": "073 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "074 native header",
+      "passed": true
+    },
+    {
+      "check": "074 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "074 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "074 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "074 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "074 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "074 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "074 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "074 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "074 static status honest",
+      "passed": true
+    },
+    {
+      "check": "074 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "074 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "074 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "074 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "074 token final counts",
+      "passed": true
+    },
+    {
+      "check": "074 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "074 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "074 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "074 works positions",
+      "passed": true
+    },
+    {
+      "check": "074 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "074 calls positions",
+      "passed": true
+    },
+    {
+      "check": "074 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "075 native header",
+      "passed": true
+    },
+    {
+      "check": "075 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "075 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "075 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "075 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "075 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "075 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "075 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "075 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "075 static status honest",
+      "passed": true
+    },
+    {
+      "check": "075 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "075 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "075 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "075 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "075 token final counts",
+      "passed": true
+    },
+    {
+      "check": "075 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "075 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "075 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "075 works positions",
+      "passed": true
+    },
+    {
+      "check": "075 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "075 calls positions",
+      "passed": true
+    },
+    {
+      "check": "075 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "076 native header",
+      "passed": true
+    },
+    {
+      "check": "076 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "076 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "076 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "076 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "076 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "076 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "076 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "076 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "076 static status honest",
+      "passed": true
+    },
+    {
+      "check": "076 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "076 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "076 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "076 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "076 token final counts",
+      "passed": true
+    },
+    {
+      "check": "076 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "076 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "076 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "076 works positions",
+      "passed": true
+    },
+    {
+      "check": "076 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "076 calls positions",
+      "passed": true
+    },
+    {
+      "check": "076 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "077 native header",
+      "passed": true
+    },
+    {
+      "check": "077 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "077 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "077 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "077 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "077 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "077 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "077 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "077 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "077 static status honest",
+      "passed": true
+    },
+    {
+      "check": "077 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "077 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "077 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "077 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "077 token final counts",
+      "passed": true
+    },
+    {
+      "check": "077 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "077 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "077 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "077 works positions",
+      "passed": true
+    },
+    {
+      "check": "077 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "077 calls positions",
+      "passed": true
+    },
+    {
+      "check": "077 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "078 native header",
+      "passed": true
+    },
+    {
+      "check": "078 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "078 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "078 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "078 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "078 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "078 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "078 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "078 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "078 static status honest",
+      "passed": true
+    },
+    {
+      "check": "078 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "078 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "078 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "078 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "078 token final counts",
+      "passed": true
+    },
+    {
+      "check": "078 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "078 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "078 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "078 works positions",
+      "passed": true
+    },
+    {
+      "check": "078 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "078 calls positions",
+      "passed": true
+    },
+    {
+      "check": "078 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "079 native header",
+      "passed": true
+    },
+    {
+      "check": "079 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "079 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "079 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "079 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "079 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "079 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "079 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "079 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "079 static status honest",
+      "passed": true
+    },
+    {
+      "check": "079 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "079 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "079 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "079 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "079 token final counts",
+      "passed": true
+    },
+    {
+      "check": "079 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "079 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "079 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "079 works positions",
+      "passed": true
+    },
+    {
+      "check": "079 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "079 calls positions",
+      "passed": true
+    },
+    {
+      "check": "079 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "080 native header",
+      "passed": true
+    },
+    {
+      "check": "080 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "080 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "080 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "080 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "080 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "080 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "080 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "080 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "080 static status honest",
+      "passed": true
+    },
+    {
+      "check": "080 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "080 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "080 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "080 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "080 token final counts",
+      "passed": true
+    },
+    {
+      "check": "080 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "080 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "080 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "080 works positions",
+      "passed": true
+    },
+    {
+      "check": "080 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "080 calls positions",
+      "passed": true
+    },
+    {
+      "check": "080 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "081 native header",
+      "passed": true
+    },
+    {
+      "check": "081 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "081 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "081 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "081 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "081 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "081 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "081 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "081 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "081 static status honest",
+      "passed": true
+    },
+    {
+      "check": "081 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "081 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "081 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "081 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "081 token final counts",
+      "passed": true
+    },
+    {
+      "check": "081 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "081 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "081 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "081 works positions",
+      "passed": true
+    },
+    {
+      "check": "081 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "081 calls positions",
+      "passed": true
+    },
+    {
+      "check": "081 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "082 native header",
+      "passed": true
+    },
+    {
+      "check": "082 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "082 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "082 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "082 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "082 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "082 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "082 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "082 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "082 static status honest",
+      "passed": true
+    },
+    {
+      "check": "082 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "082 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "082 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "082 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "082 token final counts",
+      "passed": true
+    },
+    {
+      "check": "082 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "082 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "082 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "082 works positions",
+      "passed": true
+    },
+    {
+      "check": "082 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "082 calls positions",
+      "passed": true
+    },
+    {
+      "check": "082 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "083 native header",
+      "passed": true
+    },
+    {
+      "check": "083 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "083 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "083 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "083 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "083 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "083 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "083 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "083 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "083 static status honest",
+      "passed": true
+    },
+    {
+      "check": "083 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "083 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "083 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "083 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "083 token final counts",
+      "passed": true
+    },
+    {
+      "check": "083 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "083 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "083 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "083 works positions",
+      "passed": true
+    },
+    {
+      "check": "083 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "083 calls positions",
+      "passed": true
+    },
+    {
+      "check": "083 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "084 native header",
+      "passed": true
+    },
+    {
+      "check": "084 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "084 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "084 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "084 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "084 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "084 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "084 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "084 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "084 static status honest",
+      "passed": true
+    },
+    {
+      "check": "084 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "084 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "084 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "084 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "084 token final counts",
+      "passed": true
+    },
+    {
+      "check": "084 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "084 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "084 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "084 works positions",
+      "passed": true
+    },
+    {
+      "check": "084 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "084 calls positions",
+      "passed": true
+    },
+    {
+      "check": "084 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "085 native header",
+      "passed": true
+    },
+    {
+      "check": "085 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "085 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "085 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "085 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "085 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "085 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "085 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "085 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "085 static status honest",
+      "passed": true
+    },
+    {
+      "check": "085 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "085 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "085 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "085 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "085 token final counts",
+      "passed": true
+    },
+    {
+      "check": "085 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "085 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "085 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "085 works positions",
+      "passed": true
+    },
+    {
+      "check": "085 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "085 calls positions",
+      "passed": true
+    },
+    {
+      "check": "085 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "086 native header",
+      "passed": true
+    },
+    {
+      "check": "086 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "086 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "086 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "086 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "086 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "086 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "086 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "086 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "086 static status honest",
+      "passed": true
+    },
+    {
+      "check": "086 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "086 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "086 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "086 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "086 token final counts",
+      "passed": true
+    },
+    {
+      "check": "086 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "086 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "086 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "086 works positions",
+      "passed": true
+    },
+    {
+      "check": "086 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "086 calls positions",
+      "passed": true
+    },
+    {
+      "check": "086 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "087 native header",
+      "passed": true
+    },
+    {
+      "check": "087 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "087 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "087 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "087 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "087 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "087 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "087 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "087 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "087 static status honest",
+      "passed": true
+    },
+    {
+      "check": "087 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "087 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "087 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "087 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "087 token final counts",
+      "passed": true
+    },
+    {
+      "check": "087 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "087 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "087 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "087 works positions",
+      "passed": true
+    },
+    {
+      "check": "087 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "087 calls positions",
+      "passed": true
+    },
+    {
+      "check": "087 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "088 native header",
+      "passed": true
+    },
+    {
+      "check": "088 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "088 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "088 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "088 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "088 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "088 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "088 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "088 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "088 static status honest",
+      "passed": true
+    },
+    {
+      "check": "088 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "088 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "088 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "088 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "088 token final counts",
+      "passed": true
+    },
+    {
+      "check": "088 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "088 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "088 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "088 works positions",
+      "passed": true
+    },
+    {
+      "check": "088 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "088 calls positions",
+      "passed": true
+    },
+    {
+      "check": "088 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "089 native header",
+      "passed": true
+    },
+    {
+      "check": "089 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "089 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "089 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "089 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "089 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "089 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "089 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "089 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "089 static status honest",
+      "passed": true
+    },
+    {
+      "check": "089 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "089 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "089 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "089 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "089 token final counts",
+      "passed": true
+    },
+    {
+      "check": "089 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "089 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "089 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "089 works positions",
+      "passed": true
+    },
+    {
+      "check": "089 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "089 calls positions",
+      "passed": true
+    },
+    {
+      "check": "089 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "090 native header",
+      "passed": true
+    },
+    {
+      "check": "090 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "090 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "090 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "090 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "090 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "090 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "090 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "090 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "090 static status honest",
+      "passed": true
+    },
+    {
+      "check": "090 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "090 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "090 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "090 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "090 token final counts",
+      "passed": true
+    },
+    {
+      "check": "090 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "090 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "090 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "090 works positions",
+      "passed": true
+    },
+    {
+      "check": "090 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "090 calls positions",
+      "passed": true
+    },
+    {
+      "check": "090 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "091 native header",
+      "passed": true
+    },
+    {
+      "check": "091 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "091 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "091 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "091 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "091 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "091 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "091 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "091 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "091 static status honest",
+      "passed": true
+    },
+    {
+      "check": "091 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "091 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "091 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "091 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "091 token final counts",
+      "passed": true
+    },
+    {
+      "check": "091 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "091 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "091 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "091 works positions",
+      "passed": true
+    },
+    {
+      "check": "091 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "091 calls positions",
+      "passed": true
+    },
+    {
+      "check": "091 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "092 native header",
+      "passed": true
+    },
+    {
+      "check": "092 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "092 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "092 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "092 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "092 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "092 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "092 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "092 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "092 static status honest",
+      "passed": true
+    },
+    {
+      "check": "092 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "092 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "092 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "092 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "092 token final counts",
+      "passed": true
+    },
+    {
+      "check": "092 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "092 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "092 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "092 works positions",
+      "passed": true
+    },
+    {
+      "check": "092 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "092 calls positions",
+      "passed": true
+    },
+    {
+      "check": "092 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "093 native header",
+      "passed": true
+    },
+    {
+      "check": "093 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "093 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "093 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "093 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "093 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "093 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "093 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "093 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "093 static status honest",
+      "passed": true
+    },
+    {
+      "check": "093 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "093 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "093 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "093 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "093 token final counts",
+      "passed": true
+    },
+    {
+      "check": "093 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "093 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "093 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "093 works positions",
+      "passed": true
+    },
+    {
+      "check": "093 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "093 calls positions",
+      "passed": true
+    },
+    {
+      "check": "093 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "094 native header",
+      "passed": true
+    },
+    {
+      "check": "094 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "094 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "094 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "094 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "094 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "094 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "094 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "094 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "094 static status honest",
+      "passed": true
+    },
+    {
+      "check": "094 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "094 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "094 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "094 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "094 token final counts",
+      "passed": true
+    },
+    {
+      "check": "094 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "094 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "094 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "094 works positions",
+      "passed": true
+    },
+    {
+      "check": "094 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "094 calls positions",
+      "passed": true
+    },
+    {
+      "check": "094 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "095 native header",
+      "passed": true
+    },
+    {
+      "check": "095 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "095 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "095 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "095 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "095 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "095 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "095 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "095 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "095 static status honest",
+      "passed": true
+    },
+    {
+      "check": "095 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "095 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "095 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "095 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "095 token final counts",
+      "passed": true
+    },
+    {
+      "check": "095 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "095 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "095 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "095 works positions",
+      "passed": true
+    },
+    {
+      "check": "095 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "095 calls positions",
+      "passed": true
+    },
+    {
+      "check": "095 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "096 native header",
+      "passed": true
+    },
+    {
+      "check": "096 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "096 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "096 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "096 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "096 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "096 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "096 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "096 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "096 static status honest",
+      "passed": true
+    },
+    {
+      "check": "096 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "096 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "096 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "096 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "096 token final counts",
+      "passed": true
+    },
+    {
+      "check": "096 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "096 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "096 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "096 works positions",
+      "passed": true
+    },
+    {
+      "check": "096 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "096 calls positions",
+      "passed": true
+    },
+    {
+      "check": "096 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "097 native header",
+      "passed": true
+    },
+    {
+      "check": "097 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "097 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "097 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "097 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "097 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "097 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "097 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "097 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "097 static status honest",
+      "passed": true
+    },
+    {
+      "check": "097 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "097 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "097 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "097 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "097 token final counts",
+      "passed": true
+    },
+    {
+      "check": "097 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "097 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "097 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "097 works positions",
+      "passed": true
+    },
+    {
+      "check": "097 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "097 calls positions",
+      "passed": true
+    },
+    {
+      "check": "097 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "098 native header",
+      "passed": true
+    },
+    {
+      "check": "098 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "098 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "098 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "098 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "098 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "098 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "098 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "098 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "098 static status honest",
+      "passed": true
+    },
+    {
+      "check": "098 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "098 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "098 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "098 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "098 token final counts",
+      "passed": true
+    },
+    {
+      "check": "098 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "098 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "098 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "098 works positions",
+      "passed": true
+    },
+    {
+      "check": "098 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "098 calls positions",
+      "passed": true
+    },
+    {
+      "check": "098 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "099 native header",
+      "passed": true
+    },
+    {
+      "check": "099 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "099 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "099 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "099 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "099 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "099 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "099 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "099 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "099 static status honest",
+      "passed": true
+    },
+    {
+      "check": "099 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "099 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "099 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "099 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "099 token final counts",
+      "passed": true
+    },
+    {
+      "check": "099 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "099 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "099 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "099 works positions",
+      "passed": true
+    },
+    {
+      "check": "099 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "099 calls positions",
+      "passed": true
+    },
+    {
+      "check": "099 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "100 native header",
+      "passed": true
+    },
+    {
+      "check": "100 full roundtrip structure",
+      "passed": true
+    },
+    {
+      "check": "100 exact file replay",
+      "passed": true
+    },
+    {
+      "check": "100 reproducible result.json",
+      "passed": true
+    },
+    {
+      "check": "100 reproducible events.json",
+      "passed": true
+    },
+    {
+      "check": "100 reproducible states.json",
+      "passed": true
+    },
+    {
+      "check": "100 reproducible outputs.json",
+      "passed": true
+    },
+    {
+      "check": "100 SHA256 matches",
+      "passed": true
+    },
+    {
+      "check": "100 all runtime assertions",
+      "passed": true
+    },
+    {
+      "check": "100 static status honest",
+      "passed": true
+    },
+    {
+      "check": "100 only known V2 issue",
+      "passed": true
+    },
+    {
+      "check": "100 monotonic event order",
+      "passed": true
+    },
+    {
+      "check": "100 no conflict or discard",
+      "passed": true
+    },
+    {
+      "check": "100 unique supplied tokens",
+      "passed": true
+    },
+    {
+      "check": "100 token final counts",
+      "passed": true
+    },
+    {
+      "check": "100 leaf duration",
+      "passed": true
+    },
+    {
+      "check": "100 arrowWorks endpoints",
+      "passed": true
+    },
+    {
+      "check": "100 arrowCalls endpoints",
+      "passed": true
+    },
+    {
+      "check": "100 works positions",
+      "passed": true
+    },
+    {
+      "check": "100 works no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "100 calls positions",
+      "passed": true
+    },
+    {
+      "check": "100 calls no overlapping canvas nodes",
+      "passed": true
+    },
+    {
+      "check": "022 negative rejected",
+      "passed": true
+    },
+    {
+      "check": "022 only one intended condition mutated",
+      "passed": true
+    },
+    {
+      "check": "035 negative rejected",
+      "passed": true
+    },
+    {
+      "check": "035 only one intended condition mutated",
+      "passed": true
+    },
+    {
+      "check": "052 negative rejected",
+      "passed": true
+    },
+    {
+      "check": "052 only one intended condition mutated",
+      "passed": true
+    },
+    {
+      "check": "064 negative rejected",
+      "passed": true
+    },
+    {
+      "check": "064 only one intended condition mutated",
+      "passed": true
+    },
+    {
+      "check": "095 negative rejected",
+      "passed": true
+    },
+    {
+      "check": "095 only one intended condition mutated",
+      "passed": true
+    },
+    {
+      "check": "DS2 source still matches built revision",
+      "passed": true
+    }
+  ],
+  "errors": []
+}

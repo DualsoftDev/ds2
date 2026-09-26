@@ -1,0 +1,53 @@
+{
+  "Case": {
+    "Id": 42,
+    "Title": "\uD55C \uC81C\uD488\uC744 \uC7A0\uC2DC \uC138\uC6CC \uB450\uB294 \uB300\uAE30 \uC790\uB9AC",
+    "Family": "transport",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "f5eb059e-d6c8-4de8-94c9-3b2f8d880bdf"
+  ],
+  "Sinks": [
+    "6113e026-da8a-45f1-97ed-dca7d0b12cdf"
+  ],
+  "Rules": [
+    {
+      "Kind": "work-count",
+      "A": "ccf64ab4-df61-4386-ac4e-bd8708db3de0",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uC0C8 \uC774\uC1A1"
+    },
+    {
+      "Kind": "finish-before-start",
+      "A": "ccf64ab4-df61-4386-ac4e-bd8708db3de0",
+      "B": "94a35c52-d699-4589-8785-b48a0d9ff1fe",
+      "N": 0,
+      "Label": "\uC2E4\uC81C \uC774\uC1A1 \uC644\uB8CC \uB4A4 \uB3C4\uCC29 Work \uC2DC\uC791"
+    },
+    {
+      "Kind": "token-transfer",
+      "A": "a62ec1a3-5589-455c-80c4-a404270366c8",
+      "B": "94a35c52-d699-4589-8785-b48a0d9ff1fe",
+      "N": 3,
+      "Label": "\uAC19\uC740 \uC81C\uD488 \uBC88\uD638\uB97C \uCD9C\uBC1C\uC5D0\uC11C \uB3C4\uCC29\uC73C\uB85C \uC804\uB2EC"
+    }
+  ],
+  "Channels": [],
+  "LogicalApis": [
+    "ba7f2f01-3ef1-4d36-b6ff-bbeda6e26bd6"
+  ],
+  "Notes": [
+    "\uB450 \uC790\uB9AC \uC0AC\uC774\uC758 \uAC19\uC740 \uC81C\uD488 \uC804\uB2EC\uC744 \uAC80\uC99D\uD569\uB2C8\uB2E4. \uC2DC\uD5D8 \uACF5\uAE09\uC740 \uC804\uCCB4 \uACBD\uB85C\uAC00 \uBE48 \uB4A4 \uC218\uD589\uD558\uBBC0\uB85C \uC5F0\uC18D \uC81C\uD488\uC758 \uD30C\uC774\uD504\uB77C\uC778 \uC911\uCCA9 \uCC98\uB9AC\uB7C9\uC744 \uC8FC\uC7A5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "97968260-c314-4494-9b4c-52660ab3038a",
+    "cbac1ae1-8ea0-4f4d-82ef-a55c1e557e52"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

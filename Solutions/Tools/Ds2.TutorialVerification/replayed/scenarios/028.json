@@ -1,0 +1,97 @@
+{
+  "Case": {
+    "Id": 28,
+    "Title": "\uC900\uBE44 \uC2E0\uD638\uAC00 \uB2A6\uAC8C \uC640\uB3C4 \uAE30\uB2E4\uB9B4 \uC218 \uC788\uAC8C \uD558\uAE30",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 150,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "aa2d3373-72bb-4241-be53-935a044fdb9b"
+  ],
+  "Sinks": [
+    "1859227f-ee0f-493a-974f-1021290e4625"
+  ],
+  "Rules": [
+    {
+      "Kind": "finish-before-start",
+      "A": "06d26017-4996-4005-8369-5b8b14de5903",
+      "B": "aae95649-c322-488c-8cad-326bc4514c13",
+      "N": 0,
+      "Label": "\uC774\uBC88 \uC7A1\uAE30 \uC644\uB8CC \uB4A4 \uAC00\uACF5"
+    },
+    {
+      "Kind": "finish-before-start",
+      "A": "aae95649-c322-488c-8cad-326bc4514c13",
+      "B": "6b627346-bced-40a7-8b70-d86239d889d1",
+      "N": 0,
+      "Label": "\uC774\uBC88 \uAC00\uACF5 \uC644\uB8CC \uB4A4 \uB193\uAE30"
+    },
+    {
+      "Kind": "same-start",
+      "A": "6302be80-2f71-4bad-86a7-2a498e1e7b70",
+      "B": "cb4f4b48-efe5-49fa-89ed-e527536d4ca0",
+      "N": 0,
+      "Label": "\uAC19\uC740 \uC81C\uD488\uC758 \uB450 Work \uB3D9\uC2DC \uC2DC\uC791"
+    },
+    {
+      "Kind": "work-count",
+      "A": "06d26017-4996-4005-8369-5b8b14de5903",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uB9E4 \uC81C\uD488\uC5D0\uC11C \uC0C8 \uC7A5\uCE58 \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "6b627346-bced-40a7-8b70-d86239d889d1",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uB9E4 \uC81C\uD488\uC5D0\uC11C \uC0C8 \uC7A5\uCE58 \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "aae95649-c322-488c-8cad-326bc4514c13",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uB9E4 \uC81C\uD488\uC5D0\uC11C \uC0C8 \uC7A5\uCE58 \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "907ffbdd-e13e-4cb0-911c-88fb5853ce29",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uB9E4 \uC81C\uD488\uC5D0\uC11C \uC0C8 \uC7A5\uCE58 \uC2E4\uD589"
+    },
+    {
+      "Kind": "admission-delay",
+      "A": "aae95649-c322-488c-8cad-326bc4514c13",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 150,
+      "Label": "\uC900\uBE44 \uC2E0\uD638 \uB3C4\uCC29 \uC804\uC5D0\uB294 \uC6A9\uC811\uD558\uC9C0 \uC54A\uC74C"
+    }
+  ],
+  "Channels": [
+    {
+      "Id": "6ee022c0-6807-463b-bf94-94e383d095a8",
+      "Values": [
+        "true"
+      ],
+      "Initial": "false",
+      "Delay": 150,
+      "Name": "\uC81C\uD488\uB9C8\uB2E4 \uB2A6\uAC8C \uB3C4\uCC29\uD558\uB294 \uC900\uBE44 \uC2E0\uD638"
+    }
+  ],
+  "LogicalApis": [
+    "5aa500df-e442-40cc-82ad-5c429c22bbf1"
+  ],
+  "Notes": [
+    "\uC81C\uD488\uC740 \uC774\uC804 \uC81C\uD488 \uC885\uB8CC\uC640 \uC804\uCCB4 \uC81C\uD488\uD45C \uBE44\uC6C0\uC744 \uD655\uC778\uD55C \uC2DC\uD5D8 \uACF5\uAE09\uAE30\uAC00 \uD22C\uC785\uD569\uB2C8\uB2E4. \uC7A5\uCE58 \uC13C\uC11C\uAC12\uC740 Simulation\uC774 \uC0DD\uC131\uD569\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "bdc6f52c-8fcc-4b06-94f3-18b2ab6f5434"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

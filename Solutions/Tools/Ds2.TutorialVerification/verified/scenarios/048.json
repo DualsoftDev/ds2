@@ -1,0 +1,81 @@
+{
+  "Case": {
+    "Id": 48,
+    "Title": "\uD569\uACA9\uD488\uACFC \uBD88\uD569\uACA9\uD488\uC744 \uB2E4\uB978 \uAE38\uB85C \uBCF4\uB0B4\uAE30",
+    "Family": "routing",
+    "Variant": "",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "81bef7c6-edef-4623-9bd2-ead5727737bc"
+  ],
+  "Sinks": [
+    "246e9577-8726-4ab6-a0a0-698e1ba77fcb",
+    "d4c304cc-cd27-452a-b5f1-ec278e927855"
+  ],
+  "Rules": [
+    {
+      "Kind": "work-count",
+      "A": "06ca8188-93ae-4f3d-b031-5507c7c0f7b3",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 2,
+      "Label": "\uC67C\uCABD \uACBD\uB85C\uB97C \uC694\uCCAD\uB9C8\uB2E4 \uC0C8\uB85C \uC5F4\uAE30"
+    },
+    {
+      "Kind": "work-count",
+      "A": "26bf7770-f25f-4f43-aca0-cd529c49b38a",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 2,
+      "Label": "\uC624\uB978\uCABD \uACBD\uB85C\uB97C \uC694\uCCAD\uB9C8\uB2E4 \uC0C8\uB85C \uC5F4\uAE30"
+    },
+    {
+      "Kind": "destination-sequence",
+      "A": "246e9577-8726-4ab6-a0a0-698e1ba77fcb",
+      "B": "d4c304cc-cd27-452a-b5f1-ec278e927855",
+      "N": 0,
+      "Label": "\uD55C \uC81C\uD488\uC740 \uC120\uD0DD\uD55C \uD55C \uBAA9\uC801\uC9C0\uC5D0\uC11C\uB9CC \uC885\uB8CC"
+    }
+  ],
+  "Channels": [
+    {
+      "Id": "a237129b-02ea-4a44-aa00-c3ff10821b56",
+      "Values": [
+        "true",
+        "true",
+        "false",
+        "false"
+      ],
+      "Initial": "false",
+      "Delay": 20,
+      "Name": "\uC774\uBC88 \uC81C\uD488\uC758 \uBC30\uCD9C \uBC29\uD5A5"
+    },
+    {
+      "Id": "d91f9879-5e91-4124-8df4-e6a68fbda532",
+      "Values": [
+        "true"
+      ],
+      "Initial": "false",
+      "Delay": 20,
+      "Name": "\uBC30\uCD9C \uD310\uC815 \uB3C4\uCC29"
+    }
+  ],
+  "LogicalApis": [
+    "afe32bcf-35f3-4e25-bbf4-3ee0e11f8a6f",
+    "0dd5d46f-07ad-465b-970f-a7126dab976f",
+    "1ff075e9-11f4-45b3-b9d0-d711976ede9f",
+    "9cb5ef24-5d3d-49f7-86ed-5a1a9a806eea",
+    "0c2f2278-058e-4c18-a04d-6d789c7ddf42"
+  ],
+  "Notes": [
+    "\uB450 \uBC30\uCD9C Work\uB294 \uCC98\uC74C\uC5D0 \uB2EB\uD78C \uC644\uB8CC \uC0C1\uD0DC\uC785\uB2C8\uB2E4. \uC774\uBC88 \uC120\uD0DD\uC774 \uD55C \uBAA9\uC801\uC9C0\uB9CC Reset\uD574 \uBC1B\uC744 \uC218 \uC788\uAC8C \uD558\uBA70, \uC81C\uD488 \uC804\uB2EC \uC804\uC5D0 \uACBD\uB85C \uC900\uBE44 \uC694\uCCAD\uC774 \uC644\uB8CC\uB429\uB2C8\uB2E4. \uBC29\uD5A5 \uAC12\uACFC \uC751\uB2F5 \uB3C4\uCC29\uC740 \uC678\uBD80 \uC785\uB825\uC785\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "c26f1548-7460-4fc6-96f0-6269e8f069cf",
+    "9b64116d-b081-4920-9f6d-162cbe5023cf",
+    "74575ab6-444e-4a8f-bf26-2f6e31a72421"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

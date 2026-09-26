@@ -1,0 +1,19 @@
+{
+  "started_utc": "2026-09-25T07:58:18.072277+00:00",
+  "finished_utc": "2026-09-25T07:58:21.111924+00:00",
+  "exit_code": 0,
+  "args": [
+    "/mnt/c/Program Files/dotnet/dotnet.exe",
+    "D:\\AI\\DsSpec\\.model_verification_staging\\artifacts\\bin\\Ds2.TutorialVerification\\debug\\Ds2.TutorialVerification.dll",
+    "D:\\AI\\DsSpec\\.model_verification_staging\\catalog.json",
+    "D:\\AI\\DsSpec\\.model_verification_staging\\run08"
+  ],
+  "source_hashes": {
+    "Advanced.fs": "f91ebf2b82b7e925953b57bb1fee6b12cdbe3a3cf47cb16b10b57f112f206d1d",
+    "Models.fs": "c67b770ee87cd729a747bce8fd5dca807278a9ed580837f2160562e0b1708a25",
+    "Program.fs": "61c1271b310dd6711abda2569440c1b583f6ba0b8d2795c91d48f9cd9c0aa25e",
+    "Verify.fs": "447e785fa6dbd0b52f36714641634060cda1db9d0f5d981e26e423c0f4264e66"
+  },
+  "output": "/mnt/d/AI/DsSpec/.model_verification_staging/run08",
+  "assembly_sha256": "6bbc8abef11496dc398ae08508fccfa08a80b17d0d3548e1931bc0c26404a45d"
+}

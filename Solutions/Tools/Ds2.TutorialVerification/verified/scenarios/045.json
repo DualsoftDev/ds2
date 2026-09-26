@@ -1,0 +1,60 @@
+{
+  "Case": {
+    "Id": 45,
+    "Title": "\uD55C \uC81C\uD488\uC744 \uB3CC\uB824 \uAC00\uBA70 \uC5EC\uB7EC \uBA74 \uC791\uC5C5\uD558\uAE30",
+    "Family": "repeat",
+    "Variant": "two",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "a6d5f33c-9aa8-4305-9bf6-e85ba065ca11"
+  ],
+  "Sinks": [
+    "734281f5-7e58-4822-958c-e00223978a21"
+  ],
+  "Rules": [
+    {
+      "Kind": "finish-before-start",
+      "A": "825e920c-7627-486c-a848-fe2076082dfa",
+      "B": "e327df80-c097-4351-a9b9-9042316705a1",
+      "N": 0,
+      "Label": "\uC55E \uC704\uCE58 \uC644\uB8CC \uB4A4 \uB2E4\uC74C \uC704\uCE58"
+    },
+    {
+      "Kind": "work-count",
+      "A": "825e920c-7627-486c-a848-fe2076082dfa",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uD574\uB2F9 \uC704\uCE58\uB97C \uC0C8\uB85C \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "e327df80-c097-4351-a9b9-9042316705a1",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uD574\uB2F9 \uC704\uCE58\uB97C \uC0C8\uB85C \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "f45c1262-2638-4aa9-8893-6c34e54c81c5",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC804\uCCB4 \uB3D9\uC791\uB3C4 \uC0C8\uB85C \uC2DC\uC791"
+    }
+  ],
+  "Channels": [],
+  "LogicalApis": [
+    "4204ad92-3fd8-4dfa-81eb-16a942060c5e",
+    "c00621c1-ba62-4460-83f5-3bf8e3fd6a3d"
+  ],
+  "Notes": [
+    "\uACE0\uC815\uB41C \uC704\uCE58 \uC218\uB97C \uBAA8\uB378 \uC548\uC758 Call \uC21C\uC11C\uB85C \uD45C\uD604\uD569\uB2C8\uB2E4. \uC81C\uD488 \uACF5\uAE09\uB9CC \uC678\uBD80 \uC2DC\uD5D8\uAE30\uAC00 \uB9E1\uACE0 \uC704\uCE58\uBCC4 \uD69F\uC218\uC640 \uC644\uB8CC\uB294 \uBAA8\uB378\uC774 \uCC98\uB9AC\uD569\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "d1426a06-5ec9-4716-bf7d-842f1d6e19fc"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

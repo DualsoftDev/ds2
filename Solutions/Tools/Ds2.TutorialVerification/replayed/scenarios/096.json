@@ -1,0 +1,74 @@
+{
+  "Case": {
+    "Id": 96,
+    "Title": "\uCEF4\uD4E8\uD130\uC5D0\uC11C \uD655\uC778\uD55C \uACB0\uACFC\uB97C \uC5B4\uB514\uAE4C\uC9C0 \uB9D0\uD560\uAE4C",
+    "Family": "logical",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "ca6ef452-905d-4bac-a95c-621abe70b56e"
+  ],
+  "Sinks": [
+    "ff8262ed-b446-41b6-b5af-c91e6a597aa0"
+  ],
+  "Rules": [
+    {
+      "Kind": "finish-before-start",
+      "A": "e14b000f-0e55-4e4b-8c6a-1a37b675a8f5",
+      "B": "9c183df8-1255-4dc3-acac-e2c176ea1a91",
+      "N": 0,
+      "Label": "\uC55E \uC704\uCE58 \uC644\uB8CC \uB4A4 \uB2E4\uC74C \uC704\uCE58"
+    },
+    {
+      "Kind": "finish-before-start",
+      "A": "9c183df8-1255-4dc3-acac-e2c176ea1a91",
+      "B": "38ada8d7-e031-4293-8f0f-c4f522df23a2",
+      "N": 0,
+      "Label": "\uC55E \uC704\uCE58 \uC644\uB8CC \uB4A4 \uB2E4\uC74C \uC704\uCE58"
+    },
+    {
+      "Kind": "work-count",
+      "A": "e14b000f-0e55-4e4b-8c6a-1a37b675a8f5",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uD574\uB2F9 \uC704\uCE58\uB97C \uC0C8\uB85C \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "9c183df8-1255-4dc3-acac-e2c176ea1a91",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uD574\uB2F9 \uC704\uCE58\uB97C \uC0C8\uB85C \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "38ada8d7-e031-4293-8f0f-c4f522df23a2",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uD574\uB2F9 \uC704\uCE58\uB97C \uC0C8\uB85C \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "27bc8e1c-2ea1-4a83-a9e9-75db2dcc74a1",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC804\uCCB4 \uB3D9\uC791\uB3C4 \uC0C8\uB85C \uC2DC\uC791"
+    }
+  ],
+  "Channels": [],
+  "LogicalApis": [
+    "a1bc64a2-df3a-4464-ba9a-8c8f93924640",
+    "e256ec79-d246-4488-a44f-a827a27b84c6"
+  ],
+  "Notes": [
+    "\uACE0\uC815\uB41C \uC704\uCE58 \uC218\uB97C \uBAA8\uB378 \uC548\uC758 Call \uC21C\uC11C\uB85C \uD45C\uD604\uD569\uB2C8\uB2E4. \uC81C\uD488 \uACF5\uAE09\uB9CC \uC678\uBD80 \uC2DC\uD5D8\uAE30\uAC00 \uB9E1\uACE0 \uC704\uCE58\uBCC4 \uD69F\uC218\uC640 \uC644\uB8CC\uB294 \uBAA8\uB378\uC774 \uCC98\uB9AC\uD569\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "d890f625-c0f6-44de-b3b9-82ccfdd2ec09"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

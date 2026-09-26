@@ -1,0 +1,68 @@
+{
+  "Case": {
+    "Id": 88,
+    "Title": "\uC5EC\uB7EC \uC81C\uD488\uC744 \uD55C \uBC88\uC5D0 \uCC98\uB9AC\uD558\uB294 \uBB36\uC74C \uC791\uC5C5",
+    "Family": "batch",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uC6B4\uBC18\uB300 \uBC30\uCE58"
+  },
+  "Sources": [
+    "734d8747-5e03-4777-99d5-bde4cbad1b73"
+  ],
+  "Sinks": [
+    "85c32e7b-3f2f-40e4-bedf-d2f1a5674c2d"
+  ],
+  "Rules": [
+    {
+      "Kind": "finish-before-start",
+      "A": "43d07de8-444a-49b4-910e-24e5eb1a176a",
+      "B": "fdf5ce3a-a778-4f82-b201-6f01e326cb22",
+      "N": 0,
+      "Label": "\uC55E \uC704\uCE58 \uC644\uB8CC \uB4A4 \uB2E4\uC74C \uC704\uCE58"
+    },
+    {
+      "Kind": "work-count",
+      "A": "43d07de8-444a-49b4-910e-24e5eb1a176a",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uD574\uB2F9 \uC704\uCE58\uB97C \uC0C8\uB85C \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "fdf5ce3a-a778-4f82-b201-6f01e326cb22",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uD574\uB2F9 \uC704\uCE58\uB97C \uC0C8\uB85C \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "0293c134-0154-4a86-b25d-47d602863220",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC804\uCCB4 \uB3D9\uC791\uB3C4 \uC0C8\uB85C \uC2DC\uC791"
+    },
+    {
+      "Kind": "batch-members",
+      "A": "734d8747-5e03-4777-99d5-bde4cbad1b73",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 4,
+      "Label": "\uC6B4\uBC18\uB300 \uC138 \uAC1C\uC640 \uAD6C\uC131 \uC81C\uD488 \uC5F4\uB450 \uAC1C\uB97C \uAD6C\uBD84"
+    }
+  ],
+  "Channels": [],
+  "LogicalApis": [
+    "92e00254-009b-4815-acdd-aaeb9fa27f3c",
+    "c30479e2-1f4d-4b48-8dd1-251f00fd17fc"
+  ],
+  "Notes": [
+    "\uACE0\uC815\uB41C \uC704\uCE58 \uC218\uB97C \uBAA8\uB378 \uC548\uC758 Call \uC21C\uC11C\uB85C \uD45C\uD604\uD569\uB2C8\uB2E4. \uC81C\uD488 \uACF5\uAE09\uB9CC \uC678\uBD80 \uC2DC\uD5D8\uAE30\uAC00 \uB9E1\uACE0 \uC704\uCE58\uBCC4 \uD69F\uC218\uC640 \uC644\uB8CC\uB294 \uBAA8\uB378\uC774 \uCC98\uB9AC\uD569\uB2C8\uB2E4.",
+    "\uB124 \uBD80\uD488\uC744 \uC2E4\uC740 \uC6B4\uBC18\uB300\uB97C \uD55C \uCD94\uC801 \uB2E8\uC704\uB85C \uC815\uD588\uC2B5\uB2C8\uB2E4. \uAD6C\uC131 \uBD80\uD488\uC740 TokenSpecs \uC815\uBCF4\uC774\uBA70 \uBCC4\uB3C4 \uC81C\uD488\uD45C \uB124 \uAC1C\uB97C \uC790\uB3D9 \uC0DD\uC131\uD558\uAC70\uB098 \uC885\uB8CC\uD558\uB294 \uBAA8\uB378\uC740 \uC544\uB2D9\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "705f37df-0a3b-46d0-aaaf-737af3653515"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

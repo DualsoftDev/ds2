@@ -1,0 +1,60 @@
+{
+  "Case": {
+    "Id": 69,
+    "Title": "\uAE30\uACC4\uAC00 \uB3CC\uC544\uC628 \uAC83\uACFC \uB2E4\uC74C \uC81C\uD488 \uC900\uBE44 \uAD6C\uBD84\uD558\uAE30",
+    "Family": "repeat",
+    "Variant": "two",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "c15f6b1b-0309-4340-8c0d-1ba4a1cb71d2"
+  ],
+  "Sinks": [
+    "3e291e03-c335-4397-a209-dbd3c50bd499"
+  ],
+  "Rules": [
+    {
+      "Kind": "finish-before-start",
+      "A": "61311abd-3c23-44c4-aa47-8d83dfde3711",
+      "B": "6b71c7ad-7526-42a4-9ca3-6ce0d5338d8b",
+      "N": 0,
+      "Label": "\uC55E \uC704\uCE58 \uC644\uB8CC \uB4A4 \uB2E4\uC74C \uC704\uCE58"
+    },
+    {
+      "Kind": "work-count",
+      "A": "61311abd-3c23-44c4-aa47-8d83dfde3711",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uD574\uB2F9 \uC704\uCE58\uB97C \uC0C8\uB85C \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "6b71c7ad-7526-42a4-9ca3-6ce0d5338d8b",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uD574\uB2F9 \uC704\uCE58\uB97C \uC0C8\uB85C \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "76c7ef1a-b7ba-4539-889a-8a956d6db1be",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC804\uCCB4 \uB3D9\uC791\uB3C4 \uC0C8\uB85C \uC2DC\uC791"
+    }
+  ],
+  "Channels": [],
+  "LogicalApis": [
+    "c0aa24dc-9411-43a6-a34f-dc8d43fbc314",
+    "497609f7-a2bc-4338-bf92-dddde8e0d444"
+  ],
+  "Notes": [
+    "\uACE0\uC815\uB41C \uC704\uCE58 \uC218\uB97C \uBAA8\uB378 \uC548\uC758 Call \uC21C\uC11C\uB85C \uD45C\uD604\uD569\uB2C8\uB2E4. \uC81C\uD488 \uACF5\uAE09\uB9CC \uC678\uBD80 \uC2DC\uD5D8\uAE30\uAC00 \uB9E1\uACE0 \uC704\uCE58\uBCC4 \uD69F\uC218\uC640 \uC644\uB8CC\uB294 \uBAA8\uB378\uC774 \uCC98\uB9AC\uD569\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "687adc09-7ec9-4b54-9cf9-b66465e2cebb"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

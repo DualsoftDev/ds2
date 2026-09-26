@@ -1,0 +1,73 @@
+{
+  "Case": {
+    "Id": 64,
+    "Title": "\uC81C\uD488\uB9C8\uB2E4 \uC791\uC5C5 \uD69F\uC218\uAC00 \uB2EC\uB77C\uC9C8 \uB54C",
+    "Family": "variable",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "9caa6278-1155-46a4-a60d-deaf73681e82"
+  ],
+  "Sinks": [
+    "1186f5c2-65a7-4f24-af1f-39ee445648fd"
+  ],
+  "Rules": [
+    {
+      "Kind": "work-count",
+      "A": "295840bc-4219-475c-a598-d624efbd2576",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "1\uBC88\uC9F8 \uB3D9\uC791\uC758 \uC2E4\uC81C \uC2E4\uD589 \uC218"
+    },
+    {
+      "Kind": "work-count",
+      "A": "a63c9c44-0460-4855-8044-0532955daf4a",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 2,
+      "Label": "2\uBC88\uC9F8 \uB3D9\uC791\uC758 \uC2E4\uC81C \uC2E4\uD589 \uC218"
+    },
+    {
+      "Kind": "work-count",
+      "A": "ac21ba91-0c86-4d9c-80a5-50711b6cd43e",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 1,
+      "Label": "3\uBC88\uC9F8 \uB3D9\uC791\uC758 \uC2E4\uC81C \uC2E4\uD589 \uC218"
+    }
+  ],
+  "Channels": [
+    {
+      "Id": "82b3e0bc-758e-4336-b986-9cd566173745",
+      "Values": [
+        "1",
+        "2",
+        "3"
+      ],
+      "Initial": "0",
+      "Delay": 20,
+      "Name": "\uC774\uBC88 \uC81C\uD488\uC758 \uBAA9\uD45C \uD69F\uC218"
+    },
+    {
+      "Id": "f4060833-956c-4dc8-8ce7-f05937715ee7",
+      "Values": [
+        "true"
+      ],
+      "Initial": "false",
+      "Delay": 20,
+      "Name": "\uBAA9\uD45C \uD69F\uC218 \uC900\uBE44 \uC644\uB8CC"
+    }
+  ],
+  "LogicalApis": [
+    "b94a1898-2713-4e3a-a1ca-bb304d05d9c5"
+  ],
+  "Notes": [
+    "\uC2E4\uD589 \uAC00\uB2A5\uD55C \uD69F\uC218\uB97C 1~3\uC73C\uB85C \uC81C\uD55C\uD574 Call \uC138 \uAC1C\uC640 SkipAction\uC73C\uB85C \uD45C\uD604\uD569\uB2C8\uB2E4. \uC784\uC758\uB85C \uD070 N\uC744 \uCC98\uB9AC\uD558\uB294 \uBC94\uC6A9 \uCE74\uC6B4\uD130\u00B7\uB8E8\uD504 \uAD6C\uD604\uC774\uB77C\uACE0 \uC8FC\uC7A5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC785\uB825 N\uB9CC \uC678\uBD80\uC5D0\uC11C \uACF5\uAE09\uD558\uBA70 \uC218\uD589 \uD69F\uC218 \uC120\uD0DD\uC740 \uBAA8\uB378 \uB0B4\uBD80\uC785\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "3db43887-06db-4e85-bf9c-813b9b6d2bf2"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}
