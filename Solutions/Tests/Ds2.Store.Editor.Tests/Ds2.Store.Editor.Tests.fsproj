@@ -37,6 +37,7 @@
     <Compile Include="CallOutputScopeTests.fs" />
     <Compile Include="ControlVirtualPlantTestHarness.fs" />
     <Compile Include="ControlVirtualPlantInteropTests.fs" />
+    <Compile Include="RuntimeSnapshotBindingTests.fs" />
     <Compile Include="SimulationCommandFacadeTests.fs" />
     <Compile Include="TagWizardBaseAddressTests.fs" />
     <Compile Include="LsPackReadTests.fs" />
