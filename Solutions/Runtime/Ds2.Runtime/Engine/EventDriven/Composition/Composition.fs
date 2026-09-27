@@ -237,14 +237,12 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             ioMap
             writeTagFn
             forceWorkState
-    let executeApiCall deviceWorkGuid =
-        EventDrivenExecution.executeApiCall apiCallExecutionContext deviceWorkGuid
     let executeCallGoing callGuid =
-        EventDrivenExecution.executeCallGoing index apiCallExecutionContext callGuid
+        EventDrivenExecution.executeCallGoing apiCallExecutionContext callGuid
     /// Call Homing 처리: allGoingTargets에 해당하는 TxWork를 직접 Going시켜 원위치 유도.
     /// 개별 Call의 Ready 전이는 하지 않음 — StartWithHomingPhase completion handler가 일괄 처리.
     let executeCallHoming (callGuid: Guid) (goingTargets: Set<Guid>) =
-        EventDrivenExecution.executeCallHoming index apiCallExecutionContext callGuid goingTargets
+        EventDrivenExecution.executeCallHoming apiCallExecutionContext callGuid goingTargets
     let callTransitionContext =
         EventDrivenCompositionContext.createCallTransitionContext
             index

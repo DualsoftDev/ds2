@@ -34,6 +34,7 @@
     <Compile Include="SimulationTimeIgnoreTests.fs" />
     <Compile Include="SimulationConnectionReloadTests.fs" />
     <Compile Include="RuntimeCommandPolicyTests.fs" />
+    <Compile Include="CallOutputScopeTests.fs" />
     <Compile Include="SimulationCommandFacadeTests.fs" />
     <Compile Include="TagWizardBaseAddressTests.fs" />
     <Compile Include="LsPackReadTests.fs" />

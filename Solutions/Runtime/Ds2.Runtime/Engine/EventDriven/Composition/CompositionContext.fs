@@ -123,21 +123,15 @@ module internal EventDrivenCompositionContext =
         GetDeviceName = resolveWorkName
         GetTxOutAddresses = fun deviceWorkGuid ->
             ioMap.TxWorkToOutAddresses |> Map.tryFind deviceWorkGuid |> Option.defaultValue []
-        GetApiCallsForWork = fun workGuid ->
-            // v10 §11: Work GUID → 그 Work 를 TxGuid 로 가리키는 ApiDef + 그 ApiDef 를 참조하는 ApiCall 들.
-            // SimIndex 에 직접 매핑이 없으므로 store 순회.
-            // 같은 device(workGuid) 를 여러 Call 이 호출하면(예: 묶음 Call + 개별 Call) 같은 ApiCall 이
-            // 여러 Call 에 공유돼 중복 yield → applyOutputEffect 가 같은 Out 을 2번 송출한다(=Control Out 2회,
-            // VP 가 In 2회 echo, 간트 I/O 막대·timeAppend 점선 중복). ApiCall = I/O(주소 고정)이므로 ApiCall.Id 로 중복 제거.
-            let store = index.Store
-            [ for kv in store.ApiDefs do
-                let apiDef = kv.Value
-                if apiDef.TxGuid = Some workGuid then
-                    for callKv in store.Calls do
-                        for apiCall in callKv.Value.ApiCalls do
-                            if apiCall.ApiDefId = Some apiDef.Id then
-                                yield (apiDef, apiCall) ]
-            |> List.distinctBy (fun (_, apiCall) -> apiCall.Id)
+        GetApiCallsForCall = fun callGuid ->
+            // 인덱스가 ReferenceOf를 해석한 목록을 사용하므로 공유/참조 Call도 동일하게 처리한다.
+            SimIndex.findOrEmpty callGuid index.CallApiCallGuids
+            |> List.choose (fun apiCallId ->
+                Queries.getApiCall apiCallId index.Store
+                |> Option.bind (fun apiCall ->
+                    apiCall.ApiDefId
+                    |> Option.bind (fun apiDefId -> Queries.getApiDef apiDefId index.Store)
+                    |> Option.map (fun apiDef -> apiDef, apiCall)))
         WriteTag = writeTagForRuntime
         ScheduleAfter = fun (delayMs, action) ->
             // v10 §11: TimePolicy.Append / EdgePulse 의 시간 지연 적용.
