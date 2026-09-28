@@ -1,0 +1,168 @@
+{
+  "BaseCase": 79,
+  "Call": "\uD53C\uC81C\uC5B4\uC7A5\uCE58.\uB3D9\uC791",
+  "CallFinishes": [
+    100
+  ],
+  "CallStarts": [
+    0
+  ],
+  "EndState": "Some(Finish)",
+  "Events": [
+    {
+      "Seq": 1,
+      "Time": 0,
+      "Kind": "work",
+      "Node": "38a15a24-d9f9-451a-92c1-ccfee51b7af3",
+      "Name": "\uC2E4\uC81C\uB3D9\uC791.\uBCF5\uADC0",
+      "State": "Finish",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 2,
+      "Time": 0,
+      "Kind": "work",
+      "Node": "c2131d0d-41a8-460d-a9b5-7154ae422359",
+      "Name": "\uC81C\uD488.\uC774\uBC88\uC81C\uD488\uB3D9\uC791",
+      "State": "Going",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 3,
+      "Time": 0,
+      "Kind": "call",
+      "Node": "a94707ac-a663-4853-8a8a-80012b9f5e38",
+      "Name": "\uD53C\uC81C\uC5B4\uC7A5\uCE58.\uB3D9\uC791",
+      "State": "Going",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 4,
+      "Time": 0,
+      "Kind": "work",
+      "Node": "24acb050-e34e-4a5b-ba31-4a1b50e1ee6a",
+      "Name": "\uC2E4\uC81C\uB3D9\uC791.\uB3D9\uC791",
+      "State": "Going",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 5,
+      "Time": 0,
+      "Kind": "work",
+      "Node": "38a15a24-d9f9-451a-92c1-ccfee51b7af3",
+      "Name": "\uC2E4\uC81C\uB3D9\uC791.\uBCF5\uADC0",
+      "State": "Homing",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 6,
+      "Time": 1,
+      "Kind": "work",
+      "Node": "38a15a24-d9f9-451a-92c1-ccfee51b7af3",
+      "Name": "\uC2E4\uC81C\uB3D9\uC791.\uBCF5\uADC0",
+      "State": "Ready",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 7,
+      "Time": 40,
+      "Kind": "work",
+      "Node": "24acb050-e34e-4a5b-ba31-4a1b50e1ee6a",
+      "Name": "\uC2E4\uC81C\uB3D9\uC791.\uB3D9\uC791",
+      "State": "Finish",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 8,
+      "Time": 100,
+      "Kind": "call",
+      "Node": "a94707ac-a663-4853-8a8a-80012b9f5e38",
+      "Name": "\uD53C\uC81C\uC5B4\uC7A5\uCE58.\uB3D9\uC791",
+      "State": "Finish",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 9,
+      "Time": 100,
+      "Kind": "call",
+      "Node": "4332bb48-41a2-41da-8ff3-7933f4c6fcd1",
+      "Name": "\uD53C\uC81C\uC5B4\uC7A5\uCE58.\uBCF5\uADC0",
+      "State": "Going",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 10,
+      "Time": 100,
+      "Kind": "work",
+      "Node": "38a15a24-d9f9-451a-92c1-ccfee51b7af3",
+      "Name": "\uC2E4\uC81C\uB3D9\uC791.\uBCF5\uADC0",
+      "State": "Going",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 11,
+      "Time": 100,
+      "Kind": "work",
+      "Node": "24acb050-e34e-4a5b-ba31-4a1b50e1ee6a",
+      "Name": "\uC2E4\uC81C\uB3D9\uC791.\uB3D9\uC791",
+      "State": "Homing",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 12,
+      "Time": 101,
+      "Kind": "work",
+      "Node": "24acb050-e34e-4a5b-ba31-4a1b50e1ee6a",
+      "Name": "\uC2E4\uC81C\uB3D9\uC791.\uB3D9\uC791",
+      "State": "Ready",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 13,
+      "Time": 120,
+      "Kind": "work",
+      "Node": "38a15a24-d9f9-451a-92c1-ccfee51b7af3",
+      "Name": "\uC2E4\uC81C\uB3D9\uC791.\uBCF5\uADC0",
+      "State": "Finish",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "Inputs": [],
+  "Mode": "Control",
+  "Name": "virtual100-control",
+  "Policy": "Virtual100",
+  "Target": "\uC2E4\uC81C\uB3D9\uC791.\uB3D9\uC791",
+  "TargetFinishes": [
+    40
+  ],
+  "TargetStarts": [
+    0
+  ],
+  "WindowMs": 200
+}

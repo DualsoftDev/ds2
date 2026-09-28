@@ -1,0 +1,58 @@
+{
+  "Case": {
+    "Id": 68,
+    "Title": "\uC7A0\uAE50 \uAE30\uB2E4\uB838\uB2E4 \uAC19\uC740 \uC81C\uD488\uC744 \uC774\uC5B4\uC11C \uCC98\uB9AC\uD558\uAE30",
+    "Family": "rotation",
+    "Variant": "",
+    "Rounds": 1,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "f20125b0-ab59-45e2-8a28-4d2b44544178",
+    "7f101922-6ff0-41ef-ae49-9cb20e84cdda"
+  ],
+  "Sinks": [],
+  "Rules": [
+    {
+      "Kind": "work-count",
+      "A": "f434b324-aecb-49c9-b713-f6ae1928549d",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 4,
+      "Label": "\uAC19\uC740 \uB450 \uC81C\uD488\uC73C\uB85C \uACF5\uB3D9 \uCD95 \uB124 \uBC88 \uC2E4\uD589"
+    },
+    {
+      "Kind": "rotation-permit",
+      "A": "f434b324-aecb-49c9-b713-f6ae1928549d",
+      "B": "874586b9-c54e-4c45-b695-5012ce355ac1",
+      "N": 4,
+      "Label": "\uB450 \uD68C \uB4A4 \uB300\uAE30\uD558\uACE0 \uC7AC\uAC1C\uD55C \uB4A4 \uB124 \uD68C\uC5D0\uC11C \uBA48\uCDA4"
+    }
+  ],
+  "Channels": [
+    {
+      "Id": "874586b9-c54e-4c45-b695-5012ce355ac1",
+      "Values": [
+        "true"
+      ],
+      "Initial": "false",
+      "Delay": 1,
+      "Name": "\uD68C\uC804 \uC678\uBD80 \uD5C8\uAC00"
+    }
+  ],
+  "LogicalApis": [
+    "18014ec7-1eff-4bda-ba26-5c3730511d1a",
+    "e4f8c058-d8c6-47c5-8ffd-303c929b3619",
+    "18014ec7-1eff-4bda-ba26-5c3730511d1a",
+    "62b9aed8-557a-432e-aaa3-ae0311a3cba0"
+  ],
+  "Notes": [
+    "\uBC1B\uCE68 A/B\uAC00 \uAC01 \uC81C\uD488\uC744 \uACC4\uC18D \uBCF4\uC720\uD558\uB294 Flow\uC785\uB2C8\uB2E4. \uC2DC\uD5D8\uAE30\uAC00 \uB450 \uC81C\uD488\uC744 \uD55C \uBC88\uB9CC \uD22C\uC785\uD558\uACE0, \uB450 \uD68C \uB4A4 \uD5C8\uAC00\uB97C \uB2EB\uC558\uB2E4 \uC5F4\uBA70 \uB124 \uD68C \uB4A4 \uB2EB\uC2B5\uB2C8\uB2E4. \uC678\uBD80 \uC815\uC9C0 \uD69F\uC218\uB97C \uBAA8\uB378 \uB0B4\uBD80 \uCE74\uC6B4\uD130\uB85C \uC8FC\uC7A5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "a4e3c5f2-ccab-42dd-ae89-2fe103a77152",
+    "0f97e9c5-1e41-426c-9383-f7d6ba2f596c"
+  ],
+  "EndWithTokens": true,
+  "SupplyRequirements": []
+}

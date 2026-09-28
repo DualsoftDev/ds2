@@ -90,7 +90,13 @@ module SignalIOMap =
 
         for call in calls do
             let callSystemId = systemIdOfCall call
-            for apiCall in call.ApiCalls do
+            // Match SimIndex's effective binding resolution. A Reference Call has no
+            // raw ApiCalls, but still needs its own IO routes and completion resets.
+            let dataSource =
+                match call.ReferenceOf with
+                | Some originalId -> Queries.getCall originalId store |> Option.defaultValue call
+                | None -> call
+            for apiCall in dataSource.ApiCalls |> Seq.distinctBy (fun apiCall -> apiCall.Id) do
                 let apiDef =
                     apiCall.ApiDefId
                     |> Option.bind (fun defId ->

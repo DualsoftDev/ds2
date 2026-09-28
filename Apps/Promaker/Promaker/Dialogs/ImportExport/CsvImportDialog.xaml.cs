@@ -217,6 +217,7 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
     private CsvFormat _detectedFormat = CsvFormat.Unknown;
     private CsvDocument? _document;
     private BasicCsvDocument? _basicDocument;
+    private AiCsvDocument? _aiDocument;
     private string _lastErrorText = "";
     private string _autoProjectName = DefaultImportedName;
     private string _autoSystemName = DefaultImportedName;
@@ -251,6 +252,9 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
 
     public BasicCsvDocument BasicDocument =>
         _basicDocument ?? throw new InvalidOperationException("Basic CSV document is not loaded.");
+
+    public AiCsvDocument AiDocument =>
+        _aiDocument ?? throw new InvalidOperationException("AI CSV document is not loaded.");
 
     public string SourceDisplayName => _sourceDisplayName;
 
@@ -337,6 +341,7 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
     {
         _document = document;
         _basicDocument = null;
+        _aiDocument = null;
         _lastErrorText = errorText ?? "";
         PreviewGrid.ItemsSource = rows?.ToList();
         BasicPreviewGrid.ItemsSource = null;
@@ -376,6 +381,7 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
     {
         _basicDocument = document;
         _document = null;
+        _aiDocument = null;
         _lastErrorText = errorText ?? "";
         BasicPreviewGrid.ItemsSource = rows?.ToList();
         PreviewGrid.ItemsSource = null;
@@ -443,11 +449,17 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
     private void UpdateFormatDependentUi()
     {
         var basic = _detectedFormat == CsvFormat.Basic3;
+        var ai = _detectedFormat == CsvFormat.AiModel;
+        // 7열은 관계를 전부 명시하므로 표준 격자를 그대로 쓴다 — 별도 미리보기 격자를 만들지 않는다.
         PreviewBorderOf(basic ? Visibility.Collapsed : Visibility.Visible,
                         basic ? Visibility.Visible : Visibility.Collapsed);
         // Start/Clear 자동 추가는 기본 3열 매퍼에만 적용된다.
+        // 7열은 토큰 역할을 WORK 행에 직접 적으므로 이 옵션이 의미를 갖지 않는다.
         if (AutoStartClearCheck != null)
             AutoStartClearCheck.Visibility = basic ? Visibility.Visible : Visibility.Collapsed;
+        // 지침 버튼 문구는 형식을 따라간다 — 3열 지침을 7열에 쓰면 LLM 이 엉뚱한 것을 만든다.
+        if (CopyPromptButton != null)
+            CopyPromptButton.Content = ai ? "LLM 지침 복사 (7열)" : "LLM 지침 복사";
     }
 
     /// 아직 판별할 내용이 없는 상태. 오류가 아니므로 중립 색으로 둔다.
@@ -559,11 +571,50 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
             return true;
         }
 
+        if (_detectedFormat == CsvFormat.AiModel)
+        {
+            var aiResult = CsvImporter.parseAiContent(content);
+            if (aiResult.IsError)
+            {
+                ShowErrors(aiResult.ErrorValue);
+                return false;
+            }
+
+            var aiDocument = aiResult.ResultValue;
+            ApplyAiPreview(aiDocument, CsvImporter.previewAi(aiDocument));
+            return true;
+        }
+
         if (!TryGetDocument(CsvImporter.parseContent(content), out var document))
             return false;
 
         ApplyPreview(document, CsvImporter.preview(document));
         return true;
+    }
+
+    /// 7열 미리보기. **Capa 를 반드시 먼저 보여 준다** — Flow 개수를 공정 단계 수로 오해하는 것이
+    /// 이 형식에서 가장 흔한 모델링 실수이고, 잘못 세면 동시에 물릴 제품 수가 달라진다.
+    private void ApplyAiPreview(AiCsvDocument document, AiCsvPreview preview)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Active System : {preview.ActiveSystemName}");
+        sb.AppendLine($"Capa          : {preview.Capa}  (= FLOW 행 개수 · 동시에 보유하는 고유 제품 수)");
+        sb.AppendLine($"Work          : {preview.WorkCount}");
+        sb.AppendLine($"화살표        : {preview.ArrowCount}");
+        sb.AppendLine($"API           : {preview.ApiCount}");
+        sb.AppendLine($"조건          : {preview.CondCount}");
+        if (preview.PassiveSystemNames.Any())
+            sb.AppendLine($"디바이스      : {string.Join(", ", preview.PassiveSystemNames)}");
+        if (preview.UnspecifiedTimes > 0)
+            sb.AppendLine($"시간 미기입   : {preview.UnspecifiedTimes}건 (기본 500ms 적용)");
+        foreach (var w in preview.Warnings)
+            sb.AppendLine($"경고 · {w}");
+
+        ResetPreview(sb.ToString().TrimEnd());
+        // ResetPreview → SetPreviewState 가 세 문서를 모두 비운다. 보관은 반드시 그 뒤에 한다.
+        _aiDocument = document;
+        _document = null;
+        _basicDocument = null;
     }
 
     private bool TryGetDocument(FSharpResult<CsvDocument, FSharpList<string>> result, out CsvDocument document)
@@ -579,13 +630,23 @@ RH,RH작업,RH클램프1.전진=800MS>RH슬라이드.전진=1S>RH런너1.체결=
         return true;
     }
 
+    /// 7열 지침은 Ds2.CSV 에 임베드된 문서를 그대로 읽는다 — 코드 상수 사본을 만들지 않는다.
+    private static string LoadAiGuide()
+    {
+        try { return CsvImporter.aiLlmGuide(); }
+        catch (Exception ex) { return $"(지침을 읽지 못했습니다: {ex.Message})"; }
+    }
+
     private void CopyPrompt_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            Clipboard.SetText(LlmPromptBasic);
+            var (text, which) = _detectedFormat == CsvFormat.AiModel
+                ? (LoadAiGuide(), "7열(csvForAI)")
+                : (LlmPromptBasic, "3열(기본)");
+            Clipboard.SetText(text);
             ShowInfo(
-                "LLM 생성 지침이 클립보드에 복사되었습니다.\n\n" +
+                $"{which} 생성 지침이 클립보드에 복사되었습니다.\n\n" +
                 "ChatGPT·Gemini 등 다른 LLM에 붙여넣은 뒤 공법을 설명하면 CSV가 생성됩니다.\n" +
                 "생성된 CSV를 이 창의 'CSV 내용'에 붙여넣으세요.",
                 "지침 복사 완료");

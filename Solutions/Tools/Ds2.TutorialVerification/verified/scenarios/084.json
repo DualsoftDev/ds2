@@ -1,0 +1,88 @@
+{
+  "Case": {
+    "Id": 84,
+    "Title": "\uBCFC\uD2B8\uB97C \uC870\uC774\uACE0 \uD569\uACA9 \uC5EC\uBD80 \uD655\uC778\uD558\uAE30",
+    "Family": "selection",
+    "Variant": "call",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "ac3fbc60-a43a-4718-b57e-826f5a3cd54c"
+  ],
+  "Sinks": [
+    "6268b1b7-335c-4983-bd75-930055fcca67"
+  ],
+  "Rules": [
+    {
+      "Kind": "work-count",
+      "A": "1ca22b23-ffe6-4ef1-be36-385ef163fd02",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 4,
+      "Label": "\uAC12\uC744 \uBC1B\uB294 \uB2E8\uACC4\uB294 \uBAA8\uB4E0 \uC81C\uD488\uC5D0\uC11C \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "76963fd2-5e5e-4c35-b7f4-25abc5c3d28a",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 2,
+      "Label": "\uAC19\uC740 A \uB610\uB294 OK\uAC00 \uC5F0\uC18D\uB418\uC5B4\uB3C4 \uB450 \uBC88 \uC2E4\uC81C \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "e594ae9f-d24d-45bc-935b-309aa338a97b",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 2,
+      "Label": "B \uB610\uB294 NG \uC81C\uD488\uC5D0\uC11C\uB9CC \uC2E4\uC81C \uC2E4\uD589"
+    },
+    {
+      "Kind": "selected-sequence",
+      "A": "76963fd2-5e5e-4c35-b7f4-25abc5c3d28a",
+      "B": "e594ae9f-d24d-45bc-935b-309aa338a97b",
+      "N": 0,
+      "Label": "A A B B \uACB0\uACFC\uC640 \uC2E4\uC81C \uB300\uC0C1 \uC2E4\uD589 \uC77C\uCE58"
+    },
+    {
+      "Kind": "finish-before-start",
+      "A": "1ca22b23-ffe6-4ef1-be36-385ef163fd02",
+      "B": "179ca905-c7b9-4ddc-a106-5c0444a1e7f3",
+      "N": 0,
+      "Label": "\uC774\uBC88 \uC751\uB2F5\uC744 \uBC1B\uC740 \uB4A4\uC5D0\uB9CC \uC120\uD0DD \uC2DC\uC791"
+    }
+  ],
+  "Channels": [
+    {
+      "Id": "50d13e87-ba2d-4acc-9234-617fc913a2a9",
+      "Values": [
+        "true",
+        "true",
+        "false",
+        "false"
+      ],
+      "Initial": "false",
+      "Delay": 20,
+      "Name": "\uC81C\uD488\uBCC4 \uC0AC\uC591 \uB610\uB294 OK/NG \uD310\uC815"
+    },
+    {
+      "Id": "7073101d-4671-4eda-9c08-7ad811b05dcb",
+      "Values": [
+        "true"
+      ],
+      "Initial": "false",
+      "Delay": 20,
+      "Name": "\uC774\uBC88 \uC751\uB2F5\uC758 \uB3C4\uCC29 \uC5EC\uBD80"
+    }
+  ],
+  "LogicalApis": [
+    "b9eca3c2-ab98-4bc5-874c-ad0c0daa9a83"
+  ],
+  "Notes": [
+    "\uC2DC\uD5D8 \uC785\uB825\uC740 A A B B \uB610\uB294 OK OK NG NG\uC785\uB2C8\uB2E4. \uC81C\uD488\uB9C8\uB2E4 \uB3C4\uCC29 \uD50C\uB798\uADF8\uB97C \uBA3C\uC800 \uC9C0\uC6B0\uACE0 \uC9C0\uC815 \uC9C0\uC5F0 \uB4A4 \uAC12\uACFC \uB3C4\uCC29\uC744 \uC8FC\uC785\uD569\uB2C8\uB2E4. \uBBF8\uD655\uC815\uC740 \uC120\uD0DD \uC55E\uC5D0\uC11C \uB300\uAE30\uD569\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "314f12c8-e5b6-47f1-b2cf-4333c21c76fc"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

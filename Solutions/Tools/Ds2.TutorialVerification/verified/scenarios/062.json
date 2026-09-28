@@ -1,0 +1,60 @@
+{
+  "Case": {
+    "Id": 62,
+    "Title": "\uAC19\uC740 \uB3D9\uC791\uC744 \uC5F0\uB2EC\uC544 \uBD80\uD0C1\uD560 \uB54C",
+    "Family": "repeat",
+    "Variant": "two",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "298f9c1d-6a83-4bc4-99a5-f5b43395c786"
+  ],
+  "Sinks": [
+    "2aa724f5-aa52-402c-bb38-685721c709ce"
+  ],
+  "Rules": [
+    {
+      "Kind": "finish-before-start",
+      "A": "8939e366-abc6-4e16-b97c-b5dcaeb69ba0",
+      "B": "4869b46b-86b3-479a-b4b9-0f854ecd4732",
+      "N": 0,
+      "Label": "\uC55E \uC704\uCE58 \uC644\uB8CC \uB4A4 \uB2E4\uC74C \uC704\uCE58"
+    },
+    {
+      "Kind": "work-count",
+      "A": "8939e366-abc6-4e16-b97c-b5dcaeb69ba0",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uD574\uB2F9 \uC704\uCE58\uB97C \uC0C8\uB85C \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "4869b46b-86b3-479a-b4b9-0f854ecd4732",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uD574\uB2F9 \uC704\uCE58\uB97C \uC0C8\uB85C \uC2E4\uD589"
+    },
+    {
+      "Kind": "work-count",
+      "A": "cc2331c9-71ea-4a36-ac53-eed06a134802",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC804\uCCB4 \uB3D9\uC791\uB3C4 \uC0C8\uB85C \uC2DC\uC791"
+    }
+  ],
+  "Channels": [],
+  "LogicalApis": [
+    "af9b891b-2b14-4f2e-b674-3acd65115506",
+    "ebf8cc57-6647-432b-8ba8-f096eea8e3ad"
+  ],
+  "Notes": [
+    "\uACE0\uC815\uB41C \uC704\uCE58 \uC218\uB97C \uBAA8\uB378 \uC548\uC758 Call \uC21C\uC11C\uB85C \uD45C\uD604\uD569\uB2C8\uB2E4. \uC81C\uD488 \uACF5\uAE09\uB9CC \uC678\uBD80 \uC2DC\uD5D8\uAE30\uAC00 \uB9E1\uACE0 \uC704\uCE58\uBCC4 \uD69F\uC218\uC640 \uC644\uB8CC\uB294 \uBAA8\uB378\uC774 \uCC98\uB9AC\uD569\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "373ffd19-2a8e-442b-b176-ee7103e80766"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net9.0</TargetFramework>
+    <Ds2SolutionsRoot Condition="'$(Ds2SolutionsRoot)' == ''">C:\ds\ds2\Solutions</Ds2SolutionsRoot>
+  </PropertyGroup>
+  <ItemGroup><Compile Include="Models.fs" /><Compile Include="Advanced.fs" /><Compile Include="Verify.fs" /><Compile Include="Probes.fs" /><Compile Include="Program.fs" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(Ds2SolutionsRoot)\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="$(Ds2SolutionsRoot)\Core\Ds2.Editor\Ds2.Editor.fsproj" />
+    <ProjectReference Include="$(Ds2SolutionsRoot)\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
+  </ItemGroup>
+</Project>

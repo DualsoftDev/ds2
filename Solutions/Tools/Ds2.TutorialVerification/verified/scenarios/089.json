@@ -1,0 +1,72 @@
+{
+  "Case": {
+    "Id": 89,
+    "Title": "\uBD80\uD488\uC744 \uD569\uCE58\uAC70\uB098 \uB098\uB20C \uB54C \uBC88\uD638 \uC815\uD558\uAE30",
+    "Family": "assembly",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uBD80\uD488\uACFC \uC870\uB9BD\uD488"
+  },
+  "Sources": [
+    "9a2d26cd-5c7a-4e27-9032-384c431fefe1",
+    "ef649526-d786-4153-98f7-e4a967b483ed",
+    "88274368-e0c0-4755-9264-48fac1db9204"
+  ],
+  "Sinks": [
+    "c82659b7-d934-465e-8366-335c2119b56f",
+    "73d2a03c-a08f-4d74-b728-fda6e1f24346",
+    "d0dba924-3848-406a-a8b6-7fee3f6591ba"
+  ],
+  "Rules": [
+    {
+      "Kind": "work-count",
+      "A": "a7a9453b-3ad6-479f-9592-4c5f0df2de49",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC0C8 \uC870\uB9BD\uD488\uB9C8\uB2E4 \uC2E4\uC81C \uC870\uB9BD \uB3D9\uC791"
+    },
+    {
+      "Kind": "assembly-lineage",
+      "A": "88274368-e0c0-4755-9264-48fac1db9204",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 0,
+      "Label": "C\uC758 \uACF5\uAE09\uC740 \uD574\uB2F9 A/B \uC885\uB8CC \uB4A4\uC774\uBA70 \uC6D0\uBD80\uD488 \uBC88\uD638\uB97C \uBCF4\uC874"
+    }
+  ],
+  "Channels": [],
+  "LogicalApis": [
+    "e2bfbe54-efbf-4cf0-879b-4281a996b75e"
+  ],
+  "Notes": [
+    "A/B \uC885\uB8CC \uD6C4 C \uBC88\uD638\uB97C \uD22C\uC785\uD558\uACE0 \uC6D0\uBD80\uD488 \uB300\uC751\uC744 \uAE30\uB85D\uD558\uB294 \uC77C\uC740 \uC2DC\uD5D8 \uACF5\uAE09\uAE30\uAC00 \uB9E1\uC2B5\uB2C8\uB2E4. SDF\uC5D0\uB294 Source/Sink\uC640 TokenSpecs \uB300\uC751 \uC815\uBCF4\uAC00 \uC788\uC73C\uB098 \uC5D4\uC9C4 \uC790\uCCB4\uC758 \uC790\uB3D9 \uBCD1\uD569\u00B7\uC0C8 \uBC88\uD638 \uC0DD\uC131\uC73C\uB85C \uAC80\uC99D\uD55C \uAC83\uC740 \uC544\uB2D9\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "71d59bc4-01a3-45b7-afea-ca289bf12ba0",
+    "d8741d0f-adb1-4cde-b0ff-1d364d395913",
+    "5cf29d3a-cc0e-460b-a611-9475786e779e"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": [
+    {
+      "Source": "9a2d26cd-5c7a-4e27-9032-384c431fefe1",
+      "Dependency": "88274368-e0c0-4755-9264-48fac1db9204",
+      "Lag": 1
+    },
+    {
+      "Source": "ef649526-d786-4153-98f7-e4a967b483ed",
+      "Dependency": "88274368-e0c0-4755-9264-48fac1db9204",
+      "Lag": 1
+    },
+    {
+      "Source": "88274368-e0c0-4755-9264-48fac1db9204",
+      "Dependency": "9a2d26cd-5c7a-4e27-9032-384c431fefe1",
+      "Lag": 0
+    },
+    {
+      "Source": "88274368-e0c0-4755-9264-48fac1db9204",
+      "Dependency": "ef649526-d786-4153-98f7-e4a967b483ed",
+      "Lag": 0
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+Kind,Name,Type,Detail,Time,InTag,OutTag
+# csvForAI/v1 — 지그셀: 한 제품을 고정하고 공정한 뒤 해제한다 (tutorials_Ver71/11_spec_modeling.md 모델 1)
+# Capa 1 = FLOW 행 1개. 행 순서에는 의미가 없다 — 모든 관계는 ARROW 행과 Detail 셀에 적혀 있다.
+SYS,지그셀,Active,,,,
+SYS,실린더,Passive,Cylinder_2Pos,,,
+SYS,공정기,Passive,,,,
+FLOW,제품,,,,,
+WORK,제품.투입,Source,,,,
+WORK,제품.클램프제어,,실린더.ADV>실린더.RET,,,
+WORK,제품.공정제어,Ignore,공정기.PREPARE>공정기.RUN,,,
+WORK,제품.배출,Sink,,,,
+ARROW,제품.투입,Start,제품.클램프제어,,,
+ARROW,제품.클램프제어,Group,제품.공정제어,,,
+ARROW,제품.클램프제어,Start,제품.배출,,,
+ARROW,제품.배출,Reset,제품.투입;제품.클램프제어;제품.공정제어,,,
+ARROW,제품.투입,Reset,제품.배출,,,
+API,실린더.ADV,Latch/Normal,,100MS,%IX0.0.0,%QX0.0.0
+API,실린더.RET,Virtual/Normal,,100MS,%IX0.0.1,
+API,공정기.PREPARE,Virtual/Virtual(200),,?,,
+API,공정기.RUN,Normal/Normal,,150MS,%IX0.0.2,%QX0.0.2
+COND,제품.공정제어.공정기.RUN,AutoAux,실린더.ADV,,,
+COND,제품.클램프제어.실린더.RET,AutoAux,공정기.RUN,,,

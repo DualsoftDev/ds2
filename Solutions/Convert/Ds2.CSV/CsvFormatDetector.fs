@@ -17,7 +17,8 @@ module CsvFormatDetector =
     let private candidates =
         [ CsvFormat.Basic3,    BasicCsvParser.expectedHeaderFields, "FLOW,WORK,CALL"
           CsvFormat.Standard9, CsvParser.expectedHeader9,           "Flow,Work,Device,System,Api,InName,InAddress,OutName,OutAddress"
-          CsvFormat.Standard8, CsvParser.expectedHeader8,           "Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress" ]
+          CsvFormat.Standard8, CsvParser.expectedHeader8,           "Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress"
+          CsvFormat.AiModel,   AiCsvParser.expectedHeaderFields,    "Kind,Name,Type,Detail,Time,InTag,OutTag" ]
 
     /// 감지 배지에 쓰는 짧은 이름.
     let formatName (format: CsvFormat) =
@@ -25,12 +26,14 @@ module CsvFormatDetector =
         | CsvFormat.Basic3 -> "기본 3열"
         | CsvFormat.Standard9 -> "표준 9열"
         | CsvFormat.Standard8 -> "표준 8열"
+        | CsvFormat.AiModel -> "모델 7열"
         | _ -> "알 수 없는 형식"
 
     /// 규격을 고른 뒤 사용자가 알아야 할 부수 효과. 없으면 "".
     let formatNote (format: CsvFormat) =
         match format with
         | CsvFormat.Standard8 -> "System 열 없음 — Device 이름에서 유도"
+        | CsvFormat.AiModel -> "행 순서 무의미 · Passive·TokenSpec 자동 생성"
         | _ -> ""
 
     let separatorName (separator: char) =

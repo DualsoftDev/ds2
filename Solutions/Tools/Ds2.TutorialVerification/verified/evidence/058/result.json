@@ -1,0 +1,151 @@
+{
+  "Admitted": [
+    4
+  ],
+  "Calls": 6,
+  "Checks": [
+    {
+      "Name": "\uC815\uC2DD SDF \uC555\uCD95 \uD615\uC2DD",
+      "Passed": true,
+      "Actual": "gzip"
+    },
+    {
+      "Name": "\uC800\uC7A5 \uD6C4 \uC7AC\uC77D\uAE30 \uC694\uC18C \uC218",
+      "Passed": true,
+      "Actual": "8 Work / 6 Call"
+    },
+    {
+      "Name": "Call\uC744 \uC18C\uC720\uD55C Work\uC5D0 \uBB3C\uB9AC \uC2DC\uAC04 \uC911\uBCF5 \uC5C6\uC74C",
+      "Passed": true,
+      "Actual": "leaf Duration only"
+    },
+    {
+      "Name": "API\uC758 \uB300\uC0C1\uC740 \uD574\uB2F9 \uC2DC\uC2A4\uD15C \uB0B4\uBD80 Work",
+      "Passed": true,
+      "Actual": "peer systems"
+    },
+    {
+      "Name": "\uC2E4\uD589 Call\uC740 \uB2E4\uB978 \uC2DC\uC2A4\uD15C\uC744 \uD638\uCD9C",
+      "Passed": true,
+      "Actual": "peer API calls"
+    },
+    {
+      "Name": "\uC2DC\uAC04 \uD55C\uB3C4 \uC548\uC5D0 \uC815\uD55C \uCC98\uB9AC \uACBD\uACC4 \uB3C4\uB2EC",
+      "Passed": true,
+      "Actual": "{\r\n  \u0022Admitted\u0022: [\r\n    4\r\n  ],\r\n  \u0022Completed\u0022: [\r\n    4\r\n  ],\r\n  \u0022Time\u0022: 498\r\n}"
+    },
+    {
+      "Name": "\uC81C\uD488 \uCDA9\uB3CC\uACFC \uAC15\uC81C \uBC84\uB9BC \uC5C6\uC74C",
+      "Passed": true,
+      "Actual": "Conflict=0, Discard=0"
+    },
+    {
+      "Name": "\uC644\uB8CC \uB4A4 \uC81C\uD488\uD45C\uAC00 \uB0A8\uC9C0 \uC54A\uC74C",
+      "Passed": true,
+      "Actual": "0"
+    },
+    {
+      "Name": "\uB3D9\uC77C Flow\uC758 \uC548\uC815 \uC2DC\uC810 \uC81C\uD488 \uC218\uB294 \uCD5C\uB300 1",
+      "Passed": true,
+      "Actual": "1"
+    },
+    {
+      "Name": "\uC81C\uD488 \uBC88\uD638\uBCC4 \uC885\uB8CC \uD55C \uBC88",
+      "Passed": true,
+      "Actual": "4"
+    },
+    {
+      "Name": "\uCC98\uC74C 21\uB85C \uBC14\uAFC0 \uB54C\uB9CC \uC2E4\uC81C \uC124\uC815",
+      "Passed": true,
+      "Actual": "\uC124\uC815\uC0C1\uD0DC\uC640\uAC00\uACF5.\uC124\uC81521: 1 / expected 1"
+    },
+    {
+      "Name": "22\uB85C \uBC14\uAFC0 \uB54C\uB9CC \uC2E4\uC81C \uC124\uC815",
+      "Passed": true,
+      "Actual": "\uC124\uC815\uC0C1\uD0DC\uC640\uAC00\uACF5.\uC124\uC81522: 1 / expected 1"
+    },
+    {
+      "Name": "\uC124\uC815\uC774 \uAC19\uC544\uB3C4 \uC2E4\uC81C \uAC00\uACF5\uC740 \uC81C\uD488\uB9C8\uB2E4 \uC2E4\uD589",
+      "Passed": true,
+      "Actual": "\uC124\uC815\uC0C1\uD0DC\uC640\uAC00\uACF5.\uAC00\uACF5\uC2E4\uD589: 4 / expected 4"
+    },
+    {
+      "Name": "\uAC00\uACF5 \uC2DC\uC791 \uB2F9\uC2DC \uC2E4\uC81C \uC124\uC815\uC740 21 21 22 22",
+      "Passed": true,
+      "Actual": "[|21; 21; 22; 22|]"
+    },
+    {
+      "Name": "\uBA85\uC2DC\uD55C \uB17C\uB9AC API \uC678\uC758 \uC815\uC801 \uC624\uB958 \uC5C6\uC74C",
+      "Passed": true,
+      "Actual": "V2=2 logicalApi=2"
+    }
+  ],
+  "Completed": [
+    4
+  ],
+  "EventCount": 221,
+  "Family": "setting",
+  "Graph": {
+    "GroupIgnore": [],
+    "SourcePred": [],
+    "Unreachable": [],
+    "Unreset": []
+  },
+  "Id": 58,
+  "InitialFinish": [
+    "\uC124\uC815\uC0C1\uD0DC\uC640\uAC00\uACF5.\uC124\uC81522"
+  ],
+  "Inputs": [
+    {
+      "Id": "c634581a-9958-4908-a28f-d94526b82a27",
+      "Values": [
+        "21",
+        "21",
+        "22",
+        "22"
+      ],
+      "Initial": "0",
+      "Delay": 25,
+      "Name": "\uC774\uBC88 \uC81C\uD488\uC5D0 \uC801\uC6A9\uD560 \uC124\uC815 \uBC88\uD638"
+    },
+    {
+      "Id": "0d9b3f75-72ec-4bd4-849b-2009ecea38c5",
+      "Values": [
+        "true"
+      ],
+      "Initial": "false",
+      "Delay": 25,
+      "Name": "\uC774\uBC88 \uC815\uBCF4\uAC00 \uB3C4\uCC29\uD568"
+    }
+  ],
+  "MaxProducts": 1,
+  "MaxProductsPerFlow": 1,
+  "Mode": "Simulation",
+  "Model": "058.ds2.sdf",
+  "ModelSHA256": "de98897f047d7cb0632db5eefc607c731528e35ee3d94448b14bb78ea8e378e3",
+  "Notes": [
+    "\uC694\uAD6C \uC124\uC815\uAC12\uACFC \uC0C8 \uC815\uBCF4 \uB3C4\uCC29 \uC2E0\uD638\uB97C \uC2DC\uD5D8\uAE30\uAC00 \uACF5\uAE09\uD569\uB2C8\uB2E4. \uD604\uC7AC \uC124\uC815\uC740 \uB450 Work\uC758 \uC0C1\uD0DC\uB85C \uBAA8\uB378 \uC548\uC5D0 \uBCF4\uC874\uD558\uBA70, \uAC19\uC740 \uAC12\uC758 \uC5F0\uC18D \uC81C\uD488\uC5D0\uC11C \uC124\uC815\uB9CC \uC0DD\uB7B5\uD558\uACE0 \uAC00\uACF5\uC740 \uBC18\uBCF5\uD569\uB2C8\uB2E4."
+  ],
+  "Rounds": 4,
+  "RuntimePassed": true,
+  "StaticValidationPassed": false,
+  "SupplyRequirements": [],
+  "Systems": 3,
+  "TimeMs": 498,
+  "Title": "\uC124\uC815\uD55C \uB4A4 \uB2E4\uB978 \uC81C\uD488\uC774 \uBC14\uAFB8\uC9C0 \uBABB\uD558\uAC8C \uD558\uAE30",
+  "Unit": "\uC81C\uD488",
+  "Validation": [
+    {
+      "Message": "ApiCall \u0027\uC81C\uD488\uC815\uBCF4.\uC815\uBCF4\uC900\uBE44\u0027 \u2014 SensingType\u2260Virtual \u21D2 InTag \uD544\uC218",
+      "Rule": "V2",
+      "Severity": "Error"
+    },
+    {
+      "Message": "ApiCall \u0027\uC124\uC815\uAC00\uACF5\uC7A5\uCE58.\uAC00\uACF5\uC900\uBE44\u0027 \u2014 SensingType\u2260Virtual \u21D2 InTag \uD544\uC218",
+      "Rule": "V2",
+      "Severity": "Error"
+    }
+  ],
+  "Variant": "",
+  "Works": 8
+}

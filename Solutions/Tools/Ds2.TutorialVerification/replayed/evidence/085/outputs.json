@@ -1,0 +1,62 @@
+[
+  {
+    "ApiCall": "2a4c1938-6037-4f9a-a1f1-98d6645a1204",
+    "Time": 1,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "fda13af6-dfea-46c2-8047-37692026c148",
+    "Time": 31,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "2a4c1938-6037-4f9a-a1f1-98d6645a1204",
+    "Time": 76,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "fda13af6-dfea-46c2-8047-37692026c148",
+    "Time": 76,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "2a4c1938-6037-4f9a-a1f1-98d6645a1204",
+    "Time": 103,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "fda13af6-dfea-46c2-8047-37692026c148",
+    "Time": 133,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "2a4c1938-6037-4f9a-a1f1-98d6645a1204",
+    "Time": 178,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "fda13af6-dfea-46c2-8047-37692026c148",
+    "Time": 178,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "2a4c1938-6037-4f9a-a1f1-98d6645a1204",
+    "Time": 205,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "fda13af6-dfea-46c2-8047-37692026c148",
+    "Time": 235,
+    "Value": "True"
+  },
+  {
+    "ApiCall": "2a4c1938-6037-4f9a-a1f1-98d6645a1204",
+    "Time": 280,
+    "Value": "false"
+  },
+  {
+    "ApiCall": "fda13af6-dfea-46c2-8047-37692026c148",
+    "Time": 280,
+    "Value": "false"
+  }
+]

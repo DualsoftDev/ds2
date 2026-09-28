@@ -1,0 +1,64 @@
+{
+  "Case": {
+    "Id": 74,
+    "Title": "\uC9E7\uAC8C \uC2DC\uC791 \uC2E0\uD638\uB97C \uBCF4\uB0B4\uACE0 \uC791\uC5C5 \uB05D\uC744 \uAE30\uB2E4\uB9AC\uAE30",
+    "Family": "device",
+    "Variant": "pulse",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "4cf979e4-f840-4261-b352-11ff6bdb9ace"
+  ],
+  "Sinks": [
+    "dcde2a5e-a4bc-4859-bd91-eed850556a39"
+  ],
+  "Rules": [
+    {
+      "Kind": "work-count",
+      "A": "a6422e82-a7e1-4338-8bbc-d901d81bbc6e",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uC2E4\uC81C \uB3D9\uC791 \uC0C8 \uC2DC\uC791"
+    },
+    {
+      "Kind": "work-count",
+      "A": "0c383963-0ed2-4c73-ae26-03cdb559de4b",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uC2E4\uC81C \uBCF5\uADC0 \uC0C8 \uC2DC\uC791"
+    },
+    {
+      "Kind": "finish-before-start",
+      "A": "a6422e82-a7e1-4338-8bbc-d901d81bbc6e",
+      "B": "0c383963-0ed2-4c73-ae26-03cdb559de4b",
+      "N": 0,
+      "Label": "\uB3D9\uC791 \uC644\uB8CC \uB4A4 \uBCF5\uADC0"
+    },
+    {
+      "Kind": "output-observed",
+      "A": "183d10d8-6979-40e1-8ab4-da6360e8fa8e",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 0,
+      "Label": "\uC694\uCCAD \uCD9C\uB825\uC758 \uCF1C\uC9D0\uACFC \uAEBC\uC9D0 \uAE30\uB85D"
+    },
+    {
+      "Kind": "output-duration",
+      "A": "183d10d8-6979-40e1-8ab4-da6360e8fa8e",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 5,
+      "Label": "\uC694\uCCAD \uCD9C\uB825 \uD3ED\uC740 5 ms, \uC2E4\uC81C \uB3D9\uC791\uC740 40 ms"
+    }
+  ],
+  "Channels": [],
+  "LogicalApis": [],
+  "Notes": [
+    "\uC8FC\uC18C\uB294 \uC2E4\uC81C PLC\uC5D0 \uC5F0\uACB0\uB418\uC9C0 \uC54A\uC740 \uBAA8\uC758 \uC785\uCD9C\uB825\uC785\uB2C8\uB2E4. Simulation\uC758 \uB300\uC0C1 \uC644\uB8CC\uC640 \uBA54\uBAA8\uB9AC \uCD9C\uB825 \uBCC0\uD654\uB97C \uAC80\uC99D\uD558\uBA70 \uC2E4\uC81C \uD68C\uB85C\uC640 Control \uC6B4\uC804\uC740 \uBCC4\uB3C4\uC785\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "ff59e42f-4fc6-4779-8a7b-ca4feb75e8cf"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

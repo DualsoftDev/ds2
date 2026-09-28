@@ -37,9 +37,16 @@ public partial class MainViewModel
             return false;
 
         sourceName = dialog.SourceDisplayName;
-        var loadResult = dialog.DetectedFormat == CsvFormat.Basic3
-            ? CsvImporter.loadBasicProjectWith(dialog.AutoAddStartClear, dialog.BasicDocument, dialog.ProjectName, dialog.SystemName)
-            : CsvImporter.loadProject(dialog.Document, dialog.ProjectName, dialog.SystemName);
+        // 7열(csvForAI)은 Active System 이름을 SYS 행에서 가져온다 — 모델이 스스로 이름을 갖는다.
+        var loadResult = dialog.DetectedFormat switch
+        {
+            CsvFormat.Basic3 =>
+                CsvImporter.loadBasicProjectWith(dialog.AutoAddStartClear, dialog.BasicDocument, dialog.ProjectName, dialog.SystemName),
+            CsvFormat.AiModel =>
+                CsvImporter.loadAiProject(dialog.AiDocument, dialog.ProjectName),
+            _ =>
+                CsvImporter.loadProject(dialog.Document, dialog.ProjectName, dialog.SystemName),
+        };
         return TryGetResult(
             loadResult,
             errors => $"CSV 불러오기 실패:\n{JoinLines(errors)}",

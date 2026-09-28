@@ -1,0 +1,902 @@
+[
+  {
+    "Id": 1,
+    "Title": "기계를 그리기 전에 제품부터 생각하기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 2,
+    "Title": "DS 그림에 나오는 이름을 쉬운 말로 읽기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 3,
+    "Title": "동시에 몇 개의 제품을 처리할 수 있을까",
+    "Family": "shared",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 4,
+    "Title": "작업 칸을 시작하고 다음 일을 준비하기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 5,
+    "Title": "장치에 부탁하기: 요청과 실제 동작",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 6,
+    "Title": "시스템끼리는 필요한 일을 서로 부탁한다",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 7,
+    "Title": "앞 일이 끝나면 다음 일을 시작하기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 8,
+    "Title": "끝난 작업 칸을 다시 사용할 준비하기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 9,
+    "Title": "두 관계를 한 선으로 간단히 그리기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 10,
+    "Title": "첫 그림을 그릴 때 물어볼 일곱 가지",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 11,
+    "Title": "여러 작업을 해도 제품은 한 개다",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 12,
+    "Title": "고정된 자리와 움직이는 받침 구분하기",
+    "Family": "transport",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 13,
+    "Title": "새 제품은 언제 받아야 할까",
+    "Family": "transport",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 14,
+    "Title": "언제 제품 한 개가 끝났다고 셀까",
+    "Family": "transport",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 15,
+    "Title": "일은 하되 제품 정보는 넘기지 않는 작업",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 16,
+    "Title": "제품 정보는 작업 칸 사이의 선을 따라간다",
+    "Family": "transport",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 17,
+    "Title": "여러 작업이 모일 때 누구의 제품표를 받을까",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 18,
+    "Title": "제품 종류는 언제 정하고 언제까지 기억할까",
+    "Family": "selection",
+    "Variant": "",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 19,
+    "Title": "제품 번호와 운반대 번호를 따로 쓰기",
+    "Family": "transport",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 20,
+    "Title": "제품 하나를 손가락으로 따라가 보기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 21,
+    "Title": "함께 시작해도 기계가 동시에 움직이지는 않는다",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 22,
+    "Title": "패널 잡기와 용접을 두 작업으로 나누기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 23,
+    "Title": "여러 집게로 한 제품을 잡을 때",
+    "Family": "jig",
+    "Variant": "two-clamps",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 24,
+    "Title": "정말 필요한 완료만 기다리기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 25,
+    "Title": "순서와 시작 조건을 나누어 그리기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 26,
+    "Title": "작업 중 검사와 작업 뒤 검사 구분하기",
+    "Family": "selection",
+    "Variant": "call",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 27,
+    "Title": "로봇 두 대가 같은 제품을 작업할 때",
+    "Family": "jig",
+    "Variant": "two-robots",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 28,
+    "Title": "준비 신호가 늦게 와도 기다릴 수 있게 하기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 150,
+    "Unit": "제품"
+  },
+  {
+    "Id": 29,
+    "Title": "서로 기다리다 멈춘 그림 고치기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 30,
+    "Title": "다른 설비에도 쓸 수 있게 기능 설명하기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 31,
+    "Title": "필요한 작업만 골라서 하기",
+    "Family": "selection",
+    "Variant": "",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 32,
+    "Title": "건너뛰는 조건은 참일 때 생략한다",
+    "Family": "selection",
+    "Variant": "",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 33,
+    "Title": "기능 전체가 다르면 작업 칸에서 고르기",
+    "Family": "selection",
+    "Variant": "",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 34,
+    "Title": "작은 차이는 작업 안의 요청에서 고르기",
+    "Family": "selection",
+    "Variant": "call",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 35,
+    "Title": "결과를 모르면 합격도 불합격도 아니다",
+    "Family": "selection",
+    "Variant": "call",
+    "Rounds": 4,
+    "Delay": 150,
+    "Unit": "제품"
+  },
+  {
+    "Id": 36,
+    "Title": "큰 작업 선택과 작은 동작 선택 함께 쓰기",
+    "Family": "selection",
+    "Variant": "mixed",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 37,
+    "Title": "같은 작업에 다른 설정값 보내기",
+    "Family": "setting",
+    "Variant": "",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 38,
+    "Title": "같은 설정이면 다시 보내지 않아도 될까",
+    "Family": "setting",
+    "Variant": "",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 39,
+    "Title": "건너뛴 작업과 실제로 한 작업을 따로 세기",
+    "Family": "selection",
+    "Variant": "",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 40,
+    "Title": "같은 결과가 반복되어도 올바르게 고르기",
+    "Family": "selection",
+    "Variant": "call",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 41,
+    "Title": "다음 자리로 제품을 넘길 때 확인할 것",
+    "Family": "transport",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 42,
+    "Title": "한 제품을 잠시 세워 두는 대기 자리",
+    "Family": "transport",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 43,
+    "Title": "모터 수와 제품 자리 수를 따로 세기",
+    "Family": "transport",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 44,
+    "Title": "승강대가 움직일 때 제품도 새로 생길까",
+    "Family": "transport",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 45,
+    "Title": "한 제품을 돌려 가며 여러 면 작업하기",
+    "Family": "repeat",
+    "Variant": "two",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 46,
+    "Title": "두 받침을 한 번에 돌리기",
+    "Family": "rotation",
+    "Variant": "",
+    "Rounds": 1,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 47,
+    "Title": "빈 받침도 움직여야 할 때",
+    "Family": "empty-carrier",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "받침 운반 회차"
+  },
+  {
+    "Id": 48,
+    "Title": "합격품과 불합격품을 다른 길로 보내기",
+    "Family": "routing",
+    "Variant": "",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 49,
+    "Title": "두 길의 제품을 한 자리로 모으기",
+    "Family": "routing",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 50,
+    "Title": "돌아온 제품과 새 제품을 구분하기",
+    "Family": "rework",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 51,
+    "Title": "한 번을 함께 쓰는 일과 따로 해야 하는 일",
+    "Family": "shared",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 52,
+    "Title": "제품 세 개가 로봇 한 대를 기다릴 때",
+    "Family": "shared",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 53,
+    "Title": "일이 끝난 때와 장치를 비워 준 때",
+    "Family": "shared",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 54,
+    "Title": "요청한 시간과 움직인 시간 나누어 보기",
+    "Family": "shared",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 55,
+    "Title": "여러 요청이 같은 정리 작업을 사용할 때",
+    "Family": "shared",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 56,
+    "Title": "처음 시작할 때 장치는 준비되어 있나",
+    "Family": "shared",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 57,
+    "Title": "누가 먼저 쓸지 규칙으로 정하기",
+    "Family": "priority",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 58,
+    "Title": "설정한 뒤 다른 제품이 바꾸지 못하게 하기",
+    "Family": "setting",
+    "Variant": "",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 59,
+    "Title": "같은 완료를 여러 곳에서 확인할 때",
+    "Family": "rotation",
+    "Variant": "",
+    "Rounds": 1,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 60,
+    "Title": "제품 받기와 장치 사용을 네 시점으로 나누기",
+    "Family": "shared",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 61,
+    "Title": "첫 제품 뒤에 두 번째 제품도 넣어 보기",
+    "Family": "repeat",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 62,
+    "Title": "같은 동작을 연달아 부탁할 때",
+    "Family": "repeat",
+    "Variant": "two",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 63,
+    "Title": "한 제품을 정해진 횟수만큼 작업하기",
+    "Family": "repeat",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 64,
+    "Title": "제품마다 작업 횟수가 달라질 때",
+    "Family": "variable",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 65,
+    "Title": "여러 동작을 한 번의 요청으로 묶기",
+    "Family": "repeat",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 66,
+    "Title": "처음부터 완료인 상태와 실제 실행 구분하기",
+    "Family": "repeat",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 67,
+    "Title": "완료 정보를 마지막으로 보는 곳 찾기",
+    "Family": "rotation",
+    "Variant": "",
+    "Rounds": 1,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 68,
+    "Title": "잠깐 기다렸다 같은 제품을 이어서 처리하기",
+    "Family": "rotation",
+    "Variant": "",
+    "Rounds": 1,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 69,
+    "Title": "기계가 돌아온 것과 다음 제품 준비 구분하기",
+    "Family": "repeat",
+    "Variant": "two",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 70,
+    "Title": "반복 시험에서 꼭 바꿔 볼 세 가지",
+    "Family": "selection",
+    "Variant": "call",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 71,
+    "Title": "장치에 무엇을 부탁하고 무엇으로 끝났다고 볼까",
+    "Family": "device",
+    "Variant": "normal",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 72,
+    "Title": "출력을 켜는 방법과 완료 확인은 따로 고르기",
+    "Family": "device",
+    "Variant": "pulse",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 73,
+    "Title": "완료되면 요청 출력을 끄는 방법",
+    "Family": "device",
+    "Variant": "normal-delay",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 74,
+    "Title": "짧게 시작 신호를 보내고 작업 끝을 기다리기",
+    "Family": "device",
+    "Variant": "pulse",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 75,
+    "Title": "잡은 힘을 유지하다 정해진 때 풀기",
+    "Family": "device",
+    "Variant": "latch",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 76,
+    "Title": "앞뒤로 움직이는 실린더 연결하기",
+    "Family": "device",
+    "Variant": "normal",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 77,
+    "Title": "출력을 끄면 돌아오는 실린더 연결하기",
+    "Family": "device",
+    "Variant": "spring",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 78,
+    "Title": "센서가 잠깐 켜진 것과 안정된 것 구분하기",
+    "Family": "device",
+    "Variant": "sensing-delay",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 79,
+    "Title": "감지 옵션은 이름만 보고 짐작하지 않기",
+    "Family": "sensing",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 80,
+    "Title": "센서 없는 요청과 동작 시간은 어떻게 정할까",
+    "Family": "logical",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 81,
+    "Title": "패널 용접 설비를 처음부터 그려 보기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 82,
+    "Title": "접착제를 바르는 작업 연결하기",
+    "Family": "setting",
+    "Variant": "",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 83,
+    "Title": "여러 위치를 차례로 체결하기",
+    "Family": "repeat",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 84,
+    "Title": "볼트를 조이고 합격 여부 확인하기",
+    "Family": "selection",
+    "Variant": "call",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 85,
+    "Title": "부품을 눌러 끼운 뒤 꺼내기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 86,
+    "Title": "새는지 검사한 뒤 공통으로 정리하기",
+    "Family": "selection",
+    "Variant": "call",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 87,
+    "Title": "사진을 찍은 때와 판정이 온 때 구분하기",
+    "Family": "selection",
+    "Variant": "call",
+    "Rounds": 4,
+    "Delay": 150,
+    "Unit": "제품"
+  },
+  {
+    "Id": 88,
+    "Title": "여러 제품을 한 번에 처리하는 묶음 작업",
+    "Family": "batch",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "운반대 배치"
+  },
+  {
+    "Id": 89,
+    "Title": "부품을 합치거나 나눌 때 번호 정하기",
+    "Family": "assembly",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "부품과 조립품"
+  },
+  {
+    "Id": 90,
+    "Title": "작은 조립라인을 다섯 가지 원리로 그리기",
+    "Family": "line",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 91,
+    "Title": "완성한 그림에서 네 가지 확인하기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 92,
+    "Title": "한 제품의 요청을 기록으로 따라가기",
+    "Family": "shared",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 93,
+    "Title": "제품 수와 기계가 일한 횟수 따로 세기",
+    "Family": "repeat",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 94,
+    "Title": "제품은 끝났는데 실제 작업은 빠졌을 수 있다",
+    "Family": "selection",
+    "Variant": "call",
+    "Rounds": 4,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 95,
+    "Title": "조건을 하나만 바꿔 비교하기",
+    "Family": "contrast",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 96,
+    "Title": "컴퓨터에서 확인한 결과를 어디까지 말할까",
+    "Family": "logical",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 97,
+    "Title": "멈춘 곳에서 무엇을 기다리는지 찾기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 98,
+    "Title": "그림을 줄여도 원래 뜻이 남아 있을까",
+    "Family": "shared",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 99,
+    "Title": "다른 사람이 읽을 수 있는 설명 붙이기",
+    "Family": "jig",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  },
+  {
+    "Id": 100,
+    "Title": "처음 보는 설비도 다섯 원리로 설명해 보기",
+    "Family": "combined",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "제품"
+  }
+]

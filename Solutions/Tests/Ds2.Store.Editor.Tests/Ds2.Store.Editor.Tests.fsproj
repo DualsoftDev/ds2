@@ -22,6 +22,7 @@
     <Compile Include="DsStore\DsStore.WorkNamingTests.fs" />
     <Compile Include="ImportPlanTests.fs" />
     <Compile Include="BasicCsvTests.fs" />
+    <Compile Include="AiCsvTests.fs" />
     <Compile Include="CsvFormatDetectorTests.fs" />
     <Compile Include="DurE2E.fs" />
     <Compile Include="StartClearCycleTests.fs" />
@@ -33,6 +34,11 @@
     <Compile Include="SimulationTimeIgnoreTests.fs" />
     <Compile Include="SimulationConnectionReloadTests.fs" />
     <Compile Include="RuntimeCommandPolicyTests.fs" />
+    <Compile Include="CallOutputScopeTests.fs" />
+    <Compile Include="ControlVirtualPlantTestHarness.fs" />
+    <Compile Include="ControlVirtualPlantInteropTests.fs" />
+    <Compile Include="ReferenceCallInteropTests.fs" />
+    <Compile Include="RuntimeSnapshotBindingTests.fs" />
     <Compile Include="SimulationCommandFacadeTests.fs" />
     <Compile Include="TagWizardBaseAddressTests.fs" />
     <Compile Include="LsPackReadTests.fs" />

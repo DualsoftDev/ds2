@@ -39,7 +39,7 @@ type RuntimeModeSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtim
         match runtimeMode with
         | RuntimeMode.VirtualPlant ->
             tagValues
-            |> Seq.filter (fun (KeyValue(address, value)) -> not (System.String.IsNullOrWhiteSpace(address)) && value = "true")
+            |> Seq.filter (fun (KeyValue(address, value)) -> not (System.String.IsNullOrWhiteSpace(address)) && not (System.String.IsNullOrWhiteSpace(value)))
             |> Seq.collect (fun (KeyValue(address, value)) -> hubSession.HandleHubTag(address, value, "snapshot"))
             |> Seq.toArray
         | RuntimeMode.Monitoring ->

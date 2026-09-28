@@ -3,10 +3,11 @@ namespace Ds2.Runtime.Engine.Passive
 open System
 open System.Collections.Generic
 open Ds2.Core
+open Ds2.Core.Store
 open Ds2.Runtime.Engine.Core
 open Ds2.Runtime.IO
 
-type RuntimeBootstrapSession(_index: SimIndex, ioMap: SignalIOMap, runtimeMode: RuntimeMode) =
+type RuntimeBootstrapSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: RuntimeMode) =
     let requiresPassiveInference =
         match runtimeMode with
         | RuntimeMode.VirtualPlant
@@ -45,12 +46,20 @@ type RuntimeBootstrapSession(_index: SimIndex, ioMap: SignalIOMap, runtimeMode: 
             workGuid, outAddresses, inAddresses)
         |> Seq.toArray
 
-    let getTagValue (tagValues: IReadOnlyDictionary<string, string>) address =
+    // Only known snapshot values participate. A missing tag must not satisfy a false spec.
+    let isMappingActive (tagValues: IReadOnlyDictionary<string, string>) isOutput (mapping: SignalMapping) =
+        let address = if isOutput then mapping.OutAddress else mapping.InAddress
         let mutable value = Unchecked.defaultof<string>
-        if not (String.IsNullOrWhiteSpace(address)) && tagValues.TryGetValue(address, &value) && not (isNull value) then
-            value
+        if String.IsNullOrWhiteSpace(address)
+           || not (tagValues.TryGetValue(address, &value))
+           || String.IsNullOrWhiteSpace(value) then
+            false
         else
-            ""
+            match Queries.getApiCall mapping.ApiCallGuid index.Store with
+            | Some apiCall ->
+                if isOutput then RuntimeSemantics.isActiveOutputValue apiCall value
+                else RuntimeSemantics.isActiveInputValue apiCall value
+            | None -> value = "true"
 
     member _.RequiresPassiveInference = requiresPassiveInference
     member _.StartsWithHomingPhase = not requiresPassiveInference
@@ -74,8 +83,18 @@ type RuntimeBootstrapSession(_index: SimIndex, ioMap: SignalIOMap, runtimeMode: 
 
             for workGuid, outAddresses, inAddresses in workIo do
                 if outAddresses.Length > 0 || inAddresses.Length > 0 then
-                    let outOn = outAddresses |> Array.exists (fun address -> getTagValue tagValues address = "true")
-                    let inOn = inAddresses |> Array.exists (fun address -> getTagValue tagValues address = "true")
+                    let outOn =
+                        outAddresses
+                        |> Array.exists (fun address ->
+                            ioMap.GetByOutAddress(address)
+                            |> List.exists (fun mapping ->
+                                mapping.TxWorkGuid = Some workGuid && isMappingActive tagValues true mapping))
+                    let inOn =
+                        inAddresses
+                        |> Array.exists (fun address ->
+                            ioMap.GetByInAddress(address)
+                            |> List.exists (fun mapping ->
+                                mapping.RxWorkGuid = Some workGuid && isMappingActive tagValues false mapping))
 
                     let inferredState =
                         match outOn, inOn with

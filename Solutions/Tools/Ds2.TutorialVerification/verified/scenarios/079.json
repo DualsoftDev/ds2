@@ -1,0 +1,58 @@
+{
+  "Case": {
+    "Id": 79,
+    "Title": "\uAC10\uC9C0 \uC635\uC158\uC740 \uC774\uB984\uB9CC \uBCF4\uACE0 \uC9D0\uC791\uD558\uC9C0 \uC54A\uAE30",
+    "Family": "sensing",
+    "Variant": "",
+    "Rounds": 3,
+    "Delay": 0,
+    "Unit": "\uC81C\uD488"
+  },
+  "Sources": [
+    "c2131d0d-41a8-460d-a9b5-7154ae422359"
+  ],
+  "Sinks": [
+    "166f86a2-6ceb-46a5-bad3-8d93451cb6ea"
+  ],
+  "Rules": [
+    {
+      "Kind": "work-count",
+      "A": "24acb050-e34e-4a5b-ba31-4a1b50e1ee6a",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uC2E4\uC81C \uB3D9\uC791 \uC0C8 \uC2DC\uC791"
+    },
+    {
+      "Kind": "work-count",
+      "A": "38a15a24-d9f9-451a-92c1-ccfee51b7af3",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 3,
+      "Label": "\uC81C\uD488\uB9C8\uB2E4 \uC2E4\uC81C \uBCF5\uADC0 \uC0C8 \uC2DC\uC791"
+    },
+    {
+      "Kind": "finish-before-start",
+      "A": "24acb050-e34e-4a5b-ba31-4a1b50e1ee6a",
+      "B": "38a15a24-d9f9-451a-92c1-ccfee51b7af3",
+      "N": 0,
+      "Label": "\uB3D9\uC791 \uC644\uB8CC \uB4A4 \uBCF5\uADC0"
+    },
+    {
+      "Kind": "output-observed",
+      "A": "9d57421d-92eb-4a52-8787-3f2b7ada2dca",
+      "B": "00000000-0000-0000-0000-000000000000",
+      "N": 0,
+      "Label": "\uC694\uCCAD \uCD9C\uB825\uC758 \uCF1C\uC9D0\uACFC \uAEBC\uC9D0 \uAE30\uB85D"
+    }
+  ],
+  "Channels": [],
+  "LogicalApis": [],
+  "Notes": [
+    "\uC8FC\uC18C\uB294 \uC2E4\uC81C PLC\uC5D0 \uC5F0\uACB0\uB418\uC9C0 \uC54A\uC740 \uBAA8\uC758 \uC785\uCD9C\uB825\uC785\uB2C8\uB2E4. Simulation\uC758 \uB300\uC0C1 \uC644\uB8CC\uC640 \uBA54\uBAA8\uB9AC \uCD9C\uB825 \uBCC0\uD654\uB97C \uAC80\uC99D\uD558\uBA70 \uC2E4\uC81C \uD68C\uB85C\uC640 Control \uC6B4\uC804\uC740 \uBCC4\uB3C4\uC785\uB2C8\uB2E4.",
+    "\uC774 \uD30C\uC77C\uC740 Latch \uAC10\uC9C0\uC758 \uB300\uC0C1 \uC644\uB8CC \uC785\uB825\uC744 \uAC80\uC99D\uD569\uB2C8\uB2E4. Virtual \uAC10\uC9C0\uC640 \uC2E4\uC81C Control \uC785\uB825 \uBCC0\uD654\uB294 \uBCC4\uB3C4 \uBE44\uAD50 \uC2DC\uD5D8 \uACB0\uACFC\uB97C \uD568\uAED8 \uD655\uC778\uD569\uB2C8\uB2E4."
+  ],
+  "ProductFlows": [
+    "31870ae9-1f2b-4e80-9d11-28090593095c"
+  ],
+  "EndWithTokens": false,
+  "SupplyRequirements": []
+}

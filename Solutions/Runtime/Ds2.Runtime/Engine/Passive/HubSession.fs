@@ -1,6 +1,7 @@
 namespace Ds2.Runtime.Engine.Passive
 
 open System
+open System.Collections.Generic
 open Ds2.Core
 open Ds2.Core.Store
 open Ds2.Runtime.Engine.Core
@@ -53,55 +54,56 @@ type RuntimeHubSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtime
                 RuntimeSessionEffects.addLog effects 0 RuntimeHubLogSeverity.Warn (sprintf "[Ctrl] %s=%s [unmapped]" address value)
 
         | RuntimeMode.VirtualPlant ->
-            match ioMap.GetByOutAddress(address) |> List.tryHead with
-            | Some mapping ->
-                match mapping.TxWorkGuid with
-                | Some txWorkGuid ->
-                    // spec 기반 active 판정 — 이전엔 `value = "true"` 하드코딩.
-                    // Promaker(Control) 가 OutputSpec=Int8(Single 5) 로 "5" 송출하면 여기서 통과해야 echo 발생.
-                    if isOutputActive mapping value then
-                        // device going trigger — Ready 일 때만(engine 이 device cycle owner. Finish/Homing 중 force 금지 → 경합 차단).
-                        RuntimeSessionEffects.addForceWorkStateIfReady effects 0 txWorkGuid Status4.Going
+            // The wire carries an address/value, not the requesting Call ID. Match every
+            // physical binding for this signal; declaration order must not select the command.
+            let active, inactive =
+                ioMap.GetByOutAddress(address)
+                |> List.distinctBy (fun mapping -> mapping.ApiCallGuid)
+                |> List.filter (fun mapping -> mapping.TxWorkGuid.IsSome)
+                |> List.partition (fun mapping -> isOutputActive mapping value)
 
-                        match index.WorkResetPreds |> Map.tryFind txWorkGuid with
-                        | Some resetPreds ->
-                            for predGuid in resetPreds |> Seq.distinct do
-                                match ioMap.RxWorkToInAddresses |> Map.tryFind predGuid with
-                                | Some resetInAddresses ->
-                                    for resetInAddr in resetInAddresses do
-                                        // 주소별 InputSpec 의 reset value (Bool="false" / Int="0" / String="").
-                                        let resetVal = resetInValueForAddress resetInAddr
-                                        RuntimeSessionEffects.addLog effects 0 RuntimeHubLogSeverity.Homing (sprintf "[VP] Reset input: %s=%s" resetInAddr resetVal)
-                                        RuntimeSessionEffects.addWriteTag effects 0 resetInAddr resetVal
-                                | None -> ()
+            let activeInputs = active |> List.map (fun mapping -> mapping.InAddress) |> Set.ofList
+            let writes = HashSet<int * string * string>()
+            let writeOnce delay input inputValue severity message =
+                if not (String.IsNullOrEmpty input) && writes.Add((delay, input, inputValue)) then
+                    RuntimeSessionEffects.addWriteTag effects delay input inputValue
+                    RuntimeSessionEffects.addLog effects delay severity message
+
+            for mapping in inactive do
+                // A shared sensor address that is active in this event must not also be reset.
+                if not (activeInputs.Contains mapping.InAddress) then
+                    let resetIn = resetInValueFor mapping
+                    writeOnce 0 mapping.InAddress resetIn RuntimeHubLogSeverity.Ready (sprintf "[VP] In OFF: %s=%s" mapping.InAddress resetIn)
+
+            for txWorkGuid, mappings in active |> List.groupBy (fun mapping -> mapping.TxWorkGuid.Value) do
+                // One device start per received signal, guarded by the engine's Ready state.
+                RuntimeSessionEffects.addForceWorkStateIfReady effects 0 txWorkGuid Status4.Going
+
+                match index.WorkResetPreds |> Map.tryFind txWorkGuid with
+                | Some resetPreds ->
+                    for predGuid in resetPreds |> Seq.distinct do
+                        match ioMap.RxWorkToInAddresses |> Map.tryFind predGuid with
+                        | Some resetInAddresses ->
+                            for resetInAddr in resetInAddresses do
+                                let resetValue = resetInValueForAddress resetInAddr
+                                writeOnce 0 resetInAddr resetValue RuntimeHubLogSeverity.Homing (sprintf "[VP] Reset input: %s=%s" resetInAddr resetValue)
                         | None -> ()
-
-                        RuntimeSessionEffects.addLog effects 0 RuntimeHubLogSeverity.Going (sprintf "[VP] Out ON: %s -> Device Going" address)
-
-                        if not (String.IsNullOrEmpty(mapping.InAddress)) then
-                            let duration =
-                                index.WorkDuration
-                                |> Map.tryFind txWorkGuid
-                                |> Option.map int
-                                // Min/Max(또는 Duration) 미설정 device 는 WorkDuration 항목이 0 으로 들어온다
-                                // (Build 가 모든 Work 에 항목을 넣으므로 tryFind 는 Some 0 → defaultValue 가 안 탐).
-                                // 0ms echo 면 OUT 펄스가 0너비가 돼 100ms PLC scan·Gantt 가 O 를 놓친다 →
-                                // 0 은 "미설정" 과 동일하게 취급해 500ms floor 로 보정.
-                                |> Option.filter (fun d -> d > 0)
-                                |> Option.defaultValue 500
-
-                            // InAddress echo 값 — InputSpec 의 active 대표값 (Bool="true" / Int8(Single 5)="5").
-                            let activeIn = activeInValueFor mapping
-                            // device Finish 는 engine plan-duration 이 owner — VP 는 actual In 만 echo(합성). device 상태 force 안 함.
-                            RuntimeSessionEffects.addWriteTag effects duration mapping.InAddress activeIn
-                            RuntimeSessionEffects.addLog effects duration RuntimeHubLogSeverity.Finish (sprintf "[VP] In ON: %s=%s (after %dms)" mapping.InAddress activeIn duration)
-                    else if not (String.IsNullOrEmpty(mapping.InAddress)) then
-                        // Output 이 inactive 로 떨어졌을 때 — InAddress 도 reset value 로.
-                        let resetIn = resetInValueFor mapping
-                        RuntimeSessionEffects.addWriteTag effects 0 mapping.InAddress resetIn
-                        RuntimeSessionEffects.addLog effects 0 RuntimeHubLogSeverity.Ready (sprintf "[VP] In OFF: %s=%s" mapping.InAddress resetIn)
                 | None -> ()
-            | None -> ()
+
+                RuntimeSessionEffects.addLog effects 0 RuntimeHubLogSeverity.Going (sprintf "[VP] Out ON: %s -> Device Going" address)
+
+                // Preserve the existing 500ms fallback for an unspecified/zero duration.
+                let duration =
+                    index.WorkDuration
+                    |> Map.tryFind txWorkGuid
+                    |> Option.map int
+                    |> Option.filter (fun d -> d > 0)
+                    |> Option.defaultValue 500
+
+                for mapping in mappings do
+                    // Finish remains owned by the engine. IN is delivered through hub replay.
+                    let activeIn = activeInValueFor mapping
+                    writeOnce duration mapping.InAddress activeIn RuntimeHubLogSeverity.Finish (sprintf "[VP] In ON: %s=%s (after %dms)" mapping.InAddress activeIn duration)
 
             let inMappings = ioMap.GetByInAddress(address)
             if not (List.isEmpty inMappings) then
@@ -115,14 +117,12 @@ type RuntimeHubSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtime
             //   Out On → device Work Going (plan 시작; 상호리셋은 engine triggerImmediateResets 가 담당, isPassive device 해제)
             //   In active → device Work Finish (실제 actual 도달; Going 일 때만 atomic Force)
             // passive inference(addPassiveObserve)는 active Work/Call 추론을 계속 담당.
-            match ioMap.GetByOutAddress(address) |> List.tryHead with
-            | Some outMapping ->
-                match outMapping.TxWorkGuid with
-                | Some txWorkGuid when isOutputActive outMapping value ->
-                    // device going trigger — Ready 일 때만(engine 이 device cycle owner. Finish/Homing 중 force 금지).
-                    RuntimeSessionEffects.addForceWorkStateIfReady effects 0 txWorkGuid Status4.Going
-                | _ -> ()
-            | None -> ()
+            ioMap.GetByOutAddress(address)
+            |> List.filter (fun mapping -> isOutputActive mapping value)
+            |> List.choose (fun mapping -> mapping.TxWorkGuid)
+            |> List.distinct
+            |> List.iter (fun txWorkGuid ->
+                RuntimeSessionEffects.addForceWorkStateIfReady effects 0 txWorkGuid Status4.Going)
 
             let inMappings = ioMap.GetByInAddress(address)
             if not (List.isEmpty inMappings) then

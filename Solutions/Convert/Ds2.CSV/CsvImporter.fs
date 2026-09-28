@@ -171,5 +171,64 @@ module CsvImporter =
                 ensureTokenSpecsForSources store
                 store)
 
+    /// csvForAI LLM 생성 지침. 어셈블리에 임베드된 docs/CSV_FOR_AI_GUIDE.md 를 그대로 돌려준다.
+    ///
+    /// 코드 상수로 복제하지 않는다 — 지침·문서·RAG 사본이 갈라지면 어느 것이 진짜인지 알 수 없게 되고,
+    /// 실제로 기존 3열 지침 상수와 SSOT 문서가 이미 어긋나 있다(§13 «v1 비지원» 목록).
+    let aiLlmGuide () : string =
+        let asm = Reflection.Assembly.GetExecutingAssembly()
+        let name =
+            asm.GetManifestResourceNames()
+            |> Array.tryFind (fun n -> n.EndsWith("CSV_FOR_AI_GUIDE.md", StringComparison.OrdinalIgnoreCase))
+        match name with
+        | None -> "(지침 문서를 찾을 수 없습니다 — docs/CSV_FOR_AI_GUIDE.md 가 임베드되지 않았습니다.)"
+        | Some n ->
+            use stream = asm.GetManifestResourceStream n
+            use reader = new IO.StreamReader(stream, Text.Encoding.UTF8)
+            reader.ReadToEnd()
+
+    // ---------- ds2-csv-for-ai/v1 (7열) ----------
+
+    let parseAiContent (content: string) : Result<AiCsvDocument, string list> =
+        AiCsvParser.parse content
+        |> Result.mapError (List.map (fun (e: ParseError) ->
+            if e.LineNumber > 0 then $"{e.LineNumber}행: {e.Message}" else e.Message))
+
+    let parseAiFile (path: string) : Result<AiCsvDocument, string list> =
+        try parseAiContent (IO.File.ReadAllText(path, Text.Encoding.UTF8))
+        with ex -> Error [ $"파일을 읽을 수 없습니다: {ex.Message}" ]
+
+    let previewAi (document: AiCsvDocument) = AiCsvParser.preview document
+
+    /// store 를 변경하지 않는다(plan 생성 계약).
+    let buildAiSystemImportPlan (store: DsStore) (document: AiCsvDocument) (systemId: Guid) : Result<ImportPlan, string list> =
+        match Queries.getSystem systemId store with
+        | None -> Error [ $"System {systemId} 을 찾을 수 없습니다." ]
+        | Some _ ->
+            match store.Projects.Values |> Seq.tryHead with
+            | None -> Error [ "Project 가 없습니다." ]
+            | Some project -> Ok (AiCsvMapper.mapToSystemPlan store project.Id systemId document)
+
+    /// Active System 이름은 **SYS Active 행에서** 가져온다 — 모델이 스스로 이름을 갖는다.
+    let loadAiProject (document: AiCsvDocument) (projectName: string) : Result<DsStore, string list> =
+        let activeName =
+            document.Systems |> List.tryFind (fun s -> s.IsActive) |> Option.map (fun s -> s.Name)
+        match activeName with
+        | None -> Error [ "AI060: Active System 행이 없습니다." ]
+        | Some systemName ->
+            match validateName "Project" projectName, validateName "System" systemName with
+            | Error errors, _
+            | _, Error errors -> Error errors
+            | Ok projectName, Ok systemName ->
+                let store, systemId = buildStore projectName systemName
+                buildAiSystemImportPlan store document systemId
+                |> Result.map (fun plan ->
+                    ImportPlan.applyDirect store plan
+                    // ApiDef 특성·IO 태그·조건·초기 Finish 는 엔티티가 생긴 뒤라야 붙일 수 있다.
+                    AiCsvMapper.applyPostImport store document |> ignore
+                    // 기존 규칙 재사용 — Source 마다 TokenSpec 을 붙여 «TokenSpec 미설정» 경고를 없앤다.
+                    ensureTokenSpecsForSources store
+                    store)
+
     let loadBasicProject (document: BasicCsvDocument) (projectName: string) (systemName: string) : Result<DsStore, string list> =
         loadBasicProjectWith false document projectName systemName

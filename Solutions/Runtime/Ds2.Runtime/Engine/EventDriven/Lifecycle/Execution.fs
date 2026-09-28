@@ -10,9 +10,9 @@ type ApiCallExecutionContext = {
     GetDeviceState: Guid -> Status4
     GetDeviceName: Guid -> string
     GetTxOutAddresses: Guid -> string list
-    /// v10 §11 — Work GUID → 해당 Work 가 가리키는 (ApiDef, ApiCall) 쌍 목록.
-    /// 각 쌍에 대해 RuntimeSemantics.emitOutput dispatch.
-    GetApiCallsForWork: Guid -> (ApiDef * ApiCall) list
+    /// 요청 Call의 유효 ApiCall 참조 목록. Reference Call은 원본의 참조를 사용한다.
+    /// 같은 Tx Work를 가리키는 다른 Call의 별도 ApiCall은 포함하지 않는다.
+    GetApiCallsForCall: Guid -> (ApiDef * ApiCall) list
     WriteTag: string -> string -> unit
     /// v10 §11 — TimePolicy.Append / EdgePulse 의 시간 지연 적용용 Scheduler 위임.
     /// (delayMs, action) → delayMs 후 action 실행.
@@ -114,7 +114,10 @@ module EventDrivenExecution =
             | Some RuntimeSemantics.NoOp ->
                 ()
 
-    let executeApiCall (ctx: ApiCallExecutionContext) deviceWorkGuid =
+    let private executeApiCallsForWork
+        (ctx: ApiCallExecutionContext)
+        deviceWorkGuid
+        (apiCalls: (ApiDef * ApiCall) list) =
         let curSt = ctx.GetDeviceState deviceWorkGuid
         let wname = ctx.GetDeviceName deviceWorkGuid
 
@@ -126,7 +129,7 @@ module EventDrivenExecution =
             | RuntimeMode.Control ->
                 // v10 §11 + §7 — 각 ApiCall 의 ActionType 따라 다른 effect 적용.
                 // §7 Latch Mutex: 새 ApiCall 진입 시 같은 Device 의 기존 Latched 출력 자동 reset.
-                for (apiDef, apiCall) in ctx.GetApiCallsForWork deviceWorkGuid do
+                for (apiDef, apiCall) in apiCalls do
                     let deviceId = apiDef.ParentId  // ApiDef.ParentId = DsSystem.Id (Device)
                     ctx.ResetPriorLatchesOnDevice (deviceId, apiCall.Id)
                     applyOutputEffect ctx apiDef apiCall
@@ -141,13 +144,24 @@ module EventDrivenExecution =
             | _ ->
                 ()
 
-    let executeCallGoing index (ctx: ApiCallExecutionContext) callGuid =
-        SimIndex.txWorkGuids index callGuid |> List.iter (executeApiCall ctx)
+    let private executeCallRequest (ctx: ApiCallExecutionContext) callGuid acceptsTarget =
+        ctx.GetApiCallsForCall callGuid
+        // 중복 제거는 요청 안의 ApiCall ID 기준이다. 같은 Tx의 서로 다른 출력은 유지한다.
+        |> List.distinctBy (fun (_, apiCall) -> apiCall.Id)
+        |> List.choose (fun (apiDef, apiCall) ->
+            apiDef.TxGuid
+            |> Option.filter acceptsTarget
+            |> Option.map (fun txGuid -> txGuid, (apiDef, apiCall)))
+        // 출력은 ApiCall마다, Work 시작은 Tx마다 한 번 적용한다.
+        |> List.groupBy fst
+        |> List.iter (fun (txGuid, bindings) ->
+            executeApiCallsForWork ctx txGuid (bindings |> List.map snd))
 
-    let executeCallHoming index (ctx: ApiCallExecutionContext) (callGuid: Guid) (goingTargets: Set<Guid>) =
-        for txGuid in SimIndex.txWorkGuids index callGuid do
-            if goingTargets.Contains txGuid then
-                executeApiCall ctx txGuid
+    let executeCallGoing (ctx: ApiCallExecutionContext) callGuid =
+        executeCallRequest ctx callGuid (fun _ -> true)
+
+    let executeCallHoming (ctx: ApiCallExecutionContext) (callGuid: Guid) (goingTargets: Set<Guid>) =
+        executeCallRequest ctx callGuid goingTargets.Contains
 
     let private resetOutTagsForCall (ctx: CallTransitionApplyContext) callGuid =
         if ctx.RuntimeMode = RuntimeMode.Control || ctx.RuntimeMode = RuntimeMode.Simulation then

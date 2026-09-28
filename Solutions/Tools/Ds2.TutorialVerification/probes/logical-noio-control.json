@@ -1,0 +1,166 @@
+{
+  "BaseCase": 80,
+  "Call": "\uBC18\uBCF5\uAE30\uB2A5.\uB2E4\uC74C\uC900\uBE44",
+  "CallFinishes": [],
+  "CallStarts": [
+    0
+  ],
+  "EndState": "Some(Going)",
+  "Events": [
+    {
+      "Seq": 1,
+      "Time": 0,
+      "Kind": "work",
+      "Node": "f0acfde2-fec3-46d1-81a8-ca4de6e0a8ac",
+      "Name": "\uC804\uCCB4\uB3D9\uC791.\uBAA8\uB4E0\uC704\uCE58\uC791\uC5C5",
+      "State": "Finish",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 2,
+      "Time": 0,
+      "Kind": "work",
+      "Node": "095a19ba-5fa8-42a1-99aa-5f2912bd1c4b",
+      "Name": "\uC81C\uD488\uD55C\uAC1C.\uC804\uCCB4\uC791\uC5C5",
+      "State": "Going",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 3,
+      "Time": 0,
+      "Kind": "call",
+      "Node": "84d77a3a-2b2a-4185-a501-34e0e7f48ddb",
+      "Name": "\uBC18\uBCF5\uAE30\uB2A5.\uB2E4\uC74C\uC900\uBE44",
+      "State": "Going",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 4,
+      "Time": 0,
+      "Kind": "work",
+      "Node": "16651fc9-c9df-42ce-ab8b-f0adf04c1368",
+      "Name": "\uC804\uCCB4\uB3D9\uC791.\uB2E4\uC74C\uC900\uBE44",
+      "State": "Going",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 5,
+      "Time": 0,
+      "Kind": "work",
+      "Node": "f0acfde2-fec3-46d1-81a8-ca4de6e0a8ac",
+      "Name": "\uC804\uCCB4\uB3D9\uC791.\uBAA8\uB4E0\uC704\uCE58\uC791\uC5C5",
+      "State": "Homing",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 6,
+      "Time": 0,
+      "Kind": "call",
+      "Node": "e26cf486-bfb5-40bc-bcc7-f3a219018586",
+      "Name": "\uC791\uC5C5\uC7A5\uCE58.\uC704\uCE581",
+      "State": "Homing",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 7,
+      "Time": 0,
+      "Kind": "call",
+      "Node": "fff76e79-39bc-41c1-b108-1dd0ebf1e55a",
+      "Name": "\uC791\uC5C5\uC7A5\uCE58.\uC704\uCE582",
+      "State": "Homing",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 8,
+      "Time": 0,
+      "Kind": "call",
+      "Node": "ad94718e-8a29-4cfd-9e24-c08dd7bb804e",
+      "Name": "\uC791\uC5C5\uC7A5\uCE58.\uC704\uCE583",
+      "State": "Homing",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 9,
+      "Time": 1,
+      "Kind": "work",
+      "Node": "16651fc9-c9df-42ce-ab8b-f0adf04c1368",
+      "Name": "\uC804\uCCB4\uB3D9\uC791.\uB2E4\uC74C\uC900\uBE44",
+      "State": "Finish",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 10,
+      "Time": 1,
+      "Kind": "work",
+      "Node": "f0acfde2-fec3-46d1-81a8-ca4de6e0a8ac",
+      "Name": "\uC804\uCCB4\uB3D9\uC791.\uBAA8\uB4E0\uC704\uCE58\uC791\uC5C5",
+      "State": "Ready",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 11,
+      "Time": 1,
+      "Kind": "call",
+      "Node": "e26cf486-bfb5-40bc-bcc7-f3a219018586",
+      "Name": "\uC791\uC5C5\uC7A5\uCE58.\uC704\uCE581",
+      "State": "Ready",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 12,
+      "Time": 1,
+      "Kind": "call",
+      "Node": "fff76e79-39bc-41c1-b108-1dd0ebf1e55a",
+      "Name": "\uC791\uC5C5\uC7A5\uCE58.\uC704\uCE582",
+      "State": "Ready",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "Seq": 13,
+      "Time": 1,
+      "Kind": "call",
+      "Node": "ad94718e-8a29-4cfd-9e24-c08dd7bb804e",
+      "Name": "\uC791\uC5C5\uC7A5\uCE58.\uC704\uCE583",
+      "State": "Ready",
+      "Product": "",
+      "Skipped": false,
+      "Target": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "Inputs": [],
+  "Mode": "Control",
+  "Name": "logical-noio-control",
+  "Policy": "Original",
+  "Target": "\uC804\uCCB4\uB3D9\uC791.\uB2E4\uC74C\uC900\uBE44",
+  "TargetFinishes": [
+    1
+  ],
+  "TargetStarts": [
+    0
+  ],
+  "WindowMs": 200
+}
