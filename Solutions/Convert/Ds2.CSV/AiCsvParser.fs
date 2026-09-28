@@ -140,16 +140,29 @@ module AiCsvParser =
             let v = trim (buf.ToString())
             if v <> "" then tokens.Add v
             buf.Clear() |> ignore
+        // `A(R)` · `A(F)` 의 괄호는 **leaf 의 일부**다. 묶음 괄호와 같게 다루면
+        // `기동버튼.PB(R)` 이 네 토큰으로 쪼개져 조건식이 깨진다.
+        let isEdgeSuffix (i: int) =
+            i + 2 < s.Length
+            && (s.[i + 1] = 'R' || s.[i + 1] = 'r' || s.[i + 1] = 'F' || s.[i + 1] = 'f')
+            && s.[i + 2] = ')'
         let mutable inQuote = false
-        for ch in s do
+        let mutable i = 0
+        while i < s.Length do
+            let ch = s.[i]
             if inQuote then
                 buf.Append ch |> ignore
                 if ch = '"' then inQuote <- false
             else
                 match ch with
                 | '"' -> inQuote <- true; buf.Append ch |> ignore
+                // 앞에 읽던 leaf 가 있고 뒤가 R)/F) 면 접미사다 — 통째로 붙인다.
+                | '(' when buf.Length > 0 && isEdgeSuffix i ->
+                    buf.Append(s.Substring(i, 3)) |> ignore
+                    i <- i + 2
                 | '(' | ')' | '&' | '|' | '!' -> flush (); tokens.Add (string ch)
                 | _ -> buf.Append ch |> ignore
+            i <- i + 1
         flush ()
         List.ofSeq tokens
 
@@ -420,8 +433,10 @@ module AiCsvParser =
                                         bind (parseTime timeRaw) (fun dur ->
                                             bind (parseTag inTagRaw) (fun inTag ->
                                                 bind (parseTag outTagRaw) (fun outTag ->
+                                                    let unknownTag (raw: string) = raw.Trim() = "?"
                                                     apis.Add { Device = dev; Api = api; Action = action; Sensing = sensing
                                                                Duration = dur; IsSensor = isSensor
+                                                               TagsUnknown = unknownTag inTagRaw || unknownTag outTagRaw
                                                                InTag = inTag; OutTag = outTag
                                                                LineNumber = lineNumber })))))
                     | _ -> err lineNumber $"AI011: API 의 Name 은 '디바이스.액션' 이어야 합니다(현재 '{name}')."
@@ -484,6 +499,23 @@ module AiCsvParser =
                     if not (apiKeys.Contains key) then
                         err w.LineNumber $"AI065: Call '{key}' 에 해당하는 API 행이 없습니다."
 
+            // 역방향 — API 행을 적었는데 어느 Call 도 부르지 않으면 ApiDef 가 만들어지지 않는다.
+            // 디바이스 캐스케이드는 «Call 이 있는 API» 만 만들기 때문이다. 오류로 막지는 않는다
+            // (의도적으로 미리 적어 둘 수 있다) — 다만 조용히 사라지면 IO 배선을 적어 놓고도
+            // 모델에 없는 상태가 되므로 반드시 알린다.
+            let usedApiKeys =
+                works |> Seq.collect (fun w -> w.Nodes |> Seq.map (fun (key, _, _) -> key)) |> HashSet
+            for a in apis do
+                let key = $"{a.Device}.{a.Api}"
+                if not (usedApiKeys.Contains key) then
+                    warnings.Add $"AI-W9: API '{key}' 를 어느 WORK 도 호출하지 않습니다 — ApiDef 가 만들어지지 않습니다."
+                // v1 에서 `sensor` 는 읽히기만 하고 모델을 바꾸지 않는다. 단일 API 디바이스의
+                // DONE 더미는 센서에도 필요하다 — 반복 감지하려면 재무장할 상대가 있어야 하고,
+                // ApiDef 의 Tx/Rx 를 갈라 «감지 송신 ~ 완료 수신» 을 만든다.
+                // 적어 두면 효과가 있다고 믿게 되므로 사실대로 알린다.
+                if a.IsSensor then
+                    warnings.Add $"AI-W10: '{key}' 의 sensor 표기는 v1 에서 모델을 바꾸지 않습니다(문서용)."
+
             // 중복
             let dupWork = works |> Seq.countBy (fun w -> $"{w.FlowName}.{w.WorkName}") |> Seq.filter (snd >> (<) 1)
             for (k, n) in dupWork do err 0 $"AI066: WORK '{k}' 가 {n}번 중복 정의되었습니다."
@@ -497,8 +529,73 @@ module AiCsvParser =
             if unspecified > 0 then
                 warnings.Add $"AI-W2: Time 미기입 {unspecified}건 — 기본값 500ms 가 적용됩니다."
             for a in apis do
-                if a.Action <> ActionType.Virtual && a.OutTag.IsNone && not a.IsSensor then
+                // `?` 로 «모른다» 고 적은 것은 빠뜨린 것이 아니다 — 아래에서 따로 센다.
+                if a.Action <> ActionType.Virtual && a.OutTag.IsNone && not a.IsSensor && not a.TagsUnknown then
                     warnings.Add $"AI-W3: '{a.Device}.{a.Api}' 는 Action 이 Virtual 이 아닌데 OutTag 가 없습니다."
+            let unknownTags = apis |> Seq.filter (fun a -> a.TagsUnknown) |> Seq.length
+            if unknownTags > 0 then
+                warnings.Add $"AI-W11: IO 미상 {unknownTags}건 — `?` 로 표시했습니다. 배선 전에 채워야 합니다."
+
+            // AI-W12 — 같은 디바이스를 Flow 마다 다르게 다루는 비대칭.
+            //
+            // 차종 A 는 로봇을 원위치시키고 차종 B 는 그냥 두는 모델이 실제로 만들어졌다.
+            // 경고도 오류도 나지 않지만 «A 는 돌아오고 B 는 안 돌아오는» 설비가 된다.
+            // 기준: 어떤 API 를 여러 Flow 가 부르는데, 같은 디바이스의 다른 API 는
+            // 그중 일부만 부르면 비대칭이다. (Flow 하나만 쓰는 API 는 전용 동작이므로 뺀다.)
+            // AI-W14 — 출력 자리에 입력 영역 주소를 적었다.
+            //
+            // `%I…` 는 PLC 가 «읽는» 비트다. 거기에 코일을 걸 수 없다.
+            // 영역 문자(I/Q/M)가 주소의 뜻을 정한다 — 숫자만 맞다고 되는 것이 아니다.
+            for a in apis do
+                match a.OutTag with
+                | Some t when t.Address.TrimStart().StartsWith("%I") ->
+                    warnings.Add $"AI-W14: '{a.Device}.{a.Api}' 의 OutTag 가 입력 영역입니다({t.Address}) — 출력은 %%Q 여야 합니다."
+                | _ -> ()
+
+            // AI-W13 — 같은 IO 주소를 두 API 가 쓴다.
+            //
+            // 입력 비트 하나가 여러 센서일 수는 없고, 출력 하나가 여러 장치를 따로 움직일 수도 없다.
+            // 실제로 지그 API 16개가 주소 2개를 공유하는 모델이 만들어졌다 — 복사해 붙이면 이렇게 된다.
+            // 문법도 연결도 멀쩡해서 그래프 검증까지 조용히 통과한다.
+            let addressUsers =
+                apis
+                |> Seq.collect (fun a ->
+                    [ a.InTag; a.OutTag ]
+                    |> List.choose id
+                    |> List.map (fun t -> t.Address.Trim(), $"{a.Device}.{a.Api}"))
+                |> Seq.filter (fun (addr, _) -> addr <> "")
+                |> Seq.groupBy fst
+                |> Seq.map (fun (addr, xs) -> addr, xs |> Seq.map snd |> Seq.distinct |> Seq.toList)
+                |> Seq.filter (fun (_, users) -> List.length users > 1)
+            for addr, users in addressUsers do
+                let names = String.concat ", " users
+                warnings.Add $"AI-W13: 주소 '{addr}' 를 {List.length users}개 API 가 함께 씁니다 — {names}"
+
+            let flowsByNode =
+                works
+                |> Seq.collect (fun w -> w.Nodes |> Seq.map (fun (key, _, _) -> key, w.FlowName))
+                |> Seq.groupBy fst
+                |> Seq.map (fun (key, xs) -> key, xs |> Seq.map snd |> Set.ofSeq)
+                |> Map.ofSeq
+            let nodesByDevice =
+                works
+                |> Seq.collect (fun w -> w.Nodes |> Seq.map (fun (key, dev, _) -> dev, key))
+                |> Seq.groupBy fst
+                |> Seq.map (fun (dev, xs) -> dev, xs |> Seq.map snd |> Set.ofSeq)
+            for dev, nodeKeys in nodesByDevice do
+                let shared =
+                    nodeKeys
+                    |> Seq.choose (fun k -> flowsByNode |> Map.tryFind k |> Option.map (fun f -> k, f))
+                    |> Seq.filter (fun (_, flows) -> flows.Count > 1)
+                    |> Seq.toList
+                for sharedKey, sharedFlows in shared do
+                    for otherKey in nodeKeys do
+                        if otherKey <> sharedKey then
+                            let otherFlows = flowsByNode |> Map.tryFind otherKey |> Option.defaultValue Set.empty
+                            let missing = Set.difference sharedFlows otherFlows
+                            if not missing.IsEmpty && not (Set.isEmpty otherFlows) then
+                                let names = missing |> Set.toList |> String.concat ", "
+                                warnings.Add $"AI-W12: '{dev}' 를 Flow 마다 다르게 다룹니다 — '{sharedKey}' 는 부르면서 '{otherKey}' 를 {names} 에서 부르지 않습니다."
 
         if errors.Count > 0 then Error (List.ofSeq errors)
         else

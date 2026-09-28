@@ -196,11 +196,30 @@ module internal AiCsvMapper =
                     match findApiRow document $"{deviceName}.{apiDef.Name}" with
                     | None -> ()
                     | Some row ->
+                        // 기대값(`=1200`)은 ApiCall 의 Input/OutputSpec 으로 간다.
+                        //
+                        // 엔진이 실제로 쓴다 — OutputSpec 은 «내보낼 값» 을 만들고(RuntimeSemantics)
+                        // InputSpec 은 «받은 값이 활성인가» 를 판정한다. 태그 자료형이 있으면
+                        // 그 형으로 읽고, 없으면 BOOL 기준으로 읽는다.
+                        let specOf (s: AiTagSpec) =
+                            match s.Expected with
+                            | None -> None
+                            | Some raw ->
+                                let basis =
+                                    match s.DataType with
+                                    | Some dt when not (dt.ToUpperInvariant().StartsWith "BOOL") ->
+                                        ValueSpec.Int64Value(Single 0L)
+                                    | _ -> ValueSpec.BoolValue(Single true)
+                                ValueSpecText.tryParseAs basis raw
                         match row.InTag with
-                        | Some s -> apiCall.InTag <- Some (buildTag s $"{row.Device}_{row.Api}_IN")
+                        | Some s ->
+                            apiCall.InTag <- Some (buildTag s $"{row.Device}_{row.Api}_IN")
+                            match specOf s with Some v -> apiCall.InputSpec <- v | None -> ()
                         | None -> ()
                         match row.OutTag with
-                        | Some s -> apiCall.OutTag <- Some (buildTag s $"{row.Device}_{row.Api}_OUT")
+                        | Some s ->
+                            apiCall.OutTag <- Some (buildTag s $"{row.Device}_{row.Api}_OUT")
+                            match specOf s with Some v -> apiCall.OutputSpec <- v | None -> ()
                         | None -> ()
 
         // ---------- 초기 Finish ----------
