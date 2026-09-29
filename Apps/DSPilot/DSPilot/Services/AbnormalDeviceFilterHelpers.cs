@@ -198,6 +198,12 @@ public static class AbnormalDeviceFilterHelpers
         /// <summary>엔드포인트를 끝내 못 채운 매핑 수 — 그 System 이 모델에서 사라진 것이다(커버리지 경고).</summary>
         public int DeadBindingCount { get; internal set; }
 
+        /// <summary>
+        /// 엔드포인트가 확정된 매핑 원본 — (엔드포인트, 주소, 디바이스). <see cref="ByEndpoint"/> 는 조회용 사전이라
+        /// 키를 되돌릴 수 없어, "이 디바이스에 어떤 에러코드가 묶였나" 를 나열할 때(Excel 매핑 시트)는 이쪽을 쓴다.
+        /// </summary>
+        public List<(string Endpoint, string TagAddress, string Device)> Resolved { get; } = [];
+
         public int Count => ByEndpoint.Count;
     }
 
@@ -230,6 +236,7 @@ public static class AbnormalDeviceFilterHelpers
 
             if (string.IsNullOrEmpty(ep)) { idx.DeadBindingCount++; continue; }
             idx.ByEndpoint[BindingKey(ep, b.TagAddress)] = b.Device;
+            idx.Resolved.Add((ep, b.TagAddress, b.Device));
         }
 
         return idx;

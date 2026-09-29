@@ -116,8 +116,8 @@ public class UserTagsController : ControllerBase
             total, page, maxPage, size,
             dataPage.Select(ToAlertDto).ToList(),
             buckets.Select(b => new UtBucketDto(b.BucketStart.ToLocalTime().ToString("o"), b.LogLevel, b.Count)).ToList(),
-            top.Select(t => new UtTopDto(t.Name, t.LogLevel, t.Count, t.AltName)).ToList(),
-            topByPath.Select(t => new UtTopDto(t.Name, t.LogLevel, t.Count, t.AltName)).ToList(),
+            top.Select(t => new UtTopDto(t.Name, t.LogLevel, t.Count, t.AltName, t.ClearedCount)).ToList(),
+            topByPath.Select(t => new UtTopDto(t.Name, t.LogLevel, t.Count, t.AltName, t.ClearedCount)).ToList(),
             new Dictionary<string, int>(categoryCounts),
             activeError, todayError, lastAlertAtLocal,
             systemOptions,
@@ -614,11 +614,23 @@ public class UserTagsController : ControllerBase
     {
         var (startLocal, endLocal, _) = ResolvePeriod(period, from, to);
         var flw = Blank(flow);
+        var sys = Blank(system);
+        var srch = Blank(search);
         var cat = flw is null ? Blank(category) : null; // flow 필터 시 구분 필터 무시(snapshot 과 동일)
+        var startUtc = startLocal.ToUniversalTime();
+        var endUtc = endLocal.ToUniversalTime();
         var all = await _repo.QueryAlertsAsync(
-            startLocal.ToUniversalTime(), endLocal.ToUniversalTime(),
-            Blank(search), DisplayLevel, Blank(system), cat, limit, 0, ct, flowFilter: flw);
-        var bytes = UserTagAlertExcelExporter.Build(all, startLocal, endLocal, flw);
+            startUtc, endUtc, srch, DisplayLevel, sys, cat, limit, 0, ct, flowFilter: flw);
+
+        // 디바이스별 고장 지표(eMTBF·eMTTR)와 에러코드 매핑 — 2026-09-29 부터 화면에서 빼고 파일에서만 낸다(doc/31 §8).
+        // 지표는 기간·System 만 따르고 검색·구분·설비 필터는 받지 않는다 — 알람 시트와 모집단이 다르다는 사실은
+        // 시트 부제가 밝힌다. 계산이 실패해도 알람 시트는 나가야 하므로 조용히 접는다.
+        ErrorTagReliabilityService.Result? rel = null;
+        try { rel = await _reliability.AnalyzeAsync(startUtc, endUtc, sys, ct); }
+        catch (Exception ex) { _logger.LogWarning(ex, "[UserTags] Excel 지표 계산 실패 — 알람 시트만 내보낸다"); }
+
+        var bytes = UserTagAlertExcelExporter.Build(all, startLocal, endLocal, flw, rel, sys,
+            listFiltered: srch is not null || cat is not null || flw is not null);
         var fn = $"UserTagAlerts_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
         return File(bytes, UserTagAlertExcelExporter.XlsxMimeType, fn);
     }

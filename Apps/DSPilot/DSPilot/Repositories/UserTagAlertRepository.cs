@@ -329,14 +329,15 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         // ⚠ GROUP BY 별칭 LogLevel 은 테이블 컬럼 logLevel 로 해석됨(버킷 쿼리와 동일 함정) → CASE 식으로 직접 그룹.
         var sql = $@"
             SELECT {keyCol} AS Name, {CategoryCase} AS LogLevel, COUNT(*) AS Count,
-                   GROUP_CONCAT(DISTINCT {altCol}) AS AltName
+                   GROUP_CONCAT(DISTINCT {altCol}) AS AltName,
+                   SUM(CASE WHEN clearedAt IS NOT NULL THEN 1 ELSE 0 END) AS ClearedCount
             FROM userTagAlertLog
             {where}
             GROUP BY {keyCol}, {CategoryCase}
             ORDER BY Count DESC
             LIMIT @TopN";
         var rows = await conn.QueryAsync<TopRow>(sql, p);
-        return rows.Select(r => new UserTagAlertTopRow(r.Name ?? "", r.LogLevel ?? "USERTAG", r.Count, r.AltName)).ToList();
+        return rows.Select(r => new UserTagAlertTopRow(r.Name ?? "", r.LogLevel ?? "USERTAG", r.Count, r.AltName, r.ClearedCount)).ToList();
     }
 
     public async Task<IReadOnlyDictionary<string, int>> GetCategoryCountsAsync(
@@ -480,6 +481,7 @@ public sealed class UserTagAlertRepository : IUserTagAlertRepository
         public string? LogLevel { get; set; }
         public int Count { get; set; }
         public string? AltName { get; set; }
+        public int ClearedCount { get; set; }
     }
 
     private sealed class CategoryCountRow

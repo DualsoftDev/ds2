@@ -57,4 +57,6 @@ public sealed record UserTagAlertTopRow(
     string Name,
     string LogLevel,
     int Count,
-    string? AltName = null);
+    string? AltName = null,
+    // 그중 해소(clearedAt) 기록이 있는 건수 — Top N 막대를 해소/미해소로 쌓는 근거. 자동감지는 점 이벤트라 0.
+    int ClearedCount = 0);

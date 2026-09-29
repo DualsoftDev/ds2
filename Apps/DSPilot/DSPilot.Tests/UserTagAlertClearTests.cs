@@ -162,4 +162,24 @@ public class UserTagAlertClearTests : IDisposable
         Assert.Equal(TimeSpan.FromMinutes(2), done.ClearedAt!.Value - done.OccurredAt);
         Assert.Null(open.ClearedAt);
     }
+
+    // Top N 행의 해소 건수 — 이상·알람 페이지 Top 10 막대를 해소/미해소로 쌓는 근거(2026-09-29).
+    [Fact]
+    public async Task Top_rows_count_cleared_alerts_per_address()
+    {
+        var repo = await NewRepoAsync();
+        await repo.InsertAlertAsync(Alert(T10, "SYS-A", "%MX10"));                   // 해소됨
+        await repo.InsertAlertAsync(Alert(T10.AddMinutes(-1), "SYS-A", "%MX10"));    // 해소 키 이전 발생 → 미해소
+        await repo.InsertAlertAsync(Alert(T10.AddMinutes(2), "SYS-A", "%MX20"));     // 미해소
+        await repo.MarkClearedAsync([new UserTagClearKey("%MX10", "SYS-A", T10, T10.AddMinutes(5))]);
+
+        var top = await repo.GetTopByNameAsync(T10.AddHours(-1), T10.AddHours(1), 10, null, null, null, "path");
+
+        var mx10 = Assert.Single(top, r => r.Name == "%MX10");
+        Assert.Equal(2, mx10.Count);
+        Assert.Equal(1, mx10.ClearedCount);
+        var mx20 = Assert.Single(top, r => r.Name == "%MX20");
+        Assert.Equal(1, mx20.Count);
+        Assert.Equal(0, mx20.ClearedCount);
+    }
 }

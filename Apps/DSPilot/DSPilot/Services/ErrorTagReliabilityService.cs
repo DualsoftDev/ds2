@@ -91,7 +91,16 @@ public sealed class ErrorTagReliabilityService
         SkipCause Skip,
         int EventNo,
         long? RepairMs,
-        string? RestartFlow);
+        string? RestartFlow,
+        /// <summary>이 신호를 읽은 PLC 접속 표기 — 매핑 시트가 태그별 건수를 셀 때의 키 절반(doc/31 §6). 옛 행은 빈 문자열.</summary>
+        string Endpoint = "");
+
+    /// <summary>
+    /// 사용자가 디바이스에 묶은 에러 태그 1개 — "이 디바이스의 고장은 이 에러코드들로 정의했다" 를 파일에서
+    /// 확인하는 근거다(Excel 디바이스별·에러코드 매핑 시트). 라벨은 현재 이름(정의가 사라졌으면 빈 문자열),
+    /// 키는 (엔드포인트, 주소). 지표는 여기 붙지 않는다 — 태그는 검출 채널이지 수리 단위가 아니다(§2.1).
+    /// </summary>
+    public sealed record BoundTag(string System, string Device, string Name, string TagAddress, string Endpoint);
 
     /// <summary>조회 결과 — 라인 지표 + 디바이스별 + 건별 판정 + 커버리지.</summary>
     /// <param name="UnboundTagCount">묶이지 않아 계산에서 빠진 에러 태그 수(전역 제외).</param>
@@ -109,6 +118,8 @@ public sealed class ErrorTagReliabilityService
         List<ScopeSummary> Systems,
         List<DeviceSummary> Devices,
         List<AlertVerdict> Alerts,
+        /// <summary>디바이스에 묶인 에러 태그 전체(알람 유무 무관) — Excel 매핑 시트의 행.</summary>
+        List<BoundTag> BoundTags,
         int UnboundTagCount,
         int GlobalTagCount,
         int SkippedChangedCount,
@@ -136,7 +147,7 @@ public sealed class ErrorTagReliabilityService
         var globalCount = bindings.Count - bound.Count;
 
         if (!_project.IsLoaded || bound.Count == 0)
-            return new Result(Combine([]), [], [], [], [], 0, globalCount, 0, 0, 0, 0, _project.IsLoaded);
+            return new Result(Combine([]), [], [], [], [], [], 0, globalCount, 0, 0, 0, 0, _project.IsLoaded);
 
         InvalidateIfModelReloaded();
         var currentSystems = CachedSystems();
@@ -287,9 +298,24 @@ public sealed class ErrorTagReliabilityService
         // 라인끼리는 동시에 서도 두 번의 사고이고 가동시간도 별개 자원이다.
         var multiFlowDevices = deviceFlows.Count(x => x.Flows.Count > 1);
 
+        // 매핑 원본 — Excel 이 디바이스 행 옆에 "묶인 에러코드" 를 적고 태그별 건수를 세는 근거. 라벨은 현재
+        // 이름으로 통일한다(doc/31 §6.4). 알람이 없던 매핑도 담는다 — "이 기간 고장이 없었다" 도 정보다.
+        var boundTags = deviceIndex.Resolved
+            .Where(x => x.Device.Length > 0)
+            .Select(x => new BoundTag(
+                System: nameByEndpoint.TryGetValue(x.Endpoint, out var sysNm) ? sysNm : x.Endpoint,
+                Device: x.Device,
+                Name: nameBySignal.TryGetValue(SignalKey(x.Endpoint, null, null, x.TagAddress), out var tagNm) ? tagNm : string.Empty,
+                TagAddress: x.TagAddress,
+                Endpoint: x.Endpoint))
+            .OrderBy(t => t.System, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(t => t.Device, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(t => t.TagAddress, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         return new Result(
             Combine(systemScopes),
-            flowScopes, systemScopes, devices, verdicts,
+            flowScopes, systemScopes, devices, verdicts, boundTags,
             unboundAddresses.Count, globalCount, skippedChanged, multiFlowDevices,
             legacyAlerts, deviceIndex.DeadBindingCount, true);
     }
@@ -365,7 +391,8 @@ public sealed class ErrorTagReliabilityService
             EventNo: eventNo,
             RepairMs: e.DownMs,
             // 어느 flow 가 회복 근거였는지 남긴다 — 분기 우회로 오판이 났을 때 사후 추적의 유일한 실마리다.
-            RestartFlow: restartMs is { } r2 ? FlowOfRestart(r2, flows, facts) : null);
+            RestartFlow: restartMs is { } r2 ? FlowOfRestart(r2, flows, facts) : null,
+            Endpoint: (r.Endpoint ?? string.Empty).Trim());
     }
 
     private static string? FlowOfRestart(long restartMs, IReadOnlyList<string> flows, Dictionary<string, FlowFacts> facts)

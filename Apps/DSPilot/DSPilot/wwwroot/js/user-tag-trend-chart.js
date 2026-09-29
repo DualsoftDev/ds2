@@ -177,34 +177,59 @@ function altLabel(alt) {
     return names.slice(0, TOP_ALT_INLINE).join(', ') + ` 외 ${names.length - TOP_ALT_INLINE}`;
 }
 
-// topRows: [{ name, level, count, altName }] — level 슬롯은 구분(ABNORMAL/USERTAG). 막대색을 구분으로 칠해
-// 이상알람TAG 를 자동감지와 시각적으로 분리한다(시계열 스택·구분 도넛과 동일 팔레트).
+// 상태 스택 색 — 복구 완료(브랜드 azure)·해소(호박)·미해소(로즈)·자동감지(보라). 색각 이상 3종 분리와 표면 대비를
+// 검증한 조합(dataviz validate_palette, light/dark 통과). 상태색이라 시계열의 구분색(로즈 단색)과는 다르다.
+function topStateColors() {
+    return {
+        recovered: { fill: 'rgba(14, 124, 203, 0.85)', label: '복구 완료',
+                     tip: '해소된 뒤 설비가 다시 돌았습니다(집계 대상만)' },
+        cleared:   { fill: 'rgba(217, 119, 6, 0.85)',  label: '해소',
+                     tip: '조건은 풀렸지만 재가동 확인은 안 된 건(확인 중·미확인·경고·미지정 포함)' },
+        open:      { fill: 'rgba(190, 18, 60, 0.85)',  label: '미해소',
+                     tip: '조건이 아직 걸려 있습니다' },
+        abnormal:  { fill: 'rgba(124, 58, 237, 0.85)', label: '자동감지',
+                     tip: '점 이벤트라 해소 개념이 없습니다' },
+    };
+}
+const TOP_STATE_KEYS = ['recovered', 'cleared', 'open', 'abnormal'];
+
+// topRows: [{ name, level, count, altName, clearedCount }] — level 슬롯은 구분(ABNORMAL/USERTAG).
+// 막대 하나 = 경로(주소) 하나의 발생 수를 상태로 쌓은 것 — 복구 완료 / 해소 / 미해소(이상알람TAG), 발생(자동감지).
+//   해소 = 서버 집계 clearedCount. 복구 완료 = opts.recoveredByAddress[주소](신뢰성 판정, 집계 대상만) — 해소 ⊇ 복구.
 // 축 라벨은 2줄 — 1줄=그룹키(경로 기준이면 태그 주소), 2줄=반대편 이름(altName). 주소만으로는 어떤
 // 이상알람TAG/자동감지인지 알 수 없어 둘을 함께 보여준다.
-export function renderTopChart(chartId, topRows) {
+export function renderTopChart(chartId, topRows, opts) {
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
 
-    const CAT_COLORS = categoryColors();
+    const C = topStateColors();
     const tc = themeChartColors();
+    const rec = (opts && opts.recoveredByAddress) || {};
     const labels = topRows.map(r => {
         const key = r.name || '(주소 없음)';
         const alt = altLabel(r.altName);
         return alt ? [key, alt] : [key];
     });
-    const counts = topRows.map(r => r.count);
     const cats = topRows.map(r => r.level);
     const alts = topRows.map(r => altNames(r.altName));
-    const colors = cats.map(c => (CAT_COLORS[c] || CAT_COLORS.USERTAG).fill);
+    const totals = topRows.map(r => r.count || 0);
+    const seg = topRows.map(r => {
+        const total = r.count || 0;
+        if (r.level === 'ABNORMAL') return { recovered: 0, cleared: 0, open: 0, abnormal: total };
+        const cleared = Math.min(total, r.clearedCount || 0);
+        const recovered = Math.min(cleared, rec[r.name] || 0);
+        return { recovered, cleared: cleared - recovered, open: total - cleared, abnormal: 0 };
+    });
+    const series = TOP_STATE_KEYS.map(k => seg.map(s => s[k]));
 
-    // 같은 canvas·테마면 in-place 갱신(차트 재생성 churn 방지).
+    // 같은 canvas·테마면 in-place 갱신(차트 재생성 churn 방지). 데이터셋 4개는 고정이라 순서로 맞춘다.
     const existing = charts[chartId];
     if (existing && existing.canvas === canvas && existing._dark === isDark()) {
         existing.data.labels = labels;
-        const ds = existing.data.datasets[0];
-        ds.data = counts; ds.backgroundColor = colors; ds.borderColor = colors;
+        TOP_STATE_KEYS.forEach((k, i) => { existing.data.datasets[i].data = series[i]; });
         existing._rowCats = cats;
         existing._rowAlts = alts;
+        existing._rowTotals = totals;
         existing.update('none');
         return;
     }
@@ -214,26 +239,35 @@ export function renderTopChart(chartId, topRows) {
         type: 'bar',
         data: {
             labels,
-            datasets: [{
-                label: '알림 수',
-                data: counts,
-                backgroundColor: colors,
-                borderColor: colors,
+            datasets: TOP_STATE_KEYS.map((k, i) => ({
+                label: C[k].label,
+                data: series[i],
+                backgroundColor: C[k].fill,
+                // 조각 사이 1px 표면색 경계 — 같은 막대 안에서 상태 경계가 보이게.
+                borderColor: tc.surface,
                 borderWidth: 1,
-            }],
+                stack: 'state',
+            })),
         },
         options: {
             indexAxis: 'y',
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                x: { beginAtZero: true, ticks: { precision: 0, color: tc.text }, grid: { color: tc.gridSoft } },
-                y: { ticks: { autoSkip: false, color: tc.text }, grid: { color: tc.grid } },
+                x: { stacked: true, beginAtZero: true, ticks: { precision: 0, color: tc.text }, grid: { color: tc.gridSoft } },
+                y: { stacked: true, ticks: { autoSkip: false, color: tc.text }, grid: { color: tc.grid } },
             },
             plugins: {
-                legend: { display: false },
+                legend: {
+                    display: true, position: 'bottom',
+                    labels: {
+                        color: tc.text, boxWidth: 10, boxHeight: 10,
+                        // 이 화면에 없는 상태(예: 자동감지만 볼 때의 복구/해소/미해소)는 범례에서 지운다.
+                        filter: (item, data) => (data.datasets[item.datasetIndex]?.data || []).some(v => v > 0),
+                    },
+                },
                 tooltip: {
-                    enabled: true, backgroundColor: tc.surface, titleColor: tc.textStrong, bodyColor: tc.text, borderColor: tc.grid, borderWidth: 1,
+                    enabled: true, backgroundColor: tc.surface, titleColor: tc.textStrong, bodyColor: tc.text, footerColor: tc.text, borderColor: tc.grid, borderWidth: 1,
                     callbacks: {
                         // 축은 "외 N" 으로 접히므로 툴팁엔 주소 + 이름 전체를 펼쳐 보여준다.
                         title(items) {
@@ -244,11 +278,16 @@ export function renderTopChart(chartId, topRows) {
                             const names = chart?._rowAlts?.[i] || [];
                             return names.length ? [String(key), ...names.map(n => '· ' + n)] : [String(key)];
                         },
-                        // 막대색만으론 구분이 애매할 수 있어 툴팁에 자동감지/이상알람TAG 를 병기.
                         label(ctx) {
-                            const cat = ctx.chart._rowCats?.[ctx.dataIndex];
-                            const catLabel = CATEGORY_LABELS[cat] || cat || '';
-                            return `알림 수: ${ctx.parsed.x}` + (catLabel ? ` (${catLabel})` : '');
+                            const k = TOP_STATE_KEYS[ctx.datasetIndex];
+                            return `${ctx.dataset.label}: ${ctx.parsed.x}` + (C[k]?.tip ? ` — ${C[k].tip}` : '');
+                        },
+                        // 조각 하나만 짚어도 막대 전체(발생 수)와 구분을 함께 읽게.
+                        footer(items) {
+                            const i = items[0]?.dataIndex ?? 0;
+                            const chart = items[0]?.chart;
+                            const cat = CATEGORY_LABELS[chart?._rowCats?.[i]] || '';
+                            return `발생 ${chart?._rowTotals?.[i] ?? 0}` + (cat ? ` · ${cat}` : '');
                         },
                     },
                 },
@@ -258,6 +297,7 @@ export function renderTopChart(chartId, topRows) {
     chart._dark = isDark();
     chart._rowCats = cats;
     chart._rowAlts = alts;
+    chart._rowTotals = totals;
     charts[chartId] = chart;
 }
 

@@ -88,7 +88,7 @@
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
                 // stale 응답 가드 — 폴링/기간변경/페이지이동 응답이 뒤늦게 도착해 최신 상태를 덮어쓰는 경합 방지
-                _utSeq: 0, _oeeSeq: 0, _anpSeq: 0, _relSeq: 0,
+                _utSeq: 0, _oeeSeq: 0, _anpSeq: 0, _relSeq: 0, _relRecovered: null,
                 // 등록 에러 태그 기반 신뢰성(doc/31). null = 아직 못 읽음 — 카드를 감춘다.
                 rel: null, relState: '',
                 // 사용자 로드(기간변경·페이지·정렬 등 비무음) 진행 중 카운트 — >0 이면 폴링/SignalR 무음 재로드를 건너뜀.
@@ -692,7 +692,12 @@
                         // 요약·스코프·디바이스는 어느 갈래를 골라도 전체 기준이라 화면이 흔들리지 않는다.
                         if (this.relState.startsWith('skip:')) qs.set('alerts', this.relState.slice(5));
                         const dto = await this.apiGet('/api/user-tags/reliability?' + qs.toString());
-                        if (seq === this._relSeq) this.rel = dto;   // stale 응답 폐기(기간 변경 경합)
+                        if (seq !== this._relSeq) return;           // stale 응답 폐기(기간 변경 경합)
+                        this.rel = dto;
+                        // Top 10 의 '복구 완료' 조각 — 기본 갈래(집계 대상) 응답에서만 접는다. skip 갈래 응답은
+                        // 제외 행만 실려 와 Recovered 가 없으므로, 그때 덮어쓰면 칩을 누를 때마다 조각이 사라진다.
+                        if (!qs.has('alerts')) this._relRecovered = this._recoveredByAddress(dto.alerts);
+                        this.drawTopChart();
                     } catch (e) {
                         if (seq === this._relSeq && !silent) this.rel = null;
                     }
@@ -716,14 +721,14 @@
                     if (!s || s.startsWith('skip:')) return rows;
                     return rows.filter(a => a.skip === 'None' && a.state === s);
                 },
-                // 표본 미달이면 숫자 대신 근거를 보인다 — 0 이나 '—' 로 두면 "고장이 없다" 로 읽힌다.
-                relValue(ms, n) {
-                    if (ms == null) return `표본 부족 (n=${n})`;
-                    return window.dspFmt.dur(ms);
+                // 태그별 Top 10 의 '복구 완료' 조각 — 집계 대상(skip=None) 이면서 복구 완료인 건을 주소로 접는다.
+                // Top 행이 주소 단독 키라(두 PLC 가 같은 주소를 쓰면 한 막대) 여기도 주소로만 접는다.
+                _recoveredByAddress(alerts) {
+                    const m = {};
+                    for (const a of alerts || [])
+                        if (a.skip === 'None' && a.state === 'Recovered') m[a.tagAddress] = (m[a.tagAddress] || 0) + 1;
+                    return m;
                 },
-                // 집계 대상이 K 에 못 미치면 카드에 숫자를 띄우지 않는다 — 구체적인 숫자로 틀린 답을
-                // 단정하는 것이 비어 있는 것보다 나쁘다(현장 실측: 34건 중 진짜 고장 2건인데 11.6분이 떴다).
-                get relHasNumbers() { return !!this.rel && (this.rel.eMtbfMs != null || this.rel.eMttrMs != null); },
                 // 화면 분해 — 합이 관측된 사건 전체와 맞아야 한다.
                 // ★key 를 빈 문자열로 두면 setRelState 가 해제로만 동작해 "눌러도 반응 없음" 이 된다.
                 get relBreakdown() {
@@ -739,26 +744,6 @@
                         { key: 'skip:UnknownStop', label: '판정 불가', n: r.unknownStopCount, cls: '',
                           tip: '사이클 리듬 기준을 구하지 못해 정지 여부를 판정할 수 없었습니다' },
                     ].filter(x => x.n > 0);
-                },
-                // 고른 칩이 디바이스 행의 어느 칸을 가리키는지 — 표도 같은 기준으로 걸러야 한다.
-                // 이력 표만 걸러 놓으면 화면을 채우는 디바이스 표가 그대로라 "반응이 없다" 로 보인다.
-                _relDeviceCount(d, s) {
-                    switch (s) {
-                        case 'skip:None': return d.faultCount;
-                        case 'skip:NonStopWarning': return d.nonStopWarningCount;
-                        case 'skip:LinkSnapshot': return d.linkSnapshotCount;
-                        case 'skip:UnknownStop': return d.unknownStopCount;
-                        case 'Recovered': return d.recoveredCount;
-                        case 'RestartUnconfirmed': return d.restartUnconfirmedCount;
-                        case 'AwaitingRestart': return d.awaitingRestartCount;
-                        case 'InProgress': return d.inProgressCount;
-                        default: return 0;
-                    }
-                },
-                get relDevices() {
-                    const all = this.rel?.devices || [];
-                    if (!this.relState) return all;
-                    return all.filter(d => this._relDeviceCount(d, this.relState) > 0);
                 },
                 // 필터가 걸린 동안 그 사실과 해제 수단을 표 바로 위에 둔다(칩만으로는 안 보인다).
                 get relFilterLabel() {
@@ -808,9 +793,19 @@
                         // 막대 클릭 = 그 시간대 드릴다운(어떤 태그가 몇 시에 떴는지 목록 모달).
                         this._charts.renderTrendChart('ut-trend-chart', this.ut.buckets || [], this.ut.granularity, trendCats,
                             ({ iso }) => this.openUtDrill(iso));
-                        // 태그별 Top 10 은 경로(FLOW / WORK / CALL)별 집계로 고정.
-                        this._charts.renderTopChart('ut-top-chart', (this.ut.topRowsByPath || []).slice(0, 10));
                     } catch (e) { console.warn('chart draw failed', e); }
+                    this.drawTopChart();
+                },
+                // 태그별 Top 10 — 경로(주소) 기준 발생 수를 상태(복구 완료·해소·미해소)로 쌓는다. 해소는 스냅샷이
+                // 주고(clearedCount), 복구 완료는 신뢰성 판정을 주소로 접어 얹는다. 두 응답의 도착 시점이 달라
+                // 어느 쪽이 와도 다시 그린다(in-place 갱신이라 값싸다).
+                drawTopChart() {
+                    if (this.view === 'oee' || this.view === 'teep') return;
+                    if (!this._charts || !this.ut) return;
+                    try {
+                        this._charts.renderTopChart('ut-top-chart', (this.ut.topRowsByPath || []).slice(0, 10),
+                            { recoveredByAddress: this._relRecovered || {} });
+                    } catch (e) { console.warn('top chart draw failed', e); }
                 },
 
                 // ── 시계열 추이 막대 드릴다운 ──

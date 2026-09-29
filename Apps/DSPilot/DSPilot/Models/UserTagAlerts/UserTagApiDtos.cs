@@ -54,7 +54,8 @@ public record UtBucketDto(string BucketStartIso, string Level, int Count);
 
 // Name = 그룹키(경로 기준 집계면 tagAddress), AltName = 반대편 라벨(태그 이름들, 콤마 구분).
 // 차트가 "주소 + 이름"을 함께 보여주도록 두 값을 모두 내려보낸다.
-public record UtTopDto(string Name, string Level, int Count, string? AltName = null);
+// ClearedCount = 그중 해소된 건수 — Top 10 막대를 복구/해소/미해소로 쌓는 근거(자동감지는 0).
+public record UtTopDto(string Name, string Level, int Count, string? AltName = null, int ClearedCount = 0);
 
 /// <summary>
 /// 시계열 막대 드릴다운 — 클릭한 버킷 한 칸([BucketStart, 다음 버킷))에 발생한 알람 원본.
