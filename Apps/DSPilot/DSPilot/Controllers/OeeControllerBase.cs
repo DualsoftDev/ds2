@@ -247,7 +247,10 @@ public abstract class OeeControllerBase : ControllerBase
         // ── 진행 중(열린 사이클) 행 (doc/26 · doc/28 §2.4) — 물리 설비당 1행. ──
         //   기준 = 열린 사이클의 head↑ 이후 경과 > 고장 경계(MT). 종전 "마지막 완료 후 경과 > 중앙 MT + 정지 경계"는 tail 후
         //   대기 중인 상태까지 포함했다 — 지금은 dspFlow.state 가 'Going'(head↑ 후 tail 미도달)인 flow 만 후보다(열린 대기는 표시 없음).
-        //   구분(고장/비생산)·건수·MTBF 어디에도 안 들어가고(분모 밖), 다음 head 가 오면 완료 행으로 바뀌어 그때 분류된다.
+        //   건수·MTBF 에는 안 들어가고(행이 아직 없다), 다음 head 가 오면 완료 행으로 바뀌어 그때 1건으로 확정된다.
+        //   <b>예외(2026-09-28)</b>: 경과가 비생산 경계(CT) 이상이면 집계가 이미 그 시간을 비생산으로 잡았으므로(ComputeCycleAggregateAsync
+        //   진행 중 블록) 여기서도 구분=비생산으로 내고, 고장 후보 게이트(Going·MT 경계)를 건너뛴다 — 통과 못 해 목록에서
+        //   빠지면 비생산 시간과 내역이 어긋난다. 열린 대기(tail 완료 후 다음 head 대기)도 그만큼 늘어졌으면 비생산이다.
         //   분기 소속은 완료 후에야 정해지므로 부모(물리 설비) 이름으로 한 줄만 낸다.
         if (agg.InProgressScoped is { Count: > 0 } ipRows)
         {
@@ -256,13 +259,18 @@ public abstract class OeeControllerBase : ControllerBase
             foreach (var (ipFlow, ipS, ipE) in ipRows)
             {
                 if (ipFlow is null) continue;
-                if (!bounds.TryGetValue(ipFlow, out var b) || b.Gated || b.MtFault <= 0) continue;   // MT 기준 없음 = 판별 불가
+                if (!bounds.TryGetValue(ipFlow, out var b) || b.Gated) continue;                  // 표본 게이트 = 판별 불가
                 var physical = Phys(ipFlow);
-                if (goingFlows is not null && !goingFlows.Contains(physical)) continue;           // 열린 대기(tail 완료) — 표시 없음
                 var elapsed = ipE - ipS;
-                if (elapsed <= b.MtFault) continue;
-                if (!seenPhysical.Add(physical)) continue;
+                // 비생산 강등분(집계와 같은 경계·같은 경과)은 고장 후보 게이트를 건너뛴다 — 위 주석의 예외.
                 var byLength = OeeMath.IsNonProductionByLength(elapsed, b.CtNonProd);
+                if (!byLength)
+                {
+                    if (b.MtFault <= 0) continue;                                                 // MT 기준 없음 = 고장 판별 불가
+                    if (goingFlows is not null && !goingFlows.Contains(physical)) continue;       // 열린 대기(tail 완료) — 표시 없음
+                    if (elapsed <= b.MtFault) continue;
+                }
+                if (!seenPhysical.Add(physical)) continue;
                 list.Add(new OeeDowntimeDto(
                     Id: --synthId,
                     SystemName: sysMap.TryGetValue(ipFlow, out var s2) ? s2 : "",
@@ -271,18 +279,22 @@ public abstract class OeeControllerBase : ControllerBase
                     StartAt: DateTimeOffset.FromUnixTimeMilliseconds((long)ipS).LocalDateTime,
                     EndAt: null,
                     DurationMs: (long)elapsed,
-                    ReasonCode: null,
-                    Category: null,
+                    ReasonCode: byLength ? OeeMath.NonProductionReasonCode : null,
+                    Category: byLength ? "nonproduction" : null,
                     IsFailure: false,
                     DetectSource: "in-progress",
                     SourceLogId: null,
-                    Note: $"진행 중 — 사이클 시작(head↑) 후 {Dur(elapsed)} 경과 (고장 기준 {Dur(b.MtFault)} = 평소 동작 {Dur(b.MedianMt)} × {faultMult:0.#}배 초과). "
+                    Note: byLength
+                        ? $"진행 중 — 사이클 시작(head↑) 후 {Dur(elapsed)} 경과, 비생산 기준 {Dur(b.CtNonProd)} 이상이라 "
+                          + "그 시간은 비생산으로 집계됩니다(A 분모 밖). 다음 사이클이 시작되면 완료 행으로 확정되고 그때 1건으로 셉니다."
+                          + (physical != ipFlow ? " 분기 소속은 완료 후 확정." : "")
+                        : $"진행 중 — 사이클 시작(head↑) 후 {Dur(elapsed)} 경과 (고장 기준 {Dur(b.MtFault)} = 평소 동작 {Dur(b.MedianMt)} × {faultMult:0.#}배 초과). "
                           + "다음 사이클이 시작되면 완료 행으로 확정·분류됩니다. 집계 미반영(분모 밖)."
-                          + (byLength ? $" · 이미 비생산 기준 {Dur(b.CtNonProd)} 이상 — 완료되면 비생산으로 분류됩니다." : "")
                           + (physical != ipFlow ? " 분기 소속은 완료 후 확정." : ""),
                     Status: "open",
-                    ClassifySource: "pending",
-                    Axis: "mt"));
+                    ClassifySource: byLength ? "auto-longstop" : "pending",
+                    IsNonProd: byLength,
+                    Axis: byLength ? "ct" : "mt"));
             }
         }
         return (list, nonProdScoped);
@@ -1572,7 +1584,20 @@ public abstract class OeeControllerBase : ControllerBase
                             var ipE = Math.Min(nowMs, periodEndMs);
                             if (ipE > ipS)
                             {
-                                inProgressByFlow[f] = (ipS, ipE);
+                                // ── 열린 사이클의 비생산 강등(2026-09-28) — 경과가 비생산 경계(CT) 이상이면 '진행 중'이 아니라 비생산. ──
+                                //   가동은 공백 없는 CT 묶음이고, 이만큼 늘어진 사이클은 다음 head 가 오는 순간
+                                //   <see cref="OeeMath.IsNonProductionByLength"/> 로 비생산 행이 될 것이 이미 확정돼 있다 — 판정을 미룰 이유가 없다.
+                                //   미루면 <b>영영 다음 head 가 안 오는</b> 설비의 정지가 통째로 사라진다(실측 2026-09-28: 5일째 멈춘
+                                //   #203 RR DR STRIKER 피더 의 비생산이 0 이라 라인 비생산 교집합이 09/24~09/27 내내 빈칸).
+                                //   경과는 기간 클립 전(lastMs)으로 잰다 — 같은 정지가 보는 창에 따라 진행 중 ↔ 비생산으로 뒤집히지 않게
+                                //   (창 걸침 행을 양쪽 대칭으로 다루는 위 @Strad 규약과 같은 이유).
+                                //   <b>시간만</b> 옮긴다: 건수(nonProdCount)·감지 로그(NonProdWriteQueue)에는 넣지 않는다 —
+                                //   아직 행이 없는 구간이고, 완료되는 순간 진짜 행이 같은 자리를 1건으로 덮는다(기록 공백 귀속과 같은 규약).
+                                //   생산가능(availF)에서 빠지는 것은 전과 같아 A 는 불변 — 진행 중 버킷에서 비생산 버킷으로의 이동이다.
+                                if (judged && OeeMath.IsNonProductionByLength(ipE - lastMs, b.CtNonProd))
+                                    AddNonProdFor(f, (ipS, ipE));
+                                else
+                                    inProgressByFlow[f] = (ipS, ipE);
                                 inProgressScoped.Add((f, lastMs, ipE));   // 로그용 — 시작은 열린 사이클 head↑(= 마지막 행 끝, 기간 클립 전)
                             }
                         }
@@ -1734,6 +1759,7 @@ public abstract class OeeControllerBase : ControllerBase
             if (siblingRunByFlow.TryGetValue(f, out var sib) && sib.Count > 0)
                 availF = Intervals.Subtract(availF, Intervals.Union(sib));
             // 진행 중 카빙(doc/26) — 열린 사이클의 시간은 아직 아무 상태도 아니다.
+            //   2026-09-28 부터 여기 남는 건 비생산 경계 <b>미만</b>의 열린 사이클뿐이다(경계 이상은 패스 1에서 비생산으로 강등).
             if (inProgressByFlow.TryGetValue(f, out var ip))
             {
                 var ipIv = Intervals.Subtract(new List<(double S, double E)> { ip }, npF.Concat(unmeasured).ToList());
