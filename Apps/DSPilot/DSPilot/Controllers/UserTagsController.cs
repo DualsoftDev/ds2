@@ -228,11 +228,13 @@ public class UserTagsController : ControllerBase
                     && AbnormalDeviceFilterHelpers.TryGetBoundDevice(
                         deviceIndex, epById.TryGetValue(r.SystemId, out var rEp) ? rEp : null, r.TagAddress, out var bound))
                     device = bound;
+                var vt = UserTagEditorSupport.NormalizeValueType(r.ValueType) ?? "Bit";
+                // Bit 은 ON/OFF 두 조건만 쓴다 — 옛 정의의 'Eq 1' 류는 뜻이 같은 엣지로 보여 준다(저장도 같은 규칙).
+                var (op, mv) = UserTagEditorSupport.CoerceBitMatch(
+                    vt, UserTagEditorSupport.NormalizeMatchOp(r.MatchOp, r.ValueType) ?? "RisingEdge", r.MatchValue ?? string.Empty);
                 return new UtEditorTagDto(
                     r.SystemId.ToString(), r.SystemName, r.Name, r.TagAddress,
-                    UserTagEditorSupport.NormalizeValueType(r.ValueType) ?? "Bit",
-                    UserTagEditorSupport.NormalizeMatchOp(r.MatchOp, r.ValueType) ?? "RisingEdge",
-                    r.MatchValue,
+                    vt, op, mv,
                     level,
                     meta?.Unit, meta?.DeadbandAbsolute, meta?.MinIntervalMs,
                     device);

@@ -14,7 +14,7 @@ namespace DSPilot.Services;
 ///   · LogLevel 은 <b>종류 축</b>(2026-09-17): Error = 이상알람TAG, Info = 모니터링TAG.
 ///     AASX 는 둘을 한 리스트에 섞어 담고 화면만 탭으로 갈린다. CSV 의 '로그 레벨' 컬럼도 이제 읽고 쓴다
 ///     (종전엔 "읽되 무시"하고 내보낼 때 Error 로 박았다 — 모니터링TAG 를 왕복시키면 알람이 됐다).
-///   · 값 타입별 매칭 조건: Bit=Rising/Falling/Changed/Eq/Neq, String=Changed/Eq/Neq, 수치=Changed+비교 6종.
+///   · 값 타입별 매칭 조건: Bit=ON/OFF 둘뿐(2026-09-30), String=Changed/Eq/Neq, 수치=Changed+비교 6종.
 ///   · CSV 6컬럼 헤더 `이름,로그 레벨,태그 주소,값 타입,매칭 조건,기준값` + UTF-8 BOM(Excel 한글 호환).
 ///     DSPilot 은 다중 System 을 한 파일로 다루므로 맨 앞에 `System` 컬럼을 둔 7컬럼이 기본이며,
 ///     Promaker 가 내보낸 6컬럼 파일도 그대로 읽는다(System 컬럼 부재 = 호출 측이 지정한 System 으로).
@@ -52,7 +52,20 @@ public static class UserTagEditorSupport
     /// <summary>모니터링TAG 인가(= 알람 발화 대상이 아닌가).</summary>
     public static bool IsMonitorLevel(string? s) => NormalizeLevel(s) == LevelMonitor;
 
-    public static readonly string[] BitMatchOps = ["RisingEdge", "FallingEdge", "Changed", "Eq", "Neq"];
+    /// <summary>
+    /// Bit 이 고를 수 있는 조건 — <b>ON(0→1) · OFF(1→0)</b> 둘뿐이다(2026-09-30).
+    /// 두 상태짜리 신호에 값 비교는 뜻이 겹치고(Bit 의 'Eq 1' = ON, 'Eq 0' = OFF) 값 변경은 양쪽 엣지를
+    /// 한꺼번에 잡아 어느 쪽이 알람인지 흐린다 — 화면에서 고를 이유가 없다.
+    /// </summary>
+    public static readonly string[] BitMatchOps = ["RisingEdge", "FallingEdge"];
+
+    /// <summary>
+    /// 편집기가 더는 제시하지 않지만 기존 정의·CSV 에 남아 있을 수 있는 Bit 조건 — <b>저장은 막지 않는다</b>.
+    /// 막으면 옛 태그 한 건 때문에 그 System 목록 전체 저장이 실패한다(편집기는 통째로 교체한다).
+    /// Eq/Neq 는 뜻이 같은 엣지로 옮기고(<see cref="CoerceBitMatch"/>) Changed 만 대응이 없어 그대로 둔다.
+    /// </summary>
+    public static readonly string[] BitLegacyMatchOps = ["Changed", "Eq", "Neq"];
+
     public static readonly string[] StringMatchOps = ["Changed", "Eq", "Neq"];
     public static readonly string[] NumericMatchOps = ["Changed", "Eq", "Neq", "Gt", "Gte", "Lt", "Lte"];
 
@@ -60,12 +73,31 @@ public static class UserTagEditorSupport
     private static readonly HashSet<string> OpsNeedingValue =
         new(["Eq", "Neq", "Gt", "Gte", "Lt", "Lte"], StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>편집기가 제시하는 조건(= 새로 고를 수 있는 것).</summary>
     public static string[] MatchOpsFor(string valueType) => NormalizeValueType(valueType) switch
     {
         "Bit" => BitMatchOps,
         "String" => StringMatchOps,
         _ => NumericMatchOps,
     };
+
+    /// <summary>검증이 받아 주는 조건 = 제시 목록 + Bit 레거시. 옛 정의·CSV 를 거부하지 않기 위함이다.</summary>
+    public static string[] AcceptedMatchOpsFor(string valueType) =>
+        NormalizeValueType(valueType) == "Bit" ? [.. BitMatchOps, .. BitLegacyMatchOps] : MatchOpsFor(valueType);
+
+    /// <summary>
+    /// Bit 의 Eq/Neq → 뜻이 같은 엣지로. F# <c>shouldFire</c> 기준 Bit 의 'Eq 1' 은 값이 1 이 <b>되는</b> 전이
+    /// 1건이라 RisingEdge(ON) 과 같고, 'Eq 0' 은 FallingEdge(OFF) 와 같다(Neq 는 그 반대). 바뀐 뒤에는
+    /// 기준값이 뜻을 잃으므로 비운다. 대응이 없는 Changed, Bit 이 아닌 타입, 0/1 이 아닌 기준값은 그대로 둔다.
+    /// </summary>
+    public static (string Op, string MatchValue) CoerceBitMatch(string valueType, string op, string matchValue)
+    {
+        if (NormalizeValueType(valueType) != "Bit" || op is not ("Eq" or "Neq")) return (op, matchValue);
+        var v = matchValue.Trim().ToUpperInvariant();
+        var isOne = v is "1" or "TRUE";
+        if (!isOne && v is not ("0" or "FALSE")) return (op, matchValue);
+        return ((op == "Eq") == isOne ? "RisingEdge" : "FallingEdge", string.Empty);
+    }
 
     /// <summary>F# UserTagHelpers.parseValueType 과 같은 별칭을 받아 표준 표기로. 미일치 시 null.</summary>
     public static string? NormalizeValueType(string? s)
@@ -98,8 +130,10 @@ public static class UserTagEditorSupport
             "GTE" or ">=" => "Gte",
             "LT" or "<" => "Lt",
             "LTE" or "<=" => "Lte",
-            "RISINGEDGE" or "RISING" => "RisingEdge",
-            "FALLINGEDGE" or "FALLING" => "FallingEdge",
+            // ON/OFF 는 화면 표기다(Bit 은 이 둘만 고른다). CSV 를 손으로 적는 사람이 화면에서 본 말을
+            // 그대로 쓰기 때문에 받아 준다 — 저장·내보내기는 언제나 표준 표기(RisingEdge/FallingEdge)다.
+            "RISINGEDGE" or "RISING" or "ON" => "RisingEdge",
+            "FALLINGEDGE" or "FALLING" or "OFF" => "FallingEdge",
             "CHANGED" => "Changed",
             _ => null,
         };
@@ -133,8 +167,8 @@ public static class UserTagEditorSupport
 
         var op = NormalizeMatchOp(matchOp, vt);
         if (op is null) return (null, $"알 수 없는 매칭 조건 '{matchOp}'.");
-        if (!MatchOpsFor(vt).Contains(op, StringComparer.Ordinal))
-            return (null, $"매칭 조건 '{op}' 는 값 타입 {vt} 에 쓸 수 없습니다 (허용: {string.Join("/", MatchOpsFor(vt))}).");
+        if (!AcceptedMatchOpsFor(vt).Contains(op, StringComparer.Ordinal))
+            return (null, $"매칭 조건 '{op}' 는 값 타입 {vt} 에 쓸 수 없습니다 (허용: {string.Join("/", AcceptedMatchOpsFor(vt))}).");
         var mv = (matchValue ?? string.Empty).Trim();
         if (NeedsMatchValue(op))
         {
@@ -146,6 +180,8 @@ public static class UserTagEditorSupport
                 return (null, $"Bit 기준값은 0/1(true/false) 만 허용합니다 ('{mv}').");
         }
         else mv = string.Empty; // edge/Changed 는 기준값 무의미 — 저장 시 비운다(Promaker 와 동일).
+        // Bit 은 ON/OFF 만 쓴다 — 옛 정의·CSV 의 Eq/Neq 는 여기서 같은 뜻의 엣지가 된다(기준값 검증 뒤라 0/1 이 보장된다).
+        (op, mv) = CoerceBitMatch(vt, op, mv);
         return (new UserTagWriteEntry(n, a, vt, op, mv, lv), null);
     }
 

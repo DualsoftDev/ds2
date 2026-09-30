@@ -1809,7 +1809,8 @@
                 describeOp(op, mv) {
                     const v = (mv == null || mv === '') ? '?' : mv;
                     switch (op) {
-                        case 'RisingEdge': return '0 → 1'; case 'FallingEdge': return '1 → 0'; case 'Changed': return '값 변경';
+                        // Bit 은 설정 화면과 같은 말로 부른다 — ON(0→1)·OFF(1→0). 속뜻은 셀 툴팁(describeOpHint).
+                        case 'RisingEdge': return 'ON'; case 'FallingEdge': return 'OFF'; case 'Changed': return '값 변경';
                         case 'Eq': return '= ' + v; case 'Neq': return '≠ ' + v; case 'Gt': return '> ' + v; case 'Gte': return '≥ ' + v;
                         case 'Lt': return '< ' + v; case 'Lte': return '≤ ' + v;
                         case 'AbnormalDetect': {
@@ -1819,6 +1820,10 @@
                         }
                         default: return op || '?';
                     }
+                },
+                // 조건 셀 툴팁 — 화면 말(ON/OFF) 뒤의 신호 조건. 엣지가 아닌 조건은 표기가 이미 자명하다.
+                describeOpHint(op) {
+                    return ({ RisingEdge: '0 → 1 (상승 엣지)', FallingEdge: '1 → 0 (하강 엣지)' })[op] || '';
                 },
                 // 경로 셀: AbnormalDetect → tagAddress = "FLOW / WORK / CALL" 경로(서버 BuildPath),
                 //          나머지(UserTag) → SystemName. (구 이력은 tagAddress=FlowName 만 → 그대로 폴백 표시)

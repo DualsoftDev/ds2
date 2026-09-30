@@ -517,7 +517,7 @@
                                             <span class="chip" x-show="ut.tab === 'Error' && utDeviceCoverage.total > 0" style="cursor:pointer;"
                                                   :class="utDeviceCoverage.unbound === 0 ? 'chip-success' : 'chip-warning'"
                                                   role="button" tabindex="0" @click="utFilterUnbound()" @keydown.enter="utFilterUnbound()"
-                                                  title="디바이스를 묶은 이상알람TAG — 미지정은 MTBF·MTTR 에서 빠집니다. 누르면 남은 미지정만 봅니다"
+                                                  title="디바이스를 묶은 이상알람TAG — 미지정은 eMTBF·eMTTR 에서 빠집니다. 누르면 남은 미지정만 봅니다"
                                                   x-text="'디바이스 ' + utDeviceCoverage.bound + ' / ' + utDeviceCoverage.total"></span>
                                             <!-- 이름에 디바이스 별칭이 든 태그를 한 번에 지정 — 결과는 '수정' 대기라 행마다 되돌릴 수 있다. -->
                                             <button class="btn btn-sm btn-outlined" x-show="ut.tab === 'Error' && utSuggestions.length > 0" @click="utApplySuggestions()"
@@ -573,8 +573,8 @@
                                                     <th @click="utSort('valueType')">타입 <span class="material-icons ude-sort" x-text="utSortIcon('valueType')"></span></th>
                                                     <!-- 매칭 조건은 이상알람TAG 에만 뜻이 있다 — 모니터링TAG 는 값이 바뀌면 그냥 기록한다. -->
                                                     <th x-show="ut.tab === 'Error'" @click="utSort('match')">매칭 조건 <span class="material-icons ude-sort" x-text="utSortIcon('match')"></span></th>
-                                                    <!-- 이상알람TAG 전용: MTBF/MTTR 회복 판정이 볼 flow 집합을 정한다. 미지정 태그는 지표에서 빠진다. -->
-                                                    <th x-show="ut.tab === 'Error'" @click="utSort('device')" title="MTBF·MTTR 산출에 쓰는 설비 묶음">디바이스 <span class="material-icons ude-sort" x-text="utSortIcon('device')"></span></th>
+                                                    <!-- 이상알람TAG 전용: eMTBF/eMTTR 회복 판정이 볼 flow 집합을 정한다. 미지정 태그는 지표에서 빠진다. -->
+                                                    <th x-show="ut.tab === 'Error'" @click="utSort('device')" title="eMTBF·eMTTR 산출에 쓰는 설비 묶음">디바이스 <span class="material-icons ude-sort" x-text="utSortIcon('device')"></span></th>
                                                     <!-- 모니터링TAG 전용: 표시 단위 + 기록량을 줄이는 두 손잡이 -->
                                                     <th x-show="ut.tab === 'Info'" style="cursor:default;">단위</th>
                                                     <th x-show="ut.tab === 'Info'" style="cursor:default;" title="이만큼 넘게 변할 때만 기록합니다">데드밴드</th>
@@ -597,7 +597,7 @@
                                                             </td>
                                                             <td data-label="주소"><span class="ut-addr" style="font-family:var(--font-mono);" x-text="d.tagAddress"></span></td>
                                                             <td data-label="타입" x-text="d.valueType"></td>
-                                                            <td data-label="매칭 조건" x-show="ut.tab === 'Error'" x-text="describeUtOp(d.matchOp, d.matchValue)"></td>
+                                                            <td data-label="매칭 조건" x-show="ut.tab === 'Error'" :title="utOpHint(d.matchOp)" x-text="describeUtOp(d.matchOp, d.matchValue)"></td>
                                                             <!-- 표에서 바로 고른다 — 태그 수십 개를 모달로 하나씩 여는 것은 고역이다. -->
                                                             <td data-label="디바이스" x-show="ut.tab === 'Error'">
                                                                 <!-- 라벨 버튼 → 클릭한 행에만 셀렉트(옵션은 utDevOptsFill 이 문자열로 한 번에). 행×디바이스 x-for 금지(DOM 4만 개). -->
@@ -1547,7 +1547,7 @@
                 <h3><span class="material-icons" x-text="ut.modal.mode === 'add' ? 'add_circle' : 'edit'"></span><span x-text="(ut.modal.mode === 'add' ? '추가' : '편집') + ' — ' + (ut.modal.f.level === 'Info' ? '모니터링TAG' : '이상알람TAG')"></span></h3>
                 <div class="ut-preview" x-show="ut.modal.f.level === 'Error'">
                     <b x-text="utModalPreview.sys"></b> · <b x-text="utModalPreview.name"></b> : 주소 <code x-text="utModalPreview.addr"></code> (<span x-text="utModalPreview.type"></span>) 값이
-                    <b x-text="utModalPreview.cond"></b> 이면 <b>Error 알림</b> 1건 기록
+                    <b :title="utOpHint(ut.modal.f.matchOp)" x-text="utModalPreview.cond"></b> 이면 <b>Error 알림</b> 1건 기록
                 </div>
                 <div class="ut-preview" x-show="ut.modal.f.level === 'Info'">
                     <b x-text="utModalPreview.sys"></b> · <b x-text="utModalPreview.name"></b> : 주소 <code x-text="utModalPreview.addr"></code> (<span x-text="utModalPreview.type"></span>) 값이
@@ -1614,15 +1614,15 @@
                     <label>매칭 조건</label>
                     <div class="ut-chips">
                         <template x-for="op in utModalOps" :key="op">
-                            <button type="button" :class="ut.modal.f.matchOp === op ? 'is-active' : ''" @click="utModalSetOp(op)" x-text="utOpLabel(op)"></button>
+                            <button type="button" :class="ut.modal.f.matchOp === op ? 'is-active' : ''" @click="utModalSetOp(op)" :title="utOpHint(op)" x-text="utOpLabel(op)"></button>
                         </template>
                     </div>
                 </div>
-                <!-- 디바이스 귀속 — MTBF·MTTR 전용. AASX 가 아니라 DSPilot 설정에 저장된다. -->
+                <!-- 디바이스 귀속 — eMTBF·eMTTR 전용. AASX 가 아니라 DSPilot 설정에 저장된다. -->
                 <div class="ut-form-row" x-show="ut.modal.f.level === 'Error'">
-                    <label>디바이스 <span style="font-weight:400;">— MTBF·MTTR 용</span></label>
+                    <label>디바이스 <span style="font-weight:400;">— eMTBF·eMTTR 용</span></label>
                     <select class="form-field" x-model="ut.modal.f.device" title="알람이 해소되고 이 디바이스가 쓰이는 설비가 다시 돌면 복구로 봅니다">
-                        <option value="">미지정 — 지표에서 제외</option>
+                        <option value="">미지정 — eMTBF·eMTTR 에서 제외</option>
                         <option :value="UT_DEVICE_GLOBAL">전역 — 라인 전체 신호(비상정지 등)</option>
                         <template x-for="dev in ut.devices" :key="dev">
                             <option :value="dev" x-text="dev"></option>
@@ -2430,7 +2430,8 @@
                 describeUtOp(op, mv) {
                     const v = (mv == null || mv === '') ? '?' : mv;
                     switch (op) {
-                        case 'RisingEdge': return '0 → 1'; case 'FallingEdge': return '1 → 0'; case 'Changed': return '값 변경';
+                        // Bit 은 화면에서 ON/OFF 로 부른다 — 0→1·1→0 이라는 속뜻은 칩·셀 툴팁(utOpHint)에 둔다.
+                        case 'RisingEdge': return 'ON'; case 'FallingEdge': return 'OFF'; case 'Changed': return '값 변경';
                         case 'Eq': return '= ' + v; case 'Neq': return '≠ ' + v;
                         case 'Gt': return '> ' + v; case 'Gte': return '≥ ' + v;
                         case 'Lt': return '< ' + v; case 'Lte': return '≤ ' + v;
@@ -2438,8 +2439,13 @@
                     }
                 },
                 utOpLabel(op) {
-                    return ({ RisingEdge: '0 → 1 (상승)', FallingEdge: '1 → 0 (하강)', Changed: '값 변경', Eq: '같아질 때 (=)', Neq: '달라질 때 (≠)',
+                    return ({ RisingEdge: 'ON', FallingEdge: 'OFF', Changed: '값 변경', Eq: '같아질 때 (=)', Neq: '달라질 때 (≠)',
                               Gt: '초과 (>)', Gte: '이상 (≥)', Lt: '미만 (<)', Lte: '이하 (≤)' })[op] || op;
+                },
+                // 칩 툴팁 — 화면 말(ON/OFF) 뒤의 신호 조건. 이상알람TAG 를 다루는 사람은 엣지로 생각한다.
+                utOpHint(op) {
+                    return ({ RisingEdge: '0 → 1 (상승 엣지)', FallingEdge: '1 → 0 (하강 엣지)',
+                              Changed: '값이 바뀔 때마다 — 예전 정의에만 남아 있습니다' })[op] || '';
                 },
                 utSystemHasEndpoint(systemId) {
                     const s = this.ut.systems.find(x => x.systemId === systemId);
@@ -2530,7 +2536,13 @@
                     }
                     this.utModalValidate(true);
                 },
-                get utModalOps() { return this.ut.matchOpsByType[this.ut.modal.f.valueType] || ['Changed']; },
+                // 고를 수 있는 조건(서버 MatchOpsFor) + 지금 걸려 있는 조건. Bit 이 ON/OFF 로 줄기 전에 저장된
+                // '값 변경·비교' 태그를 열었을 때 칩이 하나도 안 켜지면 편집이 조용히 뜻을 바꾼다 — 보이게 남긴다.
+                get utModalOps() {
+                    const ops = this.ut.matchOpsByType[this.ut.modal.f.valueType] || ['Changed'];
+                    const cur = this.ut.modal.f.matchOp;
+                    return (!cur || ops.includes(cur)) ? ops : [...ops, cur];
+                },
                 utModalNeedsValue(op) { return ['Eq', 'Neq', 'Gt', 'Gte', 'Lt', 'Lte'].includes(op || this.ut.modal.f.matchOp); },
                 utModalSetType(vt) {
                     const f = this.ut.modal.f;

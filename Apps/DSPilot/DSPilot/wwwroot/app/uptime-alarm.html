@@ -366,7 +366,7 @@
                                                     <!-- 주소: Sensor* → InTag 주소(actualValue), Action* → '-', 나머지 → tagAddress(코드) -->
                                                     <td data-label="주소"><span :class="abnAddrClass(a)" x-text="abnAddr(a)"></span></td>
                                                     <!-- 조건 -->
-                                                    <td data-label="조건" x-text="describeOp(a.matchOp, a.matchValue)"></td>
+                                                    <td data-label="조건" :title="describeOpHint(a.matchOp)" x-text="describeOp(a.matchOp, a.matchValue)"></td>
                                                     <!-- 값: AbnormalDetect 시간·주소값 숨김, 나머지 기존 -->
                                                     <td data-label="값"><span :class="a.matchOp !== 'AbnormalDetect' ? 'up-codeish' : ''" x-text="abnVal(a)"></span></td>
                                                     <!-- 해소: 이상알람TAG 는 해소 시각 + 지속시간 / 미해소는 '진행 중', 자동감지(점 이벤트)는 '—' -->
