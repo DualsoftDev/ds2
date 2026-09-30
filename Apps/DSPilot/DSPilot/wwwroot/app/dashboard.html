@@ -1184,7 +1184,7 @@
                         이 브라우저에만 저장되는 개인 설정입니다.
                     </div>
                     <div class="flex gap-2 justify-end" style="margin-top:14px;">
-                        <button class="btn btn-sm btn-outlined" @click="kpiResetDefault()" title="기본 구성(가동횟수·OEE 종합·평균 고장 간격·고장 사이클 평균 시간)으로 되돌리기">기본값</button>
+                        <button class="btn btn-sm btn-outlined" @click="kpiResetDefault()" title="기본 구성(가동횟수·OEE 종합·평균 비가동 간격·비가동 사이클 평균 시간)으로 되돌리기">기본값</button>
                         <button class="btn btn-sm btn-outlined" @click="closeKpiModal()">취소</button>
                         <button class="btn btn-sm" :class="kpiDirty ? 'btn-primary' : ''" @click="saveKpiCards()">
                             <span class="material-icons" style="font-size:15px;">check</span>
@@ -1224,8 +1224,8 @@
             //  · nav: 카드 본체 클릭 시 이동 페이지 / cfgTip: 있으면 카드 우상단 ⚙ 표시(kpiConfig 로 분기) — 본체 클릭과 분리
             { id: 'count',        label: '가동횟수',     group: '기본',          src: 'sum',  kind: 'count', dir: 'up',   color: '--color-primary', labelColor: '--color-primary-strong', icon: 'autorenew',       val: r => r.totalCount != null ? r.totalCount : 0, nav: '/uptime-oee', tip: '설비효율 현황 페이지로 이동', cfgTip: '출력(생산 기준) Flow 지정' },
             { id: 'oee',          label: 'OEE 종합',     group: '기본',          src: 'sum',  kind: 'pct',   dir: 'up',   color: '--green',          icon: 'insights',        val: r => r.oee,          nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동' },
-            { id: 'mtbf',         label: '평균 고장 간격(MTBF)', group: '기본',   src: 'sum',  kind: 'dur',   dir: 'up',   color: '--rust',           icon: 'timer',           val: r => r.mtbf,         nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 평균 고장 간격(MTBF) = 연속 고장 사이클 시작 간격 평균' },
-            { id: 'mttr',         label: '고장 사이클 평균 시간', group: '기본',   src: 'sum',  kind: 'dur',   dir: 'down', color: '--rust',           icon: 'build',           val: r => r.mttr,         nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 고장 사이클 평균 시간 = 고장으로 판정된 사이클의 전체 길이 평균(정상분 포함)' },
+            { id: 'mtbf',         label: '평균 비가동 간격(MTBF)', group: '기본',   src: 'sum',  kind: 'dur',   dir: 'up',   color: '--rust',           icon: 'timer',           val: r => r.mtbf,         nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 평균 비가동 간격(MTBF) = 연속 비가동 사이클 시작 간격 평균' },
+            { id: 'mttr',         label: '비가동 사이클 평균 시간(MTTR)', group: '기본',   src: 'sum',  kind: 'dur',   dir: 'down', color: '--rust',           icon: 'build',           val: r => r.mttr,         nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 비가동 사이클 평균 시간(MTTR) = 비가동으로 판정된 사이클의 전체 길이 평균(정상분 포함)' },
             { id: 'availability', label: '가용성 A',     group: '설비효율 OEE',  src: 'sum',  kind: 'pct',   dir: 'up',   color: '--color-primary',  icon: 'hourglass_empty', val: r => r.availability, nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 가용성 = 실가동시간 ÷ 계획가동시간' },
             { id: 'performance',  label: '성능 P',       group: '설비효율 OEE',  src: 'sum',  kind: 'pct',   dir: 'up',   color: '--amber',          icon: 'bar_chart',       val: r => r.performance,  nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 성능 = 표준CT 기준 속도 효율' },
             { id: 'quality',      label: '품질 Q',       group: '설비효율 OEE',  src: 'sum',  kind: 'pct',   dir: 'up',   color: '--green',          icon: 'check_circle',    val: r => r.quality,      nav: '/uptime-oee',  tip: '설비효율 현황 페이지로 이동 · 품질 = 양품 ÷ 전체' },
@@ -2118,7 +2118,7 @@
                 else txt = this.durShort(a);
                 return '<span style="display:inline-flex;align-items:center;gap:3px;font-weight:800;font-size:0.82rem;color:' + color + ';font-variant-numeric:tabular-nums;"><span style="font-size:0.8rem;line-height:1;">' + arrow + '</span>' + txt + '</span>';
             },
-            // 짧은 지속시간 포맷 — 평균 고장 간격/평균 복구 시간·증감량 표기용.
+            // 짧은 지속시간 포맷 — 평균 비가동 간격/비가동 사이클 평균 시간·증감량 표기용.
             // 표기 SSOT = shell.js window.dspFmt.dur (한국식 일/시간/분/초).
             durShort(ms) { return window.dspFmt.dur(ms); },
 

@@ -191,7 +191,7 @@
                         </div>
                         <!-- 고장 사이클 평균 시간 (doc/28 §2.1 — 종전 MTTR 자리, API 필드 mttr 유지). 고장 행 ct 평균(정상분 포함). 고장 0 = 배지 -->
                         <div class="up-oee" :class="oee && oee.failureCount === 0 ? 'is-good' : (oee && oee.mttr != null ? 'is-warn' : 'is-na')">
-                            <div class="up-oee-label">비가동 사이클 평균 시간 <span class="up-cm-info" title="비가동 사이클의 전체 길이 평균 — 정상분이 포함되므로 '수리 시간'이 아닙니다.">ⓘ</span></div>
+                            <div class="up-oee-label">비가동 사이클 평균 시간(MTTR) <span class="up-cm-info" title="비가동 사이클의 전체 길이 평균 — 정상분이 포함되므로 '수리 시간'이 아닙니다.">ⓘ</span></div>
                             <template x-if="oee && oee.failureCount === 0">
                                 <div>
                                     <div class="up-nofault"><span class="led"></span>비가동 없음</div>
