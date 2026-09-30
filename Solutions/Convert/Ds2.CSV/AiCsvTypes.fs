@@ -89,6 +89,12 @@ type AiApiRow = {
     /// true = 센서 전용 선언. DONE 더미 Work 와 그것이 낳는 Source 후보 경고를 면제한다.
     /// 센서는 출력이 없어 API 가 하나뿐인데, 그 하나를 «동작» 으로 보면 짝이 없어 경고가 난다.
     IsSensor   : bool
+    /// true = IO 를 `?` 로 적었다 — «아직 모른다» 는 명시다.
+    ///
+    /// 빈 칸과 뜻이 다르다. 빈 칸은 적는 것을 잊은 것이고 `?` 는 알고 비운 것이다.
+    /// Time 의 `?` 가 AI-W2 로 묶이듯 IO 의 `?` 도 따로 세어 AI-W11 로 알린다 —
+    /// «OutTag 를 빠뜨렸다»(AI-W3)고 말하면 지침이 시킨 대로 적은 사람이 고칠 것을 찾게 된다.
+    TagsUnknown : bool
     InTag      : AiTagSpec option
     OutTag     : AiTagSpec option
     LineNumber : int
