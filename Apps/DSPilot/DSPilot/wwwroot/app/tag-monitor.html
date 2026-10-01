@@ -102,15 +102,14 @@
 
         <main class="dsp-main">
 
+            <!-- 상단 툴바 — 설비효율/추이 등과 동일한 .ds-topbar 패턴(좌측 공용 기간 선택기 · 우측 새로고침)으로 통일(2026-10-01) -->
             <div class="ds-topbar">
-                <div class="ds-topbar-titles">
-                    <h2>태그 모니터링</h2>
-                    <div class="ds-breadcrumb" x-text="rangeLabel"></div>
-                </div>
                 <div class="ds-topbar-actions">
-                    <!-- 공용 기간 선택기(js/ds-range.js) — 프리셋 + 📅 날짜·시간 직접 지정. 선택은 전 페이지가 기억·공유. -->
+                    <!-- 공용 기간 선택기(js/ds-range.js) — 프리셋 + 날짜·시간 직접 지정. 선택은 일 단위 분석 페이지끼리 기억·공유. -->
                     <ds-range :from="rangeFrom" :to="rangeTo" :preset="period === 'custom' ? '' : period" presets="today,24h,7d,30d"
                               @preset="setPeriod($event.detail.key)" @range="applyRange($event.detail)"></ds-range>
+                </div>
+                <div class="ds-topbar-actions" style="justify-content:flex-end;">
                     <button class="btn btn-sm btn-outlined color-default" @click="reload()" :disabled="busy" title="목록과 추이를 다시 읽습니다">
                         <span class="material-icons">refresh</span> 새로고침
                     </button>
@@ -183,7 +182,8 @@
                             </div>
                             <div x-show="loaded && filteredTags.length === 0" class="ds-empty" style="padding:18px; text-align:center; font-size:0.78rem;">
                                 <span x-show="tags.length === 0">등록된 UserTag 가 없습니다. 설정 ▸ 모니터링·정합에서 모니터링TAG 를 추가하세요.</span>
-                                <span x-show="tags.length > 0">조건에 맞는 태그가 없습니다.</span>
+                                <span x-show="tags.length > 0 && kind === 'Info' && !q && !sysFilter">이 모델에 모니터링(Info) 태그가 없습니다. '이상알람'·'전체' 탭에서 보거나, 설정 ▸ 사용자 태그에서 레벨을 모니터링으로 지정하세요.</span>
+                                <span x-show="tags.length > 0 && !(kind === 'Info' && !q && !sysFilter)">조건에 맞는 태그가 없습니다.</span>
                             </div>
                         </div>
                     </div>

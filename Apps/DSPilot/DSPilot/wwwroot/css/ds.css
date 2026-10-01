@@ -512,36 +512,42 @@
 /* ============================================================================
    공용 기간 선택기 <ds-range> — 2026-10-01 (js/ds-range.js 가 그린다)
    ----------------------------------------------------------------------------
-   [프리셋 세그먼트 …][가동 ▾][📅 9/24 00:00 ~ 10/1 24:00]  + 아래로 열리는 카드(.ds-range-pop)
+   [오늘 | 7일 | 30일 | 60일] (프리셋 '바로 잡기' 그룹) · [가동 ▾]  +  날짜/시간 편집칸(.ds-range-edit, 항상 노출)
+   편집칸은 📅 토글을 없애고 바로 노출한다(2026-10-01). 남은 팝오버는 '가동 N회' 카드(.ds-range-cycpop) 하나뿐.
    모든 분석 페이지가 이 한 벌을 쓴다 — 페이지별 날짜 입력(.up-period-input/.ct-range-popup)은 폐지.
    ============================================================================ */
 ds-range { display: inline-block; max-width: 100%; min-width: 0; }
-.ds-range { position: relative; display: inline-flex; align-items: center; max-width: 100%; }
+.ds-range { position: relative; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; max-width: 100%; }
 .ds-range-seg { max-width: 100%; }
 .ds-range-seg > button .material-icons { font-size: 16px; }
-.ds-range-seg > button.ds-range-cal { gap: 6px; padding-left: 11px; padding-right: 11px; }
-.ds-range-lbl { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.74rem; font-weight: 700; letter-spacing: 0; white-space: nowrap; }
 .ds-range-seg > button.ds-range-cyc { gap: 4px; padding-right: 8px; }
 .ds-range-cyc-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.72rem; white-space: pre; }
 .ds-range-caret { font-size: 16px; margin-left: -2px; opacity: 0.8; transition: transform 0.15s; }
 .ds-range-cyc[aria-expanded="true"] .ds-range-caret { transform: rotate(180deg); }
 
-/* 열리는 카드 — 세그먼트 바로 아래, 왼쪽 정렬. 사이드바/스티키 툴바(z 30) 위. */
-.ds-range-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; display: flex; flex-direction: column; gap: 10px;
-    min-width: 330px; padding: 12px 14px; background: var(--color-surface); border: 1px solid var(--color-lines-strong);
-    border-radius: var(--radius-md); box-shadow: var(--shadow-modal, 0 10px 28px rgba(0, 0, 0, 0.18)); }
-.ds-range-pop[hidden] { display: none; }
-.ds-range-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) 14px minmax(0, 1fr); gap: 8px; align-items: center; }
-.ds-range-k { font-size: 0.62rem; font-weight: 800; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.08em; font-family: var(--font-mono); }
+/* 직접 지정 편집칸 — 바로 보이는 인라인 줄(팝오버 아님). 프리셋 그룹과 나란한 '그룹 박스'. */
+.ds-range-edit { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px;
+    padding: 3px 6px; border: 1px solid var(--color-lines-strong); border-radius: 10px; background: var(--color-surface-variant); }
+.ds-range-k { font-size: 0.62rem; font-weight: 800; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.08em; font-family: var(--font-mono); white-space: nowrap; }
+.ds-range-k-cal { display: inline-flex; align-items: center; }
+.ds-range-k-cal .material-icons { font-size: 16px; color: var(--color-text-secondary); }
+.ds-range-k-time { margin-left: 6px; }
 .ds-range-tilde { text-align: center; color: var(--color-text-disabled); font-weight: 700; }
-.ds-range-pop .form-field { width: 100%; min-width: 0; height: 34px; padding: 4px 8px; font-size: 0.8rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; box-sizing: border-box; }
-.ds-range-pop input[type="text"].form-field { text-align: center; }
-.ds-range-foot { display: flex; align-items: center; gap: 10px; }
-.ds-range-dur { flex: 1 1 auto; min-width: 0; font-family: var(--font-mono); font-size: 0.7rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-range-edit .form-field { min-width: 0; height: 30px; padding: 4px 6px; font-size: 0.8rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; box-sizing: border-box; }
+.ds-range-edit input[type="date"].form-field { width: 150px; }
+.ds-range-edit input[type="text"].form-field { width: 82px; text-align: center; }   /* HH:MM:SS 까지(초는 짧은 창에서만) */
+.ds-range-edit .ds-range-allday { margin-left: 2px; }
+.ds-range-dur { min-width: 0; font-family: var(--font-mono); font-size: 0.7rem; color: var(--color-text-secondary); white-space: nowrap; }
 .ds-range-dur.is-err { color: var(--color-error); font-weight: 700; }
 .ds-range-link { background: none; border: none; padding: 0; margin: 0; cursor: pointer; font: inherit; font-size: 0.72rem; font-weight: 700;
     color: var(--color-primary); text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
-.ds-range-apply { min-width: 64px; justify-content: center; }
+.ds-range-apply { min-width: 56px; justify-content: center; }
+
+/* 가동 N회 카드 — 접힌 팝오버. 세그먼트 바로 아래, 왼쪽 정렬. 사이드바/스티키 툴바(z 30) 위. */
+.ds-range-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; display: flex; flex-direction: column; gap: 10px;
+    min-width: 300px; padding: 12px 14px; background: var(--color-surface); border: 1px solid var(--color-lines-strong);
+    border-radius: var(--radius-md); box-shadow: var(--shadow-modal, 0 10px 28px rgba(0, 0, 0, 0.18)); }
+.ds-range-pop[hidden] { display: none; }
 
 /* 가동 N회 카드 — 큼직한 선택지(누르면 바로 적용·닫힘) */
 .ds-range-cycpop { min-width: 0; padding: 10px; }
@@ -557,11 +563,11 @@ ds-range { display: inline-block; max-width: 100%; min-width: 0; }
 .dark-theme .ds-range-cyc-grid > button.is-active b { color: var(--color-primary); }
 
 @media (max-width: 480px) {
-    ds-range, .ds-range, .ds-range-seg { width: 100%; }
+    ds-range, .ds-range, .ds-range-seg, .ds-range-edit { width: 100%; }
     .ds-range-seg { flex-wrap: wrap; }
     .ds-range-seg > button { flex: 1 1 auto; justify-content: center; }
-    .ds-range-seg > button.ds-range-cal { flex-basis: 100%; }
+    .ds-range-edit input[type="date"].form-field { flex: 1 1 130px; width: auto; }
+    .ds-range-edit .form-field { font-size: 16px; height: 36px; }
     .ds-range-pop { left: 0; right: 0; min-width: 0; }
-    .ds-range-pop .form-field { font-size: 16px; }
     .ds-range-cyc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

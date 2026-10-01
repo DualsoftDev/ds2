@@ -17,7 +17,7 @@ function overviewCycleApp() {
     const CG = window.CycleGantt;
     const LEFT_PAD = CG.LEFT_PAD, RIGHT_PAD = CG.RIGHT_PAD, MIN = CG.MIN_PLOT_WIDTH, MAX_ZOOM = CG.MAX_ZOOM;
     // 개요 기본 기간 = 최근 1시간(단일 페이지 기본 5분과 다름 — 상태 훑어보기 용도). URL 에는 기본값 생략.
-    const DEFAULT_PRESET = 'h1';
+    const DEFAULT_PRESET = 'today';   // 가동시간 분석 기본 = 오늘(2026-10-01, 종전 h1)
     // 사이클 프리셋용 히스토리 캐시 (closure, Alpine 반응형 밖 — 단순 캐시)
     const histCache = {};
     // 카드 간트 표시 기억(브라우저별) — Call 막대 / IN·OUT 파형 각각(2026-09-17, 단일 페이지와 같은 규약).
@@ -190,8 +190,7 @@ function overviewCycleApp() {
             return qp;
         },
         syncRangeUrl() {
-            // 전 페이지 공용 기억(js/ds-range.js) — 단일 페이지와 같은 규약(시간 프리셋=이름, 가동 N회='cN', 직접 지정=절대 범위).
-            if (window.dspRange) window.dspRange.remember({ preset: this.timePreset || (this.cyclePreset ? 'c' + this.cyclePreset : null), from: this.startTime, to: this.endTime });
+            // 가동시간 분석(사이클)은 기간 공유 그룹에서 빠진다(2026-10-01) — remember/recall 없이 항상 자기 기본값(오늘).
             const qp = new URLSearchParams(location.search);
             qp.delete('period'); qp.delete('from'); qp.delete('to');
             const pp = this.periodParams();
@@ -214,19 +213,10 @@ function overviewCycleApp() {
                 this.timePreset = null; this.cyclePreset = null;
                 return await this.loadAll();
             }
-            // URL 에 기간이 없으면 다른 페이지에서 고른 기간(공용 기억, js/ds-range.js) → 그것도 없으면 기본 최근 1시간.
-            const mem = window.dspRange ? window.dspRange.recall(['m5', 'm30', 'h1', 'h8', 'h24', 'today'], [20, 50, 100]) : null;
-            if (mem && mem.preset) return await this.onRangePreset(mem.preset);
-            if (mem && mem.cycle) return await this.setRecentCycles(mem.cycle);
-            if (mem && mem.from && mem.to && this.inputToDate(mem.to) > this.inputToDate(mem.from)) {
-                this.startTime = mem.from; this.endTime = mem.to;
-                this.clampTimeRange();
-                this.timePreset = null; this.cyclePreset = null;
-                return await this.loadAll();
-            }
-            return await this.setRecentHours(1);
+            // URL 에 기간이 없으면 기본 = 오늘(2026-10-01, 종전 최근 1시간). 사이클은 기간 공유에서 빠져 물려받지 않는다.
+            return await this.setToday();
         },
-        // 카드 클릭 이동 주소 — 단일 flow 가동시간 분석(편집) + 현재 기간(기본 h1 도 명시 — 단일 페이지 기본은 5분이라 생략하면 기간이 바뀐다).
+        // 카드 클릭 이동 주소 — 단일 flow 가동시간 분석(편집) + 현재 기간(개요·단일 둘 다 기본 '오늘'이라 period=today 로 명시해도 안전).
         flowHref(slice) {
             const qp = new URLSearchParams();
             qp.set('name', slice.flowName);

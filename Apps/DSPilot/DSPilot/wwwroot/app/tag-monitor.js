@@ -226,7 +226,10 @@ function tagMonitorApp() {
             const key = this._tagsVer + '|' + this.kind + '|' + this.sysFilter + '|' + q;
             if (key === ftKey) return ftVal;
             const out = this.tags.filter(t => {
-                if (this.kind !== 'all' && t.level !== this.kind) return false;
+                // 모니터링/이상알람 탭은 '지금 모델에 있는' 태그만 본다(2026-10-01). 모델에 없는 고아 태그는
+                // 레벨을 알 수 없어(DB 엔 레벨 칸이 없음) 서버가 Info 로 기본 처리하므로, 여기서 제외하지 않으면
+                // 옛 이상알람 태그가 '모니터링'에 유령으로 섞인다. 고아의 과거 이력은 '전체' 탭에서 본다.
+                if (this.kind !== 'all' && (!t.inModel || t.level !== this.kind)) return false;
                 if (this.sysFilter && t.systemName !== this.sysFilter) return false;
                 if (q && !((t.name || '') + ' ' + (t.address || '')).toLowerCase().includes(q)) return false;
                 return true;

@@ -15,13 +15,20 @@
                @range="…($event.detail)"                직접 지정 적용 → {from, to}
      ></ds-range>
 
-   화면: [프리셋 세그먼트 …][가동 ▾][📅 9/24 00:00 ~ 10/1 24:00]
-         📅 버튼 = 현재 범위를 항상 글자로 보여 주고, 누르면 아래 카드에서 날짜(시작~끝)와
-         시간(시작~끝, 기본 00:00 ~ 24:00)을 따로 고쳐 '적용'한다. 종료 24:00 = 다음날 00:00.
+   화면(2026-10-01 개편 — 날짜/시간 편집칸을 항상 노출, 📅 토글 폐지):
+         [오늘 | 7일 | 30일 | 60일] (프리셋 '바로 잡기' 그룹, 있을 때) · [가동 ▾] (가동 카드, 있을 때)
+         날짜 [시작]~[끝]  시간 [시작]~[끝]  [종일] [적용]   — 바로 보이는 직접 지정 편집칸.
+         편집칸은 활성 범위를 늘 비춘다(편집칸에 포커스가 있을 때만 안 덮어씀). 종료 24:00 = 다음날 00:00.
+         '적용' 을 눌러야 범위가 반영된다(프리셋·가동 클릭은 즉시 반영). 가동 ▾ 만 접힌 카드로 남는다.
 
    기억: 사용자가 고른 범위는 localStorage('dspilot-range')에 {preset, from, to} 로 남기고
          다른 페이지가 열릴 때 되살린다 — dspRange.remember() / dspRange.recall(presetKeys).
          프리셋은 그 페이지가 지원하면 이름으로(열 때 다시 계산), 아니면 절대 범위(from/to)로 적용.
+
+   ★공유 범위(2026-10-01) — 척도가 다른 페이지끼리 범위가 섞여 불편(예: 60일→PLC 디버그, 5분→OEE)해
+     *일 단위 분석 페이지끼리만* 기억·복원한다: 설비효율·생산효율·추이·이상알람·태그 모니터링.
+     사이클(가동시간 분석)·PLC 디버그·동작편차는 참여하지 않는다(remember/recall 호출 안 함 = 항상 자기 기본값).
+     → 참여 규약: 공유하려면 remember()+recall() 둘 다, 독립이면 둘 다 호출 안 함(신규 페이지도 이 기준).
    ============================================================================ */
 (function () {
     'use strict';
@@ -177,9 +184,9 @@
     DsRange.prototype.connectedCallback = function () {
         if (this._root) { this._update(); return; }
         var self = this;
-        this._open = null;          // null | 'range' | 'cycles'
+        this._open = null;          // null | 'cycles' — 편집칸은 항상 노출이라 'range' 토글은 없다
         this._ed = { sd: '', ed: '', st: '', et: '' };   // 편집 중 값
-        this._edBase = '';          // 편집칸을 채운 시점의 from|to (dirty 판정)
+        this._edBase = this._edKey();   // 편집칸을 채운 시점의 from|to (dirty 판정 — 적용 버튼 '*')
         var root = document.createElement('div');
         root.className = 'ds-range';
         root._x_ignore = true;      // Alpine 이 내부 DOM 을 건드리지 않게(요소 자체의 :attr/@event 바인딩은 그대로 산다)
@@ -208,26 +215,30 @@
     DsRange.prototype._render = function () {
         var self = this;
         var presets = this._presets(), cycles = this._cycles();
-        var h = '<div class="segmented ds-range-seg" role="group" aria-label="조회 기간">';
-        presets.forEach(function (k) { h += '<button type="button" data-preset="' + k + '" title="' + esc(PRESETS[k].title) + '">' + esc(PRESETS[k].label) + '</button>'; });
-        if (cycles.length) h += '<button type="button" class="ds-range-cyc" title="최근 N회 가동이 들어오도록 날짜·시간을 자동으로 맞춥니다">' + ICON_CYC + '가동<span class="ds-range-cyc-n"></span>' + ICON_DN + '</button>';
-        h += '<button type="button" class="ds-range-cal" title="시작·종료 날짜와 시간을 직접 지정">' + ICON_CAL + '<span class="ds-range-lbl"></span></button>';
-        h += '</div>';
-        // 직접 지정 카드
-        h += '<div class="ds-range-pop ds-range-edit" hidden>'
-           + '<div class="ds-range-row"><span class="ds-range-k">날짜</span>'
+        var h = '';
+        // '바로 잡기' 그룹 — 프리셋(+ 가동)을 한 그룹 버튼으로. 둘 다 없으면 그룹 자체를 안 그린다(plc-debug 류).
+        if (presets.length || cycles.length) {
+            h += '<div class="segmented ds-range-seg" role="group" aria-label="조회 기간">';
+            presets.forEach(function (k) { h += '<button type="button" data-preset="' + k + '" title="' + esc(PRESETS[k].title) + '">' + esc(PRESETS[k].label) + '</button>'; });
+            if (cycles.length) h += '<button type="button" class="ds-range-cyc" title="최근 N회 가동이 들어오도록 날짜·시간을 자동으로 맞춥니다">' + ICON_CYC + '가동<span class="ds-range-cyc-n"></span>' + ICON_DN + '</button>';
+            h += '</div>';
+        }
+        // 직접 지정 편집칸 — 항상 노출(바로 보임). 날짜·시간을 고치고 '적용'. 캘린더 아이콘으로 묶음을 표시.
+        h += '<div class="ds-range-edit">'
+           + '<span class="ds-range-k ds-range-k-cal" aria-hidden="true">' + ICON_CAL + '</span>'
+           + '<span class="ds-range-k">날짜</span>'
            + '<input type="date" class="form-field" data-k="sd" aria-label="시작 날짜" />'
            + '<span class="ds-range-tilde">~</span>'
-           + '<input type="date" class="form-field" data-k="ed" aria-label="종료 날짜" /></div>'
-           + '<div class="ds-range-row"><span class="ds-range-k">시간</span>'
+           + '<input type="date" class="form-field" data-k="ed" aria-label="종료 날짜" />'
+           + '<span class="ds-range-k ds-range-k-time">시간</span>'
            + '<input type="text" class="form-field" data-k="st" inputmode="numeric" placeholder="00:00" aria-label="시작 시각" autocomplete="off" />'
            + '<span class="ds-range-tilde">~</span>'
-           + '<input type="text" class="form-field" data-k="et" inputmode="numeric" placeholder="24:00" aria-label="종료 시각" autocomplete="off" /></div>'
-           + '<div class="ds-range-foot"><span class="ds-range-dur"></span>'
+           + '<input type="text" class="form-field" data-k="et" inputmode="numeric" placeholder="24:00" aria-label="종료 시각" autocomplete="off" />'
            + '<button type="button" class="ds-range-link ds-range-allday" title="시간을 00:00 ~ 24:00 으로">종일</button>'
-           + '<button type="button" class="btn btn-sm ds-range-apply">적용</button></div>'
+           + '<button type="button" class="btn btn-sm ds-range-apply">적용</button>'
+           + '<span class="ds-range-dur"></span>'
            + '</div>';
-        // 가동 N회 카드
+        // 가동 N회 카드 — 접힌 채 남는 유일한 팝오버
         if (cycles.length) {
             h += '<div class="ds-range-pop ds-range-cycpop" hidden><div class="ds-range-cyc-grid">';
             cycles.forEach(function (n) { h += '<button type="button" data-n="' + n + '"><b>최근 ' + n + '회</b><span>가동</span></button>'; });
@@ -240,7 +251,6 @@
         });
         var cyc = this._root.querySelector('.ds-range-cyc');
         if (cyc) cyc.addEventListener('click', function () { self._setOpen(self._open === 'cycles' ? null : 'cycles'); });
-        this._root.querySelector('.ds-range-cal').addEventListener('click', function () { self._setOpen(self._open === 'range' ? null : 'range'); });
         this._root.querySelectorAll('[data-n]').forEach(function (b) {
             b.addEventListener('click', function () { self._setOpen(null); self._emit('cycle', { n: parseInt(b.getAttribute('data-n'), 10) }); });
         });
@@ -282,13 +292,17 @@
             cyc.querySelector('.ds-range-cyc-n').textContent = cycle ? ' 최근 ' + cycle : '';
             root.querySelectorAll('[data-n]').forEach(function (b) { b.classList.toggle('is-active', String(b.getAttribute('data-n')) === String(cycle)); });
         }
-        var cal = root.querySelector('.ds-range-cal');
-        cal.classList.toggle('is-active', !preset && !cycle && !!from && !!to);
-        cal.disabled = disabled;
-        root.querySelector('.ds-range-lbl').textContent = label(from, to);
-        cal.title = (from && to ? '현재 범위 ' + label(from, to) + ' · ' : '') + '시작·종료 날짜와 시간을 직접 지정';
-        // 편집칸: 닫혀 있거나 아직 손대지 않았으면 현재 값으로 채운다
-        if (this._open !== 'range' || !this._dirty()) this._seedEdit(from, to);
+        root.querySelectorAll('.ds-range-edit input').forEach(function (inp) { inp.disabled = disabled; });
+        root.querySelector('.ds-range-allday').disabled = disabled;
+        // 편집칸은 활성 범위를 늘 비춘다 — 단, 사용자가 편집칸에 포커스를 두고 고치는 중이면 안 덮어쓴다.
+        if (!this._editing()) this._seedEdit(from, to);
+        else this._refreshEdit(true);
+        if (disabled) root.querySelector('.ds-range-apply').disabled = true;
+    };
+    // 편집칸(날짜/시간 input)에 포커스가 있는가 — 있으면 _seedEdit 로 입력을 덮어쓰지 않는다.
+    DsRange.prototype._editing = function () {
+        var a = document.activeElement;
+        return !!(a && a.tagName === 'INPUT' && this._root.contains(a));
     };
 
     DsRange.prototype._seedEdit = function (from, to) {
@@ -334,17 +348,11 @@
         this._emit('range', { from: r.from, to: r.to });
     };
     DsRange.prototype._setOpen = function (which) {
-        this._open = which;
-        var ed = this._root.querySelector('.ds-range-edit'), cp = this._root.querySelector('.ds-range-cycpop');
-        if (ed) ed.hidden = which !== 'range';
-        if (cp) cp.hidden = which !== 'cycles';
-        this._root.querySelector('.ds-range-cal').setAttribute('aria-expanded', which === 'range' ? 'true' : 'false');
-        var cyc = this._root.querySelector('.ds-range-cyc'); if (cyc) cyc.setAttribute('aria-expanded', which === 'cycles' ? 'true' : 'false');
-        if (which === 'range') {
-            this._seedEdit(this.getAttribute('from') || '', this.getAttribute('to') || '');
-            var first = this._root.querySelector('.ds-range-edit input[data-k="sd"]');
-            if (first) try { first.focus(); } catch (e) { /* ignore */ }
-        }
+        // 편집칸은 항상 노출 — 여기서 여닫는 건 가동 N회 카드뿐이다.
+        this._open = which === 'cycles' ? 'cycles' : null;
+        var cp = this._root.querySelector('.ds-range-cycpop');
+        if (cp) cp.hidden = this._open !== 'cycles';
+        var cyc = this._root.querySelector('.ds-range-cyc'); if (cyc) cyc.setAttribute('aria-expanded', this._open === 'cycles' ? 'true' : 'false');
     };
     DsRange.prototype._emit = function (name, detail) { this.dispatchEvent(new CustomEvent(name, { detail: detail })); };
 

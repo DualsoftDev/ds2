@@ -454,10 +454,10 @@
                         this.tagLogCounts = {};
                     }
 
-                    // 전체 기간으로 초기화 → 다른 페이지에서 고른 기간이 있으면 그걸로(공용 기억, js/ds-range.js)
+                    // 전체 기간(로그 구간)으로 초기화. PLC 디버그는 기간 공유 그룹에서 빠져(2026-10-01) 다른 페이지가
+                    // 고른 날 단위 범위를 물려받지 않는다 — 척도가 달라(로그가 있는 구간) 자기 기본값으로만 연다.
                     this.startTime = this.isoToLocalInput(this.oldestLog);
                     this.endTime = this.isoToLocalInput(this.latestLog);
-                    this.applyRememberedRange();
 
                     // selectedFlow 유효성 (Blazor 와 동일)
                     if (this.selectedFlow && !this.flowNames.some(f => f.toLowerCase() === this.selectedFlow.toLowerCase())) {
@@ -516,21 +516,7 @@
                     if (!r || !r.from || !r.to) return;
                     this.startTime = r.from; this.endTime = r.to;
                     this.clampTimeRange();
-                    if (window.dspRange) window.dspRange.remember({ preset: null, from: this.startTime, to: this.endTime });
                     this.markStale();
-                },
-                // 다른 페이지에서 고른 기간(공용 기억)이 있으면 그걸로 시작한다. 상대 프리셋(오늘/7일 …)은 지금 기준으로 다시 계산.
-                applyRememberedRange() {
-                    if (!window.dspRange) return;
-                    const mem = window.dspRange.recall([]);
-                    if (!mem) return;
-                    const rel = mem.rawPreset ? window.dspRange.presetRange(mem.rawPreset) : null;
-                    const from = rel ? rel.from : mem.from, to = rel ? rel.to : mem.to;
-                    const s = this.parseInput(from), e = this.parseInput(to);
-                    if (!s || !e || e <= s) return;
-                    this.startTime = this.isoToLocalInput(from);
-                    this.endTime = this.isoToLocalInput(to);
-                    this.clampTimeRange();
                 },
                 resetTimeRange() {
                     this.startTime = this.isoToLocalInput(this.oldestLog);

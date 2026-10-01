@@ -1186,11 +1186,11 @@
                 // 대상에서 최신 데이터 기준 재계산, 직접 범위(수동 입력·드래그)는 from/to 그대로.
                 // 기본(최근 5분, m5)은 파라미터 생략.
                 syncRangeUrl() {
-                    // 전 페이지 공용 기억(js/ds-range.js) — 시간 프리셋은 이름, 가동 N회는 'cN', 직접 지정은 절대 범위로.
-                    if (window.dspRange) window.dspRange.remember({ preset: this.timePreset || (this.cyclePreset ? 'c' + this.cyclePreset : null), from: this.startTime, to: this.endTime });
+                    // 가동시간 분석(사이클)은 기간 공유 그룹(일 단위 분석)에서 빠진다(2026-10-01) — 척도가 달라
+                    // remember/recall 을 호출하지 않고 항상 자기 기본값(오늘)으로 연다. URL 로만 범위를 싣는다.
                     const qp = new URLSearchParams(location.search);
                     qp.delete('period'); qp.delete('from'); qp.delete('to');
-                    if (this.timePreset) { if (this.timePreset !== 'm5') qp.set('period', this.timePreset); }
+                    if (this.timePreset) { if (this.timePreset !== 'today') qp.set('period', this.timePreset); }
                     else if (this.cyclePreset) qp.set('period', 'c' + this.cyclePreset);
                     else if (this.startTime && this.endTime) { qp.set('from', this.startTime); qp.set('to', this.endTime); }
                     const qs = qp.toString();
@@ -1211,17 +1211,9 @@
                         this.timePreset = null; this.cyclePreset = null;
                         return await this.load();
                     }
-                    // URL 에 기간이 없으면 다른 페이지에서 고른 기간(공용 기억, js/ds-range.js) → 그것도 없으면 기본 최근 5분.
-                    const mem = window.dspRange ? window.dspRange.recall(['m1', 'm5', 'm30', 'h1', 'h24', 'today'], [20, 50, 100]) : null;
-                    if (mem && mem.preset) return await this.onRangePreset(mem.preset);
-                    if (mem && mem.cycle) return await this.setRecentCycles(mem.cycle);
-                    if (mem && mem.from && mem.to && this.inputToDate(mem.to) > this.inputToDate(mem.from)) {
-                        this.startTime = mem.from; this.endTime = mem.to;
-                        this.clampTimeRange();
-                        this.timePreset = null; this.cyclePreset = null;
-                        return await this.load();
-                    }
-                    return await this.setRecentMinutes(5);
+                    // URL 에 기간이 없으면 기본 = 오늘(2026-10-01, 종전 최근 5분). 사이클은 기간 공유에서 빠져
+                    // 다른 페이지가 고른 범위를 물려받지 않는다(항상 자기 기본값).
+                    return await this.setToday();
                 },
 
                 // ═══ 경계 신호(태그 + 에지) — 2026-09-17 ═══════════════════════════════════

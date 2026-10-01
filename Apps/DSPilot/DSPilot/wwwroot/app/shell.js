@@ -456,12 +456,6 @@ window.dspBranch = {
             { label: '추이 분석',   href: '/flow-trend',  icon: 'timeline',    match: 'all', lineScope: true,
               tree: { flowParam: 'name', branches: true, sysTitle: '이 시스템 flow 합산 추이',
                       flowTitle: '이 설비의 기간별 추이 — 분기가 있으면 합집합 + 분기별 분해', branchTitle: '이 분기 사이클만의 기간별 추이' } },
-            // 가동시간 분석 전체/시스템 = 조회 전용 개요(카드 = 시작/끝 call + CT 리본), FLOW = 간트·분기 편집 페이지.
-            { label: '가동시간 분석', href: '/flow-cycle', icon: 'account_tree', match: 'all', lineScope: true,
-              tree: { flowParam: 'name', sysTitle: '이 시스템 flow 개요(조회 전용)', flowTitle: '이 설비의 가동시간 분석(간트·분기 편집)' } },
-            // 동작편차 전체 = 전 flow, ?system= = 그 시스템 flow 만(2026-09-08 추가), ?flow= = 설비(부모 축 — 분기 무관).
-            { label: '동작편차',    href: '/heatmap',     icon: 'gradient',    match: 'all', lineScope: true,
-              tree: { flowParam: 'flow', sysTitle: '이 시스템 flow 의 동작편차', flowTitle: '이 설비의 동작편차' } },
             // 이상·알람: 시스템 행 = 알람 행 systemName 등식(UserTag=AASX System, Abnormal=flow→System 해석) → 둘 다 포함,
             //   FLOW 행 = 자동감지만(UserTag 는 Flow 소속이 아님 — uptime-workspace utQs 주석). badge = 최근 10분 Error 수.
             { label: '이상·알람',    href: '/uptime-alarm', icon: 'warning_amber', match: 'all', lineScope: true, badge: true,
@@ -470,6 +464,13 @@ window.dspBranch = {
             //   UserTag 은 flow 에 속하지 않으므로 트리는 시스템 행까지만이다(sysOnly).
             { label: '태그 모니터링', href: '/tag-monitor', icon: 'show_chart', match: 'all', lineScope: true,
               tree: { flowParam: 'system', sysOnly: true, sysTitle: '이 시스템의 태그 값·추이' } },
+            // 아래 둘(동작편차·가동시간 분석)은 기간 공유 그룹(일 단위 분석)에서 빠지는 '분·시·사이클' 축이라 맨 아래로 묶었다(2026-10-01).
+            // 동작편차 전체 = 전 flow, ?system= = 그 시스템 flow 만(2026-09-08 추가), ?flow= = 설비(부모 축 — 분기 무관).
+            { label: '동작편차',    href: '/heatmap',     icon: 'gradient',    match: 'all', lineScope: true,
+              tree: { flowParam: 'flow', sysTitle: '이 시스템 flow 의 동작편차', flowTitle: '이 설비의 동작편차' } },
+            // 가동시간 분석 전체/시스템 = 조회 전용 개요(카드 = 시작/끝 call + CT 리본), FLOW = 간트·분기 편집 페이지.
+            { label: '가동시간 분석', href: '/flow-cycle', icon: 'account_tree', match: 'all', lineScope: true,
+              tree: { flowParam: 'name', sysTitle: '이 시스템 flow 개요(조회 전용)', flowTitle: '이 설비의 가동시간 분석(간트·분기 편집)' } },
             // OEE 메뉴 숨김 — 페이지(/oee)는 URL 로 접근 가능, 네비에서만 제외. 복구는 이 줄 주석 해제.
             // { label: 'OEE',         href: '/oee',                 icon: 'precision_manufacturing', match: 'prefix', legacy: '/app/oee.html' },
             // CCTV 메뉴 숨김 — 실시간 시청은 대시보드 레이아웃 카드의 'CCTV' 토글에서 사용. /cctv 는 설정(카메라·오버레이 편집) 페이지로 URL/[설정] 버튼 접근. 복구는 이 줄 주석 해제.
