@@ -45,28 +45,10 @@
             <!-- 상단 툴바 (종합효율 현황 페이지와 동일한 .ds-topbar 패턴: 좌측 기간 세그먼트 · 우측 설비칩/전체보기/내보내기) -->
             <div class="ds-topbar">
                 <div class="ds-topbar-actions">
-                    <div class="ct-range-field">
-                        <div class="segmented">
-                            <button :class="period === 'today' ? 'is-active' : ''" @click="setPeriod('today')">오늘</button>
-                            <button :class="period === '7d' ? 'is-active' : ''" @click="setPeriod('7d')">7일</button>
-                            <button :class="period === '30d' ? 'is-active' : ''" @click="setPeriod('30d')">30일</button>
-                            <button :class="period === '60d' ? 'is-active' : ''" @click="setPeriod('60d')">60일</button>
-                            <button :class="(period === 'custom' || trendRangeOpen) ? 'is-active' : ''" @click="openTrendRange()"
-                                    title="조회할 시작·종료 날짜를 직접 지정">
-                                <span class="material-icons">calendar_today</span>기간
-                            </button>
-                        </div>
-                        <div class="ct-range-popup" x-show="trendRangeOpen" x-transition @click.outside="trendRangeOpen = false">
-                            <div class="ct-field">
-                                <label>시작</label>
-                                <input type="datetime-local" step="1" class="form-field" x-model="customStart" @change="onTrendRangeChanged()" />
-                            </div>
-                            <div class="ct-field">
-                                <label>종료</label>
-                                <input type="datetime-local" step="1" class="form-field" x-model="customEnd" @change="onTrendRangeChanged()" />
-                            </div>
-                        </div>
-                    </div>
+                    <!-- 공용 기간 선택기(js/ds-range.js) — 프리셋 + 📅 날짜·시간 직접 지정. 선택은 전 페이지가 기억·공유. -->
+                    <ds-range :from="periodStart ? dateToInput(periodStart) : ''" :to="periodEnd ? dateToInput(periodEnd) : ''"
+                              :preset="period === 'custom' ? '' : period" presets="today,7d,30d,60d"
+                              @preset="setPeriod($event.detail.key)" @range="applyTrendRange($event.detail)"></ds-range>
                 </div>
 
                 <!-- 오른쪽: 설비(Flow) 필터 상태 + 전체 보기 + Excel 내보내기 (종합효율 현황 페이지와 동일 패턴) -->
@@ -225,6 +207,7 @@
     <script src="/lib/signalr.min.js"></script>
     <script src="/lib/chart.umd.min.js"></script>
     <script>window.DSP_FLOW_VIEW = "trend";</script>
+    <script src="/js/ds-range.js"></script>
     <script src="/app/flow-workspace.js"></script>
     <script src="/app/shell.js" defer></script>
     <script defer src="/lib/alpine.min.js"></script>

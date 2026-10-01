@@ -73,9 +73,7 @@
         .ct-field { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
         .ct-field label { font-size: 0.66rem; color: var(--color-text-secondary); font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
         .ct-presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: auto; }
-        /* 사이클 개수 프리셋 (세그먼트 앞 라벨 + .segmented) — 오른쪽 정렬 */
-        .ct-cycle-presets { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
-        .ct-preset-sep { padding-left: 10px; border-left: 1px solid var(--color-lines-strong); font-size: 0.68rem; font-weight: 800; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
+        /* 기간/가동 프리셋 + 직접 지정 = 공용 <ds-range>(ds.css .ds-range*) — 페이지 고유 .ct-cycle-presets/.ct-range-popup 은 폐지(2026-10-01) */
         /* 프리셋 앵커 = 마지막 신호 시각을 값으로("~ 10:19:43"). 지연 1분 이상(.is-lag)이면 " · N분 전" 과 경고색.
            남는 폭만 쓰는 늘어나는 항목(flex-basis 0 + min-width 0) — 옆 그룹(가동 프리셋)을 다음 줄로 밀지 않는다. */
         .ct-anchor-hint { display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; font-weight: 700; color: var(--color-text-secondary);
@@ -84,9 +82,6 @@
         .ct-anchor-hint .material-icons { font-size: 15px; flex: 0 0 auto; opacity: 0.7; }
         .ct-anchor-hint.is-lag { color: var(--color-warning, #b45309); }
         .ct-anchor-hint.is-lag .material-icons { opacity: 1; }
-        /* 시작·종료 직접 지정 팝업 */
-        .ct-range-field { position: relative; min-width: 0; }
-        .ct-range-popup { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; display: flex; gap: 12px; padding: 14px 16px; background: var(--color-surface); border: 1px solid var(--color-lines-strong); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16); }
 
         /* 로딩 / 빈 상태 (점선 헤어라인) */
         .ct-loading, .ct-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 48px 20px; color: var(--color-text-secondary); background: var(--color-surface); border: 1px dashed var(--color-lines-strong); border-radius: var(--radius-md); }
@@ -398,8 +393,6 @@
             .ct-field { min-width: 0; width: 100%; }
             .ct-presets { margin-left: 0; gap: 6px; }
             .ct-presets .btn { flex: 1 1 auto; }
-            .ct-cycle-presets { margin-left: 0; gap: 6px; flex-wrap: wrap; }
-            .ct-preset-sep { margin-left: 0; padding-left: 0; border-left: none; flex-basis: 100%; }
             /* 세그먼트: 풀폭 + 버튼 균등 분할 */
             .call-test-controls .segmented { width: 100%; flex-wrap: wrap; }
             .call-test-controls .segmented > button { flex: 1 1 auto; padding: 7px 8px; }

@@ -63,7 +63,7 @@
         .plc-debug-actions { display: grid; grid-template-columns: minmax(0, 160px) minmax(0, 1fr) minmax(0, 180px); gap: 12px; align-content: start; }
         .plc-debug-actions .form-select, .plc-debug-actions .form-field { width: 100%; min-width: 0; box-sizing: border-box; }
         .plc-debug-button-row { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
-        .plc-debug-time-range { margin-top: 14px; display: grid; grid-template-columns: repeat(2, minmax(220px, 280px)); gap: 12px; }
+        .plc-debug-time-range { margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 
         .plc-debug-selector { background: var(--color-surface); }
         .plc-debug-selector-body { padding: 14px 0 0; }
@@ -259,15 +259,9 @@
                                 </div>
                             </div>
 
+                            <!-- 공용 기간 선택기(js/ds-range.js) — 📅 날짜·시간 직접 지정(프리셋 없음: 범위는 로그가 있는 구간 기준, '전체 기간' 버튼이 되돌린다). -->
                             <div class="plc-debug-time-range">
-                                <div class="form-group">
-                                    <label class="form-label">시작 시간</label>
-                                    <input type="datetime-local" class="form-field" step="1" x-model="startTime" @change="markStale()" />
-                                </div>
-                                <div class="form-group">
-                                    <label class="form-label">종료 시간</label>
-                                    <input type="datetime-local" class="form-field" step="1" x-model="endTime" @change="markStale()" />
-                                </div>
+                                <ds-range :from="startTime" :to="endTime" preset="" presets="" @range="applyRange($event.detail)"></ds-range>
                             </div>
                         </section>
 
@@ -338,6 +332,7 @@
 
     <script src="/lib/chart.umd.min.js"></script>
     <script src="/lib/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="/js/ds-range.js"></script>
     <script src="/js/plc-debug.js"></script>
     <script>
         function plcDebugApp() {
@@ -459,9 +454,10 @@
                         this.tagLogCounts = {};
                     }
 
-                    // 전체 기간으로 초기화
+                    // 전체 기간으로 초기화 → 다른 페이지에서 고른 기간이 있으면 그걸로(공용 기억, js/ds-range.js)
                     this.startTime = this.isoToLocalInput(this.oldestLog);
                     this.endTime = this.isoToLocalInput(this.latestLog);
+                    this.applyRememberedRange();
 
                     // selectedFlow 유효성 (Blazor 와 동일)
                     if (this.selectedFlow && !this.flowNames.some(f => f.toLowerCase() === this.selectedFlow.toLowerCase())) {
@@ -515,6 +511,27 @@
                 },
                 // 그려진 차트와 현재 조건이 어긋남 — '다시 그리기' 버튼이 PRIMARY + '*' 로 바뀐다(차트는 그대로 둔다).
                 markStale() { if (this.dbLoaded) this.chartStale = true; },
+                // 공용 기간 선택기(ds-range) '적용' — 종료 24:00 등은 컴포넌트가 'yyyy-MM-ddTHH:mm:ss' 로 정규화해 준다.
+                applyRange(r) {
+                    if (!r || !r.from || !r.to) return;
+                    this.startTime = r.from; this.endTime = r.to;
+                    this.clampTimeRange();
+                    if (window.dspRange) window.dspRange.remember({ preset: null, from: this.startTime, to: this.endTime });
+                    this.markStale();
+                },
+                // 다른 페이지에서 고른 기간(공용 기억)이 있으면 그걸로 시작한다. 상대 프리셋(오늘/7일 …)은 지금 기준으로 다시 계산.
+                applyRememberedRange() {
+                    if (!window.dspRange) return;
+                    const mem = window.dspRange.recall([]);
+                    if (!mem) return;
+                    const rel = mem.rawPreset ? window.dspRange.presetRange(mem.rawPreset) : null;
+                    const from = rel ? rel.from : mem.from, to = rel ? rel.to : mem.to;
+                    const s = this.parseInput(from), e = this.parseInput(to);
+                    if (!s || !e || e <= s) return;
+                    this.startTime = this.isoToLocalInput(from);
+                    this.endTime = this.isoToLocalInput(to);
+                    this.clampTimeRange();
+                },
                 resetTimeRange() {
                     this.startTime = this.isoToLocalInput(this.oldestLog);
                     this.endTime = this.isoToLocalInput(this.latestLog);

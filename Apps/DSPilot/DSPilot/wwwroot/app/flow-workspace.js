@@ -207,6 +207,8 @@
                         setInterval(() => { if (!document.hidden) this.refreshAnchorHint(); }, 30000);
                     }
                     this.computePeriod('today');
+                    // 추이 페이지: 다른 페이지에서 고른 기간이 있으면 그걸로 시작(공용 기억, js/ds-range.js).
+                    if (this.view === 'trend') this.applyRememberedTrendRange();
 
                     // 컨테이너 폭 변화 시 간트 폭맞춤(줌 대체) + Chart.js 차트 강제 리사이즈
                     // Chart.js responsive:true 의 ResizeObserver 가 orientationchange 후 옛 폭을 잡아
@@ -363,15 +365,35 @@
                     else { this.periodStart = startOfDay; this.granularity = 'hour'; this.period = 'today'; }
                     this.periodEnd = now;
                 },
-                async setPeriod(preset) { this.trendRangeOpen = false; this.computePeriod(preset); await (window.dspLoading ? window.dspLoading.wrap(() => this.reloadTrend(), '기간 데이터 불러오는 중…') : this.reloadTrend()); },
+                async setPeriod(preset) { this.trendRangeOpen = false; this.computePeriod(preset); this.rememberTrendRange(); await (window.dspLoading ? window.dspLoading.wrap(() => this.reloadTrend(), '기간 데이터 불러오는 중…') : this.reloadTrend()); },
 
-                // ── 날짜 직접 지정(기간) ──
-                openTrendRange() {
-                    // 현재 기간을 입력칸 기본값으로 채우고 팝업 토글.
-                    if (!this.customStart && this.periodStart) this.customStart = this.dateToInput(this.periodStart);
-                    if (!this.customEnd && this.periodEnd) this.customEnd = this.dateToInput(this.periodEnd);
-                    this.trendRangeOpen = !this.trendRangeOpen;
+                // ── 공용 기간 선택기(<ds-range>, js/ds-range.js) 연결 ──
+                // 날짜·시간 카드 '적용' → 종전 datetime 입력 change 와 같은 경로(onTrendRangeChanged: 상한 → custom → 재조회).
+                applyTrendRange(r) {
+                    if (!r || !r.from || !r.to) return;
+                    this.customStart = r.from; this.customEnd = r.to;
+                    this.onTrendRangeChanged();
                 },
+                // 전 페이지 공용 기억 — 프리셋은 이름으로(다른 페이지가 열릴 때 다시 계산), 직접 지정은 절대 범위로.
+                rememberTrendRange() {
+                    if (!window.dspRange || !this.periodStart || !this.periodEnd) return;
+                    window.dspRange.remember({ preset: this.period === 'custom' ? null : this.period, from: this.dateToInput(this.periodStart), to: this.dateToInput(this.periodEnd) });
+                },
+                // 다른 페이지에서 고른 기간 되살리기 — 이 페이지 프리셋이면 이름으로, 아니면(5분/가동 N회 등) 절대 범위로(2개월 상한).
+                applyRememberedTrendRange() {
+                    const mem = window.dspRange ? window.dspRange.recall(['today', '7d', '30d', '60d']) : null;
+                    if (!mem) return;
+                    if (mem.preset) { this.computePeriod(mem.preset); return; }
+                    let s = this.inputToDate(mem.from), e = this.inputToDate(mem.to);
+                    if (isNaN(s) || isNaN(e) || e.getTime() <= s.getTime()) return;
+                    if (window.dspClampRange) { const r = window.dspClampRange(s, e, 'end'); s = r.start; e = r.end; }
+                    this.period = 'custom'; this.periodStart = s; this.periodEnd = e;
+                    this.customStart = this.dateToInput(s); this.customEnd = this.dateToInput(e);
+                    const days = (e.getTime() - s.getTime()) / 864e5;
+                    this.granularity = days <= 2 ? 'hour' : (days <= 92 ? 'day' : 'week');
+                },
+
+                // ── 날짜 직접 지정(기간) — 입력 UI 는 공용 <ds-range> 카드(applyTrendRange 경유), 여기선 검증·상한·재조회만 ──
                 onTrendRangeChanged() {
                     if (!this.customStart || !this.customEnd) return;
                     let s = this.inputToDate(this.customStart), e = this.inputToDate(this.customEnd);
@@ -390,6 +412,7 @@
                     this._trendRangeTimer = setTimeout(async () => {
                         this.period = 'custom';
                         this.periodStart = s; this.periodEnd = e;
+                        this.rememberTrendRange();
                         // 버킷 단위 = 범위 길이에 맞춤: ≤2일→1시간, ≤92일→1일, 그 이상→1주.
                         const days = (e.getTime() - s.getTime()) / 864e5;
                         this.granularity = days <= 2 ? 'hour' : (days <= 92 ? 'day' : 'week');
@@ -1054,6 +1077,20 @@
                     if (window.dspToast) window.dspToast(window.dspRangeClampMsg, 'warning');
                 },
 
+                // ── 공용 기간 선택기(<ds-range>, js/ds-range.js) 연결 ──
+                // 프리셋 키 → 기존 핸들러(URL ?period= 규약과 같은 키: m5/h1/today).
+                onRangePreset(key) {
+                    let m;
+                    if ((m = String(key).match(/^m(\d+)$/))) return this.setRecentMinutes(+m[1]);
+                    if ((m = String(key).match(/^h(\d+)$/))) return this.setRecentHours(+m[1]);
+                    if (key === 'today') return this.setToday();
+                },
+                // 날짜·시간 카드 '적용' — 종전 datetime 입력 change 와 같은 경로(프리셋 해제 → 2개월 상한 → 로드).
+                applyRangeInput(r) {
+                    if (!r || !r.from || !r.to) return;
+                    this.startTime = r.from; this.endTime = r.to;
+                    this.onTimeChanged();
+                },
                 async setRecentMinutes(minutes) {
                     this.cyclePreset = null;
                     this.timePreset = 'm' + minutes;
@@ -1149,6 +1186,8 @@
                 // 대상에서 최신 데이터 기준 재계산, 직접 범위(수동 입력·드래그)는 from/to 그대로.
                 // 기본(최근 5분, m5)은 파라미터 생략.
                 syncRangeUrl() {
+                    // 전 페이지 공용 기억(js/ds-range.js) — 시간 프리셋은 이름, 가동 N회는 'cN', 직접 지정은 절대 범위로.
+                    if (window.dspRange) window.dspRange.remember({ preset: this.timePreset || (this.cyclePreset ? 'c' + this.cyclePreset : null), from: this.startTime, to: this.endTime });
                     const qp = new URLSearchParams(location.search);
                     qp.delete('period'); qp.delete('from'); qp.delete('to');
                     if (this.timePreset) { if (this.timePreset !== 'm5') qp.set('period', this.timePreset); }
@@ -1169,6 +1208,16 @@
                     if (from && to && this.inputToDate(to) > this.inputToDate(from)) {
                         this.startTime = from; this.endTime = to;
                         this.clampTimeRange(); // 북마크/URL 로 상한(2개월) 우회 방지
+                        this.timePreset = null; this.cyclePreset = null;
+                        return await this.load();
+                    }
+                    // URL 에 기간이 없으면 다른 페이지에서 고른 기간(공용 기억, js/ds-range.js) → 그것도 없으면 기본 최근 5분.
+                    const mem = window.dspRange ? window.dspRange.recall(['m1', 'm5', 'm30', 'h1', 'h24', 'today'], [20, 50, 100]) : null;
+                    if (mem && mem.preset) return await this.onRangePreset(mem.preset);
+                    if (mem && mem.cycle) return await this.setRecentCycles(mem.cycle);
+                    if (mem && mem.from && mem.to && this.inputToDate(mem.to) > this.inputToDate(mem.from)) {
+                        this.startTime = mem.from; this.endTime = mem.to;
+                        this.clampTimeRange();
                         this.timePreset = null; this.cyclePreset = null;
                         return await this.load();
                     }

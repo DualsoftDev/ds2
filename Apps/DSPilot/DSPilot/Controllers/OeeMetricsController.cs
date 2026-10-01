@@ -406,13 +406,18 @@ public class OeeMetricsController : OeeControllerBase
             long available = Math.Max(0, slotCal - nonProd - unmeasured - inProg);
             long down = Math.Max(0, available - run);            // 비가동 = 생산가능 − 가동(잔여)
             long maint = Math.Min(SumOverlap(maintWall, sS, sE), down);
-            // 고장 = 고장 행 전체 구간에 덮인 비가동(doc/28 사이클 단위). 비가동 − 유지보수 − 고장 = 미귀속(0 기대) —
-            //   0 이 아니면 슬롯 잔여로 남는다(계측 품질의 '미귀속 시간' 진단 항목이 위치를 알려준다).
+            // 고장 = 고장 행 전체 구간에 덮인 비가동(doc/28 사이클 단위).
             long fault = Math.Min(SumOverlap(faultWall, sS, sE), Math.Max(0, down - maint));
-            // 벽시계 매핑: FailureMs=고장 / PlannedMs=유지보수(Other·Unclassified 미사용) / SlotMs=달력(설비 합산).
+            // 미귀속 = 비가동 − 유지보수 − 고장. 정지 이벤트에 귀속되지 않은 비가동으로, 종전엔 여기서 버려져
+            //   화면에서 흰 여백이 됐다(2026-10-01). 정지 이벤트 0건인 구간은 비가동이 통째로 사라져 같은 페이지의
+            //   가용성 누적 정산(비가동 49.5%)과 정면으로 모순됐다. 정산 막대는 2026-09-21 에 같은 병을 고쳤고
+            //   (조각이 100% 로 닫히게) 이 슬롯 응답만 남아 있었다. 0 이 기대값이 아니다 — 원인 미기록이 기본이다.
+            long unattributed = Math.Max(0, down - maint - fault);
+            // 벽시계 매핑: FailureMs=고장 / PlannedMs=유지보수 / UnclassifiedMs=미귀속(원인 미기록) / SlotMs=달력(설비 합산).
             //   RunMs=실측 가동(정상 사이클 구간 ∩ 슬롯) — 종전엔 계산만 하고 버려 프런트가 잔여로 재구성했다.
             //   이제 실측을 그대로 넘겨 "감지 안 된 시간 = 가동" 이라는 낙관적 기본값을 없앤다.
-            slots.Add(new OeeDailySlotDto(label, slotCal, fault + maint, maint, fault, 0, 0, nonProd, unmeasured, run, inProg));
+            //   세 조각 합 = down 이라 화면의 비가동이 가용성 정산과 같은 값이 된다.
+            slots.Add(new OeeDailySlotDto(label, slotCal, fault + maint + unattributed, maint, fault, 0, unattributed, nonProd, unmeasured, run, inProg));
         }
         if (hourly)
         {

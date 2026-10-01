@@ -59,6 +59,7 @@
         .tm-item-sub { font-size: 0.66rem; color: var(--color-text-secondary); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .tm-item-val { flex: 0 0 auto; font-family: var(--font-mono); font-size: 0.76rem; font-weight: 700; }
         .tm-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+        .tm-list-more { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 8px 6px; font-family: var(--font-mono); font-size: 0.7rem; color: var(--color-text-secondary); }
 
         /* ── 현재값 타일 ── */
         .tm-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-bottom: 14px; }
@@ -107,35 +108,12 @@
                     <div class="ds-breadcrumb" x-text="rangeLabel"></div>
                 </div>
                 <div class="ds-topbar-actions">
-                    <div class="segmented" role="group" aria-label="조회 기간">
-                        <button type="button" :class="{ active: period === 'today' }" @click="setPeriod('today')">오늘</button>
-                        <button type="button" :class="{ active: period === '24h' }" @click="setPeriod('24h')">24시간</button>
-                        <button type="button" :class="{ active: period === '7d' }" @click="setPeriod('7d')">7일</button>
-                        <button type="button" :class="{ active: period === '30d' }" @click="setPeriod('30d')">30일</button>
-                        <button type="button" :class="{ active: period === 'custom' }" @click="rangeOpen = !rangeOpen"
-                                title="시작·종료 시각을 직접 지정">
-                            <span class="material-icons">calendar_today</span>기간
-                        </button>
-                    </div>
+                    <!-- 공용 기간 선택기(js/ds-range.js) — 프리셋 + 📅 날짜·시간 직접 지정. 선택은 전 페이지가 기억·공유. -->
+                    <ds-range :from="rangeFrom" :to="rangeTo" :preset="period === 'custom' ? '' : period" presets="today,24h,7d,30d"
+                              @preset="setPeriod($event.detail.key)" @range="applyRange($event.detail)"></ds-range>
                     <button class="btn btn-sm btn-outlined color-default" @click="reload()" :disabled="busy" title="목록과 추이를 다시 읽습니다">
                         <span class="material-icons">refresh</span> 새로고침
                     </button>
-                </div>
-            </div>
-
-            <!-- 사용자 지정 기간 -->
-            <div class="card" x-show="rangeOpen" x-transition style="margin-bottom:12px;">
-                <div class="card-content" style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;">
-                    <div>
-                        <label style="display:block; font-size:0.7rem; font-weight:700; color:var(--color-text-secondary); margin-bottom:4px;">시작</label>
-                        <input type="datetime-local" class="form-field" x-model="customFrom" />
-                    </div>
-                    <div>
-                        <label style="display:block; font-size:0.7rem; font-weight:700; color:var(--color-text-secondary); margin-bottom:4px;">종료</label>
-                        <input type="datetime-local" class="form-field" x-model="customTo" />
-                    </div>
-                    <button class="btn btn-sm btn-filled" @click="applyCustom()">적용</button>
-                    <button class="btn btn-sm btn-outlined color-default" @click="rangeOpen = false">닫기</button>
                 </div>
             </div>
 
@@ -179,8 +157,10 @@
                             </div>
                         </div>
 
-                        <div class="tm-list">
-                            <template x-for="t in filteredTags" :key="t.key">
+                        <!-- 표시 창 — 조건에 맞는 전체 중 앞 150행만 그리고 바닥 근처에서 늘린다(tag-monitor.js visibleTags).
+                             태그 수천 개를 한 번에 그리면 로딩이 태그 수에 비례했다(2026-10-01). 건수 칩·선택은 전체 기준. -->
+                        <div class="tm-list" x-ref="tmList" @scroll.passive="onListScroll($event.target)">
+                            <template x-for="t in visibleTags" :key="t.key">
                                 <label class="tm-item" :class="{ 'is-on': isSelected(t), 'is-off': !t.tagId }">
                                     <input type="checkbox" :checked="isSelected(t)" @change="toggle(t)" :disabled="!t.tagId" />
                                     <span class="tm-dot" :style="'background:' + colorOf(t)"></span>
@@ -197,6 +177,10 @@
                                           :title="t.tagId ? (t.lastAtMs ? fmtTime(t.lastAtMs) : '기록 없음') : '아직 수집되지 않았습니다'"></span>
                                 </label>
                             </template>
+                            <div class="tm-list-more" x-show="filteredTags.length > listLimit">
+                                <span x-text="listLimit.toLocaleString() + ' / ' + filteredTags.length.toLocaleString() + ' 표시'"></span>
+                                <button type="button" class="ds-selbar-link" @click="listMore()" x-text="Math.min(listPage, filteredTags.length - listLimit) + '개 더보기'"></button>
+                            </div>
                             <div x-show="loaded && filteredTags.length === 0" class="ds-empty" style="padding:18px; text-align:center; font-size:0.78rem;">
                                 <span x-show="tags.length === 0">등록된 UserTag 가 없습니다. 설정 ▸ 모니터링·정합에서 모니터링TAG 를 추가하세요.</span>
                                 <span x-show="tags.length > 0">조건에 맞는 태그가 없습니다.</span>
@@ -344,6 +328,7 @@
 
     <script src="/lib/chart.umd.min.js"></script>
     <script src="/lib/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="/js/ds-range.js"></script>
     <script src="/app/tag-monitor.js"></script>
     <script src="/app/shell.js" defer></script>
     <script defer src="/lib/alpine.min.js"></script>

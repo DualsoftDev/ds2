@@ -457,6 +457,9 @@ public sealed record OeeDailyResponse(
 /// 가동 = SlotMs − FailureMs − OtherMs − UnclassifiedMs − PlannedMs − NonProdMs. 분해는 상호배타(정지 이벤트 = category·isFailure 분기):
 ///   PlannedMs=category 'planned' / UnclassifiedMs=category NULL / FailureMs=isFailure 1 / OtherMs=그 외 unplanned.
 /// NonProdMs=비생산(사이클 10×CT/수동 시각대 — A 분모 밖) 을 가동(초록)에서 카빙한 시간. UnplannedMs=하위호환 합산.
+/// <para>2026-10-01: 벽시계 축(/api/oee/daily)에서 UnclassifiedMs 는 <b>미귀속 비가동</b>(생산가능 − 가동 − 유지보수 − 고장)이다.
+/// 정지 이벤트에 귀속되지 않은 비가동으로, 종전엔 어느 필드에도 안 실려 화면에서 통째로 사라졌다. 이벤트 축(category NULL)
+/// 해석은 이 엔드포인트에 해당하지 않는다 — Planned+Failure+Unclassified 합이 그 슬롯의 비가동 전체다.</para>
 /// </summary>
 public sealed record OeeDailySlotDto(
     string Slot,            // "yyyy-MM-dd" 또는 "yyyy-MM-dd HH:00"

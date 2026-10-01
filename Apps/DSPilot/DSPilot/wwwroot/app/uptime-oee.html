@@ -36,23 +36,9 @@
             <!-- 상단 툴바 -->
             <div class="ds-topbar">
                 <div class="ds-topbar-actions">
-                    <div class="segmented">
-                        <button :class="period === 'today' ? 'is-active' : ''" @click="setPeriod('today')">오늘</button>
-                        <button :class="period === '7d' ? 'is-active' : ''" @click="setPeriod('7d')">지난 7일</button>
-                        <button :class="period === '30d' ? 'is-active' : ''" @click="setPeriod('30d')">지난 30일</button>
-                        <button :class="period === '60d' ? 'is-active' : ''" @click="setPeriod('60d')">지난 60일</button>
-                        <button :class="period === 'custom' ? 'is-active' : ''" @click="toggleCustomPeriod()" title="날짜 직접 선택">
-                            <span class="material-icons">calendar_today</span>기간
-                        </button>
-                    </div>
-                    <template x-if="period === 'custom'">
-                        <div class="up-custom-range">
-                            <input type="datetime-local" class="up-period-input" x-model="customFrom" />
-                            <span style="color:var(--color-text-secondary); font-size:0.85rem;">~</span>
-                            <input type="datetime-local" class="up-period-input" x-model="customTo" />
-                            <button class="btn btn-sm btn-primary" @click="applyCustomPeriod()" :disabled="!customFrom || !customTo">적용</button>
-                        </div>
-                    </template>
+                    <!-- 공용 기간 선택기(js/ds-range.js) — 프리셋 + 📅 날짜·시간 직접 지정. 선택은 전 페이지가 기억·공유. -->
+                    <ds-range :from="rangeFrom" :to="rangeTo" :preset="period === 'custom' ? '' : period" presets="today,7d,30d,60d"
+                              @preset="setPeriod($event.detail.key)" @range="applyRange($event.detail)"></ds-range>
                 </div>
 
                 <!-- 오른쪽: 스코프(설비/시스템) 필터 상태 + Excel 다운로드 (heatmap 과 동일한 .ds-topbar 우측 패턴) -->
@@ -1039,6 +1025,7 @@
     <script src="/lib/signalr.min.js"></script>
     <script>window.DSP_UPTIME_VIEW = "oee";</script>
     <script src="/app/kpi-timeline.js"></script>
+    <script src="/js/ds-range.js"></script>
     <script src="/app/uptime-workspace.js"></script>
     <script src="/app/shell.js" defer></script>
     <script defer src="/lib/alpine.min.js"></script>

@@ -278,9 +278,7 @@
         .up-insight-text { font-size: 0.86rem; line-height: 1.5; }
         .up-insight-text b { color: var(--red); }
 
-        /* ── 기간 직접 선택 ── */
-        .up-period-input { padding: 5px 8px; font-size: 0.78rem; border: 1px solid var(--color-lines-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); font-family: var(--font-mono); }
-        .up-custom-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        /* 기간 선택 = 공용 <ds-range>(ds.css .ds-range*) — 페이지 고유 날짜 입력(.up-period-input/.up-custom-range)은 폐지(2026-10-01) */
         /* 내보내기 버튼 그룹 (기간 UI 옆) */
         .up-dl-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
@@ -610,10 +608,6 @@
             .up-mini-select { width: 100%; }
 
             /* 기간 직접 선택(datetime) → 세로, 입력 full-width */
-            .up-custom-range { flex-direction: column; align-items: stretch; width: 100%; }
-            .up-custom-range .up-period-input { width: 100%; }
-            .up-custom-range > span { text-align: center; }
-            .up-custom-range .btn { width: 100%; justify-content: center; }
             /* 상단 툴바 기간 버튼 줄바꿈 허용 */
             .ds-topbar-actions { flex-wrap: wrap; }
 
@@ -864,3 +858,7 @@
         @media (max-width: 720px) {
             .up-mq-row.has-br { grid-template-columns: minmax(60px, 1fr) 60px 52px 66px 60px; }
         }
+
+/* 알람 차단 모달 표의 표시 한도 행 — 'N / M 표시 · 300행 더보기' (2026-10-01) */
+.up-blk-more { text-align: center; padding: 8px; font-size: 0.74rem; color: var(--color-text-secondary); font-family: var(--font-mono); }
+.up-blk-more .ds-selbar-link { margin-left: 8px; }

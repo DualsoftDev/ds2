@@ -37,23 +37,9 @@
                  검색/System/구분 필터와 기간 텍스트는 이 툴바로 통합하며 카드 안 필터행은 제거했다. -->
             <div class="ds-topbar">
                 <div class="ds-topbar-actions">
-                    <div class="segmented">
-                        <button :class="period === 'today' ? 'is-active' : ''" @click="setPeriod('today')">오늘</button>
-                        <button :class="period === '7d' ? 'is-active' : ''" @click="setPeriod('7d')">지난 7일</button>
-                        <button :class="period === '30d' ? 'is-active' : ''" @click="setPeriod('30d')">지난 30일</button>
-                        <button :class="period === '60d' ? 'is-active' : ''" @click="setPeriod('60d')">지난 60일</button>
-                        <button :class="period === 'custom' ? 'is-active' : ''" @click="toggleCustomPeriod()" title="날짜 직접 선택">
-                            <span class="material-icons">calendar_today</span>기간
-                        </button>
-                    </div>
-                    <template x-if="period === 'custom'">
-                        <div class="up-custom-range">
-                            <input type="datetime-local" class="up-period-input" x-model="customFrom" />
-                            <span style="color:var(--color-text-secondary); font-size:0.85rem;">~</span>
-                            <input type="datetime-local" class="up-period-input" x-model="customTo" />
-                            <button class="btn btn-sm btn-primary" @click="applyCustomPeriod()" :disabled="!customFrom || !customTo">적용</button>
-                        </div>
-                    </template>
+                    <!-- 공용 기간 선택기(js/ds-range.js) — 프리셋 + 📅 날짜·시간 직접 지정. 선택은 전 페이지가 기억·공유. -->
+                    <ds-range :from="rangeFrom" :to="rangeTo" :preset="period === 'custom' ? '' : period" presets="today,7d,30d,60d"
+                              @preset="setPeriod($event.detail.key)" @range="applyRange($event.detail)"></ds-range>
                 </div>
 
                 <!-- 오른쪽: 스코프 상태(시스템/설비별 보기 시) + Excel 다운로드 + 디바이스 알람 차단.
@@ -147,131 +133,9 @@
                                 </div>
                             </div>
 
-                            <!-- ════ 회복 현황 — 등록 에러 태그 축(doc/31 §8, 2026-09-29 개정) ════
-                                 eMTBF·eMTTR 카드와 설비/PLC/디바이스 표는 Excel 다운로드로 옮겼다 — 고객 요구가 "우리 에러코드
-                                 기준의 값을 파일로" 였고, 화면에서는 OEE 의 MTBF(비가동 기준)와 혼동을 남겼다. 화면은 상태(건수)만
-                                 말한다. '재가동 미확인' 이 이 축의 실질 산출물이라 남는다(통계가 아니라 운영 정보). -->
-                            <template x-if="rel">
-                                <div style="margin-bottom:18px;">
-                                    <div class="ds-card-h" style="margin-bottom:10px;">
-                                        <h4 style="font-size:0.74rem;" title="해소 뒤 그 디바이스를 쓰는 설비의 사이클이 다시 시작되면 복구로 봅니다">회복 현황 <span style="font-weight:400;color:var(--color-text-secondary);">— 등록한 이상알람TAG 기준</span></h4>
-                                        <span class="ds-card-h-sub" title="디바이스별 고장·복구·가동시간·eMTBF·eMTTR 과 에러코드 매핑은 Excel 시트로 내려받습니다">디바이스별 eMTBF·eMTTR 는 Excel 다운로드에 포함</span>
-                                    </div>
-
-                                    <!-- 집계 밖 — 칩. 근거는 툴팁에. -->
-                                    <div style="margin-bottom:10px;" x-show="rel.legacyAlertCount > 0 || rel.deadBindingCount > 0">
-                                        <span class="chip" x-show="rel.legacyAlertCount > 0"
-                                              title="PLC 접속 정보가 없던 시절(2026-09-22 이전)에 쌓인 알람입니다 — 어느 PLC 의 신호인지 확정할 수 없어 집계에서 뺍니다."
-                                              x-text="'구 데이터 제외 ' + rel.legacyAlertCount"></span>
-                                        <a class="chip chip-warning" x-show="rel.deadBindingCount > 0"
-                                           href="/app/settings.html?tab=general#user-tags"
-                                           title="묶어 둔 시스템이 현재 모델에 없습니다 — 다시 묶어야 집계에 들어갑니다."
-                                           x-text="'끊긴 매핑 ' + rel.deadBindingCount"></a>
-                                    </div>
-
-                                    <!-- 회복 현황 — 칩 클릭 = 그 상태만 보기. '재가동 미확인' 이 이 기능의 실질 산출물이다
-                                         (리셋만 누르고 설비는 돌지 않은 건). 표현은 사실만 말하고 설명은 툴팁에 둔다. -->
-                                    <div class="up-blk-tabs" style="flex-wrap:wrap;gap:6px;margin-bottom:8px;">
-                                        <button class="up-blk-tab" :class="{ on: relState === 'Recovered' }" @click="setRelState('Recovered')"
-                                                title="해소된 뒤 설비가 다시 돌았습니다 — 지표에 들어가는 건들입니다">
-                                            복구 완료<span class="up-blk-tabcount" x-text="rel.recoveredCount"></span>
-                                        </button>
-                                        <button class="up-blk-tab" :class="{ on: relState === 'RestartUnconfirmed' }" @click="setRelState('RestartUnconfirmed')"
-                                                title="해소는 됐지만 확인 기한 안에 설비가 돌지 않았습니다 — 리셋만 하고 실제 복구는 안 됐을 수 있습니다"
-                                                :style="rel.restartUnconfirmedCount > 0 ? 'border-color:var(--color-warning);' : ''">
-                                            재가동 미확인<span class="up-blk-tabcount" x-text="rel.restartUnconfirmedCount"></span>
-                                        </button>
-                                        <button class="up-blk-tab" :class="{ on: relState === 'AwaitingRestart' }" @click="setRelState('AwaitingRestart')"
-                                                title="해소됐고 재가동을 기다리는 중입니다 — 확인 기한이 아직 남았습니다">
-                                            복구 확인 중<span class="up-blk-tabcount" x-text="rel.awaitingRestartCount"></span>
-                                        </button>
-                                        <button class="up-blk-tab" :class="{ on: relState === 'InProgress' }" @click="setRelState('InProgress')"
-                                                title="아직 해소되지 않았습니다 — 조건이 계속 걸려 있습니다">
-                                            진행 중<span class="up-blk-tabcount" x-text="rel.inProgressCount"></span>
-                                        </button>
-                                    </div>
-
-                                    <!-- 필터 상태 줄 — 칩만으로는 무엇이 걸렸는지 안 보인다. 아래 건별 표가 걸러진다. -->
-                                    <div class="ds-selbar" x-show="relState" x-cloak style="margin-bottom:8px;">
-                                        <span class="ds-selbar-count" x-text="relFilterLabel + ' 만 보는 중'"></span>
-                                        <span class="ds-selbar-sp"></span>
-                                        <span style="font-size:0.74rem;color:var(--color-text-secondary);"
-                                              x-text="'알람 ' + relRows.length + '건'"></span>
-                                        <button type="button" class="ds-selbar-link" @click="setRelState(relState)">필터 해제</button>
-                                    </div>
-
-                                    <!-- 지표에서 빠진 태그 — 칩 한 줄(근거는 툴팁). 디바이스 미지정은 재가동을 확인할 설비를 특정할 수 없고,
-                                         '값 변경' 조건은 발화와 동시에 해소되어 수리 시간이 없다. x-if = 인라인 display:flex 를 x-show 가 지우지 않게. -->
-                                    <template x-if="rel.unboundTagCount > 0 || rel.skippedChangedCount > 0">
-                                        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px;">
-                                            <span class="chip chip-warning" x-show="rel.unboundTagCount > 0" title="디바이스가 묶이지 않은 에러 태그는 복구를 확인할 설비가 없어 지표에서 빠집니다"
-                                                  x-text="'디바이스 미지정 ' + rel.unboundTagCount + '개 제외'"></span>
-                                            <a class="ds-selbar-link" x-show="rel.unboundTagCount > 0" href="/app/settings.html?tab=general#user-tags">설정 ▸ 사용자 태그에서 묶기</a>
-                                            <span class="chip" x-show="rel.skippedChangedCount > 0" title="매칭 조건이 '값 변경'인 태그는 발화와 동시에 해소되어 수리 시간이 없습니다"
-                                                  x-text="'값 변경 조건 ' + rel.skippedChangedCount + '건 제외'"></span>
-                                        </div>
-                                    </template>
-
-                                    <!-- 건별 판정. 근거 flow 를 함께 보인다 — 분기로 우회해 오판이 났을 때 추적할 실마리다. -->
-                                    <div style="overflow-x:auto;" x-show="relRows.length > 0">
-                                        <table class="ds-table ut-table">
-                                            <thead><tr>
-                                                <th>발생</th><th>이름</th><th>디바이스</th><th>해소</th><th>재가동</th><th>정지 시간</th><th>상태</th>
-                                            </tr></thead>
-                                            <tbody>
-                                                <!-- ★키에 인덱스를 넣는다 — (시각, 주소)만으로는 같은 초에 같은 주소가 두 번 울리는 채터가 키를 겹치게 하고
-                                                     (실데이터 97건 중 9건), Alpine 은 키가 겹치면 표 전체를 비운다("97건 중 50건 표시" 인데 행이 없던 증상). -->
-                                                <template x-for="(a, i) in relRows.slice(0, relLimit)" :key="i + '|' + a.occurredAtLocal + '|' + a.tagAddress">
-                                                    <tr>
-                                                        <td data-label="발생" x-text="a.occurredAtLocal"></td>
-                                                        <td data-label="이름">
-                                                            <strong x-text="a.name"></strong>
-                                                            <div style="font-family:var(--font-mono);font-size:0.72rem;color:var(--color-text-secondary);" x-text="a.systemName + ' · ' + a.tagAddress"></div>
-                                                            <!-- 당시 이름 — 현재 라벨과 다를 때만. 이름이 달라진 채 이어진 건이
-                                                                 리네임인지 주소 의미 변경인지 가릴 유일한 실마리다(doc/31 §6). -->
-                                                            <div x-show="a.nameAtTime" style="font-size:0.72rem;color:var(--color-text-secondary);"
-                                                                 title="발생 당시의 태그 이름입니다 — 이후 이름이 바뀌었습니다"
-                                                                 x-text="'당시: ' + a.nameAtTime"></div>
-                                                        </td>
-                                                        <td data-label="디바이스" x-text="a.device"></td>
-                                                        <td data-label="해소" x-text="a.clearedAtLocal || '—'"></td>
-                                                        <td data-label="재가동">
-                                                            <span x-text="a.restartedAtLocal || '—'"></span>
-                                                            <div x-show="a.restartFlow" style="font-size:0.72rem;color:var(--color-text-secondary);" x-text="a.restartFlow"></div>
-                                                        </td>
-                                                        <td data-label="정지 시간" x-text="a.skip === 'None' && a.repairMs != null ? durShort(a.repairMs) : '—'"></td>
-                                                        <!-- 집계에서 빠진 건은 빠진 이유를 먼저 보인다 — '복구 완료' 로 보이면
-                                                             설비가 선 적 없는 경고를 고장으로 읽게 된다. -->
-                                                        <td data-label="상태">
-                                                            <template x-if="a.skip !== 'None'">
-                                                                <span class="chip" :class="a.skip === 'NonStopWarning' ? 'chip-warning' : ''"
-                                                                      :title="a.skip === 'NonStopWarning' ? '알람이 울린 시각에 설비는 계속 돌고 있었습니다' : ''"
-                                                                      x-text="({ NonStopWarning: '무정지 경고', LinkSnapshot: '재접속 스냅샷', ChangedOp: '값 변경 조건', UnknownStop: '판정 불가' })[a.skip] || a.skip"></span>
-                                                            </template>
-                                                            <template x-if="a.skip === 'None'">
-                                                                <span class="chip" :class="{
-                                                                        'chip-success': a.state === 'Recovered',
-                                                                        'chip-warning': a.state === 'RestartUnconfirmed',
-                                                                        'chip-error': a.state === 'InProgress' }"
-                                                                      x-text="({ Recovered: '복구 완료', RestartUnconfirmed: '재가동 미확인', AwaitingRestart: '복구 확인 중', InProgress: '진행 중' })[a.state] || a.state"></span>
-                                                            </template>
-                                                        </td>
-                                                    </tr>
-                                                </template>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <!-- 50건 단위 잘림을 밝힌다 — 더보기 = +50. -->
-                                    <div class="ut-pager" x-show="relRows.length > relLimit">
-                                        <span class="ut-pager-info" x-text="relRows.length.toLocaleString() + '건 중 ' + Math.min(relLimit, relRows.length).toLocaleString() + '건 표시'"></span>
-                                        <button class="btn btn-sm btn-outlined" @click="relMore()" x-text="Math.min(50, relRows.length - relLimit) + '건 더보기'"></button>
-                                    </div>
-                                    <div x-show="relRows.length === 0" class="settings-note">
-                                        <small x-show="rel.faultCount === 0 && rel.unboundTagCount === 0">이 기간에 등록 에러 태그 발생이 없습니다.</small>
-                                        <small x-show="rel.faultCount > 0 && relState">이 상태에 해당하는 건이 없습니다 — 칩을 다시 눌러 전체를 보세요.</small>
-                                    </div>
-                                </div>
-                            </template>
+                            <!-- 회복 현황(디바이스별 판정·건별 표·커버리지 칩)은 2026-10-01 화면에서 뺐다 — 정본은 Excel 의
+                                 디바이스별·에러코드 매핑 시트(doc/31 §8). 그 판정(/api/user-tags/reliability)이 10초 폴링마다
+                                 flow 별 사이클 전수 조회를 돌아 태그·알람 수에 비례해 페이지가 늦어졌다. 화면 = 건수·시계열·Top 10·이력. -->
 
                             <!-- 시계열 추이 (Chart.js 스택 막대) -->
                             <div class="ds-card-h" style="margin-bottom:10px;">
@@ -286,7 +150,7 @@
                                 <div>
                                     <div class="ds-card-h" style="margin-bottom:10px;">
                                         <h4 style="font-size:0.74rem;">태그별 Top 10</h4>
-                                        <span class="ds-card-h-sub" x-text="'주소 + 태그 이름 · 복구 완료 / 해소 / 미해소 스택 · ' + utCategoryLabel"></span>
+                                        <span class="ds-card-h-sub" x-text="'주소 + 태그 이름 · 해소 / 미해소 스택 · ' + utCategoryLabel"></span>
                                     </div>
                                     <div class="up-ut-chart-md"><canvas id="ut-top-chart"></canvas></div>
                                 </div>
@@ -493,6 +357,9 @@
 
         <!-- ════ 알람 차단 관리 모달 (자동알람 / 이상알람TAG 알람 탭) ════ -->
         <div class="up-blk-overlay" x-show="blockMgr.show" style="display:none;" @click.self="blockMgr.show = false" @keydown.escape.window="blockMgr.show = false">
+            <!-- x-if — 모달이 닫혀 있는 동안은 표를 DOM 에 두지 않는다. x-show 만 쓰면 디바이스·이상알람TAG 수천 행이
+                 페이지 로드 때 통째로 그려져(실측 3,000 태그 → DOM 44,000 노드) 열지도 않은 모달이 로딩을 끌었다(2026-10-01). -->
+            <template x-if="blockMgr.show">
             <div class="up-blk-modal" @click.stop>
                 <div class="up-blk-head">
                     <span class="material-icons">notifications_off</span>
@@ -546,7 +413,7 @@
                         <table class="up-blk-table">
                             <thead>
                                 <tr>
-                                    <th style="width:36px; text-align:center;"><input type="checkbox" class="up-dt-cb" :checked="blkAllSelected" x-effect="$el.indeterminate = blkSomeSelected && !blkAllSelected" @change="blkSelectAll($event.target.checked)" title="표시된 행 모두 선택" /></th>
+                                    <th style="width:36px; text-align:center;"><input type="checkbox" class="up-dt-cb" :checked="blkAllSelected" x-effect="$el.indeterminate = blkSomeSelected && !blkAllSelected" @change="blkSelectAll($event.target.checked)" title="조건에 맞는 행 모두 선택" /></th>
                                     <th class="up-blk-th-sort" @click="blkSort('device')">
                                         디바이스
                                         <span class="up-blk-sort-icon" :class="{ active: blockMgr.sortCol === 'device' }">
@@ -568,7 +435,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <template x-for="d in blkFilteredDevices" :key="d.device">
+                                <template x-for="d in blkFilteredDevices.slice(0, blockMgr.limit)" :key="d.device">
                                     <tr :class="{ sel: !!blockMgr.selected[d.device] }" @click="blockMgr.selected[d.device] = !blockMgr.selected[d.device]" style="cursor:pointer;">
                                         <td data-label="선택" style="text-align:center;">
                                             <input type="checkbox" class="up-dt-cb" :checked="!!blockMgr.selected[d.device]" @click.stop @change="blockMgr.selected[d.device] = $event.target.checked" />
@@ -589,6 +456,13 @@
                                         </td>
                                     </tr>
                                 </template>
+                                <!-- 표시 한도 — 긴 목록은 300행씩. 선택·일괄은 조건에 맞는 전체에 걸린다(헤더 체크·선택 수 라벨이 그 수를 말한다). -->
+                                <tr x-show="blkFilteredDevices.length > blockMgr.limit">
+                                    <td colspan="4" class="up-blk-more">
+                                        <span x-text="Math.min(blockMgr.limit, blkFilteredDevices.length).toLocaleString() + ' / ' + blkFilteredDevices.length.toLocaleString() + ' 표시'"></span>
+                                        <button type="button" class="ds-selbar-link" @click="blockMgr.limit += 300" x-text="Math.min(300, blkFilteredDevices.length - blockMgr.limit) + '행 더보기'"></button>
+                                    </td>
+                                </tr>
                                 <tr x-show="!blockMgr.loading && !blockMgr.devices.length">
                                     <td colspan="4" style="text-align:center; color:var(--color-text-secondary); padding:18px;">디바이스가 없습니다 — AASX 모델 로드 후 다시 시도하세요.</td>
                                 </tr>
@@ -638,7 +512,7 @@
                         <table class="up-blk-table">
                             <thead>
                                 <tr>
-                                    <th style="width:36px; text-align:center;"><input type="checkbox" class="up-dt-cb" :checked="utAllSelected" x-effect="$el.indeterminate = utSomeSelected && !utAllSelected" @change="utSelectAll($event.target.checked)" title="표시된 행 모두 선택" /></th>
+                                    <th style="width:36px; text-align:center;"><input type="checkbox" class="up-dt-cb" :checked="utAllSelected" x-effect="$el.indeterminate = utSomeSelected && !utAllSelected" @change="utSelectAll($event.target.checked)" title="조건에 맞는 행 모두 선택" /></th>
                                     <th>이름</th>
                                     <th style="width:130px;">시스템</th>
                                     <th>주소</th>
@@ -646,7 +520,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <template x-for="t in utFilteredTags" :key="t.tagAddress">
+                                <template x-for="t in utFilteredTags.slice(0, blockMgr.ut.limit)" :key="t.tagAddress">
                                     <tr :class="{ sel: !!blockMgr.ut.selected[t.tagAddress] }" @click="blockMgr.ut.selected[t.tagAddress] = !blockMgr.ut.selected[t.tagAddress]" style="cursor:pointer;">
                                         <td data-label="선택" style="text-align:center;">
                                             <input type="checkbox" class="up-dt-cb" :checked="!!blockMgr.ut.selected[t.tagAddress]" @click.stop @change="blockMgr.ut.selected[t.tagAddress] = $event.target.checked" />
@@ -663,6 +537,13 @@
                                         </td>
                                     </tr>
                                 </template>
+                                <!-- 표시 한도 — 긴 목록은 300행씩. 선택·일괄은 조건에 맞는 전체에 걸린다(헤더 체크·선택 수 라벨이 그 수를 말한다). -->
+                                <tr x-show="utFilteredTags.length > blockMgr.ut.limit">
+                                    <td colspan="5" class="up-blk-more">
+                                        <span x-text="Math.min(blockMgr.ut.limit, utFilteredTags.length).toLocaleString() + ' / ' + utFilteredTags.length.toLocaleString() + ' 표시'"></span>
+                                        <button type="button" class="ds-selbar-link" @click="blockMgr.ut.limit += 300" x-text="Math.min(300, utFilteredTags.length - blockMgr.ut.limit) + '행 더보기'"></button>
+                                    </td>
+                                </tr>
                                 <tr x-show="!blockMgr.ut.loading && !blockMgr.ut.tags.length">
                                     <td colspan="5" style="text-align:center; color:var(--color-text-secondary); padding:18px;">정의된 이상알람TAG가 없습니다.</td>
                                 </tr>
@@ -687,6 +568,7 @@
                     </div>
                 </div>
             </div>
+            </template>
         </div>
 
     </div>
@@ -695,6 +577,7 @@
     <script src="/lib/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="/lib/signalr.min.js"></script>
     <script>window.DSP_UPTIME_VIEW = "alarm";</script>
+    <script src="/js/ds-range.js"></script>
     <script src="/app/uptime-workspace.js"></script>
     <script src="/app/shell.js" defer></script>
     <script defer src="/lib/alpine.min.js"></script>

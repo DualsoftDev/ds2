@@ -160,31 +160,13 @@
                          모든 탭(flow 전체·분기)이 한 간트를 공유하므로 여기 설정은 탭을 바꿔도 그대로 적용된다. Ctrl+휠 = 커서 앵커 줌(onGanttWheel). -->
                     <div class="ct-toolbar-stack fw-toolbar-sticky" x-show="tab === 'cycle'" x-cloak>
                         <div class="call-test-controls">
-                            <!-- 시간 프리셋 + 직접 지정(기간) -->
-                            <div class="ct-range-field">
-                                <div class="segmented">
-                                    <button :class="timePreset === 'm1' ? 'is-active' : ''" @click="setRecentMinutes(1)">1분</button>
-                                    <button :class="timePreset === 'm5' ? 'is-active' : ''" @click="setRecentMinutes(5)">5분</button>
-                                    <button :class="timePreset === 'm30' ? 'is-active' : ''" @click="setRecentMinutes(30)">30분</button>
-                                    <button :class="timePreset === 'h1' ? 'is-active' : ''" @click="setRecentHours(1)">1시간</button>
-                                    <button :class="timePreset === 'h24' ? 'is-active' : ''" @click="setRecentHours(24)">24시간</button>
-                                    <button :class="rangePopupOpen ? 'is-active' : ''" @click="rangePopupOpen = !rangePopupOpen"
-                                            title="분석할 시작·종료 시각을 직접 지정">
-                                        <span class="material-icons">calendar_today</span>기간
-                                    </button>
-                                </div>
-                                <div class="ct-range-popup" x-show="rangePopupOpen" x-transition
-                                     @click.outside="rangePopupOpen = false">
-                                    <div class="ct-field">
-                                        <label>시작</label>
-                                        <input type="datetime-local" step="1" class="form-field" x-model="startTime" @change="onTimeChanged()" />
-                                    </div>
-                                    <div class="ct-field">
-                                        <label>종료</label>
-                                        <input type="datetime-local" step="1" class="form-field" x-model="endTime" @change="onTimeChanged()" />
-                                    </div>
-                                </div>
-                            </div>
+                            <!-- 공용 기간 선택기(js/ds-range.js, 2026-10-01) — 시간 프리셋 + '가동'(누르면 카드: 최근 N회 가동이 들어오게
+                                 날짜·시간 자동) + 📅 직접 지정(날짜·시간 분리 편집). '오늘'은 시간 프리셋 쪽으로(종전엔 가동 그룹에 섞여 있었다).
+                                 선택은 전 페이지가 기억·공유(localStorage) — 다른 분석 페이지에서 고른 기간으로 이 페이지가 열린다. -->
+                            <ds-range :from="startTime" :to="endTime" :preset="timePreset || ''" presets="m1,m5,m30,h1,h24,today"
+                                      cycles="20,50,100" :cycle="cyclePreset || ''"
+                                      @preset="onRangePreset($event.detail.key)" @cycle="setRecentCycles($event.detail.n)"
+                                      @range="applyRangeInput($event.detail)"></ds-range>
                             <!-- 프리셋 기준 시각(값) — 프리셋("최근 N분")의 끝점은 현재 시각이 아니라 *신호가 마지막으로 들어온 시각*이다.
                                  이 표시가 없으면 신호가 끊긴 뒤에도 화면이 꽉 차 보여 "실시간인데 왜 헤더는 데이터 대기냐"는 오해가 생긴다
                                  (2026-07-29 현장 문의). 시간 프리셋 바로 옆에 붙인다(2026-09-18). -->
@@ -207,16 +189,6 @@
                                         title="Work 별 고정 순서(모델 순) — Work 헤더 행에 사이클별 구간 막대">Work 그룹</button>
                                 <button :class="sortMode === 'signal' ? 'active' : ''" @click="setSortMode('signal')"
                                         title="시작(head) 맨 위 · 나머지는 첫 신호 시각 순 — Work 묶음 없음">신호 순</button>
-                            </div>
-                            <!-- 가동 횟수 프리셋 -->
-                            <div class="ct-cycle-presets">
-                                <span class="ct-preset-sep" title="가동 횟수 기준 — 최근 발생한 N회 가동이 들어오도록 시간 범위를 자동 설정">가동</span>
-                                <div class="segmented">
-                                    <button :class="cyclePreset === 20 ? 'is-active' : ''" @click="setRecentCycles(20)" :disabled="isLoading || !selectedFlow">최근 20</button>
-                                    <button :class="cyclePreset === 50 ? 'is-active' : ''" @click="setRecentCycles(50)" :disabled="isLoading || !selectedFlow">최근 50</button>
-                                    <button :class="cyclePreset === 100 ? 'is-active' : ''" @click="setRecentCycles(100)" :disabled="isLoading || !selectedFlow">최근 100</button>
-                                    <button :class="timePreset === 'today' ? 'is-active' : ''" @click="setToday()">오늘</button>
-                                </div>
                             </div>
                         </div>
                         <div class="ct-gantt-toolbar" x-show="callLanes.length > 0">
@@ -1089,29 +1061,11 @@
 
                 <!-- ════ 시간/사이클 프리셋 (단일 페이지 call-test-controls 와 동일 · 기본 = 최근 1시간) ════ -->
                 <div class="call-test-controls">
-                    <div class="ct-range-field">
-                        <div class="segmented">
-                            <button :class="timePreset === 'm5' ? 'is-active' : ''" @click="setRecentMinutes(5)" :disabled="loadingAny">5분</button>
-                            <button :class="timePreset === 'm30' ? 'is-active' : ''" @click="setRecentMinutes(30)" :disabled="loadingAny">30분</button>
-                            <button :class="timePreset === 'h1' ? 'is-active' : ''" @click="setRecentHours(1)" :disabled="loadingAny">1시간</button>
-                            <button :class="timePreset === 'h8' ? 'is-active' : ''" @click="setRecentHours(8)" :disabled="loadingAny">8시간</button>
-                            <button :class="timePreset === 'h24' ? 'is-active' : ''" @click="setRecentHours(24)" :disabled="loadingAny">24시간</button>
-                            <button :class="rangePopupOpen ? 'is-active' : ''" @click="rangePopupOpen = !rangePopupOpen"
-                                    title="분석할 시작·종료 시각을 직접 지정 (모든 Flow 공통)">
-                                <span class="material-icons">calendar_today</span>기간
-                            </button>
-                        </div>
-                        <div class="ct-range-popup" x-show="rangePopupOpen" x-transition @click.outside="rangePopupOpen = false">
-                            <div class="ct-field">
-                                <label>시작</label>
-                                <input type="datetime-local" step="1" class="form-field" x-model="startTime" @change="onTimeChanged()" />
-                            </div>
-                            <div class="ct-field">
-                                <label>종료</label>
-                                <input type="datetime-local" step="1" class="form-field" x-model="endTime" @change="onTimeChanged()" />
-                            </div>
-                        </div>
-                    </div>
+                    <!-- 공용 기간 선택기(js/ds-range.js) — 단일 flow 페이지와 같은 한 벌(프리셋 + 가동 카드 + 📅 직접 지정, 모든 Flow 공통) -->
+                    <ds-range :from="startTime" :to="endTime" :preset="timePreset || ''" presets="m5,m30,h1,h8,h24,today"
+                              cycles="20,50,100" :cycle="cyclePreset || ''" :disabled="loadingAny"
+                              @preset="onRangePreset($event.detail.key)" @cycle="setRecentCycles($event.detail.n)"
+                              @range="applyRangeInput($event.detail)"></ds-range>
                     <!-- 프리셋 기준 시각(값) — 시간 프리셋 바로 옆(단일 페이지와 같은 위치) -->
                     <span class="ct-anchor-hint" :class="dataAnchorLag ? 'is-lag' : ''" x-show="dataAnchorHint" x-cloak title="프리셋 끝 = 마지막 신호 시각">
                         <span class="material-icons">schedule</span><span x-text="dataAnchorHint"></span>
@@ -1122,15 +1076,6 @@
                                 :title="viewLocked('call') ? '최소 하나는 켜 두어야 합니다' : 'Call 단위 실행 막대 — 명령(OUT)↑ ~ 응답(IN)↑'">Call 막대</button>
                         <button :class="showIo ? 'active' : ''" @click="toggleView('io')" :disabled="viewLocked('io')"
                                 :title="viewLocked('io') ? '최소 하나는 켜 두어야 합니다' : 'OUT(명령)·IN(응답) 원신호 파형'">IN/OUT 파형</button>
-                    </div>
-                    <div class="ct-cycle-presets">
-                        <span class="ct-preset-sep" title="가동 횟수 기준 — 최근 N회 가동 (첫 번째 Flow 히스토리 기준)">가동</span>
-                        <div class="segmented">
-                            <button :class="cyclePreset === 20 ? 'is-active' : ''" @click="setRecentCycles(20)" :disabled="loadingAny">최근 20</button>
-                            <button :class="cyclePreset === 50 ? 'is-active' : ''" @click="setRecentCycles(50)" :disabled="loadingAny">최근 50</button>
-                            <button :class="cyclePreset === 100 ? 'is-active' : ''" @click="setRecentCycles(100)" :disabled="loadingAny">최근 100</button>
-                            <button :class="timePreset === 'today' ? 'is-active' : ''" @click="setToday()" :disabled="loadingAny">오늘</button>
-                        </div>
                     </div>
                 </div>
 
@@ -1322,6 +1267,7 @@
     <script src="/lib/signalr.min.js"></script>
     <script src="/lib/chart.umd.min.js"></script>
     <script>window.DSP_FLOW_VIEW = "cycle";</script>
+    <script src="/js/ds-range.js"></script>
     <script src="/app/flow-workspace.js"></script>
     <script src="/app/cycle-gantt.js"></script>
     <script src="/app/flow-cycle-overview.js"></script>

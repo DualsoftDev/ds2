@@ -88,9 +88,7 @@
                 rt: { connected: false },
                 _conn: null, _dt: null, _pollTimer: null,
                 // stale 응답 가드 — 폴링/기간변경/페이지이동 응답이 뒤늦게 도착해 최신 상태를 덮어쓰는 경합 방지
-                _utSeq: 0, _oeeSeq: 0, _anpSeq: 0, _relSeq: 0, _relRecovered: null,
-                // 등록 에러 태그 기반 신뢰성(doc/31). null = 아직 못 읽음 — 카드를 감춘다.
-                rel: null, relState: '',
+                _utSeq: 0, _oeeSeq: 0, _anpSeq: 0,
                 // 사용자 로드(기간변경·페이지·정렬 등 비무음) 진행 중 카운트 — >0 이면 폴링/SignalR 무음 재로드를 건너뜀.
                 // 무음 로드가 seq 를 선점하면 사용자 로드 응답이 stale 폐기되어, 로딩 인디케이터가 끝나고도
                 // (뒤늦은 무음 응답 도착까지) 화면이 안 채워지는 가로채기가 생긴다. OEE 요약처럼 느린 조회일수록 잦음.
@@ -105,8 +103,6 @@
                 utPageSize: 10, utSort: 'occurredAt', utSortDir: 'desc', _utSearchTimer: null,
                 // 알림 이력 행 선택(공용 .ds-selbar, 2026-09-18) — 키 = histRowKey(a). 현재 페이지에 있는 행만 선택으로 센다(histSelRows).
                 histSel: {},
-                // 고장 지표 건별 표 표시 한도 — '더보기' 로 +50.
-                relLimit: 50,
                 _focusAt: null, // 피드에서 at 으로 진입 시 스크롤·하이라이트할 알람 행 키(occurredAtLocal 초단위)
                 _charts: null,
                 dailyData: null,
@@ -169,8 +165,11 @@
                 //   사용자지정(ut): tags=UserTag 정의 목록, selected=주소 체크 맵.
                 blockMgr: {
                     show: false, tab: 'auto', busy: false,
+                    // limit = 표에 그리는 행 한도(300행씩 더보기). 수천 행을 한 번에 그리면 모달 여는 데 수 초가 든다.
+                    //   선택·일괄(blkSelectAll/utSelectAll)은 한도와 무관하게 조건에 맞는 전체에 걸린다.
+                    limit: 300,
                     loading: false, devices: [], kindOptions: [], selKinds: [], selected: {}, msg: '', err: '', filter: '', showBlockedOnly: false, sortCol: 'device', sortDir: 'asc',
-                    ut: { loading: false, tags: [], selected: {}, msg: '', err: '', filter: '', showBlockedOnly: false }
+                    ut: { loading: false, tags: [], selected: {}, msg: '', err: '', filter: '', showBlockedOnly: false, limit: 300 }
                 },
 
                 async init() {
@@ -210,6 +209,8 @@
                         this.customTo = qp.get('to').slice(0, 16);
                         this.clampCustomRange(); // 북마크/URL 로 상한(2개월) 우회 방지
                     }
+                    // URL 에 기간이 없으면 다른 페이지에서 고른 기간(공용 기억, js/ds-range.js). ?at= 딥링크는 아래가 덮어쓴다.
+                    else if (!perQ && !qp.has('at')) this.applyRememberedPeriod();
                     // 피드에서 발생시각(at)을 받으면 그 '날' 하루를 custom 기간으로 맞춰 클릭한 알람이 조회 범위에 들어오게 한다.
                     // (기본 '오늘'이라 과거 알람이면 0건이 되던 문제 해결.) _focusAt 은 로드 후 그 행을 스크롤·하이라이트하는 키.
                     const at = qp.get('at'); // "yyyy-MM-dd HH:mm:ss" (초 단위) — 알림 이력 행의 occurredAtLocal.slice(0,19) 와 동일 형식
@@ -304,6 +305,8 @@
                 // shell 나브의 같은 페이지 전체/FLOW 이동이 이 파라미터를 실어 가 기간이 유지된다(init 에서 복원).
                 // 기본(오늘)은 파라미터 생략. custom 인데 범위 미입력(적용 전)이면 기간 파라미터를 남기지 않는다.
                 syncPeriodUrl() {
+                    // 전 페이지 공용 기억 — 프리셋은 이름으로(다른 페이지가 열릴 때 다시 계산), 직접 지정은 절대 범위로.
+                    if (window.dspRange) { const r = this.rangeForPeriod(); window.dspRange.remember({ preset: this.period === 'custom' ? null : this.period, from: r.from, to: r.to }); }
                     const qp = new URLSearchParams(location.search);
                     qp.delete('period'); qp.delete('from'); qp.delete('to');
                     if (this.period === 'custom') {
@@ -671,88 +674,9 @@
                             if (seq === this._utSeq) this.error = '이상발생 데이터를 불러오지 못했습니다: ' + e.message;
                         } finally { this.loading = false; }
 
-                        // 등록 에러 태그 기반 신뢰성(eMTBF·eMTTR) — 스냅샷과 독립이라 실패해도 목록은 그대로 뜬다.
-                        this.loadReliability(silent);
-
                         // 신규 OEE 데이터 — 위에서 이미 dispatch 됨(스냅샷과 병렬). 완료만 대기.
                         await oeePromise;
                     } finally { if (!silent) this._userBusy--; }
-                },
-
-                // 등록 에러 태그 기반 신뢰성 — doc/31. OEE 의 MTBF/MTTR(비가동 기준)과 별개 축이라
-                // 값이 다른 것이 정상이다(느린 사이클 ⊃ 등록된 고장). 실패는 조용히 접는다 — 옵션 기능이고
-                // 이 카드가 비어도 알람 목록은 제 몫을 한다.
-                async loadReliability(silent) {
-                    const seq = ++this._relSeq;
-                    try {
-                        const r = this.rangeForPeriod();
-                        const qs = new URLSearchParams({ from: r.from, to: r.to });
-                        if (this.curSystem) qs.set('system', this.curSystem);
-                        // 이력 표에 실을 갈래만 받는다 — 제외 행까지 늘 실어 오면 응답이 1MB 를 넘는다.
-                        // 요약·스코프·디바이스는 어느 갈래를 골라도 전체 기준이라 화면이 흔들리지 않는다.
-                        if (this.relState.startsWith('skip:')) qs.set('alerts', this.relState.slice(5));
-                        const dto = await this.apiGet('/api/user-tags/reliability?' + qs.toString());
-                        if (seq !== this._relSeq) return;           // stale 응답 폐기(기간 변경 경합)
-                        this.rel = dto;
-                        // Top 10 의 '복구 완료' 조각 — 기본 갈래(집계 대상) 응답에서만 접는다. skip 갈래 응답은
-                        // 제외 행만 실려 와 Recovered 가 없으므로, 그때 덮어쓰면 칩을 누를 때마다 조각이 사라진다.
-                        if (!qs.has('alerts')) this._relRecovered = this._recoveredByAddress(dto.alerts);
-                        this.drawTopChart();
-                    } catch (e) {
-                        if (seq === this._relSeq && !silent) this.rel = null;
-                    }
-                },
-                // 상태 칩 클릭 = 그 상태만 보기(같은 칩 다시 누르면 해제).
-                // 갈래가 바뀌면 그 갈래를 다시 받아 온다(제외 행은 기본 응답에 없다).
-                setRelState(s) {
-                    const next = this.relState === s ? '' : s;
-                    const refetch = next.startsWith('skip:') || this.relState.startsWith('skip:');
-                    this.relState = next;
-                    this.relLimit = 50;
-                    if (refetch) this.loadReliability(true);
-                },
-                // 건별 표는 50건씩 — 잘린 건수를 숨기지 않고 "N건 중 50건 표시 · 더보기" 로 밝힌다.
-                relMore() { this.relLimit += 50; },
-                // 칩 하나로 두 축을 거른다 — 집계에서 빠진 이유(skip=…) 와 회복 상태(state) 다.
-                // skip 갈래는 서버가 이미 그것만 보내 주므로 여기서 다시 거르지 않는다.
-                get relRows() {
-                    const rows = this.rel?.alerts || [];
-                    const s = this.relState;
-                    if (!s || s.startsWith('skip:')) return rows;
-                    return rows.filter(a => a.skip === 'None' && a.state === s);
-                },
-                // 태그별 Top 10 의 '복구 완료' 조각 — 집계 대상(skip=None) 이면서 복구 완료인 건을 주소로 접는다.
-                // Top 행이 주소 단독 키라(두 PLC 가 같은 주소를 쓰면 한 막대) 여기도 주소로만 접는다.
-                _recoveredByAddress(alerts) {
-                    const m = {};
-                    for (const a of alerts || [])
-                        if (a.skip === 'None' && a.state === 'Recovered') m[a.tagAddress] = (m[a.tagAddress] || 0) + 1;
-                    return m;
-                },
-                // 화면 분해 — 합이 관측된 사건 전체와 맞아야 한다.
-                // ★key 를 빈 문자열로 두면 setRelState 가 해제로만 동작해 "눌러도 반응 없음" 이 된다.
-                get relBreakdown() {
-                    const r = this.rel;
-                    if (!r) return [];
-                    return [
-                        { key: 'skip:None', label: '집계 대상 고장', n: r.faultCount, cls: 'chip-error',
-                          tip: '설비가 실제로 선 사건 — 이것만 eMTBF·eMTTR 에 들어갑니다' },
-                        { key: 'skip:NonStopWarning', label: '무정지 경고', n: r.nonStopWarningCount, cls: 'chip-warning',
-                          tip: '알람은 울렸지만 설비는 계속 돌았습니다 — 고장이 아니라 경고입니다' },
-                        { key: 'skip:LinkSnapshot', label: '재접속 스냅샷', n: r.linkSnapshotCount, cls: '',
-                          tip: '통신이 붙는 순간 이미 켜져 있던 조건이 한꺼번에 발화한 것입니다' },
-                        { key: 'skip:UnknownStop', label: '판정 불가', n: r.unknownStopCount, cls: '',
-                          tip: '사이클 리듬 기준을 구하지 못해 정지 여부를 판정할 수 없었습니다' },
-                    ].filter(x => x.n > 0);
-                },
-                // 필터가 걸린 동안 그 사실과 해제 수단을 표 바로 위에 둔다(칩만으로는 안 보인다).
-                get relFilterLabel() {
-                    const s = this.relState;
-                    if (!s) return '';
-                    const fromChip = this.relBreakdown.find(b => b.key === s);
-                    if (fromChip) return fromChip.label;
-                    return ({ Recovered: '복구 완료', RestartUnconfirmed: '재가동 미확인',
-                              AwaitingRestart: '복구 확인 중', InProgress: '진행 중' })[s] || s;
                 },
 
                 // 피드에서 at 으로 진입했을 때 해당 알람 행(data-at=occurredAtLocal 초단위)을 찾아 스크롤 + 잠깐 하이라이트.
@@ -796,15 +720,13 @@
                     } catch (e) { console.warn('chart draw failed', e); }
                     this.drawTopChart();
                 },
-                // 태그별 Top 10 — 경로(주소) 기준 발생 수를 상태(복구 완료·해소·미해소)로 쌓는다. 해소는 스냅샷이
-                // 주고(clearedCount), 복구 완료는 신뢰성 판정을 주소로 접어 얹는다. 두 응답의 도착 시점이 달라
-                // 어느 쪽이 와도 다시 그린다(in-place 갱신이라 값싸다).
+                // 태그별 Top 10 — 경로(주소) 기준 발생 수를 상태(해소·미해소)로 쌓는다. 해소는 스냅샷이 준다(clearedCount).
+                // '복구 완료' 조각은 2026-10-01 뺐다 — 그 판정(reliability)은 Excel 디바이스별 시트로만 낸다(doc/31 §8).
                 drawTopChart() {
                     if (this.view === 'oee' || this.view === 'teep') return;
                     if (!this._charts || !this.ut) return;
                     try {
-                        this._charts.renderTopChart('ut-top-chart', (this.ut.topRowsByPath || []).slice(0, 10),
-                            { recoveredByAddress: this._relRecovered || {} });
+                        this._charts.renderTopChart('ut-top-chart', (this.ut.topRowsByPath || []).slice(0, 10));
                     } catch (e) { console.warn('top chart draw failed', e); }
                 },
 
@@ -1557,15 +1479,15 @@
                         if (d.granularity === 'hour') return s.slot.slice(11, 16); // "HH:mm"(=HH:00)
                         return s.slot.length >= 10 ? s.slot.slice(5, 10) : s.slot;  // "yyyy-MM-dd" → "MM-DD" (ISO 숫자형 통일)
                     });
-                    // 가동·비가동·비생산 분해 — 비가동 내부는 isFailure 2-상태로 모아 한 계열로 그린다(2026-09-21):
-                    //   고장 = failureMs(isFailure=1) + unclassifiedMs(미분류, 기본 isFailure=1)
-                    //   유지보수 = plannedMs(category='planned') + otherMs(계획외지만 isFailure=0 — 자재대기 등, 도넛도 유지보수로 집계)
-                    //   nonProdMs=비생산(A 분모 밖 — 가동에서 카빙), 나머지=가동근사.
-                    // 가동간 공백(임계 미만 사이클 간 미세 슬랙, 2026-07-14): 서버 daily 가 고장에 감지 정지 귀속분만
-                    //   적재하므로 공백은 슬롯 잔여 = 가동에 포함돼 그려진다(사용자 결정 — 추이에선 가동으로 인정,
-                    //   가용성 정산 바가 밝은 하늘색 '가동간 공백' 세그먼트로 따로 보여준다).
-                    const failureData = d.slots.map(s => ((s.failureMs || 0) + (s.unclassifiedMs || 0)) / MS); // 고장(isFailure=1 계열)
-                    const plannedData = d.slots.map(s => ((s.plannedMs || 0) + (s.otherMs || 0)) / MS); // 유지보수(isFailure=0 계열)
+                    // 가동·비가동·비생산 분해 — 비가동 세 조각을 한 계열로 모아 그린다(2026-09-21):
+                    //   failureMs=고장 · plannedMs=유지보수 · unclassifiedMs=미귀속(원인 미기록, 2026-10-01)
+                    //   nonProdMs=비생산(A 분모 밖 — 가동에서 카빙).
+                    // 세 조각 합 = 서버의 (생산가능 − 가동) 이라 이 차트의 비가동이 아래 가용성 누적 정산과 같은 값이다.
+                    //   종전엔 미귀속이 응답에 없어, 정지 이벤트 0건인 구간은 비가동이 통째로 흰 여백이 됐다
+                    //   (가동 50.5% / 비가동 49.5% 인 화면에서 빨강이 한 칸도 안 그려짐). 가동간 공백(미세 슬랙)도
+                    //   여기 들어온다 — 실측 가동(runMs)에 안 들어가는 시간이라 안 그리면 어디에도 없다.
+                    const failureData = d.slots.map(s => ((s.failureMs || 0) + (s.unclassifiedMs || 0)) / MS); // 고장 + 미귀속
+                    const plannedData = d.slots.map(s => ((s.plannedMs || 0) + (s.otherMs || 0)) / MS); // 유지보수
                     // 비생산(제외) — A 분모 밖. 미계측(수신 공백, §3.4)은 어떤 스택에도 채우지 않는다(2026-07-06 결정):
                     // 비생산·가동 어디에도 안 넣어 스택 합 < slotMs → 그만큼 흰 여백으로 남아 "데이터 없음"이 시각 구분된다.
                     //   2026-08-21: 그 규칙을 미수집 전체로 확장 — 가동을 잔여로 재구성하지 않고 서버 실측(runMs)만 그린다.
@@ -1703,21 +1625,30 @@
                         await Promise.all(jobs);
                     } finally { this._userBusy--; }
                 },
+                // ── 공용 기간 선택기(<ds-range>, js/ds-range.js) 연결 ──
+                // 바인딩 값 = 현재 기간의 절대 범위('yyyy-MM-ddTHH:mm:ss', 프리셋이면 지금 기준으로 계산) — 📅 버튼 라벨과 편집칸 초기값.
+                get rangeFrom() { return this.rangeForPeriod().from; },
+                get rangeTo() { return this.rangeForPeriod().to; },
+                // 날짜·시간 카드 '적용' → custom. 종료 24:00 은 컴포넌트가 다음날 00:00 으로 정규화해 준다(분 단위 보관 규약 유지).
+                applyRange(r) {
+                    if (!r || !r.from || !r.to) return;
+                    this.customFrom = r.from.slice(0, 16); this.customTo = r.to.slice(0, 16);
+                    this.period = 'custom';
+                    this.applyCustomPeriod();
+                },
+                // 다른 페이지에서 고른 기간 되살리기 — 이 페이지 프리셋이면 이름으로, 아니면(5분/가동 N회 등) 절대 범위로.
+                applyRememberedPeriod() {
+                    const mem = window.dspRange ? window.dspRange.recall(['today', '7d', '30d', '60d']) : null;
+                    if (!mem) return;
+                    if (mem.preset) { this.period = mem.preset; return; }
+                    if (mem.from && mem.to && new Date(mem.to) > new Date(mem.from)) {
+                        this.period = 'custom'; this.customFrom = mem.from.slice(0, 16); this.customTo = mem.to.slice(0, 16);
+                        this.clampCustomRange();
+                    }
+                },
                 setPeriod(p) { if (this.period === p) return; this.period = p; this.utPage = 0; this.syncPeriodUrl(); if (window.dspLoading) window.dspLoading.wrap(() => this.reloadForPeriod(), '기간 데이터 불러오는 중…'); else this.reloadForPeriod(); },
 
-                toggleCustomPeriod() {
-                    if (this.period === 'custom') { this.setPeriod('today'); return; }
-                    // 현재 기간 범위를 초기값으로 세팅
-                    const fmt = (d) => {
-                        const p = (x) => String(x).padStart(2, '0');
-                        return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-                    };
-                    const r = this.rangeForPeriod();
-                    this.customFrom = r.from.slice(0, 16);
-                    this.customTo = r.to.slice(0, 16);
-                    this.period = 'custom';
-                    this.syncPeriodUrl();
-                },
+                // (구 toggleCustomPeriod — 인라인 datetime 입력 토글 — 은 공용 <ds-range> 카드로 대체돼 제거, 2026-10-01)
                 // 커스텀 기간 상한(2개월) — 초과 시 종료 시각을 기준으로 시작을 당기고 토스트로 안내.
                 // 서버 인메모리 미러 창(63일) 안에 사용자 조회가 항상 들어오게 하는 UX 규약(shell.js SSOT).
                 clampCustomRange() {
@@ -1922,7 +1853,7 @@
                 // 선택된 채 자동알람 탭으로 열림. 인수 없음(툴바 버튼)이면 선택은 그대로, 유형은 비어 있을 때만 전체.
                 async openBlockMgr(presetDevices, presetKindNames) {
                     const m = this.blockMgr;
-                    m.show = true; m.tab = 'auto'; m.msg = ''; m.err = '';
+                    m.show = true; m.tab = 'auto'; m.msg = ''; m.err = ''; m.limit = 300; m.ut.limit = 300;
                     await Promise.all([this.loadBlockState(), this.loadUserTagBlockState()]);
                     const devs = [].concat(presetDevices || []).filter(Boolean);
                     if (devs.length) this.blkPreset(devs, [].concat(presetKindNames || []).filter(Boolean));
@@ -1938,7 +1869,7 @@
                 // presetTagAddresses(문자열 또는 배열): UserTag 알림 행 바로가기 — 해당 태그가 선택된 채 사용자지정 탭으로 열림.
                 async openUserTagBlockMgr(presetTagAddresses) {
                     const m = this.blockMgr;
-                    m.show = true; m.tab = 'user'; m.ut.msg = ''; m.ut.err = '';
+                    m.show = true; m.tab = 'user'; m.ut.msg = ''; m.ut.err = ''; m.limit = 300; m.ut.limit = 300;
                     await Promise.all([this.loadBlockState(), this.loadUserTagBlockState()]);
                     const addrs = [].concat(presetTagAddresses || []).filter(Boolean);
                     if (addrs.length) { m.ut.selected = Object.fromEntries(addrs.map(a => [a, true])); this.utBlkHoistSelected(); }

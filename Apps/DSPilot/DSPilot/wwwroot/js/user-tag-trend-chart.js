@@ -177,34 +177,33 @@ function altLabel(alt) {
     return names.slice(0, TOP_ALT_INLINE).join(', ') + ` 외 ${names.length - TOP_ALT_INLINE}`;
 }
 
-// 상태 스택 색 — 복구 완료(브랜드 azure)·해소(호박)·미해소(로즈)·자동감지(보라). 색각 이상 3종 분리와 표면 대비를
+// 상태 스택 색 — 해소(호박)·미해소(로즈)·자동감지(보라). 색각 이상 3종 분리와 표면 대비를
 // 검증한 조합(dataviz validate_palette, light/dark 통과). 상태색이라 시계열의 구분색(로즈 단색)과는 다르다.
+// '복구 완료'(azure) 조각은 2026-10-01 뺐다 — 그 판정은 /api/user-tags/reliability 를 매 폴링 돌려야 나왔고,
+// 디바이스별 판정은 Excel 시트가 정본이 됐다(doc/31 §8). 해소 ⊇ 복구이므로 해소 조각이 그 몫을 품는다.
 function topStateColors() {
     return {
-        recovered: { fill: 'rgba(14, 124, 203, 0.85)', label: '복구 완료',
-                     tip: '해소된 뒤 설비가 다시 돌았습니다(집계 대상만)' },
         cleared:   { fill: 'rgba(217, 119, 6, 0.85)',  label: '해소',
-                     tip: '조건은 풀렸지만 재가동 확인은 안 된 건(확인 중·미확인·경고·미지정 포함)' },
+                     tip: '조건이 풀렸습니다 — 재가동 여부는 Excel 디바이스별 시트에서' },
         open:      { fill: 'rgba(190, 18, 60, 0.85)',  label: '미해소',
                      tip: '조건이 아직 걸려 있습니다' },
         abnormal:  { fill: 'rgba(124, 58, 237, 0.85)', label: '자동감지',
                      tip: '점 이벤트라 해소 개념이 없습니다' },
     };
 }
-const TOP_STATE_KEYS = ['recovered', 'cleared', 'open', 'abnormal'];
+const TOP_STATE_KEYS = ['cleared', 'open', 'abnormal'];
 
 // topRows: [{ name, level, count, altName, clearedCount }] — level 슬롯은 구분(ABNORMAL/USERTAG).
-// 막대 하나 = 경로(주소) 하나의 발생 수를 상태로 쌓은 것 — 복구 완료 / 해소 / 미해소(이상알람TAG), 발생(자동감지).
-//   해소 = 서버 집계 clearedCount. 복구 완료 = opts.recoveredByAddress[주소](신뢰성 판정, 집계 대상만) — 해소 ⊇ 복구.
+// 막대 하나 = 경로(주소) 하나의 발생 수를 상태로 쌓은 것 — 해소 / 미해소(이상알람TAG), 발생(자동감지).
+//   해소 = 서버 집계 clearedCount. 스냅샷 한 응답으로 다 그려진다(추가 조회 없음).
 // 축 라벨은 2줄 — 1줄=그룹키(경로 기준이면 태그 주소), 2줄=반대편 이름(altName). 주소만으로는 어떤
 // 이상알람TAG/자동감지인지 알 수 없어 둘을 함께 보여준다.
-export function renderTopChart(chartId, topRows, opts) {
+export function renderTopChart(chartId, topRows) {
     const canvas = document.getElementById(chartId);
     if (!canvas) return;
 
     const C = topStateColors();
     const tc = themeChartColors();
-    const rec = (opts && opts.recoveredByAddress) || {};
     const labels = topRows.map(r => {
         const key = r.name || '(주소 없음)';
         const alt = altLabel(r.altName);
@@ -215,14 +214,13 @@ export function renderTopChart(chartId, topRows, opts) {
     const totals = topRows.map(r => r.count || 0);
     const seg = topRows.map(r => {
         const total = r.count || 0;
-        if (r.level === 'ABNORMAL') return { recovered: 0, cleared: 0, open: 0, abnormal: total };
+        if (r.level === 'ABNORMAL') return { cleared: 0, open: 0, abnormal: total };
         const cleared = Math.min(total, r.clearedCount || 0);
-        const recovered = Math.min(cleared, rec[r.name] || 0);
-        return { recovered, cleared: cleared - recovered, open: total - cleared, abnormal: 0 };
+        return { cleared, open: total - cleared, abnormal: 0 };
     });
     const series = TOP_STATE_KEYS.map(k => seg.map(s => s[k]));
 
-    // 같은 canvas·테마면 in-place 갱신(차트 재생성 churn 방지). 데이터셋 4개는 고정이라 순서로 맞춘다.
+    // 같은 canvas·테마면 in-place 갱신(차트 재생성 churn 방지). 데이터셋 3개는 고정이라 순서로 맞춘다.
     const existing = charts[chartId];
     if (existing && existing.canvas === canvas && existing._dark === isDark()) {
         existing.data.labels = labels;

@@ -190,6 +190,8 @@ function overviewCycleApp() {
             return qp;
         },
         syncRangeUrl() {
+            // 전 페이지 공용 기억(js/ds-range.js) — 단일 페이지와 같은 규약(시간 프리셋=이름, 가동 N회='cN', 직접 지정=절대 범위).
+            if (window.dspRange) window.dspRange.remember({ preset: this.timePreset || (this.cyclePreset ? 'c' + this.cyclePreset : null), from: this.startTime, to: this.endTime });
             const qp = new URLSearchParams(location.search);
             qp.delete('period'); qp.delete('from'); qp.delete('to');
             const pp = this.periodParams();
@@ -208,6 +210,16 @@ function overviewCycleApp() {
             const from = qp.get('from'), to = qp.get('to');
             if (from && to && this.inputToDate(to) > this.inputToDate(from)) {
                 this.startTime = from; this.endTime = to;
+                this.clampTimeRange();
+                this.timePreset = null; this.cyclePreset = null;
+                return await this.loadAll();
+            }
+            // URL 에 기간이 없으면 다른 페이지에서 고른 기간(공용 기억, js/ds-range.js) → 그것도 없으면 기본 최근 1시간.
+            const mem = window.dspRange ? window.dspRange.recall(['m5', 'm30', 'h1', 'h8', 'h24', 'today'], [20, 50, 100]) : null;
+            if (mem && mem.preset) return await this.onRangePreset(mem.preset);
+            if (mem && mem.cycle) return await this.setRecentCycles(mem.cycle);
+            if (mem && mem.from && mem.to && this.inputToDate(mem.to) > this.inputToDate(mem.from)) {
+                this.startTime = mem.from; this.endTime = mem.to;
                 this.clampTimeRange();
                 this.timePreset = null; this.cyclePreset = null;
                 return await this.loadAll();
@@ -579,6 +591,18 @@ function overviewCycleApp() {
             this.startTime = this.dateToInput(r.start);
             this.endTime = this.dateToInput(r.end);
             if (window.dspToast) window.dspToast(window.dspRangeClampMsg, 'warning');
+        },
+        // ── 공용 기간 선택기(<ds-range>, js/ds-range.js) 연결 — 단일 페이지(flow-workspace.js)와 동일 ──
+        onRangePreset(key) {
+            let m;
+            if ((m = String(key).match(/^m(\d+)$/))) return this.setRecentMinutes(+m[1]);
+            if ((m = String(key).match(/^h(\d+)$/))) return this.setRecentHours(+m[1]);
+            if (key === 'today') return this.setToday();
+        },
+        applyRangeInput(r) {
+            if (!r || !r.from || !r.to) return;
+            this.startTime = r.from; this.endTime = r.to;
+            this.onTimeChanged();
         },
         async setRecentMinutes(min) {
             this.timePreset = 'm' + min; this.cyclePreset = null; this.rangePopupOpen = false;
