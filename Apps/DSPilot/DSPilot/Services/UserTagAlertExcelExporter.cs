@@ -48,11 +48,16 @@ public static class UserTagAlertExcelExporter
         bool hasReliability, IReadOnlyDictionary<string, ErrorTagReliabilityService.AlertVerdict> verdicts)
     {
         var ws = workbook.Worksheets.Add("알람");
-        const int lastCol = 16;
+        const int lastCol = 17;
 
         var titleText = "이상·알람 조회" + (string.IsNullOrWhiteSpace(flow) ? "" : $" · 설비 {flow} (자동감지만)");
         ExcelExporterBase.ApplyTitleRow(ws, 1, titleText, lastCol, 22);
-        ExcelExporterBase.ApplySubtitleRow(ws, 2, $"{period}  ·  {rows.Count:N0} 건", lastCol);
+        // 정지(초)의 기준을 파일 안에 적는다 — 템플릿(Equipment Availability Sheet)의 MTTR 은 수리시간이고 이 값은
+        // 발생→재가동 달력시간이라, 기준이 안 보이면 밤새 래치된 알람의 14시간을 수리 14시간으로 읽는다.
+        ExcelExporterBase.ApplySubtitleRow(ws, 2,
+            $"{period}  ·  {rows.Count:N0} 건"
+            + (hasReliability ? "  ·  정지(초) = 사건 발생 → 재가동, 달력시간 그대로(비생산 차감 없음) · 사건 번호가 같으면 같은 정지에서 울린 알람" : ""),
+            lastCol);
 
         const int headerRow = 4;
         // 상태·해소 시각·지속(초) = 알람이 풀린 기록(Bit 1→0 등). 화면 목록의 "해소" 칸과 같은 원본(clearedAt).
@@ -61,7 +66,7 @@ public static class UserTagAlertExcelExporter
         ExcelExporterBase.ApplyHeaderRow(ws, headerRow,
             ["시각", "레벨", "구분", "System", "이름", "경로(주소)", "조건", "매칭값", "실제값",
              "상태", "해소 시각", "지속(초)",
-             "디바이스", "재가동 시각", "정지(초)", "판정"]);
+             "디바이스", "재가동 시각", "정지(초)", "판정", "사건 번호"]);
 
         int row = headerRow + 1;
         foreach (var a in rows)
@@ -105,6 +110,7 @@ public static class UserTagAlertExcelExporter
                 ws.Cell(row, 13).Value = "—";
                 ws.Cell(row, 14).Value = "—";
                 ws.Cell(row, 16).Value = "—";
+                ws.Cell(row, 17).Value = "—";
             }
             else if (verdicts.TryGetValue(VerdictKey(a.OccurredAt, a.Endpoint, a.TagAddress), out var v))
             {
@@ -116,6 +122,8 @@ public static class UserTagAlertExcelExporter
                     ws.Cell(row, 15).Style.NumberFormat.Format = "0.0";
                 }
                 ws.Cell(row, 16).Value = v.Skip == SkipCause.None ? StateLabel(v.State) : SkipLabel(v.Skip);
+                // 사건 번호 — 같은 정지에 묶인 알람들이 같은 번호를 받는다(doc/31 §2.1). "알람 73줄인데 고장 N건" 을 줄 단위로 추적하는 열.
+                if (v.EventNo > 0) ws.Cell(row, 17).Value = v.EventNo;
             }
             else if (hasReliability)
             {
@@ -127,7 +135,7 @@ public static class UserTagAlertExcelExporter
         }
 
         // 고정 너비 — ClosedXML AdjustToContents 의 한글 폭 버그 회피(메모리 규칙).
-        double[] widths = [20, 8, 10, 16, 24, 28, 16, 14, 16, 10, 20, 10, 18, 20, 10, 16];
+        double[] widths = [20, 8, 10, 16, 24, 28, 16, 14, 16, 10, 20, 10, 18, 20, 10, 16, 10];
         for (var i = 0; i < widths.Length; i++) ws.Column(i + 1).Width = widths[i];
         ExcelExporterBase.FreezeAndFooter(ws, headerRow);
     }
@@ -138,7 +146,7 @@ public static class UserTagAlertExcelExporter
         XLWorkbook workbook, ErrorTagReliabilityService.Result rel, string period, string? system, bool listFiltered)
     {
         var ws = workbook.Worksheets.Add("디바이스별");
-        const int lastCol = 13;
+        const int lastCol = 15;
         var s = rel.Summary;
 
         // 열 이름에 근거를 붙인다(doc/30 §7.1) — OEE 의 MTBF/MTTR(비가동 기준)과 한 문서에 들어갈 수 있는 자리다.
@@ -156,10 +164,18 @@ public static class UserTagAlertExcelExporter
             + (listFiltered ? "  ·  알람 시트의 검색·구분·설비 필터는 이 시트에 적용되지 않습니다(기간·System 만)" : ""),
             lastCol);
 
+        // 식과 기준을 파일 안에 적는다 — 고객 템플릿(Equipment Availability Sheet)이 같은 식(Availability = MTTF/(MTTF+MTTR),
+        // Failure Rate = 1/MTTF)을 쓰므로 열을 그대로 옮겨 붙일 수 있게 하되, eMTTR 이 수리시간이 아니라 발생→재가동
+        // 달력시간이라는 사실은 숨기지 않는다. 연산은 그대로고 파생 표기만 더한 것이다(2026-10-02).
+        ExcelExporterBase.ApplySubtitleRow(ws, 4,
+            "eMTBF = 가동시간 ÷ 고장 · eMTTR = Σ(발생→재가동) ÷ 복구 완료, 달력시간 그대로(비생산 차감 없음)"
+            + " · Availability = eMTBF ÷ (eMTBF + eMTTR) · Failure Rate = 1 ÷ eMTBF(분)",
+            lastCol);
+
         const int headerRow = 5;
         ExcelExporterBase.ApplyHeaderRow(ws, headerRow,
             ["구분", "이름", "System", "묶인 에러코드", "고장", "복구 완료", "무정지 경고", "진행 중", "재가동 미확인",
-             "가동시간(분)", "eMTBF(분)", "eMTTR(분)", "총 정지(분)"]);
+             "가동시간(분)", "eMTBF(분)", "eMTTR(분)", "총 정지(분)", "Availability(%)", "Failure Rate(1/분)"]);
 
         var tagsByDevice = BoundTagsOf(rel, system)
             .GroupBy(t => (t.System, t.Device))
@@ -183,6 +199,8 @@ public static class UserTagAlertExcelExporter
             SetMetric(ws.Cell(row, 11), d.EMtbfMs, d.FaultCount);
             SetMetric(ws.Cell(row, 12), d.EMttrMs, d.RecoveredCount);
             SetMinutes(ws.Cell(row, 13), d.TotalDownMs);
+            SetAvailability(ws.Cell(row, 14), d.EMtbfMs, d.EMttrMs);
+            SetFailureRate(ws.Cell(row, 15), d.EMtbfMs);
             row++;
         }
         // 묶였지만 기간 안에 알람이 없던 디바이스 — "이 설비는 이 기간 고장이 없었다" 도 정보다.
@@ -195,7 +213,7 @@ public static class UserTagAlertExcelExporter
             ws.Cell(row, 3).Value = key.System;
             ws.Cell(row, 4).Value = tags;
             for (var c = 5; c <= 9; c++) ws.Cell(row, c).Value = 0;
-            for (var c = 10; c <= 13; c++) ws.Cell(row, c).Value = "—";
+            for (var c = 10; c <= 15; c++) ws.Cell(row, c).Value = "—";
             row++;
         }
 
@@ -205,7 +223,7 @@ public static class UserTagAlertExcelExporter
         foreach (var p in rel.Systems) row = ScopeRow(ws, row, "PLC", p.Name, p.Name, p.Totals);
         ScopeRow(ws, row, "전체", "전체", "", s);
 
-        double[] widths = [10, 24, 16, 48, 8, 10, 11, 9, 13, 13, 13, 13, 12];
+        double[] widths = [10, 24, 16, 48, 8, 10, 11, 9, 13, 13, 13, 13, 12, 15, 17];
         for (var i = 0; i < widths.Length; i++) ws.Column(i + 1).Width = widths[i];
         ExcelExporterBase.FreezeAndFooter(ws, headerRow);
     }
@@ -224,6 +242,8 @@ public static class UserTagAlertExcelExporter
         SetMetric(ws.Cell(row, 11), t.EMtbfMs, t.FaultCount);
         SetMetric(ws.Cell(row, 12), t.EMttrMs, t.RecoveredCount);
         SetMinutes(ws.Cell(row, 13), t.TotalDownMs);
+        SetAvailability(ws.Cell(row, 14), t.EMtbfMs, t.EMttrMs);
+        SetFailureRate(ws.Cell(row, 15), t.EMtbfMs);
         ws.Row(row).Style.Font.Bold = true;
         return row + 1;
     }
@@ -320,6 +340,25 @@ public static class UserTagAlertExcelExporter
         if (ms is null) { cell.Value = $"표본 부족 (n={n})"; return; }
         cell.Value = Math.Round(ms.Value / 60000.0, 1);
         cell.Style.NumberFormat.Format = "0.0";
+    }
+
+    /// <summary>
+    /// Availability(%) = eMTBF ÷ (eMTBF + eMTTR) — 고객 템플릿의 식 그대로. 둘 중 하나라도 표본 미달이면 비운다
+    /// (한쪽만 있는 값으로 가용성을 만들면 "고장은 있는데 100%" 같은 가짜가 나온다).
+    /// </summary>
+    private static void SetAvailability(IXLCell cell, double? mtbfMs, double? mttrMs)
+    {
+        if (mtbfMs is not double b || mttrMs is not double r || b + r <= 0) { cell.Value = "—"; return; }
+        cell.Value = Math.Round(b / (b + r) * 100.0, 2);
+        cell.Style.NumberFormat.Format = "0.00";
+    }
+
+    /// <summary>Failure Rate(1/분) = 1 ÷ eMTBF(분) — 템플릿의 λ. 표본 미달이면 비운다.</summary>
+    private static void SetFailureRate(IXLCell cell, double? mtbfMs)
+    {
+        if (mtbfMs is not double b || b <= 0) { cell.Value = "—"; return; }
+        cell.Value = 60000.0 / b;
+        cell.Style.NumberFormat.Format = "0.000000";
     }
 
     private static string StateLabel(RecoveryState s) => s switch

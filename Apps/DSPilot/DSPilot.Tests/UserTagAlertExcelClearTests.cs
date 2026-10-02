@@ -108,6 +108,12 @@ public class UserTagAlertExcelClearTests
         Assert.Equal("복구 완료", alarm.Cell(5, 16).GetString());
         Assert.Equal("구 데이터(접속 정보 없음)", alarm.Cell(6, 16).GetString());
         Assert.Equal("—", alarm.Cell(7, 16).GetString());
+        // 사건 번호 — 판정된 행만 번호, 판정 없는 행은 빈칸, 자동감지는 '—'.
+        Assert.Equal("사건 번호", alarm.Cell(4, 17).GetString());
+        Assert.Equal(1, alarm.Cell(5, 17).GetDouble());
+        Assert.True(alarm.Cell(6, 17).IsEmpty());
+        Assert.Equal("—", alarm.Cell(7, 17).GetString());
+        Assert.Contains("비생산 차감 없음", alarm.Cell(2, 1).GetString());
 
         // 시트 2 — 디바이스 행 + 묶인 에러코드 + 분 단위 지표. 알람 없던 매핑(D2)도 0 건으로 나온다.
         var dev = wb.Worksheet("디바이스별");
@@ -115,20 +121,29 @@ public class UserTagAlertExcelClearTests
         Assert.Contains("구 데이터(접속 정보 없음) 1", dev.Cell(3, 1).GetString());
         Assert.Contains("적용되지 않습니다", dev.Cell(3, 1).GetString());
         Assert.Equal("eMTBF(분)", dev.Cell(5, 11).GetString());
+        Assert.Equal("Availability(%)", dev.Cell(5, 14).GetString());
+        Assert.Equal("Failure Rate(1/분)", dev.Cell(5, 15).GetString());
+        Assert.Contains("Availability = eMTBF", dev.Cell(4, 1).GetString());
         Assert.Equal("D1", dev.Cell(6, 2).GetString());
         Assert.Equal("해소된 알람 (%MX10)", dev.Cell(6, 4).GetString());
         Assert.Equal(3, dev.Cell(6, 5).GetDouble());
         Assert.Equal(60d, dev.Cell(6, 10).GetDouble());
         Assert.Equal(20d, dev.Cell(6, 11).GetDouble());
         Assert.Equal(3.3, dev.Cell(6, 12).GetDouble(), 1);
+        // 파생 열 — Availability = 1200s/(1200s+200s) = 85.71%, Failure Rate = 1/20분 = 0.05.
+        Assert.Equal(85.71, dev.Cell(6, 14).GetDouble(), 2);
+        Assert.Equal(0.05, dev.Cell(6, 15).GetDouble(), 6);
         Assert.Equal("D2", dev.Cell(7, 2).GetString());
         Assert.Equal(0, dev.Cell(7, 5).GetDouble());
         Assert.Equal("—", dev.Cell(7, 11).GetString());
+        Assert.Equal("—", dev.Cell(7, 14).GetString());   // 알람 없는 디바이스 — 파생 열도 비운다
+        Assert.Equal("—", dev.Cell(7, 15).GetString());
         // 합산 행 — 빈 줄 하나 뒤에 설비 · PLC · 전체.
         Assert.Equal("설비", dev.Cell(9, 1).GetString());
         Assert.Equal("F1", dev.Cell(9, 2).GetString());
         Assert.Equal("PLC", dev.Cell(10, 1).GetString());
         Assert.Equal("전체", dev.Cell(11, 1).GetString());
+        Assert.Equal(85.71, dev.Cell(11, 14).GetDouble(), 2);  // 합산 행도 같은 파생
 
         // 시트 3 — 매핑 1행 = 태그 1개, 건수는 태그의 것.
         var map = wb.Worksheet("에러코드 매핑");
