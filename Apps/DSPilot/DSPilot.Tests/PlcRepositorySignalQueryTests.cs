@@ -81,6 +81,28 @@ public sealed class PlcRepositorySignalQueryTests : IDisposable
         Assert.Equal(KpiTime.ToLocal(_t0 + 20_000), await _repo.GetLatestLogDateTimeAsync());
     }
 
+    /// <summary>
+    /// 판정 적재의 처리 상한은 시스템별이어야 한다(2026-10-02) — 다른 PLC 의 더 늦은 신호가 상한을 끌어올리면
+    /// 늦게 들어오는 PLC 의 중간 경계가 오기 전에 구간이 닫혀 두 사이클이 하나로 합쳐진다.
+    /// </summary>
+    [Fact]
+    public async Task 시스템별_신호범위는_다른_PLC_신호를_섞지_않는다()
+    {
+        var other = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
+        using (var conn = new SqliteConnection($"Data Source={_dbPath}"))
+        {
+            conn.Execute("INSERT INTO system (guid, name) VALUES (@g, 'S2')", new { g = other.ToString() });
+            conn.Execute("INSERT INTO tag (systemId, address, name) VALUES (2, @a, 'T2')", new { a = Addr });
+            conn.Execute("INSERT INTO signal (tagId, atMs, value) VALUES (2, @a, 1), (2, @b, 0)",
+                         new { a = _t0 - 5_000, b = _t0 + 90_000 });
+        }
+
+        Assert.Equal((_t0, _t0 + 20_000), await _repo.GetSignalSpanMsAsync(SystemGuid));
+        Assert.Equal((_t0 - 5_000, _t0 + 90_000), await _repo.GetSignalSpanMsAsync(other));
+        Assert.Equal((_t0 - 5_000, _t0 + 90_000), await _repo.GetSignalSpanMsAsync(null));   // 귀속 못 한 flow = 전체
+        Assert.Equal((null, null), await _repo.GetSignalSpanMsAsync(Guid.NewGuid()));        // 신호 없는 시스템
+    }
+
     [Fact]
     public async Task 주소_구간_조회가_행을_반환한다()
     {

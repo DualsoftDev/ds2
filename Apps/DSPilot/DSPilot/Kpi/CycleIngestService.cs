@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
-using System.Globalization;
-using Dapper;
+using DSPilot.Infrastructure;
 using DSPilot.Models;
 using DSPilot.Models.Analysis;
+using DSPilot.Repositories;
 using DSPilot.Services;
-using Microsoft.Data.Sqlite;
 
 namespace DSPilot.Kpi;
 
@@ -18,8 +17,16 @@ namespace DSPilot.Kpi;
 /// 저장한다. 상태는 저장하지 않는다 — 조회 시 현재 κ 로 도출한다.
 /// </para>
 /// <para>
-/// ★ 전환 기간의 사이클 <b>출처</b>는 구 파이프라인의 산출물(dspFlowHistory)이다. 경계 도출과 분기 판별은 이미
-/// 검증된 경로라 그대로 재사용하고, 3차 완료 시 출처만 새 수집 경로로 바꾼다. 여기서 하는 계산은 그때도 그대로 남는다.
+/// 사이클 <b>출처</b> = 원시 신호(signal)의 PLC 태그 시각으로 도출한 경계(<see cref="CycleSourceDeriver"/>) — 간트·주기
+/// 재도출과 같은 함수다(2026-10-02). 종전엔 라이브 기록(dspFlowHistory, 끝 = 처리 시각 UtcNow)을 받아 경계가 처리
+/// 지연만큼(현장 0.2초~수십 초) 늦었고, 다음 사이클 head call 이 앞 사이클에 귀속돼 경계 초과 대량 제외·MT=CT 가짜
+/// 비가동·MT중앙 오염·간트 뱃지 한 칸 밀림이 났다.
+/// </para>
+/// <para>
+/// 처리 상한은 flow 의 <b>시스템(PLC)별</b> 최신 신호 시각 − 정착 여유. 전역 최신을 쓰면 늦게 들어오는 PLC 의 중간
+/// 경계가 오기 전에 구간을 닫아 두 사이클이 하나로 합쳐진다. 통신 공백(미계측, 시스템별)과 겹치는 사이클은 경계를
+/// 믿을 수 없으므로 <see cref="ExcludeReason.Unknown"/> 으로 박제한다. 미계측 조회가 실패하면 그 flow 는 이번 주기를
+/// 미룬다 — 행은 박제라 나중에 고칠 수 없다.
 /// </para>
 /// </summary>
 public sealed class CycleIngestService : BackgroundService
@@ -36,32 +43,58 @@ public sealed class CycleIngestService : BackgroundService
     /// <summary>한 번에 기준선을 뒤늦게 찍어 줄 최대 행 수.</summary>
     private const int BackfillLimit = 2000;
 
-    /// <summary>call 신호를 조회할 때 사이클 앞뒤로 두는 여유(ms) — 경계에 걸친 OUT↑/IN↑ 짝을 놓치지 않기 위함.</summary>
+    /// <summary>call 신호를 조회할 때 사이클 앞뒤로 두는 여유(ms) — 경계에 걸친 OUT↑/IN↑ 짝을 놓치지 않기 위함.
+    /// 경계 엣지 조회의 앞 여유로도 쓴다 — 엣지 판정(LAG)이 구간 첫 행의 직전 값을 알아야 가짜 상승을 안 만든다.</summary>
     private const long SignalPadMs = 60_000;
+
+    /// <summary>정착 여유(ms) — 시스템 최신 신호보다 이만큼 앞선 경계까지만 닫는다. 끝 근처 call 의 하강·응답이
+    /// 아직 안 들어와 MT·초과가 덜 재진 채 박제되는 것을 막는다.</summary>
+    private const long SettleMs = 10_000;
+
+    /// <summary>한 번에 도출하는 최대 구간(ms). 이 안에 닫힌 사이클이 없으면 상한까지 한 번 넓힌다(장기 정지).</summary>
+    private const long MaxSpanMs = 6 * 3_600_000L;
 
     private readonly KpiRepository _repo;
     private readonly BaselineService _baselines;
     private readonly AppSettingsService _settings;
-    private readonly IDatabasePathResolver _paths;
     private readonly IServiceScopeFactory _scopes;
     private readonly PlcToCallMapperService _mapper;
+    private readonly CycleSourceDeriver _deriver;
+    private readonly IFlowMetricsService _flowMetrics;
+    private readonly DsProjectService _project;
+    private readonly IPlcRepository _plc;
+    private readonly OeeCommHealthService _commHealth;
     private readonly ILogger<CycleIngestService> _logger;
+
+    /// <summary>시작 경계 미해석 경고를 이미 남긴 flow — 30초마다 같은 경고가 쌓이지 않게. 해석되면 지운다.</summary>
+    private readonly HashSet<string> _warnedUnresolved = new(StringComparer.Ordinal);
+
+    /// <summary>이번 주기의 시스템별 신호 범위 — 같은 PLC 의 flow 들이 한 번만 잰다. 주기마다 비운다.</summary>
+    private readonly Dictionary<Guid, (long? OldestMs, long? LatestMs)> _spanBySystem = new();
 
     public CycleIngestService(
         KpiRepository repo,
         BaselineService baselines,
         AppSettingsService settings,
-        IDatabasePathResolver paths,
         IServiceScopeFactory scopes,
         PlcToCallMapperService mapper,
+        CycleSourceDeriver deriver,
+        IFlowMetricsService flowMetrics,
+        DsProjectService project,
+        IPlcRepository plc,
+        OeeCommHealthService commHealth,
         ILogger<CycleIngestService> logger)
     {
         _repo = repo;
         _baselines = baselines;
         _settings = settings;
-        _paths = paths;
         _scopes = scopes;
         _mapper = mapper;
+        _deriver = deriver;
+        _flowMetrics = flowMetrics;
+        _project = project;
+        _plc = plc;
+        _commHealth = commHealth;
         _logger = logger;
     }
 
@@ -99,74 +132,106 @@ public sealed class CycleIngestService : BackgroundService
     /// <summary>한 배치 적재. 반환값은 저장한 사이클 수.</summary>
     public async Task<int> IngestOnceAsync(CancellationToken ct)
     {
-        var pending = await ReadPendingAsync(ct);
-        if (pending.Count == 0) return 0;
+        // 추적 flow·경계 Call 이름은 라이브 엔진이 모델에서 해석해 둔 것 — 초기화 전이면 다음 주기에.
+        if (!_flowMetrics.IsInitialized) return 0;
 
+        _spanBySystem.Clear();
+        var watermarks = await ReadWatermarksAsync(ct);
         var kpi = _settings.LoadSettings().Kpi;
         double gate = kpi.ResolveWorkGate();
         long snapMs = kpi.ResolveBoundarySnapMs();
 
         int saved = 0;
-        foreach (var group in pending.GroupBy(c => c.Flow, StringComparer.Ordinal))
+        foreach (var flow in _flowMetrics.GetTrackedFlowNames())
         {
             ct.ThrowIfCancellationRequested();
-            var flow = group.Key;
-            var rows = group.OrderBy(c => c.StartMs).ToList();
-
-            var callSpans = await LoadCallSpansAsync(
-                flow, rows[0].StartMs - SignalPadMs, rows[^1].EndMs + SignalPadMs, ct);
-
-            // 스냅 대상 경계 = 이 배치의 모든 사이클 시작·끝(오름차순).
-            var boundaries = rows.SelectMany(r => new[] { r.StartMs, r.EndMs }).Distinct().OrderBy(x => x).ToList();
-
-            var branchSet = _settings.GetFlowBranchSet(flow);
-            bool hasBranches = branchSet is { Branches.Count: > 0 };
-
-            // 경계를 IN 전용 call 의 주소로 고른 분기/flow 만 값이 있다(그 work 의 시작점 시드). 분기마다 경계가 다르므로 캐시한다.
-            var seedWorkByBranch = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var src in rows)
+            try
             {
-                // 분기가 있는 flow 에서 어느 분기도 아니면 미분류 — 계산·표본 밖. 구간은 재서 보여 주되 기준선은 박제하지 않는다.
-                bool unclassified = hasBranches && string.IsNullOrWhiteSpace(src.Branch);
-                var excl = unclassified ? EmptyNames : ExcludedCallsOf(branchSet, src.Branch);
-
-                var seedKey = src.Branch ?? "";
-                if (!seedWorkByBranch.TryGetValue(seedKey, out var seedWork))
-                    seedWorkByBranch[seedKey] = seedWork = ResolveBoundarySeedWork(flow, branchSet, src.Branch);
-
-                var (measured, mt, overflow) = MeasureCycle(
-                    callSpans, excl, src.StartMs, src.EndMs, boundaries, snapMs, seedWork);
-
-                if (unclassified)
-                {
-                    var works0 = measured.Select(m => new WorkDuration(m.Work, m.DurationMs, 0)).ToList();
-                    var rec0 = new CycleRecord(flow, null, src.StartMs, src.EndMs, mt, 0, 0, null, 0, overflow, ExcludeReason.Unclassified);
-                    if (await _repo.SaveCycleAsync(rec0, works0, ct) > 0) saved++;
-                    continue;
-                }
-
-                var r = await _baselines.GetRAsync(flow, src.Branch, ct);
-                var mtMed = await _baselines.GetMtAsync(flow, src.Branch, ct);
-                var wBase = await _baselines.GetWAsync(flow, src.Branch, ct);
-
-                var (works, worstWork, worstRatio) = Stamp(measured, wBase, gate);
-
-                var record = new CycleRecord(
-                    flow,
-                    src.Branch,
-                    src.StartMs,
-                    src.EndMs,
-                    mt,
-                    r ?? 0,
-                    mtMed ?? 0,
-                    worstWork,
-                    worstRatio,
-                    overflow,
-                    r is null ? ExcludeReason.NoBaseline : ExcludeReason.None);
-
-                if (await _repo.SaveCycleAsync(record, works, ct) > 0) saved++;
+                saved += await IngestFlowAsync(flow, watermarks.TryGetValue(flow, out var m) ? m : null, gate, snapMs, ct);
             }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Kpi] cycle ingest failed — flow={Flow}", flow);
+            }
+        }
+        return saved;
+    }
+
+    /// <summary>flow 하나 — 워터마크 이후 닫힌 사이클을 도출해 측정·박제한다. 반환값은 저장한 사이클 수.</summary>
+    private async Task<int> IngestFlowAsync(string flow, long? watermark, double gate, long snapMs, CancellationToken ct)
+    {
+        var rows = await ReadPendingAsync(flow, watermark, ct);
+        if (rows.Count == 0) return 0;
+
+        // 통신 공백(미계측) — 이 flow 의 시스템 기준, 배치 구간당 1회. 실패(비신뢰)면 이번 주기는 미룬다(박제라 못 고친다).
+        var systemScope = SystemKeyConvention.Scope(_project.TryGetSystemIdByFlowName(flow));
+        var (gaps, trusted) = await _commHealth.TryGetUnmeasuredWindowsAsync(
+            KpiTime.ToUtc(rows[0].StartMs), KpiTime.ToUtc(rows[^1].EndMs), ct, systemScope);
+        if (!trusted)
+        {
+            _logger.LogInformation("[Kpi] 미계측 조회 실패 — flow={Flow} 적재를 다음 주기로 미룸", flow);
+            return 0;
+        }
+
+        var callSpans = await LoadCallSpansAsync(
+            flow, rows[0].StartMs - SignalPadMs, rows[^1].EndMs + SignalPadMs, ct);
+
+        // 스냅 대상 경계 = 이 배치의 모든 사이클 시작·끝(오름차순).
+        var boundaries = rows.SelectMany(r => new[] { r.StartMs, r.EndMs }).Distinct().OrderBy(x => x).ToList();
+
+        var branchSet = _settings.GetFlowBranchSet(flow);
+        bool hasBranches = branchSet is { Branches.Count: > 0 };
+
+        // 경계를 IN 전용 call 의 주소로 고른 분기/flow 만 값이 있다(그 work 의 시작점 시드). 분기마다 경계가 다르므로 캐시한다.
+        var seedWorkByBranch = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
+        int saved = 0;
+        foreach (var src in rows)
+        {
+            // 분기가 있는 flow 에서 어느 분기도 아니면 미분류 — 계산·표본 밖. 구간은 재서 보여 주되 기준선은 박제하지 않는다.
+            bool unclassified = hasBranches && string.IsNullOrWhiteSpace(src.Branch);
+            // 통신 공백과 겹치면 다음 경계가 공백 뒤로 밀린 것일 수 있다 — 가짜 비생산·비가동을 만들지 않게 제외.
+            // 3분 미만 공백은 보고되지 않아(OeeCommHealthService.MinReportGapMs) 사이클로 남는다(의도).
+            bool commGap = gaps.Any(g => g.S < src.EndMs && g.E > src.StartMs);
+            var excl = unclassified ? EmptyNames : ExcludedCallsOf(branchSet, src.Branch);
+
+            var seedKey = src.Branch ?? "";
+            if (!seedWorkByBranch.TryGetValue(seedKey, out var seedWork))
+                seedWorkByBranch[seedKey] = seedWork = ResolveBoundarySeedWork(flow, branchSet, src.Branch);
+
+            var (measured, mt, overflow) = MeasureCycle(
+                callSpans, excl, src.StartMs, src.EndMs, boundaries, snapMs, seedWork);
+
+            if (commGap || unclassified)
+            {
+                var works0 = measured.Select(m => new WorkDuration(m.Work, m.DurationMs, 0)).ToList();
+                var rec0 = new CycleRecord(flow, src.Branch, src.StartMs, src.EndMs, mt, 0, 0, null, 0, overflow,
+                    commGap ? ExcludeReason.Unknown : ExcludeReason.Unclassified);
+                if (await _repo.SaveCycleAsync(rec0, works0, ct) > 0) saved++;
+                continue;
+            }
+
+            var r = await _baselines.GetRAsync(flow, src.Branch, ct);
+            var mtMed = await _baselines.GetMtAsync(flow, src.Branch, ct);
+            var wBase = await _baselines.GetWAsync(flow, src.Branch, ct);
+
+            var (works, worstWork, worstRatio) = Stamp(measured, wBase, gate);
+
+            var record = new CycleRecord(
+                flow,
+                src.Branch,
+                src.StartMs,
+                src.EndMs,
+                mt,
+                r ?? 0,
+                mtMed ?? 0,
+                worstWork,
+                worstRatio,
+                overflow,
+                r is null ? ExcludeReason.NoBaseline : ExcludeReason.None);
+
+            if (await _repo.SaveCycleAsync(record, works, ct) > 0) saved++;
         }
         return saved;
     }
@@ -354,46 +419,75 @@ public sealed class CycleIngestService : BackgroundService
         return (list, worstWork, worst);
     }
 
-    // ── 출처(전환 기간): 구 파이프라인의 완료 사이클 ─────────────────────────────
+    // ── 출처: 원시 신호에서 도출한 닫힌 사이클 ─────────────────────────────────────
 
     private sealed record SourceCycle(string Flow, string? Branch, long StartMs, long EndMs);
 
-    private async Task<List<SourceCycle>> ReadPendingAsync(CancellationToken ct)
+    /// <summary>
+    /// 워터마크(이 flow 의 마지막 적재 사이클 끝) 이후, 시스템 최신 신호 − 정착 여유 안에서 <b>닫힌</b> 사이클.
+    /// 마지막 열린 사이클(다음 경계 없음)은 다음 주기로 넘긴다. 최대 <see cref="BatchLimit"/> 건.
+    /// <para>워터마크가 없으면(첫 적재) 기준선 창(14일)만큼만 거슬러 올라간다 — 전 이력 재적재는 별도 작업.</para>
+    /// </summary>
+    private async Task<List<SourceCycle>> ReadPendingAsync(string flow, long? watermark, CancellationToken ct)
     {
-        var watermarks = await ReadWatermarksAsync(ct);
+        ct.ThrowIfCancellationRequested();
+        var systemId = _project.TryGetSystemIdByFlowName(flow);
+        var key = systemId ?? Guid.Empty;
+        if (!_spanBySystem.TryGetValue(key, out var span))
+            _spanBySystem[key] = span = await _plc.GetSignalSpanMsAsync(systemId);
+        var (oldestMs, latestMs) = span;
+        if (oldestMs is not long oldest || latestMs is not long latest) return [];
 
-        var legacyPath = _paths.GetPlcDbPath();
-        if (!File.Exists(legacyPath)) return [];
+        long upper = latest - SettleMs;
+        long from = watermark ?? Math.Max(oldest, latest - KpiRules.BaselineWindowDays * 86_400_000L);
+        if (upper <= from) return [];
 
-        await using var conn = new SqliteConnection($"Data Source={legacyPath};Mode=ReadOnly;Default Timeout=20");
-        await conn.OpenAsync(ct);
+        // Head/Tail = 간트(CallTestController.ResolveEffectiveHeadTail)와 같은 순서 — 런타임 경계(override 적용) > AASX.
+        var (head, tail) = _flowMetrics.GetCycleBoundaryCallNames(flow);
+        if (string.IsNullOrEmpty(head) && string.IsNullOrEmpty(tail))
+            (head, tail) = _flowMetrics.GetAasxCycleBoundaries(flow);
 
-        // recordedAt 은 사이클의 <b>끝</b>(= 다음 경계). 시작은 끝 − ct. mt 는 tail 기준이라 쓰지 않는다 — 여기서 work 로 다시 잰다.
-        var raw = await conn.QueryAsync(new CommandDefinition(
-            """
-            SELECT flowName AS FlowName, branchName AS BranchName, ct AS Ct, recordedAt AS RecordedAt
-            FROM dspFlowHistory
-            WHERE ct > 0 AND recordedAt IS NOT NULL
-            ORDER BY recordedAt DESC
-            LIMIT 20000
-            """,
-            cancellationToken: ct));
+        long to = Math.Min(upper, from + MaxSpanMs);
+        var list = await DeriveClosedAsync(flow, head, tail, from, to);
+        if (list is { Count: 0 } && to < upper)
+            list = await DeriveClosedAsync(flow, head, tail, from, upper);   // 장기 정지 — 상한까지 한 번 넓힌다
+        if (list is null) return [];
+
+        if (list.Count > BatchLimit) list.RemoveRange(BatchLimit, list.Count - BatchLimit);
+        return list;
+    }
+
+    /// <summary>[from, to) 의 닫힌 사이클(시작 ≥ from). 시작 경계 미해석이면 null(경고는 flow 당 한 번).</summary>
+    private async Task<List<SourceCycle>?> DeriveClosedAsync(string flow, string? head, string? tail, long from, long to)
+    {
+        // 엣지 판정은 구간 첫 행의 직전 값을 알아야 한다 — 앞 여유를 두고 받은 뒤 from 이전 시작은 버린다.
+        var fromLocal = KpiTime.ToLocal(from - SignalPadMs);
+        var toLocal = KpiTime.ToLocal(to);
+        var derived = await _deriver.DeriveAsync(flow, head, tail, fromLocal, toLocal);
+
+        // Head 에 OUT 이 없어 시작을 못 정하면 간트처럼 AASX Head 로 한 번 더(CallTestController.ResolveBoundariesAsync 폴백).
+        if (derived.Status == DeriveStatus.Unresolved)
+        {
+            var (aasxHead, aasxTail) = _flowMetrics.GetAasxCycleBoundaries(flow);
+            if (!string.IsNullOrEmpty(aasxHead) && !string.Equals(aasxHead, head, StringComparison.OrdinalIgnoreCase))
+                derived = await _deriver.DeriveAsync(flow, aasxHead, aasxTail, fromLocal, toLocal);
+        }
+
+        if (derived.Status == DeriveStatus.Unresolved)
+        {
+            if (_warnedUnresolved.Add(flow))
+                _logger.LogWarning("[Kpi] '{Flow}' 시작 경계 미해석 ({What}) — 판정 적재 건너뜀", flow, derived.UnresolvedLabel);
+            return null;
+        }
+        _warnedUnresolved.Remove(flow);
 
         var list = new List<SourceCycle>();
-        foreach (var r in raw)
+        foreach (var c in derived.Cycles)
         {
-            string? flow = r.FlowName as string;
-            if (string.IsNullOrWhiteSpace(flow)) continue;
-            if (ParseUtcMs(r.RecordedAt as string) is not long end) continue;
-            long cts = Convert.ToInt64(r.Ct);
-            if (cts <= 0) continue;
-
-            long mark = watermarks.TryGetValue(flow, out var m) ? m : 0;
-            if (end <= mark) continue;
-
-            list.Add(new SourceCycle(flow, r.BranchName as string, end - cts, end));
-
-            if (list.Count >= BatchLimit) break;
+            if (c.PeriodMs is not double period) continue;   // 열린 사이클 — 다음 경계가 와야 닫힌다
+            long start = KpiTime.ToMs(c.Start);
+            if (start < from) continue;
+            list.Add(new SourceCycle(flow, c.Branch, start, start + (long)Math.Round(period)));
         }
         return list;
     }
@@ -455,14 +549,5 @@ public sealed class CycleIngestService : BackgroundService
             _logger.LogWarning(ex, "[Kpi] call span load failed — flow={Flow}", flow);
         }
         return result;
-    }
-
-    private static long? ParseUtcMs(string? s)
-    {
-        if (string.IsNullOrWhiteSpace(s)) return null;
-        if (DateTime.TryParse(s, CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt))
-            return (long)(dt - DateTime.UnixEpoch).TotalMilliseconds;
-        return null;
     }
 }

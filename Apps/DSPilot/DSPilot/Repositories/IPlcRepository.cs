@@ -42,6 +42,13 @@ public interface IPlcRepository
     Task<DateTime?> GetLatestLogDateTimeAsync();
 
     /// <summary>
+    /// 한 시스템(PLC)의 가장 이른/늦은 신호 시각(epoch ms, UTC). <paramref name="systemId"/> null = 전체.
+    /// 판정 적재의 처리 구간 하한·상한 — 멀티 PLC 에서 다른 PLC 의 최신 시각이 늦게 들어오는 PLC 의 상한을
+    /// 앞질러 가지 않게 시스템별로 잰다(2026-10-02). 로그를 남기지 않는다(30초 주기 호출).
+    /// </summary>
+    Task<(long? OldestMs, long? LatestMs)> GetSignalSpanMsAsync(Guid? systemId);
+
+    /// <summary>
     /// ID로 태그 정보 조회
     /// </summary>
     /// <param name="tagId">태그 ID</param>

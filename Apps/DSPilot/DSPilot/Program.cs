@@ -190,6 +190,8 @@ builder.Services.AddSingleton<DatabaseLifecycleService>();
 // Head/Tail 경계 변경 시 과거 dspFlowHistory 를 원시 plcTagLog 에서 새 경계로 재도출/재기록.
 // 의존 서비스가 전부 싱글톤이라 백그라운드(전체-이력) 잡도 안전.
 builder.Services.AddSingleton<CycleRecomputeService>();
+// 사이클 경계 도출 단일 지점 — 재도출(dspFlowHistory)·판정 적재(KPI cycle)가 공유(태그 시각 경계, 2026-10-02).
+builder.Services.AddSingleton<CycleSourceDeriver>();
 
 // 주기적 자동 재계산 — 라이브 기록기가 놓친 tail 완료로 부풀려진 WT 를 원시 엣지에서 self-heal(증분).
 // 간격은 HistoryView.AutoRecomputeIntervalMinutes(0=비활성).

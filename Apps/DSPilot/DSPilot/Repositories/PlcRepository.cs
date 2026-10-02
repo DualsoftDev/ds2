@@ -243,6 +243,30 @@ public class PlcRepository : IPlcRepository
     }
 
     /// <inheritdoc />
+    public async Task<(long? OldestMs, long? LatestMs)> GetSignalSpanMsAsync(Guid? systemId)
+    {
+        using var connection = CreateConnection();
+        var scope = SystemKeyConvention.Scope(systemId);
+        if (scope is null)
+        {
+            var all = await connection.QuerySingleAsync<(long? Lo, long? Hi)>("SELECT MIN(atMs), MAX(atMs) FROM signal");
+            return (all.Lo, all.Hi);
+        }
+
+        // 태그별 MIN/MAX 는 idx_signal_tag_at 로 탐색 1회씩 — JOIN 후 MAX 는 signal 전체를 훑는다.
+        const string sql = @"
+SELECT MIN(lo), MAX(hi) FROM (
+    SELECT (SELECT MIN(atMs) FROM signal WHERE tagId = t.id) AS lo,
+           (SELECT MAX(atMs) FROM signal WHERE tagId = t.id) AS hi
+    FROM tag t
+    INNER JOIN system p ON p.id = t.systemId
+    WHERE p.guid = @SystemId
+)";
+        var r = await connection.QuerySingleAsync<(long? Lo, long? Hi)>(sql, new { SystemId = scope });
+        return (r.Lo, r.Hi);
+    }
+
+    /// <inheritdoc />
     public async Task<DateTime?> GetLatestLogDateTimeAsync()
     {
         using var connection = CreateConnection();
