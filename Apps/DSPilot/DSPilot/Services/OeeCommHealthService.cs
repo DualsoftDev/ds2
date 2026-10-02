@@ -396,7 +396,11 @@ public sealed class OeeCommHealthService : BackgroundService
         }
         else
         {
-            samples = CollapsePerSystem(rows, systemId);
+            var tagged = new List<(double SampleMs, bool PlcOk, string? Cause, string? SystemId)>();
+            foreach (var r in rows)
+                if (ParseMs(r.SampledAt) is double t)
+                    tagged.Add((t, r.PlcOk != 0, r.Cause, r.SystemId));
+            samples = CollapsePerSystem(tagged, systemId);
         }
 
         var gaps = ComputeUnmeasured(effFrom, capMs,
@@ -405,36 +409,40 @@ public sealed class OeeCommHealthService : BackgroundService
     }
 
     /// <summary>
-    /// 한 샘플(같은 sampledAt)의 여러 행을 <b>이 시스템 하나의 상태</b>로 접는다(2026-10-02).
+    /// 순수 함수(테스트 대상): 한 샘플(같은 시각)의 여러 행을 <b>이 시스템 하나의 상태</b>로 접는다(2026-10-02).
     ///   · 이 시스템 전용 행이 있으면 그걸 쓴다(자기 PLC ok/plc).
-    ///   · 없으면 전역 행 해석: ok=1 = 커버 / agent·service = 전역 단절(그대로) / plc·미상 = 남의 PLC 탓일 수
-    ///     있어 이 시스템엔 귀속하지 않는다(보수적으로 커버 처리 — 간트에 통신단절을 띄우지 않음).
+    ///   · 시스템별 행이 <b>하나도 없는</b> 샘플 = 시스템별 기록 도입 이전(레거시) 또는 어댑터 보고가 없던 샘플
+    ///     (Hub 단절·핑 폴백·시뮬레이션) → 전역 행을 <b>그대로</b> 쓴다(종전 동작). PLC 1대 현장에선 전역 plc 가
+    ///     곧 그 PLC 이고, 과거 구간 재적재가 통신 공백을 거르려면 이 해석이 필요하다.
+    ///   · 시스템별 행은 있는데 이 시스템 것만 없는 샘플 → 전역 행 해석: ok=1 커버 / agent·service = 전역 단절 /
+    ///     plc·미상 = 다른 PLC 탓이므로 이 시스템엔 귀속하지 않는다(커버 처리).
     ///   · 아무 행도 없는 공백은 ComputeUnmeasured 가 service(심박 부재)로 처리한다.
     /// </summary>
-    private static List<(double SampleMs, bool PlcOk, string? Cause)> CollapsePerSystem(
-        IEnumerable<HealthRow> rows, string systemKey)
+    public static List<(double SampleMs, bool PlcOk, string? Cause)> CollapsePerSystem(
+        IEnumerable<(double SampleMs, bool PlcOk, string? Cause, string? SystemId)> rows, string systemKey)
     {
+        var key = SystemKeyConvention.Key(systemKey);
         var outp = new List<(double SampleMs, bool PlcOk, string? Cause)>();
-        foreach (var g in rows.GroupBy(r => r.SampledAt))
+        foreach (var g in rows.GroupBy(r => r.SampleMs))
         {
-            double? ms = null;
-            HealthRow? mine = null, global = null;
+            (double SampleMs, bool PlcOk, string? Cause, string? SystemId)? mine = null, global = null;
+            bool anyTagged = false;
             foreach (var r in g)
             {
-                if (ms is null && ParseMs(r.SampledAt) is double t) ms = t;
                 var sid = SystemKeyConvention.Key(r.SystemId);
-                if (sid.Length == 0) global ??= r;
-                else if (string.Equals(sid, systemKey, StringComparison.Ordinal)) mine = r;
+                if (sid.Length == 0) { global ??= r; continue; }
+                anyTagged = true;
+                if (string.Equals(sid, key, StringComparison.Ordinal)) mine = r;
             }
-            if (ms is not double sampleMs) continue;
-            if (mine is not null)
-                outp.Add((sampleMs, mine.PlcOk != 0,
-                          mine.PlcOk != 0 ? null : (string.IsNullOrEmpty(mine.Cause) ? CauseUnknown : mine.Cause)));
-            else if (global is not null)
+            if (mine is { } m)
+                outp.Add((g.Key, m.PlcOk, m.PlcOk ? null : (string.IsNullOrEmpty(m.Cause) ? CauseUnknown : m.Cause)));
+            else if (global is { } gl)
             {
-                if (global.PlcOk != 0) outp.Add((sampleMs, true, null));
-                else if (global.Cause is CauseAgent or CauseService) outp.Add((sampleMs, false, global.Cause));
-                else outp.Add((sampleMs, true, null));  // 전역 plc-AND/미상 = 이 시스템에 미귀속(보수)
+                if (gl.PlcOk) outp.Add((g.Key, true, null));
+                else if (!anyTagged)
+                    outp.Add((g.Key, false, string.IsNullOrEmpty(gl.Cause) ? CauseUnknown : gl.Cause));  // 레거시 = 종전 그대로
+                else if (gl.Cause is CauseAgent or CauseService) outp.Add((g.Key, false, gl.Cause));
+                else outp.Add((g.Key, true, null));  // 새 샘플의 전역 plc-AND = 다른 PLC 탓 → 미귀속
             }
         }
         outp.Sort((a, b) => a.SampleMs.CompareTo(b.SampleMs));

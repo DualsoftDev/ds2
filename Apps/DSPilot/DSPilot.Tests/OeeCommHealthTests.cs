@@ -219,4 +219,85 @@ public class OeeCommHealthTests
         for (int i = 1; i < wins.Count; i++)
             Assert.True(wins[i].S >= wins[i - 1].E - 0.001);
     }
+
+    // ── 시스템별 접기(CollapsePerSystem, 2026-10-02) ───────────────────────
+    // 한 샘플 = 같은 시각의 전역 행(systemId null) + 어댑터별 행. 간트는 자기 시스템 상태만 봐야 한다.
+
+    private const string SysA = "11111111-1111-1111-1111-111111111111";
+    private const string SysB = "22222222-2222-2222-2222-222222222222";
+
+    private static (double, bool, string?, string?) Row(double ms, bool ok, string? cause, string? sys) => (ms, ok, cause, sys);
+
+    [Fact]
+    public void Collapse_other_plc_down_does_not_mark_this_system()
+    {
+        // B 만 끊김 → 전역 AND 는 plc 로 0. A 기준으로는 정상이어야 한다(버그 3 의 본 증상).
+        var rows = new[]
+        {
+            Row(0, false, OeeCommHealthService.CausePlc, null),
+            Row(0, true, null, SysA),
+            Row(0, false, OeeCommHealthService.CausePlc, SysB),
+        };
+        var a = OeeCommHealthService.CollapsePerSystem(rows, SysA);
+        var b = OeeCommHealthService.CollapsePerSystem(rows, SysB);
+        Assert.Single(a); Assert.True(a[0].PlcOk);
+        Assert.Single(b); Assert.False(b[0].PlcOk); Assert.Equal(OeeCommHealthService.CausePlc, b[0].Cause);
+    }
+
+    [Fact]
+    public void Collapse_system_without_own_row_in_new_sample_ignores_global_plc()
+    {
+        // 새 샘플(시스템별 행 존재)인데 A 행만 없음(엔드포인트 귀속 실패 등) → 전역 plc 는 A 탓이 아니다.
+        var rows = new[]
+        {
+            Row(0, false, OeeCommHealthService.CausePlc, null),
+            Row(0, false, OeeCommHealthService.CausePlc, SysB),
+        };
+        var a = OeeCommHealthService.CollapsePerSystem(rows, SysA);
+        Assert.Single(a); Assert.True(a[0].PlcOk);
+    }
+
+    [Fact]
+    public void Collapse_legacy_sample_uses_global_row_as_is()
+    {
+        // 시스템별 기록 도입 이전(전역 행만) → 종전 동작 그대로. PLC 1대 현장의 과거 단절이 사라지면 안 된다.
+        var rows = new[] { Row(0, false, OeeCommHealthService.CausePlc, null), Row(Min, false, null, null) };
+        var a = OeeCommHealthService.CollapsePerSystem(rows, SysA);
+        Assert.Equal(2, a.Count);
+        Assert.False(a[0].PlcOk); Assert.Equal(OeeCommHealthService.CausePlc, a[0].Cause);
+        Assert.False(a[1].PlcOk); Assert.Equal(OeeCommHealthService.CauseUnknown, a[1].Cause);
+    }
+
+    [Fact]
+    public void Collapse_hub_down_applies_to_every_system()
+    {
+        // Hub 단절은 어댑터 보고가 없어 전역 행만 남는다 → 모든 시스템이 agent 공백.
+        var rows = new[] { Row(0, false, OeeCommHealthService.CauseAgent, null) };
+        Assert.Equal(OeeCommHealthService.CauseAgent, OeeCommHealthService.CollapsePerSystem(rows, SysA)[0].Cause);
+        Assert.Equal(OeeCommHealthService.CauseAgent, OeeCommHealthService.CollapsePerSystem(rows, SysB)[0].Cause);
+    }
+
+    [Fact]
+    public void Collapse_end_to_end_gap_only_on_disconnected_system()
+    {
+        // 10분 심박, 3~7분에 B 만 끊김 → B 만 미계측(plc), A 는 공백 없음.
+        var rows = new List<(double, bool, string?, string?)>();
+        for (int i = 0; i <= 10; i++)
+        {
+            bool bDown = i >= 3 && i <= 7;
+            rows.Add(Row(i * Min, !bDown, bDown ? OeeCommHealthService.CausePlc : null, null));
+            rows.Add(Row(i * Min, true, null, SysA));
+            rows.Add(Row(i * Min, !bDown, bDown ? OeeCommHealthService.CausePlc : null, SysB));
+        }
+        List<UnmeasuredWindow> Wins(string sys)
+        {
+            var s = OeeCommHealthService.CollapsePerSystem(rows, sys);
+            var gaps = OeeCommHealthService.ComputeUnmeasured(0, 10 * Min, s.Select(x => (x.SampleMs, x.PlcOk)).ToList(), Cover, Report);
+            return OeeCommHealthService.LabelUnmeasured(gaps, s, Cover);
+        }
+        Assert.Empty(Wins(SysA));
+        var b = Wins(SysB);
+        Assert.NotEmpty(b);
+        Assert.All(b, w => Assert.Equal(OeeCommHealthService.CausePlc, w.Cause));
+    }
 }
