@@ -35,8 +35,10 @@ public sealed class KpiDb
     /// <b>이 값이 바뀌면 기동 시 원시 신호가 남은 구간의 옛 버전 행을 자동 재적재한다</b>(CycleIngestService, 2026-10-02).
     /// 경계·측정·기준선 규칙을 바꾸면 반드시 올릴 것 — 상태 판정(κ)만 바꾸는 변경은 조회 시 도출이라 필요 없다.
     /// v68.3(2026-10-02): 사이클 경계를 처리 시각(라이브 기록) 대신 PLC 태그 시각에서 도출.
+    /// v68.4(2026-10-02): 너무 짧은 빈 사이클(work 없음 ∧ CT &lt; W_min) 을 제외 사유 TooShort 로 박제(doc/30 §3) —
+    /// head 이중 상승이 만든 0.1초짜리 가짜 경계가 가동·표본으로 들어가던 것을 막는다.
     /// </summary>
-    public const string SpecVersion = "v68.3";
+    public const string SpecVersion = "v68.4";
 
     /// <summary>DB 파일 이름. 구 이름(plc.db)과 겹치지 않아야 한다.</summary>
     public const string FileName = "dspilot.db";

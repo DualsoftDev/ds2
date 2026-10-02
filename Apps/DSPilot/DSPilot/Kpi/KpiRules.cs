@@ -9,7 +9,7 @@ namespace DSPilot.Kpi;
 /// </summary>
 public enum CycleState
 {
-    /// <summary>계산 밖 — 잘림 · 미상(UNK) · 진행 중 · 미분류 · 기준 없음 · 경계 초과.</summary>
+    /// <summary>계산 밖 — 미상(UNK) · 진행 중 · 미분류 · 기준 없음 · 경계 초과 · 너무 짧음.</summary>
     Excluded = 0,
     /// <summary>가동 — 비생산도 비가동도 아닌 나머지.</summary>
     Run = 1,
@@ -35,6 +35,12 @@ public enum ExcludeReason
     Unclassified = 5,
     /// <summary>call 구간이 CT 끝을 허용치 이상 넘었다(doc/30 §3) — 모델링 이슈. 정상 CT 로 인정하지 않는다.</summary>
     Overflow = 6,
+    /// <summary>
+    /// 너무 짧은 빈 사이클(doc/30 §3, 2026-10-02) — 안에서 시작한 work 가 하나도 없고 CT 가 그 flow 의 가장 짧은 work
+    /// 중앙값(W_min)보다 짧다. 어떤 work 도 끝낼 수 없는 길이라 생산 사이클일 수 없다. 거의 전부 head 이중 상승이
+    /// 만든 가짜 경계다(현장 #121: 0.1~1.3초 51건이 가동으로 집계됨). 계산·표본 밖. 사용자 계수 없음 — 구조 조건이다.
+    /// </summary>
+    TooShort = 7,
 }
 
 /// <summary>비가동을 만든 축. 상태처럼 저장하지 않고 조회 시 도출한다.</summary>
@@ -222,6 +228,25 @@ public static class KpiRules
         if (!(f.RMs > 0)) return ExcludeReason.NoBaseline;
         if (f.OverflowMs > k.OverflowMs) return ExcludeReason.Overflow;
         return ExcludeReason.None;
+    }
+
+    /// <summary>
+    /// 너무 짧은 빈 사이클인가(doc/30 §3) — 적재 시 판정해 <see cref="ExcludeReason.TooShort"/> 로 박제한다.
+    /// <para>
+    /// 조건은 둘 다여야 한다. ① <paramref name="mtMs"/> 가 null = 이 사이클 안에서 시작한 work 가 없다(적재기가 박제하는 사실).
+    /// ② CT 가 그 flow(분기)의 가장 짧은 work 중앙값 <c>W_min</c> 보다 짧다 = 어떤 work 도 끝낼 수 없는 길이.
+    /// 길이만으로 자르지 않는 이유: 짧지만 work 가 있는 정상 사이클이 실재한다(R131-5: CT 14초 × 192건, work 2초 —
+    /// 한 부품에 로봇이 두 번 움직인다). 분포(σ·MAD) 하한도 쓰지 않는다 — CT 는 우측 꼬리가 길고 두 봉우리인 flow 가 있다.
+    /// W 기준선이 아직 없으면(부팅 구간) 판정하지 않는다 — 그 행은 어차피 기준 없음으로 계산 밖이다.
+    /// </para>
+    /// </summary>
+    public static bool IsTooShort(long? mtMs, long ctMs, IReadOnlyDictionary<string, WorkBaseline> w)
+    {
+        if (mtMs is not null || ctMs <= 0 || w.Count == 0) return false;
+        double wMin = double.MaxValue;
+        foreach (var wb in w.Values)
+            if (wb.MedianMs > 0 && wb.MedianMs < wMin) wMin = wb.MedianMs;
+        return wMin < double.MaxValue && ctMs < wMin;
     }
 
     /// <summary>창과 겹친 길이. 창을 주지 않으면 행 전체(CT). doc/30 §7.2.</summary>

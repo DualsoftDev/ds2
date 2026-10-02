@@ -493,4 +493,55 @@ public class KpiRulesTests
         Assert.Equal(KpiKappa.QualityDefault, zero.Quality);
         Assert.Equal(KpiKappa.OverflowMsDefault, zero.OverflowMs);
     }
+
+    // ── 너무 짧은 빈 사이클(doc/30 §3, 2026-10-02) ─────────────────────────────
+
+    private static readonly IReadOnlyDictionary<string, WorkBaseline> W121 = new Dictionary<string, WorkBaseline>
+    {
+        ["#121공정"] = new(194_000, 180_000, 200_000, 50),
+    };
+
+    [Fact]
+    public void work_없이_W_min_보다_짧으면_너무_짧음()
+    {
+        // 현장 #121: head 이중 상승이 만든 0.1~1.3초 가짜 경계. work 가 없고 W_min(194초)보다 한참 짧다.
+        Assert.True(KpiRules.IsTooShort(null, 100, W121));
+        Assert.True(KpiRules.IsTooShort(null, 1_300, W121));
+    }
+
+    [Fact]
+    public void work_가_있으면_아무리_짧아도_너무_짧음이_아니다()
+    {
+        // R131-5: CT 14초 × 192건, work 2초 — 한 부품에 로봇이 두 번 움직이는 정상 짧은 사이클. 길이 비율로 자르면 같이 죽는다.
+        var w = new Dictionary<string, WorkBaseline> { ["R131-5.동작"] = new(2_000, 1_900, 2_100, 300) };
+        Assert.False(KpiRules.IsTooShort(2_000, 14_000, w));
+        // work 가 없더라도 W_min 이상이면 빈 사이클일 뿐 너무 짧음은 아니다(공회전 — 별건).
+        Assert.False(KpiRules.IsTooShort(null, 194_000, W121));
+    }
+
+    [Fact]
+    public void W_기준선이_없으면_판정하지_않는다()
+    {
+        // 부팅 구간 — W 가 없으면 길이를 비교할 근거가 없다. 그 행은 기준 없음으로 남고 뒤늦은 박제가 다시 가른다.
+        Assert.False(KpiRules.IsTooShort(null, 100, new Dictionary<string, WorkBaseline>()));
+        // 열린 사이클(CT 0)은 진행 중이지 너무 짧음이 아니다.
+        Assert.False(KpiRules.IsTooShort(null, 0, W121));
+    }
+
+    [Fact]
+    public void 너무_짧음_행은_어떤_합에도_들어가지_않는다()
+    {
+        var facts = new[]
+        {
+            Fact(1, 0, 12_000, worst: 1.0, mt: 9_000),
+            Fact(2, 12_000, 200, exclude: ExcludeReason.TooShort),
+            Fact(3, 12_200, 11_800, worst: 1.0, mt: 9_000),
+        };
+        Assert.Equal(CycleState.Excluded, KpiRules.Classify(facts[1], K));
+        Assert.Equal(ExcludeReason.TooShort, KpiRules.ResolveExclude(facts[1], K));
+        var t = KpiRules.Compute(facts, K);
+        Assert.Equal(2, t.RunCount);
+        Assert.Equal(1, t.ExcludedCount);
+        Assert.Equal(23_800, t.TMs);
+    }
 }

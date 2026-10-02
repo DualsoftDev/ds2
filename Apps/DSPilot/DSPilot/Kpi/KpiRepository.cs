@@ -301,7 +301,8 @@ public sealed class KpiRepository
     /// (<see cref="CycleIngestService.BackfillBaselinesAsync"/>)도 기준선을 못 받아 그냥 넘어간다.
     /// 현장 실측(2026-09-21): DB 재생성 사흘 뒤 사이클 1,679건이 전부 '기준 없음', 가동·비가동·비생산 0건.
     /// </para>
-    /// 미분류(어느 분기도 통과하지 못한 행)는 그 분기의 사이클이라 볼 수 없어 계속 뺀다.
+    /// 미분류(어느 분기도 통과하지 못한 행)는 그 분기의 사이클이라 볼 수 없어 계속 뺀다. 너무 짧음(work 없는 가짜 경계,
+    /// 2026-10-02)도 뺀다 — 0.1초짜리 CT 가 R 표본에 들어가면 안 된다.
     /// </summary>
     private static string SampleEligible(string alias = "") =>
         $"{alias}excludeReason IN ({(int)ExcludeReason.None}, {(int)ExcludeReason.NoBaseline})";
@@ -388,14 +389,27 @@ public sealed class KpiRepository
     /// 표본이 쌓여 기준선이 생기면 <see cref="StampBaselineAsync"/> 로 뒤늦게 찍어 준다 — 안 그러면
     /// 첫 묶음이 영원히 계산 밖에 남는다.
     /// </summary>
-    public async Task<List<(long Id, string Flow, string? Branch)>> GetPendingBaselineCyclesAsync(
+    public async Task<List<(long Id, string Flow, string? Branch, long CtMs, long? MtMs)>> GetPendingBaselineCyclesAsync(
         int limit, CancellationToken ct = default)
     {
         await using var conn = _db.OpenRead();
         var rows = await conn.QueryAsync(new CommandDefinition(
-            "SELECT id, flow, branch FROM cycle WHERE excludeReason = @r ORDER BY startMs LIMIT @limit",
+            "SELECT id, flow, branch, ctMs, mtMs FROM cycle WHERE excludeReason = @r ORDER BY startMs LIMIT @limit",
             new { r = (int)ExcludeReason.NoBaseline, limit }, cancellationToken: ct));
-        return rows.Select(x => ((long)x.id, (string)x.flow, x.branch as string)).ToList();
+        return rows.Select(x => ((long)x.id, (string)x.flow, x.branch as string, (long)x.ctMs, x.mtMs is null ? (long?)null : (long)x.mtMs)).ToList();
+    }
+
+    /// <summary>
+    /// 기준 없음 행을 너무 짧음(<see cref="ExcludeReason.TooShort"/>)으로 확정한다 — 뒤늦은 박제가 가짜 경계를 가동으로
+    /// 살리지 않도록(doc/30 §3). 적재 시점엔 W 기준선이 없어 판정하지 못한 행이 대상이다.
+    /// </summary>
+    public async Task<bool> MarkTooShortAsync(long cycleId, CancellationToken ct = default)
+    {
+        await using var conn = _db.Open();
+        var n = await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE cycle SET excludeReason=@r WHERE id=@cycleId AND excludeReason=@pending",
+            new { cycleId, r = (int)ExcludeReason.TooShort, pending = (int)ExcludeReason.NoBaseline }, cancellationToken: ct));
+        return n > 0;
     }
 
     /// <summary>

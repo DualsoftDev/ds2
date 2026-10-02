@@ -32,6 +32,7 @@
         NoBaseline: '기준 표본 부족',
         Unclassified: '분기 미분류',
         Overflow: '경계 초과(모델링 확인)',
+        TooShort: '짧은 빈 사이클(경계 이중 발화)',   // work 없이 W_min 보다 짧은 행 — head 이중 상승이 만든 가짜 경계(doc/30 §3, 2026-10-02)
         Gap: '기록 공백',            // fillHoles 가 만드는 사이클 사이 빈 구간 — 빠져 있어 툴팁에 'Gap' 원문이 노출됐다(2026-09-18)
         None: '',
     };
@@ -233,6 +234,7 @@
             if (ex.unknown) why.push('미상 ' + ex.unknown);
             if (ex.inProgress) why.push('진행 중 ' + ex.inProgress);
             if (ex.noBaseline) why.push('기준 없음 ' + ex.noBaseline);
+            if (ex.tooShort) why.push('짧은 빈 사이클 ' + ex.tooShort);
 
             // 전부 제외된 구간(2026-09-21) — '0회' 칩 넷을 나란히 두면 화면이 고장난 것처럼 읽힌다.
             //   숫자 대신 "왜 비었는지"를 말한다.

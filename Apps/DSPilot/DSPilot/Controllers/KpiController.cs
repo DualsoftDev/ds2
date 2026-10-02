@@ -105,7 +105,7 @@ public sealed class KpiController : ControllerBase
         }).ToList();
 
         var excluded = new List<KpiExcludedDto>();
-        int unknown = 0, inProgress = 0, noBaseline = 0, unclassified = 0, overflow = 0;
+        int unknown = 0, inProgress = 0, noBaseline = 0, unclassified = 0, overflow = 0, tooShort = 0;
         foreach (var f in facts)
         {
             if (KpiRules.Classify(f, kappa) != CycleState.Excluded) continue;
@@ -116,6 +116,7 @@ public sealed class KpiController : ControllerBase
                 case ExcludeReason.NoBaseline: noBaseline++; break;
                 case ExcludeReason.Unclassified: unclassified++; break;
                 case ExcludeReason.Overflow: overflow++; break;
+                case ExcludeReason.TooShort: tooShort++; break;
                 default: unknown++; break;
             }
             excluded.Add(new KpiExcludedDto(
@@ -146,7 +147,7 @@ public sealed class KpiController : ControllerBase
             branch,
             new KpiCountsDto(
                 totals.RunCount, totals.DownCount, totals.NonProdCount,
-                new KpiExcludedCountsDto(unknown, inProgress, noBaseline, unclassified, overflow),
+                new KpiExcludedCountsDto(unknown, inProgress, noBaseline, unclassified, overflow, tooShort),
                 totals.ClippedCount),
             KpiMetricsDto.From(totals),
             segments.Select(x => new KpiSegmentDto(
@@ -313,9 +314,9 @@ public sealed record KpiCycleDto(
 public sealed record KpiCountsDto(int Run, int Down, int NonProd, KpiExcludedCountsDto Excluded, int Clipped);
 
 public sealed record KpiExcludedCountsDto(
-    int Unknown, int InProgress, int NoBaseline, int Unclassified, int Overflow)
+    int Unknown, int InProgress, int NoBaseline, int Unclassified, int Overflow, int TooShort = 0)
 {
-    public int Total => Unknown + InProgress + NoBaseline + Unclassified + Overflow;
+    public int Total => Unknown + InProgress + NoBaseline + Unclassified + Overflow + TooShort;
 }
 
 /// <summary>지표. T 는 캘린더가 아니라 유효 행 CT 의 합이다.</summary>

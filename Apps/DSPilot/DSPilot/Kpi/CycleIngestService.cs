@@ -267,6 +267,11 @@ public sealed class CycleIngestService : BackgroundService
                 var (r, mtMed, wBase) = await baselineAt(src.Branch, src.StartMs);
                 (var stamped, var worstWork, var worstRatio) = Stamp(measured, wBase, gate);
                 works = stamped;
+                // 너무 짧은 빈 사이클(doc/30 §3) — work 없이 W_min 보다 짧으면 가짜 경계(head 이중 상승). 기준 없음보다 앞선다:
+                // 기준선이 없어도 길이로 이미 생산 사이클이 아니고, 표본에도 들어가면 안 된다.
+                var exclude = KpiRules.IsTooShort(mt, src.EndMs - src.StartMs, wBase) ? ExcludeReason.TooShort
+                    : r is null ? ExcludeReason.NoBaseline
+                    : ExcludeReason.None;
                 record = new CycleRecord(
                     flow,
                     src.Branch,
@@ -278,7 +283,7 @@ public sealed class CycleIngestService : BackgroundService
                     worstWork,
                     worstRatio,
                     overflow,
-                    r is null ? ExcludeReason.NoBaseline : ExcludeReason.None);
+                    exclude);
             }
 
             result.Add((record, works));
@@ -496,12 +501,19 @@ public sealed class CycleIngestService : BackgroundService
         double gate = _settings.LoadSettings().Kpi.ResolveWorkGate();
 
         int done = 0;
-        foreach (var (id, flow, branch) in pending)
+        foreach (var (id, flow, branch, cycleCtMs, cycleMtMs) in pending)
         {
             ct.ThrowIfCancellationRequested();
             if (await _baselines.GetRAsync(flow, branch, ct) is not double r) continue;
             var mtMed = await _baselines.GetMtAsync(flow, branch, ct) ?? 0;
             var wBase = await _baselines.GetWAsync(flow, branch, ct);
+
+            // 부팅 구간에 기준 없음으로 들어온 가짜 경계(work 없는 짧은 행)는 R 을 찍어 가동으로 살리면 안 된다 — 너무 짧음으로 확정.
+            if (KpiRules.IsTooShort(cycleMtMs, cycleCtMs, wBase))
+            {
+                if (await _repo.MarkTooShortAsync(id, ct)) done++;
+                continue;
+            }
 
             var works = await _repo.GetCycleWorksAsync(id, ct);
             var (stamped, worstWork, worstRatio) = Stamp(works.Select(w => (w.Work, w.DurationMs)).ToList(), wBase, gate);

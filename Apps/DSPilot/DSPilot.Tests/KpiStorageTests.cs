@@ -310,6 +310,26 @@ public sealed class KpiStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task 기준_없음_행을_너무_짧음으로_확정하면_표본과_박제_대상에서_빠진다()
+    {
+        // 부팅 구간에 들어온 0.2초짜리 가짜 경계(work 없음) — 뒤늦은 박제가 R 을 찍어 가동으로 살리면 안 된다.
+        var id = await _repo.SaveCycleAsync(
+            new CycleRecord("FlowA", null, T0, T0 + 200, null, 0, 0, null, 0, 0, ExcludeReason.NoBaseline), []);
+        var pending = Assert.Single(await _repo.GetPendingBaselineCyclesAsync(10));
+        Assert.Equal(id, pending.Id);
+        Assert.Equal(200, pending.CtMs);
+        Assert.Null(pending.MtMs);
+
+        Assert.True(await _repo.MarkTooShortAsync(id));
+        Assert.False(await _repo.MarkTooShortAsync(id));   // 이미 확정 — 멱등
+
+        Assert.Empty(await _repo.GetPendingBaselineCyclesAsync(10));
+        Assert.Empty(await _repo.GetCtSamplesAsync("FlowA", null, T0 - 1));
+        var row = Assert.Single(await _repo.QueryCyclesAsync(T0 - 1, T0 + 60_000));
+        Assert.Equal(ExcludeReason.TooShort, row.Exclude);
+    }
+
+    [Fact]
     public async Task 기준선_없이_들어온_행은_나중에_찍어_줄_수_있다()
     {
         // 설치 직후: 표본이 없어 R 을 못 박제한 채 들어온 행.
