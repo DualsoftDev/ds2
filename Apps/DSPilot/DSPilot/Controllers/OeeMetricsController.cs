@@ -196,32 +196,22 @@ public class OeeMetricsController : OeeControllerBase
     {
         var (fromUtc, toUtc) = ResolveRange(from, to);
         var flowSet = ResolveSystemFlowSet(system);
-        var byFlow = await _repo.GetDowntimeByFlowAsync(fromUtc, toUtc, ct);
+        // 모집단 = 표준 CT(14일) 보유 flow — teep/matrix 와 같은 축. 종전엔 oeeDowntimeEvent(고장비트 수집분)에
+        // 행이 있는 flow 만 돌아, 고장비트 미설정 현장은 OEE 가 산출돼도 순위가 전멸했다(2026-10-02).
+        // branchView 임계는 분기 부모를 "부모_분기" 가상 키로 이미 치환해 둔 집합이다.
         var thresholds = await ResolveCtThresholdsAsync(branchView: true);
         var branchMap = _settings.GetBranchVirtualMap();
-        var branchedParents = _settings.GetBranchedParentFlows();
 
-        var result = new List<OeeRankingDto>(byFlow.Count);
-        foreach (var (flowName, downtimeMs, count) in byFlow)
+        var result = new List<OeeRankingDto>(thresholds.Count);
+        foreach (var (flowName, thr) in thresholds)
         {
-            if (flowSet is not null && !flowSet.Contains(flowName)) continue;   // 시스템 스코프(부모 이름 축)
-            if (branchedParents.Contains(flowName))
-            {
-                // 분기 부모 → 분기(가상) 행으로 치환. 정지 이벤트는 부모 단위 기록이므로 물리 정지의
-                // 시간·건수는 각 분기 행에 동일 표시(정지는 전 분기 공통 — 양쪽 표시 설계).
-                foreach (var kv in branchMap)
-                {
-                    if (!string.Equals(kv.Value.Parent, flowName, StringComparison.OrdinalIgnoreCase)) continue;
-                    var sv = await BuildSummaryAsync(kv.Key, fromUtc, toUtc, ct, thresholds);
-                    result.Add(new OeeRankingDto(
-                        kv.Key, downtimeMs, count, sv.TotalCount,
-                        sv.Availability, sv.Performance, sv.Quality, sv.Oee));
-                }
-                continue;
-            }
+            if (thr.AvgMs <= 0) continue;
+            var parent = branchMap.TryGetValue(flowName, out var bv) ? bv.Parent : flowName;
+            if (flowSet is not null && !flowSet.Contains(parent)) continue;   // 시스템 스코프(부모 이름 축)
             var s = await BuildSummaryAsync(flowName, fromUtc, toUtc, ct, thresholds);
+            // 정지 = v68 비가동(고장 + 유지보수) 벽시계·고장 건수 — 요약 KPI 와 같은 출처.
             result.Add(new OeeRankingDto(
-                flowName, downtimeMs, count, s.TotalCount,
+                flowName, (long)(s.DownFaultWallMs + s.DownMaintWallMs), s.FailureCount, s.TotalCount,
                 s.Availability, s.Performance, s.Quality, s.Oee));
         }
         return result
