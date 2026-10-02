@@ -13,6 +13,7 @@
  *   callLanes[], cycleBoundaries(Date[]) 또는 cycleSpans[], chartStart(Date), chartEnd(Date),
  *   plotWidth, showCall(Call 막대)/showIo(IN·OUT 파형) — 각각 토글, 기본 Call 만(구 viewMode 'bar'|'line' 도 읽음),
  *   headCallId, expandedCalls{}, showMaxGap, (선택) collapsedCallNames{} = 분기 제외 call, (선택) mtLanes[] = MT 계산용 전 lane,
+ *   (선택) boundaryTag{address,edge} = 경계 태그 지정(flow/분기 탭), (선택) branchTags[] = 분기별 경계 태그(합산 탭, 승자 분기로 고름),
  *   topGaps[], selectedGapIndex, (선택) selectedRange{startMs,endMs}.
  *   tail 은 없다(doc/30 §2.4) — MT 끝 = 사이클 안 마지막 work 끝을 lane 신호에서 직접 구한다(cycleWorkEnvelopes).
  *   _geo 는 buildSvg 가 세팅(드래그/스크롤 좌표 변환용).
@@ -365,11 +366,15 @@
     //   · work 구간: 그 work 에 속한 call 구간들의 최소 시작~최대 끝(봉투). 더하지 않는다.
     //   · MT 끝: 사이클 안에서 시작한 call 구간들의 최대 끝(사이클 끝에서 자름). WT = 그 뒤 ~ 다음 시작.
     //   · 스냅: 시작이 다음 경계 직전 _snapMs 안이면 다음 사이클 것.
-    function workSpansOf(lane) {
+    //   · 경계 고정 head(§2.2.1, 2026-10-02): 경계를 주소로 골랐고 그 주소가 그 call 의 OUT↑ 가 아니면(IN 에지 또는 하강) 그 call 은
+    //     OUT↑ 구간 대신 [사이클 시작, 그 뒤 첫 완료 마커) 하나 — 마커가 다음 경계 전에 없으면 폭 0(경계 표식). 종전엔 경계보다 앞서 뜬
+    //     OUT↑ 구간이 앞 사이클에 귀속돼 앞 사이클 MT 끝을 경계까지 밀고 WT 를 0 으로 만들었다. OUT 이 없는 call(IN 전용 센서)은 work
+    //     봉투만 시작에서 연다(끝은 형제 call). 슬라이스가 boundaryTag{address,edge} 또는 branchTags[](합산 스팬은 승자 분기) 로 알려 준다.
+    function laneKindOf(lane) {
         var outIvs = (lane.outIntervals || [])
             .map(function (iv) { return { s: new Date(iv.start).getTime(), e: new Date(iv.end).getTime() }; })
             .sort(function (a, b) { return a.s - b.s; });
-        if (!outIvs.length) return [];
+        if (!outIvs.length) return { kind: 'none', outIvs: outIvs, ins: [] };
         var ins = risesOf(lane.inIntervals);
         var hit = 0, j = 0, i;
         for (i = 0; i < outIvs.length; i++) {
@@ -377,18 +382,40 @@
             while (j < ins.length && ins[j] <= o) j++;
             if (j < ins.length && ins[j] < nextO) hit++;
         }
-        var spans = [];
-        if (ins.length && hit >= outIvs.length * OUT_IN_MATCH_RATE) {
+        var oi = ins.length && hit >= outIvs.length * OUT_IN_MATCH_RATE;
+        return { kind: oi ? 'oi' : 'oo', outIvs: outIvs, ins: ins };
+    }
+    function workSpansOf(lane) {
+        var k = laneKindOf(lane);
+        var spans = [], i, j;
+        if (k.kind === 'none') return spans;
+        if (k.kind === 'oi') {
             j = 0;
-            for (i = 0; i < outIvs.length; i++) {
-                var o2 = outIvs[i].s, next2 = (i + 1 < outIvs.length) ? outIvs[i + 1].s : Infinity;
-                while (j < ins.length && ins[j] < o2) j++;
-                if (j < ins.length && ins[j] < next2) { if (ins[j] > o2) spans.push({ s: o2, e: ins[j] }); j++; }
+            for (i = 0; i < k.outIvs.length; i++) {
+                var o2 = k.outIvs[i].s, next2 = (i + 1 < k.outIvs.length) ? k.outIvs[i + 1].s : Infinity;
+                while (j < k.ins.length && k.ins[j] < o2) j++;
+                if (j < k.ins.length && k.ins[j] < next2) { if (k.ins[j] > o2) spans.push({ s: o2, e: k.ins[j] }); j++; }
             }
         } else {
-            for (i = 0; i < outIvs.length; i++) if (outIvs[i].e > outIvs[i].s) spans.push({ s: outIvs[i].s, e: outIvs[i].e });
+            for (i = 0; i < k.outIvs.length; i++) if (k.outIvs[i].e > k.outIvs[i].s) spans.push({ s: k.outIvs[i].s, e: k.outIvs[i].e });
         }
         return spans;
+    }
+    // 완료 마커(서버 WorkSpanMath.CompletionMarkers 거울) — o~i 면 IN↑, o~o 면 OUT↓(열린 구간 제외), OUT 없으면 없음. 오름차순.
+    function laneMarkersOf(lane) {
+        var k = laneKindOf(lane);
+        if (k.kind === 'oi') return k.ins;
+        if (k.kind === 'oo') return k.outIvs.filter(function (iv) { return iv.e > iv.s; }).map(function (iv) { return iv.e; }).sort(function (a, b) { return a - b; });
+        return [];
+    }
+    // lane 이 이 경계 주소의 call 인가 — 주소가 lane(또는 ApiCall 쌍)의 IN/OUT 과 같으면 { isOut }, 아니면 null.
+    function laneTagRole(lane, address) {
+        var a = String(address || '').toLowerCase();
+        if (!a) return null;
+        var eq = function (t) { return !!t && String(t).toLowerCase() === a; };
+        var isOut = eq(lane.outTag), isIn = eq(lane.inTag);
+        (lane.apiCalls || []).forEach(function (ac) { if (eq(ac.outTag)) isOut = true; if (eq(ac.inTag)) isIn = true; });
+        return (isOut || isIn) ? { isOut: isOut } : null;
     }
     function snapStart(startMs, boundariesSorted) {
         if (_snapMs <= 0 || !boundariesSorted.length) return startMs;
@@ -406,8 +433,11 @@
         if (!spans.length) return { perSpan: [] };
         var collapsed = s.collapsedCallNames || null;
         var lanes = s.mtLanes || s.callLanes || [];
+        // 합산 탭은 스팬의 승자 분기(union.win)에 따라 경계 태그가 달라진다 — 분기 정의를 고쳐 승자만 바뀌어도 다시 계산되게 키에 넣는다.
+        var tagKey = JSON.stringify([s.boundaryTag || null, s.branchTags || null])
+            + (s.branchTags ? '#' + spans.map(function (sp) { return sp.union ? sp.union.win : ''; }).join(',') : '');
         var key = [spans.length, spans[0].start, spans[spans.length - 1].end, lanes.length,
-                   collapsed ? Object.keys(collapsed).sort().join('|') : '', _snapMs,
+                   collapsed ? Object.keys(collapsed).sort().join('|') : '', _snapMs, tagKey,
                    lanes.length ? (lanes[0].callId + ':' + ((lanes[0].outIntervals || []).length)) : '',
                    lanes.length ? (lanes[lanes.length - 1].callId + ':' + ((lanes[lanes.length - 1].outIntervals || []).length)) : ''].join('#');
         for (var ci = 0; ci < _envCache.length; ci++) if (_envCache[ci].key === key) return _envCache[ci].value;
@@ -423,16 +453,51 @@
             return (i >= 0 && t < spans[i].end) ? i : -1;
         };
         var perSpan = spans.map(function () { return { works: {}, lastEnd: -Infinity, overflow: 0, mtEnd: null }; });
+        // 스팬 i 의 경계 태그 — 합산 탭은 승자 분기(union.win)의 것, 아니면 슬라이스의 것. 없으면 null(Call 지정 = OUT↑ = §2.2 그대로).
+        var hasTags = !!(s.boundaryTag || s.branchTags);
+        var tagOfSpan = function (i) {
+            var sp = spans[i];
+            if (sp.union && s.branchTags) { var w = sp.union.win; return (w >= 0 && s.branchTags[w]) ? s.branchTags[w] : null; }
+            return s.boundaryTag || null;
+        };
         for (var li = 0; li < lanes.length; li++) {
             var lane = lanes[li];
             if (collapsed && collapsed[lane.callName]) continue;
+            var wn = lane.workName || '(Work 없음)';
+            // 경계 고정 head 여부 — 스팬마다(합산 탭은 분기별 경계가 다르다). headAt[i] = 'anchor'(OUT 있음) | 'seed'(IN 전용) | null.
+            var headAt = null;
+            if (hasTags) {
+                for (var hi = 0; hi < spans.length; hi++) {
+                    var tg = tagOfSpan(hi);
+                    if (!tg || !tg.address) continue;
+                    var role = laneTagRole(lane, tg.address);
+                    if (!role || (role.isOut && tg.edge !== 'falling')) continue;   // OUT↑ 경계 = 손대지 않는다
+                    if (!headAt) headAt = new Array(spans.length);
+                    headAt[hi] = (lane.outIntervals || []).length ? 'anchor' : 'seed';
+                }
+            }
+            if (headAt) {
+                var markers = laneMarkersOf(lane);
+                for (var si2 = 0; si2 < spans.length; si2++) {
+                    var mode = headAt[si2]; if (!mode) continue;
+                    var ps2 = perSpan[si2], st = spans[si2].start;
+                    var wcur = ps2.works[wn];
+                    if (!wcur) ps2.works[wn] = wcur = { s: st, e: st };
+                    else if (st < wcur.s) wcur.s = st;
+                    if (mode === 'anchor') {
+                        // [시작, 그 뒤 첫 마커) — 경계가 이 call 의 IN↑ 자신이면 그 IN↑ 은 제외(st+1), 다음 경계 전이어야 한다.
+                        var m = firstIn(markers, st + 1, spans[si2].end);
+                        if (m !== null) { if (m > wcur.e) wcur.e = m; if (m > ps2.lastEnd) ps2.lastEnd = m; }
+                    }
+                }
+            }
             var wsp = workSpansOf(lane);
             if (!wsp.length) continue;
-            var wn = lane.workName || '(Work 없음)';
             for (var k = 0; k < wsp.length; k++) {
                 var sp = wsp[k];
                 var si = idxOf(snapStart(sp.s, bounds));
                 if (si < 0) continue;
+                if (headAt && headAt[si] === 'anchor') continue;   // 경계 고정 head 의 OUT↑ 구간은 쓰지 않는다
                 var ps = perSpan[si];
                 var cur = ps.works[wn];
                 if (!cur) ps.works[wn] = { s: sp.s, e: sp.e };

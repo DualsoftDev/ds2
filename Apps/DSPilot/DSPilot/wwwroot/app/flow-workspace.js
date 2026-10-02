@@ -1718,6 +1718,9 @@
                         kind: 'flow', bi: -1, branch: null,
                         callLanes: this._orderedLanes(flowHead),
                         headCallId: flowHead,
+                        // 경계 태그(주소+에지) — 경계 고정 head 규칙(doc/30 §2.2.1)용. 분기 사용 중이면 분기별(합산 스팬은 승자 분기 것).
+                        boundaryTag: (!branched && this.startTagAddress) ? { address: this.startTagAddress, edge: this.startTagEdge || 'rising' } : null,
+                        branchTags: branched ? this.branches.map(b => b.startTagAddress ? { address: b.startTagAddress, edge: b.startTagEdge || 'rising' } : null) : null,
                         cycleBoundaries: this.cycleBoundaries,
                         editable: !branched,
                         avgCycleMs: this.avgCycleMs, avgActiveMs: null, unionMode: false,
@@ -1780,6 +1783,7 @@
                         kind: 'branch', bi, branch: b,
                         callLanes: orderedLanes,
                         headCallId: head ? head.callId : null,
+                        boundaryTag: b.startTagAddress ? { address: b.startTagAddress, edge: b.startTagEdge || 'rising' } : null,
                         cycleBoundaries: [], cycleSpans: spans,
                         collapsedCallNames: collapsed, groupExcluded: true, editable: true, unionMode: false,
                         // 제외 call 접기 ON — 같은 목록을 hiddenCallNames 로도 넘겨 CycleGantt.visibleLanes 가 행을 통째 뺀다.

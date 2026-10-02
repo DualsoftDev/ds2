@@ -305,6 +305,9 @@ function overviewCycleApp() {
             if (slice.branches.length === 0) {
                 // 단일 flow — 서버 경계 그대로. 표시 lane = 시작 call 1행. MT/WT 는 전 lane 의 work 구간에서 구한다(doc/30 §2.4).
                 slice.headCallId = d.headCallId || null;
+                // 경계 태그 지정(서버 저장값) — 경계 고정 head 규칙(doc/30 §2.2.1)용.
+                slice.boundaryTag = d.startTagAddress ? { address: d.startTagAddress, edge: d.startTagEdge || 'rising' } : null;
+                slice.branchTags = null;
                 slice.cycleBoundariesIso = d.cycleBoundaries || [];
                 slice.cycleBoundaries = slice.cycleBoundariesIso.map(s => new Date(s));
                 slice.cycleSpans = null; slice.unionMode = false; slice.bp = null;
@@ -316,6 +319,8 @@ function overviewCycleApp() {
             } else {
                 // 분기 flow — flow 자체 head 는 경계가 아니다(경계 = 분기별 시작 call). 합산 리본 = 판별 스팬.
                 slice.headCallId = null;
+                slice.boundaryTag = null;
+                slice.branchTags = slice.branches.map(b => b.startTagAddress ? { address: b.startTagAddress, edge: b.startTagEdge || 'rising' } : null);
                 slice.cycleBoundaries = [];
                 const bp = CG.classifyBranches(raw, slice.branches, cs, ce);
                 slice.bp = bp;

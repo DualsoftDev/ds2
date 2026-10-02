@@ -234,8 +234,8 @@ public sealed class CycleIngestService : BackgroundService
         var branchSet = _settings.GetFlowBranchSet(flow);
         bool hasBranches = branchSet is { Branches.Count: > 0 };
 
-        // 경계를 IN 전용 call 의 주소로 고른 분기/flow 만 값이 있다(그 work 의 시작점 시드). 분기마다 경계가 다르므로 캐시한다.
-        var seedWorkByBranch = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        // 경계를 주소(태그 지정)로 고른 분기/flow 만 값이 있다 — 그 주소의 call 은 경계에서 구간을 연다(§2.2.1). 분기마다 경계가 다르므로 캐시한다.
+        var headByBranch = new Dictionary<string, BoundaryHead?>(StringComparer.OrdinalIgnoreCase);
 
         var result = new List<(CycleRecord, IReadOnlyList<WorkDuration>)>(rows.Count);
         foreach (var src in rows)
@@ -247,12 +247,12 @@ public sealed class CycleIngestService : BackgroundService
             bool commGap = gaps.Any(g => g.S < src.EndMs && g.E > src.StartMs);
             var excl = unclassified ? EmptyNames : ExcludedCallsOf(branchSet, src.Branch);
 
-            var seedKey = src.Branch ?? "";
-            if (!seedWorkByBranch.TryGetValue(seedKey, out var seedWork))
-                seedWorkByBranch[seedKey] = seedWork = ResolveBoundarySeedWork(flow, branchSet, src.Branch);
+            var headKey = src.Branch ?? "";
+            if (!headByBranch.TryGetValue(headKey, out var head))
+                headByBranch[headKey] = head = ResolveBoundaryHead(flow, branchSet, src.Branch);
 
             var (measured, mt, overflow) = MeasureCycle(
-                callSpans, excl, src.StartMs, src.EndMs, boundaries, snapMs, seedWork);
+                callSpans, excl, src.StartMs, src.EndMs, boundaries, snapMs, head);
 
             CycleRecord record;
             IReadOnlyList<WorkDuration> works;
@@ -525,52 +525,70 @@ public sealed class CycleIngestService : BackgroundService
 
     // ── 측정 ──────────────────────────────────────────────────────────────────
 
-    /// <summary>한 call 의 이름·소속 work·구간 목록(§2.2 규칙으로 만든 것).</summary>
-    public sealed record CallSpanSet(string CallName, string Work, List<Span> Spans);
+    /// <summary>
+    /// 한 call 의 이름·소속 work·구간 목록(§2.2 규칙으로 만든 것). <paramref name="Markers"/> = 완료 마커(o~i 면 IN↑, o~o 면 OUT↓,
+    /// <see cref="WorkSpanMath.CompletionMarkers"/>) — 이 call 이 경계 고정 head(§2.2.1)일 때 구간의 끝으로 쓰인다.
+    /// </summary>
+    public sealed record CallSpanSet(string CallName, string Work, List<Span> Spans, IReadOnlyList<long>? Markers = null);
 
     /// <summary>
-    /// 이 flow(분기)의 사이클 경계가 <b>IN 전용 call</b> 의 주소일 때 그 call 이 속한 work 이름, 아니면 null.
-    /// <para>
-    /// 경계는 주소+에지 하나가 정본이고 IN/OUT 을 가리지 않는다(<see cref="CycleBoundaryEdges"/>). 그런데 §2.2 의
-    /// call 구간은 OUT 상승에서만 열리므로, 경계로 지목된 call 에 OUT 이 없으면 그 call 은 구간을 하나도 못 만들고
-    /// 소속 work 가 통째로 사라진다. 그 경우에만 <see cref="MeasureCycle"/> 에 시작점을 시드한다 —
-    /// OUT 을 가진 call 이면 이미 그 구간이 경계에서 열리므로 시드할 것이 없다(null).
-    /// </para>
+    /// 사이클 경계를 <b>주소(태그 지정)</b>로 고른 flow/분기의 head call(doc/30 §2.2.1) — <see cref="ResolveBoundaryHead"/>.
+    /// <paramref name="Anchored"/>=true 면 call 에 OUT 이 있어 사이클마다 [cs, 첫 완료 마커) 구간 하나를 만들고 OUT↑ 구간은 버린다.
+    /// false 면 IN 전용 센서라 work 봉투를 cs 에서 열어 두기만 한다(끝은 형제 call).
+    /// </summary>
+    public sealed record BoundaryHead(string CallName, string Work, bool Anchored);
+
+    /// <summary>
+    /// 사이클 경계를 <b>주소(태그 지정)</b>로 고른 flow/분기의 head call(doc/30 §2.2.1). 사용자가 지목한 신호가 사이클 시작이므로
+    /// 그 주소의 call 은 §2.2 의 OUT↑ 가 아니라 <b>경계(cs)에서 구간을 연다</b>.
+    /// <list type="bullet">
+    ///   <item>주소가 그 call 의 OUT 이고 에지가 상승이면 null — §2.2 와 결과가 같아 손댈 것이 없다(Call 지정 기본값과 동일).</item>
+    ///   <item>call 에 OUT 이 있으면 Anchored=true — 그 call 의 OUT↑ 구간은 버리고 사이클마다 [cs, 첫 완료 마커) 하나만 만든다.
+    ///     종전엔 경계보다 앞서 뜬 OUT↑ 구간이 <b>앞 사이클</b>에 귀속돼 앞 사이클 MT 를 경계까지 늘리고 WT 를 0 으로 만들었다.</item>
+    ///   <item>call 에 OUT 이 없으면(IN 전용 센서) Anchored=false — 그 work 봉투를 cs 에서 열어 두기만 한다(시작점 시드).
+    ///     끝은 형제 call 이 정하고, 형제가 없으면 폭 0 이라 제외된다. 관측 전용 work 는 지속시간이 원리상 없다.</item>
+    /// </list>
     /// 모델이 아직 안 섰거나 주소가 이 flow 에 없으면 null — 판단 근거가 없으면 종전 동작을 유지한다.
     /// </summary>
-    private string? ResolveBoundarySeedWork(string flow, FlowBranchSet? branchSet, string? branch)
+    private BoundaryHead? ResolveBoundaryHead(string flow, FlowBranchSet? branchSet, string? branch)
     {
         try
         {
-            string? address = null;
+            string? address = null, edge = null;
             if (!string.IsNullOrWhiteSpace(branch))
             {
-                // 분기 행은 그 분기의 경계가 정본. 정의를 못 찾으면(이름 변경 등) 시드하지 않는다.
-                address = branchSet?.Branches
-                    .FirstOrDefault(b => string.Equals(b.Name, branch, StringComparison.OrdinalIgnoreCase))
-                    ?.StartTagAddress;
+                // 분기 행은 그 분기의 경계가 정본. 정의를 못 찾으면(이름 변경 등) 손대지 않는다.
+                var def = branchSet?.Branches
+                    .FirstOrDefault(b => string.Equals(b.Name, branch, StringComparison.OrdinalIgnoreCase));
+                address = def?.StartTagAddress;
+                edge = def?.StartTagEdge;
             }
             else if (branchSet is not { Branches.Count: > 0 })
             {
-                address = _settings.GetFlowCycleOverride(flow)?.StartTagAddress;
+                var ov = _settings.GetFlowCycleOverride(flow);
+                address = ov?.StartTagAddress;
+                edge = ov?.StartTagEdge;
             }
 
             if (!CycleBoundaryEdges.HasTagSpec(address)) return null;
+            var addr = address!.Trim();
 
             if (!_mapper.IsInitialized) _mapper.Initialize();
             var hit = _mapper.GetFlowTagCatalog(flow)
-                .FirstOrDefault(t => string.Equals(t.Address, address, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(t => string.Equals(t.Address, addr, StringComparison.OrdinalIgnoreCase));
             if (hit is null) return null;
 
-            // OUT 이 하나라도 있는 call 이면 §2.2 가 이미 구간을 만든다 — 시드 불필요.
-            var pairs = _mapper.GetCallTagPairsByCallId(hit.CallId);
-            if (pairs.Any(p => !string.IsNullOrWhiteSpace(p.OutTag))) return null;
+            // OUT 상승 = §2.2 가 이미 경계에서 구간을 연다 — 손댈 것이 없다.
+            if (!hit.IsIn && !CycleBoundaryEdges.IsFallingEdge(edge)) return null;
 
-            return string.IsNullOrWhiteSpace(hit.WorkName) ? hit.CallName : hit.WorkName;
+            var pairs = _mapper.GetCallTagPairsByCallId(hit.CallId);
+            bool hasOut = pairs.Any(p => !string.IsNullOrWhiteSpace(p.OutTag));
+            var work = string.IsNullOrWhiteSpace(hit.WorkName) ? hit.CallName : hit.WorkName;
+            return new BoundaryHead(hit.CallName, work, Anchored: hasOut);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "[Kpi] 경계 시드 work 해석 실패 — flow={Flow} branch={Branch}", flow, branch);
+            _logger.LogDebug(ex, "[Kpi] 경계 head call 해석 실패 — flow={Flow} branch={Branch}", flow, branch);
             return null;
         }
     }
@@ -603,28 +621,39 @@ public sealed class CycleIngestService : BackgroundService
     ///   <item>초과 = call 구간 끝이 사이클 끝을 넘은 최대량. 허용치 비교는 조회 시(κ).</item>
     /// </list>
     /// <para>
-    /// <paramref name="seedWork"/> = 사이클 경계를 <b>IN 전용 call</b> 의 주소로 고른 경우 그 call 이 속한 work
-    /// (<see cref="ResolveBoundarySeedWork"/>). §2.2 는 "시작점은 언제나 OUT 상승" 이라 IN 전용 call 은 구간을 만들지
-    /// 못하는데, 사용자가 그 센서를 사이클 시작으로 지목했다면 적어도 <b>시작점</b>은 인정해야 한다 — 그 work 를
-    /// cs 에서 열어 두면 뒤따르는 형제 call 이 붙을 때 work 구간이 사이클 시작부터 측정된다.
-    /// 끝(<c>lastEnd</c>)에는 기여하지 않는다: MT 끝은 "마지막 work 끝"(§2.4)이고 맨 IN 상승 하나를 동작 종료로
-    /// 인정할지는 별개 결정이다. 그래서 그 work 에 다른 call 이 없으면 폭 0 으로 남아 아래 <c>e &gt; s</c> 에서
-    /// 제외된다 — 지속시간이 원리상 없는 관측 전용 work 는 판정 대상이 아니다.
+    /// <paramref name="head"/> = 경계를 <b>주소</b>로 고른 경우 그 주소의 call(§2.2.1, <see cref="ResolveBoundaryHead"/>).
+    /// 사용자가 지목한 신호가 사이클 시작이므로 그 call 의 work 는 <b>cs 에서 열린다</b>.
+    /// Anchored 면 그 call 의 OUT↑ 구간은 쓰지 않고 [cs, cs 이후 첫 완료 마커) 하나를 만든다 — 마커가 다음 경계 전에 없으면
+    /// 폭 0(경계 표식으로만 쓰이고 MT 끝에 기여하지 않는다). Anchored 가 아니면(IN 전용) 봉투만 cs 에서 열고 끝은 형제 call 몫이다.
+    /// 어느 쪽이든 그 work 에 다른 구간이 없으면 폭 0 으로 남아 아래 <c>e &gt; s</c> 에서 제외된다.
     /// </para>
     /// </summary>
     public static (List<(string Work, long DurationMs)> Works, long? MtMs, long OverflowMs) MeasureCycle(
         IReadOnlyList<CallSpanSet> calls, HashSet<string> excluded, long cs, long ce,
-        IReadOnlyList<long> boundaries, long snapMs, string? seedWork = null)
+        IReadOnlyList<long> boundaries, long snapMs, BoundaryHead? head = null)
     {
         var env = new Dictionary<string, (long S, long E)>(StringComparer.Ordinal);
         long lastEnd = long.MinValue;
         long overflow = 0;
 
-        if (!string.IsNullOrEmpty(seedWork)) env[seedWork] = (cs, cs);
+        if (head is not null) env[head.Work] = (cs, cs);
 
         foreach (var call in calls)
         {
             if (excluded.Count > 0 && excluded.Contains(call.CallName)) continue;
+
+            if (head is { Anchored: true } && string.Equals(call.CallName, head.CallName, StringComparison.OrdinalIgnoreCase))
+            {
+                // 경계 고정 head — OUT↑ 구간 대신 [cs, 첫 마커). 마커는 cs 보다 뒤여야 한다(경계가 그 call 의 IN↑ 이면 그 IN↑ 자신은 제외).
+                if (FirstMarkerIn(call.Markers, cs, ce) is long end)
+                {
+                    var cur = env[head.Work];
+                    env[head.Work] = (Math.Min(cur.S, cs), Math.Max(cur.E, end));
+                    if (end > lastEnd) lastEnd = end;
+                }
+                continue;
+            }
+
             foreach (var span in call.Spans)
             {
                 long start = WorkSpanMath.Snap(span.S, boundaries, snapMs);
@@ -646,6 +675,15 @@ public sealed class CycleIngestService : BackgroundService
 
         long? mt = lastEnd > cs ? Math.Min(lastEnd, ce) - cs : null;
         return (works, mt, overflow);
+    }
+
+    /// <summary>오름차순 <paramref name="markers"/> 중 cs 초과 · ce 미만인 첫 값. 없으면 null.</summary>
+    private static long? FirstMarkerIn(IReadOnlyList<long>? markers, long cs, long ce)
+    {
+        if (markers is null || markers.Count == 0) return null;
+        int lo = 0, hi = markers.Count;
+        while (lo < hi) { int mid = (lo + hi) >> 1; if (markers[mid] <= cs) lo = mid + 1; else hi = mid; }
+        return lo < markers.Count && markers[lo] < ce ? markers[lo] : null;
     }
 
     /// <summary>
@@ -812,7 +850,9 @@ public sealed class CycleIngestService : BackgroundService
             foreach (var (_, c) in byCall)
             {
                 var spans = WorkSpanMath.CallSpans(c.Outs, c.Ins);
-                if (spans.Count > 0) result.Add(new CallSpanSet(c.Name, c.Work, spans));
+                var markers = WorkSpanMath.CompletionMarkers(c.Outs, c.Ins);
+                // 마커만 있는 call(구간은 못 만들었지만 OUT 은 있는)도 넘긴다 — 경계 고정 head 면 마커가 구간의 끝이다(§2.2.1).
+                if (spans.Count > 0 || markers.Count > 0) result.Add(new CallSpanSet(c.Name, c.Work, spans, markers));
             }
         }
         catch (Exception ex)

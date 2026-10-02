@@ -72,6 +72,22 @@ public static class WorkSpanMath
     }
 
     /// <summary>
+    /// call 의 <b>완료 마커</b>(doc/30 §2.2.1, 경계 고정 head call 의 끝) — 응답 유형이 o~i 면 IN 상승, o~o 면 OUT 하강,
+    /// OUT 이 없으면 없음. 사용자가 사이클 시작으로 지목한 주소의 call 은 구간을 OUT↑ 가 아니라 경계(cs)에서 열고,
+    /// 그 뒤 첫 마커에서 닫는다. 오름차순.
+    /// </summary>
+    public static List<long> CompletionMarkers(IReadOnlyList<(long Rise, long Fall)> outIntervals, IReadOnlyList<long> inRises)
+    {
+        var rises = outIntervals.Select(x => x.Rise).ToList();
+        return KindOf(rises, inRises) switch
+        {
+            CallKind.OutIn => inRises.OrderBy(x => x).ToList(),
+            CallKind.OutOnly => outIntervals.Where(x => x.Fall > x.Rise).Select(x => x.Fall).OrderBy(x => x).ToList(),
+            _ => [],
+        };
+    }
+
+    /// <summary>
     /// OUT↑·IN↑ 시각 목록을 짝지어 스팬을 만든다. 각 OUT 은 (그 OUT 이후 ~ 다음 OUT 이전) <b>첫</b> IN 하나에만 맞춘다.
     /// 그 뒤 IN 은 무시하고, IN 이 없으면 그 OUT 은 버린다(신호 누락을 임의 복원하지 않는다). 입력은 정렬되지 않아도 된다.
     /// </summary>

@@ -37,8 +37,10 @@ public sealed class KpiDb
     /// v68.3(2026-10-02): 사이클 경계를 처리 시각(라이브 기록) 대신 PLC 태그 시각에서 도출.
     /// v68.4(2026-10-02): 너무 짧은 빈 사이클(work 없음 ∧ CT &lt; W_min) 을 제외 사유 TooShort 로 박제(doc/30 §3) —
     /// head 이중 상승이 만든 0.1초짜리 가짜 경계가 가동·표본으로 들어가던 것을 막는다.
+    /// v68.5(2026-10-02): 경계를 주소(IN 또는 하강 에지)로 고른 flow 의 head call 은 구간을 OUT↑ 가 아니라 <b>경계에서</b> 열고
+    /// 첫 완료 마커에서 닫는다(doc/30 §2.2.1). 종전엔 그 call 의 OUT↑ 구간이 앞 사이클에 귀속돼 앞 사이클 WT 가 0 이 됐다.
     /// </summary>
-    public const string SpecVersion = "v68.4";
+    public const string SpecVersion = "v68.5";
 
     /// <summary>DB 파일 이름. 구 이름(plc.db)과 겹치지 않아야 한다.</summary>
     public const string FileName = "dspilot.db";
