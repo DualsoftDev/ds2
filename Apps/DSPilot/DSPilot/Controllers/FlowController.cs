@@ -27,6 +27,7 @@ public class FlowController : ControllerBase
     private readonly IFlowMetricsService _flowMetrics;
     private readonly PlcToCallMapperService _mapper;
     private readonly CycleRecomputeService _recompute;
+    private readonly Kpi.CycleIngestService _kpiIngest;
     private readonly ILogger<FlowController> _logger;
 
     public FlowController(
@@ -36,6 +37,7 @@ public class FlowController : ControllerBase
         IFlowMetricsService flowMetrics,
         PlcToCallMapperService mapper,
         CycleRecomputeService recompute,
+        Kpi.CycleIngestService kpiIngest,
         ILogger<FlowController> logger)
     {
         _project = project;
@@ -44,6 +46,7 @@ public class FlowController : ControllerBase
         _flowMetrics = flowMetrics;
         _mapper = mapper;
         _recompute = recompute;
+        _kpiIngest = kpiIngest;
         _logger = logger;
     }
 
@@ -138,6 +141,8 @@ public class FlowController : ControllerBase
                 var started = _recompute.TryStartFullHistoryRecompute(flow.Name, effectiveStart, effectiveEnd);
                 if (!started)
                     _logger.LogWarning("[Flow] 전체 이력 재계산 시작 실패(다른 잡 진행 중): {Flow}", flow.Name);
+                // 판정(KPI cycle)도 새 경계로 다시 만든다 — 다음 적재 주기에 백그라운드.
+                _kpiIngest.RequestRebuild(flow.Name);
             }
         }
         catch (Exception ex)
@@ -297,6 +302,8 @@ public class FlowController : ControllerBase
             var started = _recompute.TryStartFullHistoryRecompute(flow.Name, curStart, curEnd);
             if (!started)
                 _logger.LogWarning("[Flow] 분기 저장 후 재계산 시작 실패(다른 잡 진행 중): {Flow}", flow.Name);
+            // 판정(KPI cycle)도 새 분기 정의로 다시 만든다 — 다음 적재 주기에 백그라운드.
+            _kpiIngest.RequestRebuild(flow.Name);
         }
         catch (Exception ex)
         {

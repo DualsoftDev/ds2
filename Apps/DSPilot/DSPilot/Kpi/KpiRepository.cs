@@ -37,53 +37,7 @@ public sealed class KpiRepository
         await using var tx = conn.BeginTransaction();
         try
         {
-            var id = await conn.ExecuteScalarAsync<long>(new CommandDefinition(
-                """
-                INSERT INTO cycle (flow, branch, startMs, endMs, ctMs, mtMs, wtMs,
-                                   rUsedMs, mtMedianUsedMs, worstWork, worstRatio, overflowMs, excludeReason, specVersion)
-                VALUES (@Flow, @Branch, @StartMs, @EndMs, @CtMs, @MtMs, @WtMs,
-                        @RUsedMs, @MtMedianUsedMs, @WorstWork, @WorstRatio, @OverflowMs, @Exclude, @Spec)
-                ON CONFLICT(flow, startMs) DO UPDATE SET
-                    branch=excluded.branch, endMs=excluded.endMs, ctMs=excluded.ctMs,
-                    mtMs=excluded.mtMs, wtMs=excluded.wtMs,
-                    rUsedMs=excluded.rUsedMs, mtMedianUsedMs=excluded.mtMedianUsedMs,
-                    worstWork=excluded.worstWork, worstRatio=excluded.worstRatio, overflowMs=excluded.overflowMs,
-                    excludeReason=excluded.excludeReason, specVersion=excluded.specVersion
-                RETURNING id
-                """,
-                new
-                {
-                    cycle.Flow,
-                    cycle.Branch,
-                    cycle.StartMs,
-                    cycle.EndMs,
-                    cycle.CtMs,
-                    cycle.MtMs,
-                    cycle.WtMs,
-                    cycle.RUsedMs,
-                    cycle.MtMedianUsedMs,
-                    cycle.WorstWork,
-                    cycle.WorstRatio,
-                    cycle.OverflowMs,
-                    Exclude = (int)cycle.Exclude,
-                    Spec = KpiDb.SpecVersion,
-                },
-                transaction: tx, cancellationToken: ct));
-
-            await conn.ExecuteAsync(new CommandDefinition(
-                "DELETE FROM cycleWork WHERE cycleId=@id", new { id }, transaction: tx, cancellationToken: ct));
-
-            if (works.Count > 0)
-            {
-                await conn.ExecuteAsync(new CommandDefinition(
-                    """
-                    INSERT INTO cycleWork (cycleId, work, durationMs, wUsedMs, gated)
-                    VALUES (@id, @Work, @DurationMs, @WUsedMs, @Gated)
-                    """,
-                    works.Select(w => new { id, w.Work, w.DurationMs, w.WUsedMs, Gated = w.Gated ? 1 : 0 }),
-                    transaction: tx, cancellationToken: ct));
-            }
-
+            var id = await InsertCycleAsync(conn, tx, cycle, works, ct);
             tx.Commit();
             return id;
         }
@@ -95,6 +49,59 @@ public sealed class KpiRepository
         }
     }
 
+    /// <summary>사이클 1행 + work 행 — 같은 (flow, startMs) 면 덮어쓴다. 호출측 트랜잭션 안에서.</summary>
+    private static async Task<long> InsertCycleAsync(
+        SqliteConnection conn, SqliteTransaction tx, CycleRecord cycle, IReadOnlyList<WorkDuration> works, CancellationToken ct)
+    {
+        var id = await conn.ExecuteScalarAsync<long>(new CommandDefinition(
+            """
+            INSERT INTO cycle (flow, branch, startMs, endMs, ctMs, mtMs, wtMs,
+                           rUsedMs, mtMedianUsedMs, worstWork, worstRatio, overflowMs, excludeReason, specVersion)
+            VALUES (@Flow, @Branch, @StartMs, @EndMs, @CtMs, @MtMs, @WtMs,
+                @RUsedMs, @MtMedianUsedMs, @WorstWork, @WorstRatio, @OverflowMs, @Exclude, @Spec)
+            ON CONFLICT(flow, startMs) DO UPDATE SET
+                branch=excluded.branch, endMs=excluded.endMs, ctMs=excluded.ctMs,
+                mtMs=excluded.mtMs, wtMs=excluded.wtMs,
+                rUsedMs=excluded.rUsedMs, mtMedianUsedMs=excluded.mtMedianUsedMs,
+                worstWork=excluded.worstWork, worstRatio=excluded.worstRatio, overflowMs=excluded.overflowMs,
+                excludeReason=excluded.excludeReason, specVersion=excluded.specVersion
+            RETURNING id
+            """,
+            new
+            {
+                cycle.Flow,
+                cycle.Branch,
+                cycle.StartMs,
+                cycle.EndMs,
+                cycle.CtMs,
+                cycle.MtMs,
+                cycle.WtMs,
+                cycle.RUsedMs,
+                cycle.MtMedianUsedMs,
+                cycle.WorstWork,
+                cycle.WorstRatio,
+                cycle.OverflowMs,
+                Exclude = (int)cycle.Exclude,
+                Spec = KpiDb.SpecVersion,
+            },
+            transaction: tx, cancellationToken: ct));
+
+        await conn.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM cycleWork WHERE cycleId=@id", new { id }, transaction: tx, cancellationToken: ct));
+
+        if (works.Count > 0)
+        {
+            await conn.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO cycleWork (cycleId, work, durationMs, wUsedMs, gated)
+                VALUES (@id, @Work, @DurationMs, @WUsedMs, @Gated)
+                """,
+                works.Select(w => new { id, w.Work, w.DurationMs, w.WUsedMs, Gated = w.Gated ? 1 : 0 }),
+                transaction: tx, cancellationToken: ct));
+        }
+        return id;
+    }
+
     /// <summary>구간의 사이클 행을 지운다(재도출 전 단계). cycleWork 는 FK CASCADE 로 함께 지워진다.</summary>
     public async Task<int> DeleteCyclesAsync(string flow, long fromMs, long toMs, CancellationToken ct = default)
     {
@@ -103,6 +110,68 @@ public sealed class KpiRepository
         return await conn.ExecuteAsync(new CommandDefinition(
             "DELETE FROM cycle WHERE flow=@flow AND startMs >= @fromMs AND startMs < @toMs",
             new { flow, fromMs, toMs }, cancellationToken: ct));
+    }
+
+    /// <summary>
+    /// 판정 재적재(2026-10-02) — flow 의 <paramref name="fromMs"/> 이후에 걸친 행(끝 &gt; fromMs)과 그 날 이후 기준선 스냅샷을
+    /// 지우고 <paramref name="rows"/> 로 바꾼다. 한 트랜잭션이라 조회 화면이 반쯤 지워진 상태를 보지 않는다.
+    /// </summary>
+    public async Task<int> ReplaceCyclesAsync(
+        string flow, long fromMs, IReadOnlyList<(CycleRecord Cycle, IReadOnlyList<WorkDuration> Works)> rows,
+        CancellationToken ct = default)
+    {
+        await using var conn = _db.Open();
+        await using var tx = conn.BeginTransaction();
+        try
+        {
+            var p = new { flow, fromMs, fromDate = KpiTime.LocalDate(fromMs) };
+            await conn.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM cycleWork WHERE cycleId IN (SELECT id FROM cycle WHERE flow=@flow AND endMs > @fromMs)",
+                p, transaction: tx, cancellationToken: ct));
+            await conn.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM cycle WHERE flow=@flow AND endMs > @fromMs", p, transaction: tx, cancellationToken: ct));
+            await conn.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM baseline WHERE flow=@flow AND asOfDate >= @fromDate", p, transaction: tx, cancellationToken: ct));
+
+            foreach (var (cycle, works) in rows)
+                await InsertCycleAsync(conn, tx, cycle, works, ct);
+
+            tx.Commit();
+            return rows.Count;
+        }
+        catch
+        {
+            try { tx.Rollback(); } catch { /* 이미 닫힘 */ }
+            throw;
+        }
+    }
+
+    /// <summary>재적재가 이어받을 기준선 표본 — [fromMs, toMs) 에 시작한 표본 자격 행(제외 None·NoBaseline)과 그 work 시간.</summary>
+    public async Task<List<SampleRow>> GetSampleRowsAsync(
+        string flow, long fromMs, long toMs, CancellationToken ct = default)
+    {
+        await using var conn = _db.OpenRead();
+        var p = new { flow, fromMs, toMs };
+        var cycles = (await conn.QueryAsync<(long Id, string? Branch, long StartMs, long CtMs, long? MtMs)>(new CommandDefinition(
+            $"SELECT id, branch, startMs, ctMs, mtMs FROM cycle WHERE flow=@flow AND startMs >= @fromMs AND startMs < @toMs AND {SampleEligible()} ORDER BY startMs",
+            p, cancellationToken: ct))).ToList();
+        var works = await conn.QueryAsync<(long CycleId, string Work, long DurationMs)>(new CommandDefinition(
+            $"""
+            SELECT w.cycleId, w.work, w.durationMs FROM cycleWork w JOIN cycle c ON c.id = w.cycleId
+            WHERE c.flow=@flow AND c.startMs >= @fromMs AND c.startMs < @toMs AND {SampleEligible("c.")}
+            """, p, cancellationToken: ct));
+        var byId = works.GroupBy(w => w.CycleId).ToDictionary(g => g.Key, g => g.Select(x => (x.Work, x.DurationMs)).ToList());
+        return cycles.Select(c => new SampleRow(c.Branch, c.StartMs, c.CtMs, c.MtMs,
+            byId.TryGetValue(c.Id, out var ws) ? ws : [])).ToList();
+    }
+
+    /// <summary>이 flow 에서 현재 판정 규칙(<see cref="KpiDb.SpecVersion"/>)이 아닌 행 수 — 끝이 fromMs 이후인 것만(원시 신호가 남은 구간).</summary>
+    public async Task<long> CountStaleSpecAsync(string flow, long fromMs, CancellationToken ct = default)
+    {
+        await using var conn = _db.OpenRead();
+        return await conn.ExecuteScalarAsync<long>(new CommandDefinition(
+            "SELECT COUNT(*) FROM cycle WHERE flow=@flow AND endMs > @fromMs AND specVersion <> @spec",
+            new { flow, fromMs, spec = KpiDb.SpecVersion }, cancellationToken: ct));
     }
 
     /// <summary>기준선 일별 스냅샷 기록(같은 날 재계산이면 덮어쓴다).</summary>

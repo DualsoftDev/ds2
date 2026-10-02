@@ -38,6 +38,9 @@ public sealed record WorkDuration(string Work, long DurationMs, double WUsedMs, 
     public double Ratio => WUsedMs > 0 ? DurationMs / WUsedMs : 0;
 }
 
+/// <summary>재적재가 이어받는 기준선 표본 1행 — 표본 자격(제외 None·NoBaseline) 사이클의 CT·MT·work 시간.</summary>
+public sealed record SampleRow(string? Branch, long StartMs, long CtMs, long? MtMs, IReadOnlyList<(string Work, long DurationMs)> Works);
+
 /// <summary>work 하나의 현재 기준선 — 중앙값과 게이트 근거 사분위.</summary>
 public readonly record struct WorkBaseline(double MedianMs, double Q1Ms, double Q3Ms, int SampleCount);
 

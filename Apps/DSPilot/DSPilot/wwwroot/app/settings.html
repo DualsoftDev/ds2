@@ -424,6 +424,16 @@
                                     <button class="btn btn-outlined color-default w-100" @click="invalidateCaches()" :disabled="busy" title="평균·누적 통계만 리셋 — raw 데이터 유지">
                                         <span class="material-icons">restart_alt</span> 통계 재계산
                                     </button>
+                                    <!-- 판정 재계산(2026-10-02) — 원시 신호가 남은 기간의 사이클·기준선을 현재 규칙으로 다시 만든다(POST /api/kpi/rebuild).
+                                         진행 중이면 버튼 라벨이 진행 flow 로 바뀌고, 끝나면 마지막 결과 한 줄(사이클 수·시각)만 남는다. -->
+                                    <button class="btn btn-outlined color-default w-100" style="margin-top:8px;" @click="rebuildKpi()"
+                                            :disabled="busy || kpiRebuild.running || kpiRebuild.pending > 0"
+                                            title="원시 신호가 남은 기간의 가동·비가동·비생산 판정을 현재 규칙으로 다시 계산 — 신호·이력은 그대로">
+                                        <span class="material-icons">history</span>
+                                        <span x-text="kpiRebuildLabel()"></span>
+                                    </button>
+                                    <small class="settings-hint" x-show="kpiRebuild.finishedAt && !kpiRebuild.running"
+                                           x-text="kpiRebuildResult()" :title="kpiRebuild.lastError || ''"></small>
                                     <button class="btn btn-outlined color-warning w-100" style="margin-top:8px;" @click="openSelectiveDel()" :disabled="busy" title="AASX 갱신일 이전 데이터 · 모델에 없는 설비 데이터 삭제">
                                         <span class="material-icons">event</span> 오래된 데이터 삭제
                                     </button>
@@ -1856,6 +1866,7 @@
                 stale: { flowNames: [], dspFlowRows: 0, dspCallRows: 0, historyRows: 0, downtimeEvents: 0, cycleOverrides: 0, total: 0, modelLoaded: false },
                 rt: { connected: false },
                 autoCal: { running: false },
+                kpiRebuild: { running: false, flow: null, pending: 0, done: 0, cycles: 0, lastError: null, finishedAt: null, spec: '' },
                 calib: { loaded: false, autoEnabled: false, staleCount: 0, stale: [] }, // 이상감지 게이트 상태 배지 (this.s 밖 — dirty 미유발)
                 // 고급 탭 하단 "DSPilot 정보" — this.s 밖(읽기 전용 스냅샷)이라 dirty 미유발. 기본 접힘.
                 info: { d: null, error: '', uptimeSec: 0 },
@@ -1979,6 +1990,7 @@
                     this.loadOpcUaRejected();
                     this.loadAppInfo();
                     this.loadKpi();
+                    this.loadKpiRebuild();
                     // 가동 시간은 서버 재조회 없이 클라이언트에서 1초씩 증가시켜 표시(새로고침 시 서버값으로 재동기화).
                     // clearInterval 선행: init 이 두 번 돌면(과거 x-init="init()" 중복 호출, 지금은 제거)
                     // 티커가 2개 붙어 가동 시간이 2배속으로 흐른다 — 재진입 가드는 남겨 둔다.
@@ -3282,6 +3294,38 @@
                         '동기화', '취소');
                     if (!ok) return;
                     await this.runLifecycle('/api/settings/rebuild-aasx', true);
+                },
+                // ── 판정 재계산 — 대기·진행 중이면 3초마다 상태를 다시 읽고, 끝나면 멈춘다 ──
+                async loadKpiRebuild() {
+                    try { this.kpiRebuild = await this.apiGet('/api/kpi/rebuild'); } catch (_) { return; }
+                    clearTimeout(this._kpiRebuildTimer);
+                    if (this.kpiRebuild.running || this.kpiRebuild.pending > 0)
+                        this._kpiRebuildTimer = setTimeout(() => this.loadKpiRebuild(), 3000);
+                },
+                kpiRebuildLabel() {
+                    const k = this.kpiRebuild;
+                    if (k.running) return '판정 재계산 중 · ' + (k.flow || '') + (k.pending > 1 ? ' 외 ' + (k.pending - 1) : '');
+                    if (k.pending > 0) return '판정 재계산 대기 · ' + k.pending;
+                    return '판정 재계산';
+                },
+                kpiRebuildResult() {
+                    const k = this.kpiRebuild;
+                    if (!k.finishedAt) return '';
+                    const t = new Date(k.finishedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    return t + ' · ' + k.done + ' flow · ' + k.cycles.toLocaleString() + ' 사이클 · ' + k.spec + (k.lastError ? ' · 일부 실패' : '');
+                },
+                async rebuildKpi() {
+                    const ok = await this.askConfirm('판정 재계산',
+                        '원시 신호가 남은 기간의 가동·비가동·비생산 판정과 기준선을 현재 규칙으로 다시 만듭니다.\n신호·이력·알람 데이터는 그대로입니다.',
+                        '재계산', '취소');
+                    if (!ok) return;
+                    try {
+                        this.kpiRebuild = await this.apiPost('/api/kpi/rebuild', {});
+                        this.showToast('판정 재계산을 시작했습니다', 'success');
+                    } catch (e) {
+                        this.showToast('실패: ' + e.message, 'error');
+                    }
+                    this.loadKpiRebuild();
                 },
                 async invalidateCaches() {
                     const ok = await this.askConfirm('통계 재계산',

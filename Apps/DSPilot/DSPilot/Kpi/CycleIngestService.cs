@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
+using System.Collections.Concurrent;
 using DSPilot.Infrastructure;
 using DSPilot.Models;
 using DSPilot.Models.Analysis;
@@ -26,7 +27,13 @@ namespace DSPilot.Kpi;
 /// 처리 상한은 flow 의 <b>시스템(PLC)별</b> 최신 신호 시각 − 정착 여유. 전역 최신을 쓰면 늦게 들어오는 PLC 의 중간
 /// 경계가 오기 전에 구간을 닫아 두 사이클이 하나로 합쳐진다. 통신 공백(미계측, 시스템별)과 겹치는 사이클은 경계를
 /// 믿을 수 없으므로 <see cref="ExcludeReason.Unknown"/> 으로 박제한다. 미계측 조회가 실패하면 그 flow 는 이번 주기를
-/// 미룬다 — 행은 박제라 나중에 고칠 수 없다.
+/// 미룬다.
+/// </para>
+/// <para>
+/// <b>재적재</b>(2026-10-02): 사이클 표는 원시 신호에서 결정적으로 다시 만들 수 있는 캐시다. flow 의 원시 신호가 남은
+/// 구간을 지우고 오래된 것부터 다시 적재하며, 기준선은 각 사이클 <b>시점의</b> 14일 창으로 다시 박제한다.
+/// 트리거 = ① 기동 시 판정 규칙 버전(<see cref="KpiDb.SpecVersion"/>)이 다른 행 ② 경계·분기 저장 ③ 관리자 요청.
+/// 원시 신호가 이미 지워진 구간의 행은 손대지 않는다. 적재·재적재·기준선 채움은 한 게이트로 직렬화한다.
 /// </para>
 /// </summary>
 public sealed class CycleIngestService : BackgroundService
@@ -69,6 +76,17 @@ public sealed class CycleIngestService : BackgroundService
     /// <summary>시작 경계 미해석 경고를 이미 남긴 flow — 30초마다 같은 경고가 쌓이지 않게. 해석되면 지운다.</summary>
     private readonly HashSet<string> _warnedUnresolved = new(StringComparer.Ordinal);
 
+    /// <summary>cycle 표 쓰기 직렬화 — 적재·재적재·기준선 채움이 서로의 워터마크·표본을 흔들지 않게.</summary>
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
+
+    /// <summary>재적재 대기 flow. 컨트롤러(경계·분기 저장, 관리자 요청)가 넣고 적재 루프가 꺼낸다.</summary>
+    private readonly ConcurrentDictionary<string, byte> _rebuildQueue = new(StringComparer.Ordinal);
+
+    /// <summary>기동 후 규칙 버전 점검을 했는지 — 버전은 배포 때만 바뀌므로 한 번이면 된다.</summary>
+    private bool _specChecked;
+
+    private volatile KpiRebuildStatus _rebuildStatus = KpiRebuildStatus.Idle;
+
     /// <summary>이번 주기의 시스템별 신호 범위 — 같은 PLC 의 flow 들이 한 번만 잰다. 주기마다 비운다.</summary>
     private readonly Dictionary<Guid, (long? OldestMs, long? LatestMs)> _spanBySystem = new();
 
@@ -107,16 +125,23 @@ public sealed class CycleIngestService : BackgroundService
         {
             try
             {
-                var n = await IngestOnceAsync(stoppingToken);
-                if (n > 0)
+                await _writeGate.WaitAsync(stoppingToken);
+                try
                 {
-                    _baselines.Invalidate();
-                    _logger.LogInformation("[Kpi] ingested {Count} cycle(s)", n);
-                }
+                    await RunRebuildsAsync(stoppingToken);
 
-                // 표본이 쌓여 기준선이 생겼으면, 기준선 없이 들어온 행에 뒤늦게 찍어 준다.
-                var b = await BackfillBaselinesAsync(stoppingToken);
-                if (b > 0) _logger.LogInformation("[Kpi] baseline stamped on {Count} pending cycle(s)", b);
+                    var n = await IngestOnceAsync(stoppingToken);
+                    if (n > 0)
+                    {
+                        _baselines.Invalidate();
+                        _logger.LogInformation("[Kpi] ingested {Count} cycle(s)", n);
+                    }
+
+                    // 표본이 쌓여 기준선이 생겼으면, 기준선 없이 들어온 행에 뒤늦게 찍어 준다.
+                    var b = await BackfillBaselinesAsync(stoppingToken);
+                    if (b > 0) _logger.LogInformation("[Kpi] baseline stamped on {Count} pending cycle(s)", b);
+                }
+                finally { _writeGate.Release(); }
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
@@ -164,15 +189,41 @@ public sealed class CycleIngestService : BackgroundService
         var rows = await ReadPendingAsync(flow, watermark, ct);
         if (rows.Count == 0) return 0;
 
-        // 통신 공백(미계측) — 이 flow 의 시스템 기준, 배치 구간당 1회. 실패(비신뢰)면 이번 주기는 미룬다(박제라 못 고친다).
-        var systemScope = SystemKeyConvention.Scope(_project.TryGetSystemIdByFlowName(flow));
-        var (gaps, trusted) = await _commHealth.TryGetUnmeasuredWindowsAsync(
-            KpiTime.ToUtc(rows[0].StartMs), KpiTime.ToUtc(rows[^1].EndMs), ct, systemScope);
-        if (!trusted)
+        // 기준선 = 지금 값(BaselineService 의 14일 이동 창). 사이클 완료 직후 적재되므로 '그 시점 값' 과 같다.
+        var measured = await MeasureBatchAsync(flow, rows, gate, snapMs, async (branch, _) => (
+                await _baselines.GetRAsync(flow, branch, ct),
+                await _baselines.GetMtAsync(flow, branch, ct),
+                await _baselines.GetWAsync(flow, branch, ct)),
+            onMeasured: null, ct);
+        if (measured is null)
         {
             _logger.LogInformation("[Kpi] 미계측 조회 실패 — flow={Flow} 적재를 다음 주기로 미룸", flow);
             return 0;
         }
+
+        int saved = 0;
+        foreach (var (record, works) in measured)
+            if (await _repo.SaveCycleAsync(record, works, ct) > 0) saved++;
+        return saved;
+    }
+
+    /// <summary>사이클 시작 시각 기준 기준선(R · MT중앙 · W). 없으면 null/빈 사전.</summary>
+    private delegate Task<(double? R, double? Mt, IReadOnlyDictionary<string, WorkBaseline> W)> BaselineAt(string? branch, long atMs);
+
+    /// <summary>
+    /// 닫힌 사이클 묶음을 측정하고 기준선을 박제한 행으로 만든다 — 적재와 재적재가 공유한다.
+    /// 미계측 조회가 실패하면 null(호출측이 미룬다 — 박제는 나중에 못 고친다).
+    /// <paramref name="onMeasured"/> 는 행이 만들어질 때마다 순서대로 불린다(재적재가 다음 사이클의 기준선 창에 표본을 넣는다).
+    /// </summary>
+    private async Task<List<(CycleRecord Cycle, IReadOnlyList<WorkDuration> Works)>?> MeasureBatchAsync(
+        string flow, List<SourceCycle> rows, double gate, long snapMs, BaselineAt baselineAt,
+        Action<CycleRecord, IReadOnlyList<WorkDuration>>? onMeasured, CancellationToken ct)
+    {
+        // 통신 공백(미계측) — 이 flow 의 시스템 기준, 배치 구간당 1회.
+        var systemScope = SystemKeyConvention.Scope(_project.TryGetSystemIdByFlowName(flow));
+        var (gaps, trusted) = await _commHealth.TryGetUnmeasuredWindowsAsync(
+            KpiTime.ToUtc(rows[0].StartMs), KpiTime.ToUtc(rows[^1].EndMs), ct, systemScope);
+        if (!trusted) return null;
 
         var callSpans = await LoadCallSpansAsync(
             flow, rows[0].StartMs - SignalPadMs, rows[^1].EndMs + SignalPadMs, ct);
@@ -186,7 +237,7 @@ public sealed class CycleIngestService : BackgroundService
         // 경계를 IN 전용 call 의 주소로 고른 분기/flow 만 값이 있다(그 work 의 시작점 시드). 분기마다 경계가 다르므로 캐시한다.
         var seedWorkByBranch = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
-        int saved = 0;
+        var result = new List<(CycleRecord, IReadOnlyList<WorkDuration>)>(rows.Count);
         foreach (var src in rows)
         {
             // 분기가 있는 flow 에서 어느 분기도 아니면 미분류 — 계산·표본 밖. 구간은 재서 보여 주되 기준선은 박제하지 않는다.
@@ -203,37 +254,230 @@ public sealed class CycleIngestService : BackgroundService
             var (measured, mt, overflow) = MeasureCycle(
                 callSpans, excl, src.StartMs, src.EndMs, boundaries, snapMs, seedWork);
 
+            CycleRecord record;
+            IReadOnlyList<WorkDuration> works;
             if (commGap || unclassified)
             {
-                var works0 = measured.Select(m => new WorkDuration(m.Work, m.DurationMs, 0)).ToList();
-                var rec0 = new CycleRecord(flow, src.Branch, src.StartMs, src.EndMs, mt, 0, 0, null, 0, overflow,
+                works = measured.Select(m => new WorkDuration(m.Work, m.DurationMs, 0)).ToList();
+                record = new CycleRecord(flow, src.Branch, src.StartMs, src.EndMs, mt, 0, 0, null, 0, overflow,
                     commGap ? ExcludeReason.Unknown : ExcludeReason.Unclassified);
-                if (await _repo.SaveCycleAsync(rec0, works0, ct) > 0) saved++;
-                continue;
+            }
+            else
+            {
+                var (r, mtMed, wBase) = await baselineAt(src.Branch, src.StartMs);
+                (var stamped, var worstWork, var worstRatio) = Stamp(measured, wBase, gate);
+                works = stamped;
+                record = new CycleRecord(
+                    flow,
+                    src.Branch,
+                    src.StartMs,
+                    src.EndMs,
+                    mt,
+                    r ?? 0,
+                    mtMed ?? 0,
+                    worstWork,
+                    worstRatio,
+                    overflow,
+                    r is null ? ExcludeReason.NoBaseline : ExcludeReason.None);
             }
 
-            var r = await _baselines.GetRAsync(flow, src.Branch, ct);
-            var mtMed = await _baselines.GetMtAsync(flow, src.Branch, ct);
-            var wBase = await _baselines.GetWAsync(flow, src.Branch, ct);
-
-            var (works, worstWork, worstRatio) = Stamp(measured, wBase, gate);
-
-            var record = new CycleRecord(
-                flow,
-                src.Branch,
-                src.StartMs,
-                src.EndMs,
-                mt,
-                r ?? 0,
-                mtMed ?? 0,
-                worstWork,
-                worstRatio,
-                overflow,
-                r is null ? ExcludeReason.NoBaseline : ExcludeReason.None);
-
-            if (await _repo.SaveCycleAsync(record, works, ct) > 0) saved++;
+            result.Add((record, works));
+            onMeasured?.Invoke(record, works);
         }
-        return saved;
+        return result;
+    }
+
+    // ── 재적재 ───────────────────────────────────────────────────────────────
+
+    /// <summary>재적재 진행 상태(관리자 화면 폴링).</summary>
+    public KpiRebuildStatus RebuildStatus => _rebuildStatus with { Pending = _rebuildQueue.Count };
+
+    /// <summary>
+    /// 재적재 요청. <paramref name="flow"/> null = 추적 중인 전 flow. 다음 적재 주기(최대 30초 뒤)에 처리된다.
+    /// 반환값은 대기열에 들어간 flow 수.
+    /// </summary>
+    public int RequestRebuild(string? flow)
+    {
+        var flows = flow is null
+            ? (_flowMetrics.IsInitialized ? _flowMetrics.GetTrackedFlowNames() : Array.Empty<string>())
+            : [flow];
+        foreach (var f in flows) _rebuildQueue[f] = 0;
+        return flows.Count;
+    }
+
+    /// <summary>대기 중인 재적재를 처리한다. 기동 후 처음 한 번은 규칙 버전이 다른 행이 있는 flow 를 대기열에 넣는다.</summary>
+    private async Task RunRebuildsAsync(CancellationToken ct)
+    {
+        if (!_flowMetrics.IsInitialized) return;
+
+        if (!_specChecked)
+        {
+            _specChecked = true;
+            foreach (var flow in _flowMetrics.GetTrackedFlowNames())
+            {
+                var (oldest, _) = await _plc.GetSignalSpanMsAsync(_project.TryGetSystemIdByFlowName(flow));
+                if (oldest is long from && await _repo.CountStaleSpecAsync(flow, from, ct) > 0)
+                    _rebuildQueue[flow] = 0;
+            }
+            if (!_rebuildQueue.IsEmpty)
+                _logger.LogInformation("[Kpi] 판정 규칙 {Spec} 이전 행 발견 — 재적재 대기 {Count} flow", KpiDb.SpecVersion, _rebuildQueue.Count);
+        }
+
+        if (_rebuildQueue.IsEmpty) return;
+
+        var kpi = _settings.LoadSettings().Kpi;
+        double gate = kpi.ResolveWorkGate();
+        long snapMs = kpi.ResolveBoundarySnapMs();
+
+        int done = 0, cycles = 0;
+        string? lastError = null;
+        foreach (var flow in _rebuildQueue.Keys.OrderBy(f => f, StringComparer.Ordinal).ToList())
+        {
+            ct.ThrowIfCancellationRequested();
+            _rebuildStatus = _rebuildStatus with { Running = true, Flow = flow, Done = done, Cycles = cycles };
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                var (saved, retry, error) = await RebuildFlowAsync(flow, gate, snapMs, ct);
+                if (retry) continue;   // 미계측 조회 실패 — 대기열에 남겨 다음 주기에 다시
+                _rebuildQueue.TryRemove(flow, out _);
+                done++;
+                cycles += saved;
+                if (error is not null) lastError = $"{flow}: {error}";
+                _logger.LogInformation("[Kpi] 재적재 {Flow}: {Count} 사이클 ({Ms} ms){Err}",
+                    flow, saved, sw.ElapsedMilliseconds, error is null ? "" : " — " + error);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _rebuildQueue.TryRemove(flow, out _);
+                lastError = $"{flow}: {ex.Message}";
+                _logger.LogWarning(ex, "[Kpi] 재적재 실패 — flow={Flow} (기존 행 유지)", flow);
+            }
+        }
+
+        _baselines.Invalidate();
+        _rebuildStatus = new KpiRebuildStatus(false, null, 0, done, cycles, lastError, DateTimeOffset.Now, KpiDb.SpecVersion);
+    }
+
+    /// <summary>
+    /// flow 하나를 원시 신호가 남은 전 구간에 대해 다시 만든다. 다 만든 뒤 한 트랜잭션으로 교체한다 —
+    /// 도중에 실패하면 기존 행이 그대로 남는다. Retry = 미계측 조회 실패(다음 주기에 다시). Error = 경계 미해석(사용자가 고칠 것).
+    /// </summary>
+    private async Task<(int Saved, bool Retry, string? Error)> RebuildFlowAsync(
+        string flow, double gate, long snapMs, CancellationToken ct)
+    {
+        var (oldestMs, latestMs) = await _plc.GetSignalSpanMsAsync(_project.TryGetSystemIdByFlowName(flow));
+        if (oldestMs is not long from || latestMs is not long latest) return (0, false, null);   // 신호 없음 — 할 일 없음(실패 아님)
+        long upper = latest - SettleMs;
+        if (upper <= from) return (0, false, null);
+
+        var (head, tail) = ResolveHeadTail(flow);
+
+        // 기준선 창 — 지우지 않는 직전 14일 행을 먼저 싣고, 다시 만든 행을 시간 순으로 더해 간다.
+        var window = new AsOfBaselines();
+        foreach (var row in await _repo.GetSampleRowsAsync(flow, from - BaselineWindowMs, from, ct))
+            window.Add(row.Branch, row.StartMs, row.CtMs, row.MtMs, row.Works);
+
+        var all = new List<(CycleRecord Cycle, IReadOnlyList<WorkDuration> Works)>();
+        long cursor = from;
+        while (cursor < upper)
+        {
+            ct.ThrowIfCancellationRequested();
+            var rows = await ReadClosedAsync(flow, head, tail, cursor, upper);
+            if (rows is null) return (0, false, "시작 경계 미해석 — 기존 행 유지");
+            if (rows.Count == 0) break;
+
+            var measured = await MeasureBatchAsync(flow, rows, gate, snapMs,
+                (branch, at) => Task.FromResult(window.At(branch, at)),
+                (rec, works) =>
+                {
+                    if (rec.Exclude is ExcludeReason.None or ExcludeReason.NoBaseline)
+                        window.Add(rec.Branch, rec.StartMs, rec.CtMs, rec.MtMs, works.Select(w => (w.Work, w.DurationMs)).ToList());
+                }, ct);
+            if (measured is null) return (0, true, null);
+
+            all.AddRange(measured);
+            cursor = rows[^1].EndMs;
+        }
+
+        if (all.Count == 0) return (0, false, null);   // 닫힌 사이클 없음 — 기존 행 유지(실패 아님)
+        await _repo.ReplaceCyclesAsync(flow, from, all, ct);
+        return (all.Count, false, null);
+    }
+
+    private const long BaselineWindowMs = KpiRules.BaselineWindowDays * 86_400_000L;
+
+    /// <summary>
+    /// 재적재용 '그 시점' 기준선 — [t − 14일, t) 에 시작한 표본의 중앙값·사분위(BaselineService 와 같은 정의).
+    /// 시각이 단조 증가하므로 창 앞쪽은 포인터로 버린다. 계산은 10분 구간마다 한 번(BaselineService 의 1분 캐시와 같은 취지 —
+    /// 수만 행을 사이클마다 정렬하지 않게).
+    /// </summary>
+    private sealed class AsOfBaselines
+    {
+        private const long BucketMs = 600_000;
+        private readonly Dictionary<string, Scope> _scopes = new(StringComparer.Ordinal);
+
+        private sealed class Scope
+        {
+            public readonly List<(long T, long V)> Ct = [];
+            public readonly List<(long T, long V)> Mt = [];
+            public readonly List<(long T, string W, long V)> Works = [];
+            public int CtHead, MtHead, WHead;
+            public long Bucket = long.MinValue;
+            public (double? R, double? Mt, IReadOnlyDictionary<string, WorkBaseline> W) Cached;
+        }
+
+        private Scope Of(string? branch)
+        {
+            var key = branch ?? "";
+            if (!_scopes.TryGetValue(key, out var sc)) _scopes[key] = sc = new Scope();
+            return sc;
+        }
+
+        public void Add(string? branch, long startMs, long ctMs, long? mtMs, IReadOnlyList<(string Work, long DurationMs)> works)
+        {
+            var sc = Of(branch);
+            if (ctMs > 0) sc.Ct.Add((startMs, ctMs));
+            if (mtMs is long mt && mt > 0) sc.Mt.Add((startMs, mt));
+            foreach (var (w, d) in works) if (d > 0) sc.Works.Add((startMs, w, d));
+        }
+
+        public (double? R, double? Mt, IReadOnlyDictionary<string, WorkBaseline> W) At(string? branch, long t)
+        {
+            var sc = Of(branch);
+            long bucket = t / BucketMs;
+            if (bucket == sc.Bucket) return sc.Cached;
+
+            long since = t - BaselineWindowMs;
+            while (sc.CtHead < sc.Ct.Count && sc.Ct[sc.CtHead].T < since) sc.CtHead++;
+            while (sc.MtHead < sc.Mt.Count && sc.Mt[sc.MtHead].T < since) sc.MtHead++;
+            while (sc.WHead < sc.Works.Count && sc.Works[sc.WHead].T < since) sc.WHead++;
+
+            var r = KpiRules.Median(Slice(sc.Ct, sc.CtHead, t));
+            var mt = KpiRules.Median(Slice(sc.Mt, sc.MtHead, t));
+            var byWork = new Dictionary<string, List<long>>(StringComparer.Ordinal);
+            for (int i = sc.WHead; i < sc.Works.Count && sc.Works[i].T < t; i++)
+            {
+                var (_, w, v) = sc.Works[i];
+                if (!byWork.TryGetValue(w, out var list)) byWork[w] = list = [];
+                list.Add(v);
+            }
+            var wMap = new Dictionary<string, WorkBaseline>(StringComparer.Ordinal);
+            foreach (var (w, list) in byWork)
+                if (KpiRules.QuartilesOf(list) is Quartiles q) wMap[w] = new WorkBaseline(q.Median, q.Q1, q.Q3, q.Count);
+
+            sc.Bucket = bucket;
+            sc.Cached = (r, mt, wMap);
+            return sc.Cached;
+        }
+
+        private static List<long> Slice(List<(long T, long V)> src, int head, long t)
+        {
+            var list = new List<long>(Math.Max(0, src.Count - head));
+            for (int i = head; i < src.Count && src[i].T < t; i++) list.Add(src[i].V);
+            return list;
+        }
     }
 
     /// <summary>
@@ -442,18 +686,33 @@ public sealed class CycleIngestService : BackgroundService
         long from = watermark ?? Math.Max(oldest, latest - KpiRules.BaselineWindowDays * 86_400_000L);
         if (upper <= from) return [];
 
-        // Head/Tail = 간트(CallTestController.ResolveEffectiveHeadTail)와 같은 순서 — 런타임 경계(override 적용) > AASX.
-        var (head, tail) = _flowMetrics.GetCycleBoundaryCallNames(flow);
-        if (string.IsNullOrEmpty(head) && string.IsNullOrEmpty(tail))
-            (head, tail) = _flowMetrics.GetAasxCycleBoundaries(flow);
-
-        long to = Math.Min(upper, from + MaxSpanMs);
-        var list = await DeriveClosedAsync(flow, head, tail, from, to);
-        if (list is { Count: 0 } && to < upper)
-            list = await DeriveClosedAsync(flow, head, tail, from, upper);   // 장기 정지 — 상한까지 한 번 넓힌다
+        var (head, tail) = ResolveHeadTail(flow);
+        var list = await ReadClosedAsync(flow, head, tail, from, upper);
         if (list is null) return [];
 
         if (list.Count > BatchLimit) list.RemoveRange(BatchLimit, list.Count - BatchLimit);
+        return list;
+    }
+
+    /// <summary>Head/Tail = 간트(CallTestController.ResolveEffectiveHeadTail)와 같은 순서 — 런타임 경계(override 적용) &gt; AASX.</summary>
+    private (string? Head, string? Tail) ResolveHeadTail(string flow)
+    {
+        var (head, tail) = _flowMetrics.GetCycleBoundaryCallNames(flow);
+        if (string.IsNullOrEmpty(head) && string.IsNullOrEmpty(tail))
+            (head, tail) = _flowMetrics.GetAasxCycleBoundaries(flow);
+        return (head, tail);
+    }
+
+    /// <summary>
+    /// from 부터 닫힌 사이클 — 최대 <see cref="MaxSpanMs"/> 구간을 보고, 그 안에 하나도 없으면(장기 정지) 상한까지 한 번 넓힌다.
+    /// 시작 경계 미해석이면 null.
+    /// </summary>
+    private async Task<List<SourceCycle>?> ReadClosedAsync(string flow, string? head, string? tail, long from, long upper)
+    {
+        long to = Math.Min(upper, from + MaxSpanMs);
+        var list = await DeriveClosedAsync(flow, head, tail, from, to);
+        if (list is { Count: 0 } && to < upper)
+            list = await DeriveClosedAsync(flow, head, tail, from, upper);
         return list;
     }
 
@@ -550,4 +809,18 @@ public sealed class CycleIngestService : BackgroundService
         }
         return result;
     }
+}
+
+/// <summary>판정 재적재 상태 — 관리자 화면 폴링용(camelCase 직렬화).</summary>
+public sealed record KpiRebuildStatus(
+    bool Running,
+    string? Flow,
+    int Pending,
+    int Done,
+    int Cycles,
+    string? LastError,
+    DateTimeOffset? FinishedAt,
+    string Spec)
+{
+    public static KpiRebuildStatus Idle => new(false, null, 0, 0, 0, null, null, KpiDb.SpecVersion);
 }

@@ -30,8 +30,13 @@ public sealed class KpiDb
     /// </summary>
     public const int SchemaVersion = 4;
 
-    /// <summary>판정 규칙 버전 — 사이클 행에 박제해 어떤 규칙으로 만들어진 행인지 남긴다.</summary>
-    public const string SpecVersion = "v68.2";
+    /// <summary>
+    /// 판정 규칙 버전 — 사이클 행에 박제해 어떤 규칙으로 만들어진 행인지 남긴다.
+    /// <b>이 값이 바뀌면 기동 시 원시 신호가 남은 구간의 옛 버전 행을 자동 재적재한다</b>(CycleIngestService, 2026-10-02).
+    /// 경계·측정·기준선 규칙을 바꾸면 반드시 올릴 것 — 상태 판정(κ)만 바꾸는 변경은 조회 시 도출이라 필요 없다.
+    /// v68.3(2026-10-02): 사이클 경계를 처리 시각(라이브 기록) 대신 PLC 태그 시각에서 도출.
+    /// </summary>
+    public const string SpecVersion = "v68.3";
 
     /// <summary>DB 파일 이름. 구 이름(plc.db)과 겹치지 않아야 한다.</summary>
     public const string FileName = "dspilot.db";

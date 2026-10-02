@@ -245,6 +245,56 @@ public sealed class KpiStorageTests : IDisposable
         Assert.Empty(await _repo.GetCycleWorksAsync(id));
     }
 
+    /// <summary>
+    /// 판정 재적재(2026-10-02) — 원시 신호가 남은 시점(fromMs) 이후에 걸친 옛 행은 모두 사라지고(겹친 중복 포함),
+    /// 그 이전 행은 남는다. 한 트랜잭션이라 다른 flow 는 손대지 않는다.
+    /// </summary>
+    [Fact]
+    public async Task 재적재는_fromMs_이후에_걸친_행만_교체한다()
+    {
+        await _repo.SaveCycleAsync(Cycle(T0, 10_000), [new WorkDuration("w1", 5_000, 2_000)]);            // 이전 — 보존
+        var straddle = await _repo.SaveCycleAsync(Cycle(T0 + 15_000, 10_000), [new WorkDuration("w1", 5_000, 2_000)]); // 걸침 — 삭제
+        await _repo.SaveCycleAsync(Cycle(T0 + 30_000, 10_000), []);                                         // 이후 — 삭제
+        await _repo.SaveCycleAsync(Cycle(T0 + 30_100, 12_000), []);                                         // 옛 경로의 겹친 중복 — 삭제
+        await _repo.SaveCycleAsync(Cycle(T0 + 30_000, 10_000) with { Flow = "FlowB" }, []);                 // 다른 flow — 보존
+
+        int n = await _repo.ReplaceCyclesAsync("FlowA", T0 + 20_000,
+            [(Cycle(T0 + 20_000, 9_000), [new WorkDuration("w1", 4_000, 2_000)]),
+             (Cycle(T0 + 29_000, 9_000), [])]);
+        Assert.Equal(2, n);
+
+        var rows = await _repo.QueryCyclesAsync(T0 - 1, T0 + 120_000);
+        Assert.Equal([T0, T0 + 20_000, T0 + 29_000], rows.Where(r => r.Flow == "FlowA").Select(r => r.StartMs).OrderBy(x => x));
+        Assert.Single(rows, r => r.Flow == "FlowB");
+        Assert.Empty(await _repo.GetCycleWorksAsync(straddle));
+    }
+
+    /// <summary>규칙 버전 점검 — 원시 신호가 남은 구간(끝 &gt; fromMs)에 현재 버전이 아닌 행이 있을 때만 센다.</summary>
+    [Fact]
+    public async Task 규칙버전이_다른_행만_센다()
+    {
+        await _repo.SaveCycleAsync(Cycle(T0, 10_000), []);
+        Assert.Equal(0, await _repo.CountStaleSpecAsync("FlowA", T0 - 1));
+
+        await using (var conn = _db.Open())
+            await Dapper.SqlMapper.ExecuteAsync(conn, "UPDATE cycle SET specVersion='v68.2'");
+        Assert.Equal(1, await _repo.CountStaleSpecAsync("FlowA", T0 - 1));
+        Assert.Equal(0, await _repo.CountStaleSpecAsync("FlowA", T0 + 10_000));   // 원시 신호 밖(이미 지워진 구간)은 대상 아님
+    }
+
+    /// <summary>재적재가 이어받는 표본 — 표본 자격(None·NoBaseline)인 행과 그 work 시간만.</summary>
+    [Fact]
+    public async Task 표본행은_자격있는_행과_work_를_돌려준다()
+    {
+        await _repo.SaveCycleAsync(Cycle(T0, 10_000, mt: 6_000), [new WorkDuration("w1", 5_000, 2_000)]);
+        await _repo.SaveCycleAsync(new CycleRecord("FlowA", null, T0 + 20_000, T0 + 30_000, 6_000, 0, 0, null, 0, 0,
+            ExcludeReason.Unknown), [new WorkDuration("w1", 9_000, 0)]);
+
+        var row = Assert.Single(await _repo.GetSampleRowsAsync("FlowA", T0 - 1, T0 + 60_000));
+        Assert.Equal((T0, 10_000L, (long?)6_000), (row.StartMs, row.CtMs, row.MtMs));
+        Assert.Equal([("w1", 5_000L)], row.Works);
+    }
+
     [Fact]
     public async Task 접속_공백은_열고_닫힌다()
     {

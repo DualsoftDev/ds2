@@ -22,14 +22,35 @@ public sealed class KpiController : ControllerBase
     private readonly KpiRepository _repo;
     private readonly AppSettingsService _settings;
     private readonly DsProjectService _project;
+    private readonly CycleIngestService _ingest;
     private readonly ILogger<KpiController> _logger;
 
-    public KpiController(KpiRepository repo, AppSettingsService settings, DsProjectService project, ILogger<KpiController> logger)
+    public KpiController(KpiRepository repo, AppSettingsService settings, DsProjectService project,
+        CycleIngestService ingest, ILogger<KpiController> logger)
     {
         _repo = repo;
         _settings = settings;
         _project = project;
+        _ingest = ingest;
         _logger = logger;
+    }
+
+    // ── 판정 재적재 ──────────────────────────────────────────────────────────
+
+    /// <summary>재적재 진행 상태 — 실행 중 flow·대기 수·마지막 결과.</summary>
+    [HttpGet("rebuild")]
+    public ActionResult<KpiRebuildStatus> GetRebuild() => _ingest.RebuildStatus;
+
+    /// <summary>
+    /// 판정 재적재 요청 — 원시 신호가 남은 구간의 사이클·기준선을 지우고 현재 규칙으로 다시 만든다.
+    /// flow 생략 = 전 flow. 다음 적재 주기(최대 30초 뒤)부터 백그라운드로 처리된다.
+    /// </summary>
+    [HttpPost("rebuild")]
+    public ActionResult<KpiRebuildStatus> PostRebuild([FromBody] KpiRebuildRequest? req)
+    {
+        var n = _ingest.RequestRebuild(string.IsNullOrWhiteSpace(req?.Flow) ? null : req!.Flow!.Trim());
+        _logger.LogInformation("[Kpi] 재적재 요청 — flow={Flow} ({Count})", req?.Flow ?? "전체", n);
+        return _ingest.RebuildStatus;
     }
 
     // ── GET /api/kpi/timeline?from&to&flow&branch ─────────────────────────────
@@ -184,11 +205,14 @@ public sealed class KpiController : ControllerBase
 
     /// <summary>
     /// 계수·품질 저장. κ 와 초과 허용치는 저장 즉시 전 구간이 재라벨된다 — 상태를 저장하지 않고 조회 시 도출하기
-    /// 때문이다(doc/30 §5). 게이트와 스냅은 적재 시점 값이라 다음 적재부터 반영된다.
+    /// 때문이다(doc/30 §5). 게이트와 스냅은 적재 때 행에 박제되는 값이라, 바뀌면 전 flow 재적재를 요청한다(2026-10-02).
     /// </summary>
     [HttpPut("settings")]
     public ActionResult<KpiSettingsDto> PutSettings([FromBody] KpiSettingsRequest req)
     {
+        var before = _settings.LoadSettings().Kpi;
+        double gateBefore = before.ResolveWorkGate();
+        long snapBefore = before.ResolveBoundarySnapMs();
         _settings.Update(m =>
         {
             if (req.NonProdKappa is double np) m.Kpi.NonProdKappa = Math.Clamp(np, KpiKappa.NonProdMin, KpiKappa.NonProdMax);
@@ -203,6 +227,13 @@ public sealed class KpiController : ControllerBase
         _logger.LogInformation(
             "[Kpi] settings saved — nonProd={Np} work={Wk} mt={Mt} quality={Q} gate={G} snap={S}ms overflow={O}ms",
             req.NonProdKappa, req.DownKappa, req.MtKappa, req.QualityPercent, req.WorkGate, req.BoundarySnapMs, req.OverflowToleranceMs);
+
+        var after = _settings.LoadSettings().Kpi;
+        if (after.ResolveWorkGate() != gateBefore || after.ResolveBoundarySnapMs() != snapBefore)
+        {
+            var n = _ingest.RequestRebuild(null);
+            _logger.LogInformation("[Kpi] 게이트·스냅 변경 — 전 flow 재적재 요청({Count})", n);
+        }
         return GetSettings();
     }
 
@@ -252,6 +283,9 @@ public sealed class KpiController : ControllerBase
 /// <param name="Cycles">사이클 단위 행(연표 세그먼트는 인접 병합이라 사이클을 못 가른다) — 간트의 MT/WT 선·축 표시용.</param>
 /// <param name="GatedWorks">이 구간·flow 에서 게이트에 걸려 판정에서 빠진 work 이름(doc/30 §4.1).</param>
 /// <param name="BoundarySnapMs">경계 스냅(ms) — 간트가 work 구간을 사이클에 귀속할 때 서버와 같은 값을 쓴다(doc/30 §3).</param>
+/// <summary>재적재 요청 — flow 생략이면 전 flow.</summary>
+public sealed record KpiRebuildRequest(string? Flow);
+
 public sealed record KpiTimelineDto(
     string From,
     string To,
