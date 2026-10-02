@@ -56,6 +56,7 @@ public sealed class OeeCommHealthService : BackgroundService
     private readonly PlcPingService _ping;
     private readonly HubSubscriberService _hub;
     private readonly HistoryMirrorService _mirror;
+    private readonly DsProjectService _project;
     private readonly ILogger<OeeCommHealthService> _logger;
 
     // 조회 memo — uptime 페이지가 10초 폴링으로 같은 범위를 반복 조회하므로 짧은 TTL 로 흡수.
@@ -72,6 +73,7 @@ public sealed class OeeCommHealthService : BackgroundService
         PlcPingService ping,
         HubSubscriberService hub,
         HistoryMirrorService mirror,
+        DsProjectService project,
         ILogger<OeeCommHealthService> logger)
     {
         _pathResolver = pathResolver;
@@ -79,6 +81,7 @@ public sealed class OeeCommHealthService : BackgroundService
         _ping = ping;
         _hub = hub;
         _mirror = mirror;
+        _project = project;
         _logger = logger;
     }
 
@@ -112,7 +115,10 @@ public sealed class OeeCommHealthService : BackgroundService
 
     private async Task SampleOnceAsync(CancellationToken ct)
     {
+        var nowUtc = DateTime.UtcNow;
         var (plcOk, cause) = await ResolvePlcOkAsync(ct);
+        // 어댑터(=시스템)별 상태 — 시스템별 간트가 남의 PLC 단절에 오염되지 않게(2026-10-02).
+        var perSystem = ResolvePerSystemSamples();
         await using var conn = new SqliteConnection($"Data Source={OeeDbPath()};Mode=ReadWriteCreate;Default Timeout=20");
         await conn.OpenAsync(ct);
         if (!_tableEnsured)
@@ -120,12 +126,63 @@ public sealed class OeeCommHealthService : BackgroundService
             await EnsureTableAsync(conn);
             _tableEnsured = true;
         }
-        var id = await conn.ExecuteScalarAsync<long>(
-            "INSERT INTO oeeCommHealthLog (sampledAt, plcOk, cause) VALUES (@At, @Ok, @Cause) RETURNING id",
-            new { At = Iso(DateTime.UtcNow), Ok = plcOk ? 1 : 0, Cause = plcOk ? null : cause });
-        // 레포 우회 writer — 미러 write-through 를 여기서 직접(파일 read-back, 멱등).
-        // 미러 테이블이 아직 구 스키마(cause 없음)면 복제가 실패하지만 MarkDirty 재적재로 자가치유된다.
-        await _mirror.ReplicateOeeAsync("oeeCommHealthLog", "id = @Id", new { Id = id });
+        var at = Iso(nowUtc);   // 한 샘플의 모든 행이 같은 시각 — 조회 쪽이 시각으로 묶어 시스템별로 접는다.
+        var ids = new List<long>(perSystem.Count + 1);
+        // 전역 행(systemId NULL) — 종전과 동일. 라인 전체(OEE)·구데이터 호환은 이 행만 읽는다(동작 불변).
+        ids.Add(await conn.ExecuteScalarAsync<long>(
+            "INSERT INTO oeeCommHealthLog (sampledAt, plcOk, cause, systemId) VALUES (@At, @Ok, @Cause, NULL) RETURNING id",
+            new { At = at, Ok = plcOk ? 1 : 0, Cause = plcOk ? null : cause }));
+        // 어댑터별 행(systemId=해당 시스템) — 시스템별 조회가 자기 PLC 상태만 보도록.
+        foreach (var ps in perSystem)
+            ids.Add(await conn.ExecuteScalarAsync<long>(
+                "INSERT INTO oeeCommHealthLog (sampledAt, plcOk, cause, systemId) VALUES (@At, @Ok, @Cause, @Sys) RETURNING id",
+                new { At = at, Ok = ps.Ok ? 1 : 0, Cause = ps.Ok ? null : ps.Cause, Sys = ps.SysKey }));
+        // 레포 우회 writer — 미러 write-through(파일 read-back, 멱등). 미러가 구 스키마면 복제 실패하나 MarkDirty 재적재로 자가치유.
+        foreach (var id in ids)
+            await _mirror.ReplicateOeeAsync("oeeCommHealthLog", "id = @Id", new { Id = id });
+    }
+
+    /// <summary>
+    /// 어댑터(=시스템)별 현재 상태 — Hub 연결 + 어댑터 보고가 있을 때만. 엔드포인트로 모델 System 에 귀속한다
+    /// (이름·GUID 가 바뀌어도 변치 않는 안정 키, doc/31 §6). 귀속 못 한 어댑터·공유 엔드포인트는 건너뛴다
+    /// (잘못 귀속 금지). 전역 조건(Hub 단절=agent / 심박 부재=service / 시뮬레이션)은 전역 행이 담당하므로 비운다.
+    /// </summary>
+    private List<(string SysKey, bool Ok, string? Cause)> ResolvePerSystemSamples()
+    {
+        var res = new List<(string, bool, string?)>();
+        try
+        {
+            if (_hub.CurrentStatus != HubConnectionState.Connected) return res;
+            var reported = _tracker.CurrentStatuses;
+            if (reported.Count == 0) return res;
+
+            // 엔드포인트 → systemId. 공유 엔드포인트(여러 시스템이 같은 접속)는 귀속이 모호해 제외한다.
+            var byEndpoint = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            var ambiguous = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in _project.GetEndpointLabelsBySystemId())
+            {
+                var label = (kv.Value ?? string.Empty).Trim();
+                if (label.Length == 0) continue;
+                if (!byEndpoint.TryAdd(label, kv.Key)) ambiguous.Add(label);
+            }
+            foreach (var amb in ambiguous) byEndpoint.Remove(amb);
+            if (byEndpoint.Count == 0) return res;
+
+            foreach (var s in reported)
+            {
+                var ep = (PlcEndpointDisplay.Of(s) ?? string.Empty).Trim();
+                if (ep.Length == 0 || !byEndpoint.TryGetValue(ep, out var sysId)) continue;  // 귀속 불가 → 전역 행만
+                var key = SystemKeyConvention.Key(sysId);
+                if (key.Length == 0) continue;
+                res.Add((key, s.IsConnected, s.IsConnected ? null : CausePlc));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[OEE] per-system comm health 수집 실패 — 전역 행만 기록");
+            res.Clear();
+        }
+        return res;
     }
 
     internal static async Task EnsureTableAsync(SqliteConnection conn)
@@ -135,7 +192,8 @@ public sealed class OeeCommHealthService : BackgroundService
               id        INTEGER PRIMARY KEY AUTOINCREMENT,
               sampledAt TEXT NOT NULL,
               plcOk     INTEGER NOT NULL,
-              cause     TEXT
+              cause     TEXT,
+              systemId  TEXT
             )");
         // 기존 DB 마이그레이션 — cause(원인 토큰, 2026-09-01) 추가형. OeeRepositoryAdapter 의
         // EnsureColumnAsync 와 동일 패턴(이 서비스는 어댑터를 거치지 않는 독립 writer 라 자체 보장 필요).
@@ -143,6 +201,12 @@ public sealed class OeeCommHealthService : BackgroundService
             "SELECT COUNT(*) FROM pragma_table_info('oeeCommHealthLog') WHERE name = 'cause'");
         if (hasCause == 0)
             await conn.ExecuteAsync("ALTER TABLE oeeCommHealthLog ADD COLUMN cause TEXT");
+        // systemId(어댑터별 귀속, 2026-10-02) — NULL = 전역(라인 전체/구데이터). 시스템별 간트가 남의 PLC
+        // 단절에 오염되지 않도록 어댑터별 행을 따로 쌓는다. 전역 행은 그대로 남겨 OEE·구데이터 호환 유지.
+        var hasSystemId = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM pragma_table_info('oeeCommHealthLog') WHERE name = 'systemId'");
+        if (hasSystemId == 0)
+            await conn.ExecuteAsync("ALTER TABLE oeeCommHealthLog ADD COLUMN systemId TEXT");
         await conn.ExecuteAsync(
             "CREATE INDEX IF NOT EXISTS idx_oeeCommHealth_time ON oeeCommHealthLog(sampledAt)");
     }
@@ -228,8 +292,10 @@ public sealed class OeeCommHealthService : BackgroundService
     /// CauseService/CauseUnknown)를 붙여 반환한다. 구간 합집합은 무라벨판과 동일(분할만 다름).
     /// memo 미사용 — 간트 로드(사용자 단발 액션) 전용이라 10초 폴링 흡수가 필요 없다.
     /// </summary>
+    /// <param name="systemId">주면 그 시스템 기준(자기 PLC 단절 + 전역 Hub/서비스 단절만) — 간트가 다른 PLC
+    /// 단절에 오염되지 않게(2026-10-02). null = 전역(라인 전체·종전 동작).</param>
     public async Task<(List<UnmeasuredWindow> Windows, bool Trusted)> TryGetUnmeasuredWindowsAsync(
-        DateTime fromUtc, DateTime toUtc, CancellationToken ct = default)
+        DateTime fromUtc, DateTime toUtc, CancellationToken ct = default, string? systemId = null)
     {
         var fromMs = ToMs(fromUtc.Kind == DateTimeKind.Local ? fromUtc.ToUniversalTime() : fromUtc);
         var toMs = ToMs(toUtc.Kind == DateTimeKind.Local ? toUtc.ToUniversalTime() : toUtc);
@@ -238,7 +304,7 @@ public sealed class OeeCommHealthService : BackgroundService
 
         try
         {
-            var (gaps, samples) = await QueryUnmeasuredCoreAsync(fromMs, capMs, ct);
+            var (gaps, samples) = await QueryUnmeasuredCoreAsync(fromMs, capMs, ct, systemId);
             return (LabelUnmeasured(gaps, samples, CoverWindowMs), true);
         }
         catch (Exception ex)
@@ -255,7 +321,7 @@ public sealed class OeeCommHealthService : BackgroundService
     }
 
     private async Task<(List<(double S, double E)> Gaps, List<(double SampleMs, bool PlcOk, string? Cause)> Samples)>
-        QueryUnmeasuredCoreAsync(double fromMs, double capMs, CancellationToken ct)
+        QueryUnmeasuredCoreAsync(double fromMs, double capMs, CancellationToken ct, string? systemId = null)
     {
         var empty = (new List<(double S, double E)>(), new List<(double SampleMs, bool PlcOk, string? Cause)>());
         var dbPath = OeeDbPath();
@@ -279,10 +345,16 @@ public sealed class OeeCommHealthService : BackgroundService
         var effFrom = Math.Max(fromMs, epochMs);
         if (capMs <= effFrom) return empty;
 
-        // 샘플 조회는 창이 미러 범위 안이면 인메모리 미러에서(같은 SQL, 밖이면 파일 폴백).
+        // 샘플 조회. 시스템별 경로(간트, 사용자 단발)는 파일 직독 — 미러에 systemId 컬럼이 아직 없을 수 있어
+        // 스키마 레이스를 피한다. 전역 경로(OEE, 10초 폴링)는 종전처럼 미러 우선(밖이면 파일 폴백).
         var queryFromUtc = EpochUtc.AddMilliseconds(effFrom - CoverWindowMs);
-        var conn = await _mirror.TryOpenOeeReadAsync(queryFromUtc, layerB: true);
-        if (conn is null)
+        SqliteConnection conn;
+        var mirrorConn = systemId is null ? await _mirror.TryOpenOeeReadAsync(queryFromUtc, layerB: true) : null;
+        if (mirrorConn is not null)
+        {
+            conn = mirrorConn;
+        }
+        else
         {
             conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Default Timeout=20");
             await conn.OpenAsync(ct);
@@ -290,34 +362,83 @@ public sealed class OeeCommHealthService : BackgroundService
         await using var _ = conn;
 
         // 커버 창이 범위 시작에 걸치는 직전 샘플까지 포함해 조회.
+        // systemId=null = 전역 행(systemId IS NULL)만 — 종전 동작 불변. 지정 시 전역+그 시스템 행을 받아 접는다.
         var args = new { From = IsoMs(effFrom - CoverWindowMs), To = IsoMs(capMs) };
-        IEnumerable<HealthRow> rows;
+        var scopeWhere = systemId is null ? " AND systemId IS NULL" : string.Empty;
+        List<HealthRow> rows;
         try
         {
-            rows = await conn.QueryAsync<HealthRow>(@"
-                SELECT sampledAt AS SampledAt, plcOk AS PlcOk, cause AS Cause
+            rows = (await conn.QueryAsync<HealthRow>($@"
+                SELECT sampledAt AS SampledAt, plcOk AS PlcOk, cause AS Cause, systemId AS SystemId
                 FROM oeeCommHealthLog
-                WHERE sampledAt >= @From AND sampledAt < @To
-                ORDER BY sampledAt", args);
+                WHERE sampledAt >= @From AND sampledAt < @To{scopeWhere}
+                ORDER BY sampledAt", args)).ToList();
         }
         catch (SqliteException)
         {
-            // cause 컬럼 없는 구 스키마(마이그레이션 전 파일, 또는 재적재 전의 미러) — 원인 없이 폴백.
-            rows = await conn.QueryAsync<HealthRow>(@"
+            // 구 스키마(cause/systemId 컬럼 없음, 마이그레이션 전 파일 또는 재적재 전 미러).
+            // 시스템별 데이터가 없으니 그 경로는 빈 결과(오버레이 생략), 전역 경로는 원인 없이 폴백.
+            if (systemId is not null) return empty;
+            rows = (await conn.QueryAsync<HealthRow>(@"
                 SELECT sampledAt AS SampledAt, plcOk AS PlcOk
                 FROM oeeCommHealthLog
                 WHERE sampledAt >= @From AND sampledAt < @To
-                ORDER BY sampledAt", args);
+                ORDER BY sampledAt", args)).ToList();
         }
 
-        var samples = new List<(double SampleMs, bool PlcOk, string? Cause)>();
-        foreach (var r in rows)
-            if (ParseMs(r.SampledAt) is double t)
-                samples.Add((t, r.PlcOk != 0, r.Cause));
+        List<(double SampleMs, bool PlcOk, string? Cause)> samples;
+        if (systemId is null)
+        {
+            samples = new List<(double SampleMs, bool PlcOk, string? Cause)>();
+            foreach (var r in rows)
+                if (ParseMs(r.SampledAt) is double t)
+                    samples.Add((t, r.PlcOk != 0, r.Cause));
+        }
+        else
+        {
+            samples = CollapsePerSystem(rows, systemId);
+        }
 
         var gaps = ComputeUnmeasured(effFrom, capMs,
             samples.Select(s => (s.SampleMs, s.PlcOk)).ToList(), CoverWindowMs, MinReportGapMs);
         return (gaps, samples);
+    }
+
+    /// <summary>
+    /// 한 샘플(같은 sampledAt)의 여러 행을 <b>이 시스템 하나의 상태</b>로 접는다(2026-10-02).
+    ///   · 이 시스템 전용 행이 있으면 그걸 쓴다(자기 PLC ok/plc).
+    ///   · 없으면 전역 행 해석: ok=1 = 커버 / agent·service = 전역 단절(그대로) / plc·미상 = 남의 PLC 탓일 수
+    ///     있어 이 시스템엔 귀속하지 않는다(보수적으로 커버 처리 — 간트에 통신단절을 띄우지 않음).
+    ///   · 아무 행도 없는 공백은 ComputeUnmeasured 가 service(심박 부재)로 처리한다.
+    /// </summary>
+    private static List<(double SampleMs, bool PlcOk, string? Cause)> CollapsePerSystem(
+        IEnumerable<HealthRow> rows, string systemKey)
+    {
+        var outp = new List<(double SampleMs, bool PlcOk, string? Cause)>();
+        foreach (var g in rows.GroupBy(r => r.SampledAt))
+        {
+            double? ms = null;
+            HealthRow? mine = null, global = null;
+            foreach (var r in g)
+            {
+                if (ms is null && ParseMs(r.SampledAt) is double t) ms = t;
+                var sid = SystemKeyConvention.Key(r.SystemId);
+                if (sid.Length == 0) global ??= r;
+                else if (string.Equals(sid, systemKey, StringComparison.Ordinal)) mine = r;
+            }
+            if (ms is not double sampleMs) continue;
+            if (mine is not null)
+                outp.Add((sampleMs, mine.PlcOk != 0,
+                          mine.PlcOk != 0 ? null : (string.IsNullOrEmpty(mine.Cause) ? CauseUnknown : mine.Cause)));
+            else if (global is not null)
+            {
+                if (global.PlcOk != 0) outp.Add((sampleMs, true, null));
+                else if (global.Cause is CauseAgent or CauseService) outp.Add((sampleMs, false, global.Cause));
+                else outp.Add((sampleMs, true, null));  // 전역 plc-AND/미상 = 이 시스템에 미귀속(보수)
+            }
+        }
+        outp.Sort((a, b) => a.SampleMs.CompareTo(b.SampleMs));
+        return outp;
     }
 
     private sealed class HealthRow
@@ -325,6 +446,7 @@ public sealed class OeeCommHealthService : BackgroundService
         public string? SampledAt { get; set; }
         public long PlcOk { get; set; }
         public string? Cause { get; set; }
+        public string? SystemId { get; set; }
     }
 
     private static double? ParseMs(string? s)

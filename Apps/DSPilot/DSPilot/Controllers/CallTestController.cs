@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
+using DSPilot.Infrastructure;
 using DSPilot.Models.Analysis;
 using DSPilot.Repositories;
 using DSPilot.Services;
@@ -151,8 +152,11 @@ public class CallTestController : ControllerBase
         var unmeasuredRegions = new List<CtUnmeasuredDto>();
         try
         {
+            // 이 flow 의 시스템 기준으로만 미계측을 받는다(2026-10-02) — 다른 PLC 단절이 이 간트에 "통신 단절"로
+            // 번지지 않게. 귀속 못 하면(systemId 없음) null = 전역(종전 동작)으로 폴백.
+            var unmeasuredSys = SystemKeyConvention.Scope(_project.TryGetSystemIdByFlowName(req.FlowName));
             var (wins, trusted) = await _commHealth.TryGetUnmeasuredWindowsAsync(
-                start.ToUniversalTime(), chartEnd.ToUniversalTime());
+                start.ToUniversalTime(), chartEnd.ToUniversalTime(), systemId: unmeasuredSys);
             if (trusted)
                 unmeasuredRegions = wins
                     .Select(w => new CtUnmeasuredDto(IsoLocal(FromEpochMsLocal(w.S)), IsoLocal(FromEpochMsLocal(w.E)), w.Cause))
