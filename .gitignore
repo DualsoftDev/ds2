@@ -58,7 +58,10 @@ Desktop.ini
 *.DS_Store
 
 # AI / Claude Code
-!.claude/
+.claude/
+!Apps/Promaker/.claude/
+.pat
+*.pat
 CHANGED.md
 #CLAUDE.md
 CRITIC.md
