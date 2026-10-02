@@ -16,8 +16,8 @@
      ></ds-range>
 
    화면(2026-10-01 개편 — 날짜/시간 편집칸을 항상 노출, 📅 토글 폐지):
-         [오늘 | 7일 | 30일 | 60일] (프리셋 '바로 잡기' 그룹, 있을 때) · [가동 ▾] (가동 카드, 있을 때)
-         날짜 [시작]~[끝]  시간 [시작]~[끝]  [종일] [적용]   — 바로 보이는 직접 지정 편집칸.
+         날짜 [시작]~[끝]  시간 [시작]~[끝]  [종일] [적용]   — 바로 보이는 직접 지정 편집칸(왼쪽).
+         [오늘 | 7일 | 30일 | 60일] (프리셋 '바로 잡기' 그룹, 있을 때) · [가동 ▾] (가동 카드, 있을 때) — 오른쪽(2026-10-02).
          편집칸은 활성 범위를 늘 비춘다(편집칸에 포커스가 있을 때만 안 덮어씀). 종료 24:00 = 다음날 00:00.
          '적용' 을 눌러야 범위가 반영된다(프리셋·가동 클릭은 즉시 반영). 가동 ▾ 만 접힌 카드로 남는다.
 
@@ -216,13 +216,7 @@
         var self = this;
         var presets = this._presets(), cycles = this._cycles();
         var h = '';
-        // '바로 잡기' 그룹 — 프리셋(+ 가동)을 한 그룹 버튼으로. 둘 다 없으면 그룹 자체를 안 그린다(plc-debug 류).
-        if (presets.length || cycles.length) {
-            h += '<div class="segmented ds-range-seg" role="group" aria-label="조회 기간">';
-            presets.forEach(function (k) { h += '<button type="button" data-preset="' + k + '" title="' + esc(PRESETS[k].title) + '">' + esc(PRESETS[k].label) + '</button>'; });
-            if (cycles.length) h += '<button type="button" class="ds-range-cyc" title="최근 N회 가동이 들어오도록 날짜·시간을 자동으로 맞춥니다">' + ICON_CYC + '가동<span class="ds-range-cyc-n"></span>' + ICON_DN + '</button>';
-            h += '</div>';
-        }
+        // 배치(2026-10-02): 날짜·시간 편집칸이 왼쪽, '바로 잡기' 그룹이 오른쪽 — 전 페이지 공통.
         // 직접 지정 편집칸 — 항상 노출(바로 보임). 날짜·시간을 고치고 '적용'. 캘린더 아이콘으로 묶음을 표시.
         h += '<div class="ds-range-edit">'
            + '<span class="ds-range-k ds-range-k-cal" aria-hidden="true">' + ICON_CAL + '</span>'
@@ -238,6 +232,13 @@
            + '<button type="button" class="btn btn-sm ds-range-apply">적용</button>'
            + '<span class="ds-range-dur"></span>'
            + '</div>';
+        // '바로 잡기' 그룹 — 프리셋(+ 가동)을 한 그룹 버튼으로. 둘 다 없으면 그룹 자체를 안 그린다(plc-debug 류).
+        if (presets.length || cycles.length) {
+            h += '<div class="segmented ds-range-seg" role="group" aria-label="조회 기간">';
+            presets.forEach(function (k) { h += '<button type="button" data-preset="' + k + '" title="' + esc(PRESETS[k].title) + '">' + esc(PRESETS[k].label) + '</button>'; });
+            if (cycles.length) h += '<button type="button" class="ds-range-cyc" title="최근 N회 가동이 들어오도록 날짜·시간을 자동으로 맞춥니다">' + ICON_CYC + '가동<span class="ds-range-cyc-n"></span>' + ICON_DN + '</button>';
+            h += '</div>';
+        }
         // 가동 N회 카드 — 접힌 채 남는 유일한 팝오버
         if (cycles.length) {
             h += '<div class="ds-range-pop ds-range-cycpop" hidden><div class="ds-range-cyc-grid">';

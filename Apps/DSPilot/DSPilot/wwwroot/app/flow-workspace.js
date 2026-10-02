@@ -1146,9 +1146,10 @@
                 // 사이클-기준 프리셋 — 최근 N 사이클을 포함하는 시간창을 히스토리(recordedAt=완료시각)로 역산해 로드.
                 // rows[0]=최신·완료(비가동) 사이클. 원하는 N개=rows[0..N-1]; 그 직전 완료(rows[N])를 창 시작으로 잡아
                 // 가장 오래된 대상 사이클의 시작 경계(Head OutTag↑)까지 포함시킨다.
+                // 반환 = 범위를 잡아 로드했는가. 기본값(최근 20회)이 실패하면 호출측이 '오늘'로 물러난다.
                 async setRecentCycles(n) {
                     const name = this.histFlowName;
-                    if (!name || !this.selectedFlow) return;
+                    if (!name || !this.selectedFlow) return false;
                     let rows = histCache[name];
                     if (!Array.isArray(rows) || rows.length < n + 1) {
                         try {
@@ -1156,11 +1157,11 @@
                             histCache[name] = rows;
                         } catch (e) {
                             this.errorMessage = '가동 히스토리 조회 실패: ' + e.message;
-                            return;
+                            return false;
                         }
                     }
                     rows = Array.isArray(rows) ? rows : [];
-                    if (rows.length === 0) { this.errorMessage = '기록된 가동이 없어 가동 기준 범위를 만들 수 없습니다.'; return; }
+                    if (rows.length === 0) { this.errorMessage = '기록된 가동이 없어 가동 기준 범위를 만들 수 없습니다.'; return false; }
 
                     const end = await this.effectiveLatest();
                     let startDate;
@@ -1178,6 +1179,7 @@
                     this.startTime = this.dateToInput(startDate);
                     this.errorMessage = null;
                     await this.load();
+                    return true;
                 },
 
                 // ── 분석 기간 URL 동기화 (?period=프리셋 | ?from/?to=직접 범위) ──
@@ -1187,11 +1189,12 @@
                 // 기본(최근 5분, m5)은 파라미터 생략.
                 syncRangeUrl() {
                     // 가동시간 분석(사이클)은 기간 공유 그룹(일 단위 분석)에서 빠진다(2026-10-01) — 척도가 달라
-                    // remember/recall 을 호출하지 않고 항상 자기 기본값(오늘)으로 연다. URL 로만 범위를 싣는다.
+                    // remember/recall 을 호출하지 않고 항상 자기 기본값(최근 20회)으로 연다. URL 로만 범위를 싣는다.
+                    // 기본값(c20)은 URL 에서 생략한다 — 새로고침·나브 이동 시 다시 기본값으로 계산된다.
                     const qp = new URLSearchParams(location.search);
                     qp.delete('period'); qp.delete('from'); qp.delete('to');
-                    if (this.timePreset) { if (this.timePreset !== 'today') qp.set('period', this.timePreset); }
-                    else if (this.cyclePreset) qp.set('period', 'c' + this.cyclePreset);
+                    if (this.timePreset) qp.set('period', this.timePreset);
+                    else if (this.cyclePreset) { if (this.cyclePreset !== 20) qp.set('period', 'c' + this.cyclePreset); }
                     else if (this.startTime && this.endTime) { qp.set('from', this.startTime); qp.set('to', this.endTime); }
                     const qs = qp.toString();
                     history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
@@ -1211,8 +1214,10 @@
                         this.timePreset = null; this.cyclePreset = null;
                         return await this.load();
                     }
-                    // URL 에 기간이 없으면 기본 = 오늘(2026-10-01, 종전 최근 5분). 사이클은 기간 공유에서 빠져
-                    // 다른 페이지가 고른 범위를 물려받지 않는다(항상 자기 기본값).
+                    // URL 에 기간이 없으면 기본 = 최근 20회 가동(2026-10-02, 종전 오늘). 사이클은 기간 공유에서 빠져
+                    // 다른 페이지가 고른 범위를 물려받지 않는다. 가동 기록이 없으면(새 현장·초기화 직후) 오늘로 물러난다.
+                    if (await this.setRecentCycles(20)) return;
+                    this.errorMessage = null;
                     return await this.setToday();
                 },
 

@@ -512,7 +512,7 @@
 /* ============================================================================
    공용 기간 선택기 <ds-range> — 2026-10-01 (js/ds-range.js 가 그린다)
    ----------------------------------------------------------------------------
-   [오늘 | 7일 | 30일 | 60일] (프리셋 '바로 잡기' 그룹) · [가동 ▾]  +  날짜/시간 편집칸(.ds-range-edit, 항상 노출)
+   날짜/시간 편집칸(.ds-range-edit, 항상 노출, 왼쪽)  +  [오늘 | 7일 | 30일 | 60일] (프리셋 '바로 잡기' 그룹) · [가동 ▾] (오른쪽, 2026-10-02)
    편집칸은 📅 토글을 없애고 바로 노출한다(2026-10-01). 남은 팝오버는 '가동 N회' 카드(.ds-range-cycpop) 하나뿐.
    모든 분석 페이지가 이 한 벌을 쓴다 — 페이지별 날짜 입력(.up-period-input/.ct-range-popup)은 폐지.
    ============================================================================ */
@@ -543,8 +543,8 @@ ds-range { display: inline-block; max-width: 100%; min-width: 0; }
     color: var(--color-primary); text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
 .ds-range-apply { min-width: 56px; justify-content: center; }
 
-/* 가동 N회 카드 — 접힌 팝오버. 세그먼트 바로 아래, 왼쪽 정렬. 사이드바/스티키 툴바(z 30) 위. */
-.ds-range-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; display: flex; flex-direction: column; gap: 10px;
+/* 가동 N회 카드 — 접힌 팝오버. '가동 ▾' 버튼이 오른쪽 그룹에 있으므로 오른쪽 정렬. 사이드바/스티키 툴바(z 30) 위. */
+.ds-range-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 60; display: flex; flex-direction: column; gap: 10px;
     min-width: 300px; padding: 12px 14px; background: var(--color-surface); border: 1px solid var(--color-lines-strong);
     border-radius: var(--radius-md); box-shadow: var(--shadow-modal, 0 10px 28px rgba(0, 0, 0, 0.18)); }
 .ds-range-pop[hidden] { display: none; }

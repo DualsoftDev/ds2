@@ -17,7 +17,7 @@ function overviewCycleApp() {
     const CG = window.CycleGantt;
     const LEFT_PAD = CG.LEFT_PAD, RIGHT_PAD = CG.RIGHT_PAD, MIN = CG.MIN_PLOT_WIDTH, MAX_ZOOM = CG.MAX_ZOOM;
     // 개요 기본 기간 = 최근 1시간(단일 페이지 기본 5분과 다름 — 상태 훑어보기 용도). URL 에는 기본값 생략.
-    const DEFAULT_PRESET = 'today';   // 가동시간 분석 기본 = 오늘(2026-10-01, 종전 h1)
+    const DEFAULT_PRESET = 'c20';     // 가동시간 분석 기본 = 최근 20회 가동(2026-10-02, 종전 오늘 · 그 전 h1) — URL 에서 생략
     // 사이클 프리셋용 히스토리 캐시 (closure, Alpine 반응형 밖 — 단순 캐시)
     const histCache = {};
     // 카드 간트 표시 기억(브라우저별) — Call 막대 / IN·OUT 파형 각각(2026-09-17, 단일 페이지와 같은 규약).
@@ -213,10 +213,13 @@ function overviewCycleApp() {
                 this.timePreset = null; this.cyclePreset = null;
                 return await this.loadAll();
             }
-            // URL 에 기간이 없으면 기본 = 오늘(2026-10-01, 종전 최근 1시간). 사이클은 기간 공유에서 빠져 물려받지 않는다.
+            // URL 에 기간이 없으면 기본 = 최근 20회 가동(2026-10-02, 종전 오늘). 사이클은 기간 공유에서 빠져 물려받지 않는다.
+            // 가동 기록이 없으면(새 현장·초기화 직후) 오늘로 물러난다.
+            if (await this.setRecentCycles(20)) return;
             return await this.setToday();
         },
-        // 카드 클릭 이동 주소 — 단일 flow 가동시간 분석(편집) + 현재 기간(개요·단일 둘 다 기본 '오늘'이라 period=today 로 명시해도 안전).
+        // 카드 클릭 이동 주소 — 단일 flow 가동시간 분석(편집) + 현재 기간(periodParams 는 기본값도 생략하지 않으므로
+        // 개요에서 고른 범위가 단일 페이지에 그대로 실린다).
         flowHref(slice) {
             const qp = new URLSearchParams();
             qp.set('name', slice.flowName);
@@ -474,20 +477,21 @@ function overviewCycleApp() {
         },
 
         // ── 사이클 기준 프리셋 (첫 번째 Flow 히스토리로 역산) ──
+        // 반환 = 범위를 잡아 로드했는가. 기본값(최근 20회)이 실패하면 호출측이 '오늘'로 물러난다.
         async setRecentCycles(n) {
             this.cyclePreset = n; this.timePreset = null; this.rangePopupOpen = false;
             const target = this.flows[0];
-            if (!target) return;
+            if (!target) return false;
             const name = target.flowName;
             let rows = histCache[name];
             if (!Array.isArray(rows) || rows.length < n + 1) {
                 try {
                     rows = await this.apiGet('/api/dashboard/flows/' + encodeURIComponent(name) + '/history?limit=' + Math.max(n + 1, 50));
                     histCache[name] = rows;
-                } catch (e) { return; }
+                } catch (e) { return false; }
             }
             rows = Array.isArray(rows) ? rows : [];
-            if (!rows.length) return;
+            if (!rows.length) return false;
             const end = await this.effectiveLatest();
             let startDate;
             if (rows.length > n) {
@@ -500,6 +504,7 @@ function overviewCycleApp() {
             this.endTime = this.dateToInput(end);
             this.startTime = this.dateToInput(startDate);
             await this.loadAll();
+            return true;
         },
 
         // ── Excel 다운로드 (로드된 모든 Flow 의 화면 상태를 한 시트에 세로로 쌓음 — 개요라 시작/끝 lane 만 실림) ──
