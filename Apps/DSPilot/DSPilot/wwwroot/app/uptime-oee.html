@@ -353,7 +353,7 @@
                         <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">구분</span>
                         <span class="up-chip" :class="dtPat.filter === 'all' ? 'is-on' : ''" @click="dtPat.filter='all'">전체</span>
                         <span class="up-chip" :class="dtPat.filter === 'fault' ? 'is-on' : ''" @click="dtPat.filter='fault'"
-                              :style="dtPat.filter==='fault' ? 'background:var(--oee-fault);color:#fff;border-color:var(--oee-fault);' : 'border-color:var(--oee-fault);color:var(--oee-fault);'">고장</span>
+                              :style="dtPat.filter==='fault' ? 'background:var(--oee-fault);color:#fff;border-color:var(--oee-fault);' : 'border-color:var(--oee-fault);color:var(--oee-fault);'">비가동</span>
                         <span class="up-chip" :class="dtPat.filter === 'maintenance' ? 'is-on' : ''" @click="dtPat.filter='maintenance'"
                               :style="dtPat.filter==='maintenance' ? 'background:var(--oee-maint);color:#fff;border-color:var(--oee-maint);' : 'border-color:var(--oee-maint);color:var(--oee-maint);'">유지보수</span>
                     </div>
@@ -361,8 +361,8 @@
                     <template x-if="dtPatDays().length > 0">
                         <div>
                             <div class="ds-legend" style="margin-bottom:9px;">
-                                <div class="lg-item" x-show="dtPat.filter !== 'maintenance'"><span class="lg-swatch hatch-fault"></span> 비가동 · 고장</div>
-                                <div class="lg-item" x-show="dtPat.filter !== 'fault'"><span class="lg-swatch hatch-maint"></span> 비가동 · 유지보수</div>
+                                <div class="lg-item" x-show="dtPat.filter !== 'maintenance'"><span class="lg-swatch hatch-fault"></span> 비가동</div>
+                                <div class="lg-item" x-show="dtPat.filter !== 'fault'"><span class="lg-swatch hatch-maint"></span> 유지보수</div>
                                 <div class="lg-item"><span class="lg-swatch" style="width:3px; background:var(--color-primary);"></span> 지금</div>
                             </div>
                             <div class="up-npd" :class="dtPatDense() ? 'is-dense' : ''">
@@ -390,7 +390,7 @@
                                     <div class="up-npd-sum"></div>
                                 </div>
                             </div>
-                            <div class="up-form-hint" style="margin-top:10px;">행 = 그 날의 비가동(고장·유지보수) · 우측 = 일 합계 · 비생산은 <a href="/uptime-teep">생산효율 페이지</a></div>
+                            <div class="up-form-hint" style="margin-top:10px;">행 = 그 날의 비가동·유지보수 · 우측 = 일 합계 · 비생산은 <a href="/uptime-teep">생산효율 페이지</a></div>
                         </div>
                     </template>
                     <template x-if="dtPatDays().length === 0">
@@ -448,7 +448,7 @@
                     <div class="up-blk-head">
                         <span class="material-icons">receipt_long</span>
                         <h3>정지 이벤트 로그</h3>
-                        <span class="ds-card-h-sub" style="margin-left:8px;" title="규칙이 판정한 결과를 그대로 보는 목록 — 구분을 옮기려면 판정 기준(배수)을 조절합니다.">조회 전용 · 고장/유지보수/비생산</span>
+                        <span class="ds-card-h-sub" style="margin-left:8px;" title="규칙이 판정한 결과를 그대로 보는 목록 — 구분을 옮기려면 판정 기준(배수)을 조절합니다.">조회 전용 · 비가동/유지보수/비생산</span>
                         <span style="flex:1;"></span>
                         <button class="btn-icon" @click="showDowntimeLog=false" title="닫기"><span class="material-icons">close</span></button>
                     </div>
@@ -458,8 +458,8 @@
                     <div class="up-filter-row" style="margin-bottom:6px;">
                         <div class="segmented">
                             <button :class="dtTab === 'down' ? 'is-active' : ''" @click="dtTab='down'"
-                                    title="고장(사이클 전체)/유지보수 — 가용성(A) 분모 안에서 깎이는 정지">
-                                고장·유지보수 <span x-text="'(' + dtDownCount + ')'"></span></button>
+                                    title="비가동(사이클 전체)/유지보수 — 가용성(A) 분모 안에서 깎이는 정지">
+                                비가동·유지보수 <span x-text="'(' + dtDownCount + ')'"></span></button>
                             <button :class="dtTab === 'nonprod' ? 'is-active' : ''" @click="dtTab='nonprod'"
                                     title="비생산 — 가용성(A) 분모 밖(정산 어디에도 계상하지 않음), 건수·평균 비가동 간격 미반영">
                                 비생산 <span x-text="'(' + dtNonProdCount + ')'"></span></button>
@@ -477,7 +477,7 @@
                                 <span style="width:10px;"></span>
                                 <span style="font-size:0.64rem; font-weight:700; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-right:4px;">구분</span>
                                 <span class="up-chip" :class="dtFilterFault === 'all' ? 'is-on' : ''" @click="dtFilterFault='all'">전체</span>
-                                <span class="up-chip" :class="dtFilterFault === 'fault' ? 'is-on' : ''" @click="dtFilterFault='fault'" style="border-color:var(--oee-fault); color:var(--oee-fault);" :style="dtFilterFault==='fault'?'background:var(--oee-fault);color:#fff;':''">고장</span>
+                                <span class="up-chip" :class="dtFilterFault === 'fault' ? 'is-on' : ''" @click="dtFilterFault='fault'" style="border-color:var(--oee-fault); color:var(--oee-fault);" :style="dtFilterFault==='fault'?'background:var(--oee-fault);color:#fff;':''">비가동</span>
                                 <span class="up-chip" :class="dtFilterFault === 'maintenance' ? 'is-on' : ''" @click="dtFilterFault='maintenance'" style="border-color:var(--oee-maint); color:var(--oee-maint);" :style="dtFilterFault==='maintenance'?'background:var(--oee-maint);color:#fff;':''">유지보수</span>
                             </span>
                         </template>
@@ -544,9 +544,9 @@
                                                 </template>
                                                 <!-- 고장/유지보수 — 규칙과 고장비트 자동분류(CauseBit)의 결과. 표시 전용이다(사람이 바꾸는 경로 없음, doc/30 §11.1). -->
                                                 <template x-if="!d.isNonProd && !isInProgressDt(d)">
-                                                    <span x-text="d.isFailure ? '고장' : '유지보수'"
+                                                    <span x-text="d.isFailure ? '비가동' : '유지보수'"
                                                           :style="d.isFailure ? 'color:var(--oee-fault);font-weight:700;' : 'color:var(--oee-maint);font-weight:700;'"
-                                                          :title="d.isFailure ? '고장 — 가용성(A) 분모 안에서 깎이고 고장 건수·평균 간격에 반영' : '유지보수 — 고장비트 자동분류가 계획정비로 찍은 정지. 가용성은 깎이되 고장 건수에서는 제외'"></span>
+                                                          :title="d.isFailure ? '비가동 — 가용성(A) 분모 안에서 깎이고 비가동 건수·평균 간격에 반영' : '유지보수 — 고장비트 자동분류가 계획정비로 찍은 정지. 가용성은 깎이되 비가동 건수에서는 제외'"></span>
                                                 </template>
                                                 <!-- 판정 축(doc/28) — 동작 초과 / 대기 초과 / 완료 신호 없는 사이클 길이 -->
                                                 <span class="up-dt-axis" x-show="d.axis" x-text="axisLabel(d.axis)" :title="axisTitle(d.axis)"></span>
@@ -565,7 +565,7 @@
                     <template x-if="filteredDowntime.length === 0">
                         <div class="ds-empty" style="border-style:solid;">
                             <span class="material-icons">check_circle</span>
-                            <div class="ds-empty-title" x-text="downtime.length === 0 ? '해당 기간 정지 이벤트 없음' : (dtTab === 'nonprod' ? '이 기간 비생산으로 분류된 사이클 없음' : '필터에 해당하는 고장 이벤트 없음')"></div>
+                            <div class="ds-empty-title" x-text="downtime.length === 0 ? '해당 기간 정지 이벤트 없음' : (dtTab === 'nonprod' ? '이 기간 비생산으로 분류된 사이클 없음' : '필터에 해당하는 비가동 이벤트 없음')"></div>
                             <div class="ds-empty-desc" x-text="downtime.length === 0 ? '판정 기준(동작 초과·대기 초과)을 넘긴 사이클이 기록되면 여기에 표시됩니다.' : (dtTab === 'nonprod' ? '길이가 비생산 기준을 넘긴 사이클이 자동 판정으로 채워집니다.' : '상태·구분·열람 필터나 탭을 변경해 보세요.')"></div>
                         </div>
                     </template>
@@ -939,7 +939,7 @@
                                             <div class="up-mq-bar"
                                                  :title="'정상 ' + f.normalCycles.toLocaleString() + ' / 가동 ' + f.totalCycles.toLocaleString()
                                                          + ' (' + mqPct(mqCollectRate(f)) + ') · 정지로 계상 ' + f.excludedCycles.toLocaleString()
-                                                         + ' · 고장 경계(동작) ' + (f.thresholdMs > 0 ? durShort(f.thresholdMs) : '판별 불가')">
+                                                         + ' · 비가동 경계(동작) ' + (f.thresholdMs > 0 ? durShort(f.thresholdMs) : '판별 불가')">
                                                 <div class="seg ex" :style="`width:${mqBarW(mqCollectRate(f))}`"></div>
                                             </div>
                                         </template>

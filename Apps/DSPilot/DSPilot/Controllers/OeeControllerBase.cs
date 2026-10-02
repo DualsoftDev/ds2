@@ -288,7 +288,7 @@ public abstract class OeeControllerBase : ControllerBase
                         ? $"진행 중 — 사이클 시작(head↑) 후 {Dur(elapsed)} 경과, 비생산 기준 {Dur(b.CtNonProd)} 이상이라 "
                           + "그 시간은 비생산으로 집계됩니다(A 분모 밖). 다음 사이클이 시작되면 완료 행으로 확정되고 그때 1건으로 셉니다."
                           + (physical != ipFlow ? " 분기 소속은 완료 후 확정." : "")
-                        : $"진행 중 — 사이클 시작(head↑) 후 {Dur(elapsed)} 경과 (고장 기준 {Dur(b.MtFault)} = 평소 동작 {Dur(b.MedianMt)} × {faultMult:0.#}배 초과). "
+                        : $"진행 중 — 사이클 시작(head↑) 후 {Dur(elapsed)} 경과 (비가동 기준 {Dur(b.MtFault)} = 평소 동작 {Dur(b.MedianMt)} × {faultMult:0.#}배 초과). "
                           + "다음 사이클이 시작되면 완료 행으로 확정·분류됩니다. 집계 미반영(분모 밖)."
                           + (physical != ipFlow ? " 분기 소속은 완료 후 확정." : ""),
                     Status: "open",
@@ -354,7 +354,7 @@ public abstract class OeeControllerBase : ControllerBase
             body = $"사이클 기록 없는 공백 {Dur(c.CtMs)} — 이 구간에 사이클 행이 없습니다(동작 중 멈춘 채 마감되지 않은 정지). "
                    + (c.NonProd
                         ? $"길이가 비생산 기준 {Dur(b.CtNonProd)} 이상이라 끄고 간 정지로 봅니다"
-                        : $"길이가 고장 기준 {Dur(b.CtFault)} 초과이나 비생산 기준 {Dur(b.CtNonProd)} 미만이라 고장입니다");
+                        : $"길이가 비가동 기준 {Dur(b.CtFault)} 초과이나 비생산 기준 {Dur(b.CtNonProd)} 미만이라 비가동입니다");
         }
         else if (c.NonProd)
         {
@@ -365,14 +365,14 @@ public abstract class OeeControllerBase : ControllerBase
                     ? $"완료 신호 없는 사이클 {Dur(c.CtMs)} ≥ 비생산 기준 {Dur(b.CtNonProd)} = 평소 사이클 {Dur(b.MedianCt)} × {nonProdMult:0.#}배"
                     : c.Axis == "mt" && c.MtMs is long dmt
                         // 길이로 강등된 행(2026-09-14) — 근거는 동작(MT) 초과인데 길이가 비생산 기준을 넘어 비생산으로 둔 경우.
-                        ? $"동작 중 멈춘 채 {Dur(dmt)} (평소 동작 {Dur(b.MedianMt)}) — 고장 기준 {Dur(b.MtFault)} 은 넘었지만"
+                        ? $"동작 중 멈춘 채 {Dur(dmt)} (평소 동작 {Dur(b.MedianMt)}) — 비가동 기준 {Dur(b.MtFault)} 은 넘었지만"
                           + $" 사이클 {Dur(c.CtMs)} ≥ 비생산 기준 {Dur(b.CtNonProd)} 이라 끄고 간 정지로 봅니다"
                         : $"사이클 {Dur(c.CtMs)} — 비생산(분모 밖)";
         }
         else if (c.Axis == "mt" && c.MtMs is long mt)
         {
             body = $"사이클 {Dur(c.CtMs)} · 동작 {Dur(mt)} (평소 {Dur(b.MedianMt)}, +{Dur(Math.Max(0, mt - b.MedianMt))})"
-                   + $" — 동작 초과 = 고장, 기준 {Dur(b.MtFault)} = 평소 동작 × {faultMult:0.#}배";
+                   + $" — 동작 초과 = 비가동, 기준 {Dur(b.MtFault)} = 평소 동작 × {faultMult:0.#}배";
         }
         else if (c.Axis == "ct")
         {
@@ -380,7 +380,7 @@ public abstract class OeeControllerBase : ControllerBase
         }
         else
         {
-            body = $"사이클 {Dur(c.CtMs)} — 고장";
+            body = $"사이클 {Dur(c.CtMs)} — 비가동";
         }
         return prefix + body;
     }

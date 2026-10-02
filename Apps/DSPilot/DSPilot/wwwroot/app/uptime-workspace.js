@@ -1,5 +1,5 @@
         // 정지 구분: 고장(isFailure=true) / 유지보수(isFailure=false) / 비생산(isNonProd=true, A 분모 밖).
-        const FAULT_DEF = { label: '고장', color: 'var(--oee-fault)', cls: 'hatch-fault', pat: 'up-pat-fault' };
+        const FAULT_DEF = { label: '비가동', color: 'var(--oee-fault)', cls: 'hatch-fault', pat: 'up-pat-fault' };
         const MAINT_DEF = { label: '유지보수', color: 'var(--oee-maint)', cls: 'hatch-maint', pat: 'up-pat-maint' };
         const NONPROD_DEF = { label: '비생산', color: 'var(--nonprod)', cls: 'hatch-nonprod', pat: 'up-pat-nonprod' };
         // 대기(고장 여파, doc/25) — 라인 내 다른 설비 고장으로 서 있던 시간(기준 이상 → 분모 밖). 비생산과 분리 표기.
@@ -577,7 +577,7 @@
                         const r = await this.apiPut('/api/oee/ct-multipliers',
                             { nonProdWtMultiplier: this.cm.nonProd, faultMtMultiplier: this.cm.fault });
                         this.cmReadDto(r);
-                        this.cm.msg = `판정 기준 적용 — 고장 ${this.cm.fault}× 동작 / 비생산 ${this.cm.nonProd}× 대기 (조회 시 재계산이라 과거 기간에도 즉시 반영)`;
+                        this.cm.msg = `판정 기준 적용 — 비가동 ${this.cm.fault}× 동작 / 비생산 ${this.cm.nonProd}× 대기 (조회 시 재계산이라 과거 기간에도 즉시 반영)`;
                         // KPI + 비생산 카드의 자동 칩(배수 표기) + 실측 타임라인 갱신
                         await Promise.all([this.loadOee(), this.loadPlannedStops()]);
                     } catch (e) { this.cm.err = '적용 실패: ' + e.message; }
@@ -1412,7 +1412,7 @@
                             try {
                                 const rc = cv.getBoundingClientRect();
                                 images.push({
-                                    name: (this.dailyData && this.dailyData.granularity === 'hour' ? '시간별 추이' : '일자별 추이') + ' (가동·고장·유지보수·비생산)',
+                                    name: (this.dailyData && this.dailyData.granularity === 'hour' ? '시간별 추이' : '일자별 추이') + ' (가동·비가동·유지보수·비생산)',
                                     dataUrl: cv.toDataURL('image/png'), width: Math.round(rc.width), height: Math.round(rc.height),
                                 });
                             } catch (e) { /* 캡처 실패는 무시(데이터 시트는 정상 생성) */ }
@@ -2057,7 +2057,7 @@
                 // 판정 축 라벨(doc/28) — "mt" 완료 행 동작 초과 / "wt" 완료 행 대기 초과 / "ct" 완료 신호 없는 사이클 길이.
                 axisLabel(a) { return a === 'mt' ? '동작' : a === 'wt' ? '대기' : a === 'ct' ? '미완료' : a === 'gap' ? '공백' : ''; },
                 axisTitle(a) {
-                    return a === 'mt' ? '판정 축: 동작이 평소 × 고장배수를 넘음 — 고장'
+                    return a === 'mt' ? '판정 축: 동작이 평소 × 비가동배수를 넘음 — 비가동'
                         : a === 'wt' ? '판정 축: 대기가 평소 × 비생산배수 이상 — 비생산'
                         : a === 'ct' ? '판정 축: 완료 신호 없는 사이클(시작 → 다음 시작) — 사이클 전체 길이를 평소 사이클(중앙 CT) × 배수에 댐'
                         : a === 'gap' ? '판정 축: 기록 공백 — 이 구간에 사이클 행이 아예 없습니다(동작 중 멈춘 채 마감되지 않은 정지). 동작/대기를 알 수 없어 구간 길이만으로 판정합니다.'
@@ -2326,7 +2326,7 @@
                                 windows.push({
                                     startMinutes: ss, endMinutes: ee, ms: (ee - ss) * 60000,
                                     cls: ev.isFailure ? 'hatch-fault' : 'hatch-maint',
-                                    kind: (ev.isFailure ? '고장' : '유지보수') + (ev.open ? ' (진행중)' : ''), flow: ev.flow,
+                                    kind: (ev.isFailure ? '비가동' : '유지보수') + (ev.open ? ' (진행중)' : ''), flow: ev.flow,
                                 });
                             }
                         }
@@ -2350,7 +2350,7 @@
                     const days = this.dtPatDays();
                     if (!days.length) return '';
                     const total = days.reduce((a, d) => a + this.dtPatDayMs(d), 0);
-                    const f = { all: '비가동', fault: '고장', maintenance: '유지보수' }[this.dtPat.filter] || '비가동';
+                    const f = { all: '비가동', fault: '비가동', maintenance: '유지보수' }[this.dtPat.filter] || '비가동';
                     return (days.length === 1 ? '1일 × 24시간' : days.length + '일 × 24시간 · 최근이 위')
                         + ' · ' + f + ' ' + (this._dtPatMemo ? this._dtPatMemo.evCount : 0) + '건 · ' + (total > 0 ? this.durShort(total) : '0')
                         + (this._dtPatMemo && this._dtPatMemo.daysClipped ? ' · 최근 92일만 표시' : '');

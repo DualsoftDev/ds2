@@ -71,8 +71,8 @@ public static class OeeExcelExporter
             ("가용성 A", FormatPct(k.Availability) + "  (" + availSrc + ")"),
             ("성능 P", FormatPct(k.Performance) + "  (표준 = 14일 중앙 CT)"),
             ("품질 Q", FormatPct(k.Quality) + "  (" + qualSrc + ")"),
-            ("평균 고장 간격(MTBF)", k.FailureCount == 0 ? "고장 없음" : FormatMs(k.Mtbf)),
-            ("고장 사이클 평균 시간", k.FailureCount == 0 ? "고장 없음" : FormatMs(k.Mttr) + "  (사이클 전체 길이 평균)"),
+            ("평균 비가동 간격(MTBF)", k.FailureCount == 0 ? "비가동 없음" : FormatMs(k.Mtbf)),
+            ("비가동 사이클 평균 시간(MTTR)", k.FailureCount == 0 ? "비가동 없음" : FormatMs(k.Mttr) + "  (사이클 전체 길이 평균)"),
             ("정지 건수", k.DowntimeCount.ToString("N0", CultureInfo.InvariantCulture) + " 건"),
             ("정지 시간", FormatMs(k.DowntimeMs)),
             ("표준 가동시간(14일 중앙 CT)", FormatMs(k.CtThresholdMs)),
@@ -224,7 +224,7 @@ public static class OeeExcelExporter
             ws.Cell(row, 3).Value = FormatMs(d.DurationMs);
             ws.Cell(row, 4).Value = d.FlowName ?? "-";
             ws.Cell(row, 5).Value = d.DeviceName ?? "-";
-            ws.Cell(row, 6).Value = d.IsNonProd ? "비생산" : (d.IsFailure ? "고장" : "유지보수");
+            ws.Cell(row, 6).Value = d.IsNonProd ? "비생산" : (d.IsFailure ? "비가동" : "유지보수");
             ws.Cell(row, 7).Value = DetectLabel(d.DetectSource);
             ws.Cell(row, 8).Value = d.Status == "open" ? "진행중" : "복구";
             row++;

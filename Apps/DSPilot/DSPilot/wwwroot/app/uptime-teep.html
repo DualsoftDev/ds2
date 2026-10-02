@@ -341,7 +341,7 @@
                             <div class="up-mq-unmeas" x-show="mq.unmeasurableFlowCount > 0" x-cloak>
                                 <span class="material-icons">report_off</span>
                                 <span class="up-oee-chip warn" style="margin-left:0;" x-text="'측정 불가 ' + mq.unmeasurableFlowCount + '대'"
-                                      title="표준 가동시간(14일 중앙 CT) 미학습 — 고장/비생산 판정도, 가용성·OEE 도 산출되지 않습니다(근사값 없음)."></span>
+                                      title="표준 가동시간(14일 중앙 CT) 미학습 — 비가동/비생산 판정도, 가용성·OEE 도 산출되지 않습니다(근사값 없음)."></span>
                                 <template x-for="f in mqRows.filter(r => r.measurable === false)" :key="'um-' + f.flowName">
                                     <a :href="'/flow-cycle?name=' + encodeURIComponent(f.flowName)" x-text="f.flowName"
                                        title="사이클이 0건이면 설비 경계(시작/완료 동작) 지정을 먼저 확인 — 사이클 분석으로 이동"></a>
