@@ -353,7 +353,8 @@ public partial class SimulationPanelState
 
     private void InitSceneEventHandler()
     {
-        _sceneEventHandler = new DeviceSceneEventHandler(ThreeD);
+        // 3D 배치 뷰 슬롯만 새 인스턴스로 교체 — 그래픽 정보뷰 등 다른 구독은 유지한다.
+        _sceneEventHandler.ReplaceSingleton(new DeviceSceneEventHandler(ThreeD));
     }
 
     [RelayCommand(CanExecute = nameof(CanResetSimulation))]

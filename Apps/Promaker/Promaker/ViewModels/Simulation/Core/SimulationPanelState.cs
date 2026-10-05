@@ -119,7 +119,19 @@ public partial class SimulationPanelState : ObservableObject
     private readonly HashSet<Guid> _warningGuids = [];
     private bool _isStepMode;
     private long _simUiGeneration;
-    private ISceneEventHandler? _sceneEventHandler;
+    /// <summary>
+    /// 씬 뷰 이벤트 fan-out 허브. 예전에는 단일 <see cref="ISceneEventHandler"/> 필드였으나
+    /// 3D 배치 뷰 외의 뷰(그래픽 정보뷰)가 공존해야 해서 Composite 으로 승격했다.
+    /// 3D 배치 뷰용 <see cref="DeviceSceneEventHandler"/> 는 InitSceneEventHandler() 에서
+    /// ReplaceSingleton 으로 "타입당 1개" 를 유지하므로 기존 동작은 변하지 않는다.
+    /// </summary>
+    private readonly CompositeSceneEventHandler _sceneEventHandler = new();
+
+    /// <summary>씬 뷰(그래픽 정보뷰 등)가 시뮬레이션 상태 이벤트를 구독한다.</summary>
+    public void RegisterSceneEventHandler(ISceneEventHandler handler) => _sceneEventHandler.Add(handler);
+
+    /// <summary>창이 닫힐 때 구독 해제. 누락되면 죽은 WebView 로 push 를 계속 시도하게 된다.</summary>
+    public void UnregisterSceneEventHandler(ISceneEventHandler handler) => _sceneEventHandler.Remove(handler);
 
     /// <summary>
     /// 시뮬 IO 값이 갱신될 가능성이 있는 시점 (Work/Call 상태 전이) 에 호출되는 후크.
