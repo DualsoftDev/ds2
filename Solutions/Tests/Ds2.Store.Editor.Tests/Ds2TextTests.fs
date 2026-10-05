@@ -657,6 +657,22 @@ let ``A call is written as device.api with no handle`` () =
     Assert.DoesNotContain("call ", src)
 
 [<Fact>]
+let ``A call keeps its own block line because bindings cannot live in a relation`` () =
+    // 관계문이 이름을 이미 적으니 `Jig.Close;` 한 줄은 군더더기로 보인다.
+    // 그런데 **binding 은 관계문이 대신 말해 줄 수 없다** — 생략된 사양은 UndefinedValue 이고
+    // 그것은 기본값(주소 없는 bool true)과 **다른 값**이다. 그래서 줄은 늘 블록으로 남는다.
+    // (군더더기를 줄이는 것은 binding 이 없는 **생성기**의 몫이다.)
+    let store, projectId, _, flowId = skeleton "Line" "Cell" "Process"
+    let w = store.AddWork("Hold", flowId)
+    let a = addCall store projectId w "Jig" "Close"
+    let b = addCall store projectId w "Gate" "Open"
+    store.ConnectSelectionInOrder([ a.Id; b.Id ], ArrowType.Start) |> ignore
+    let src = text store projectId
+    contains "Jig.Close > Gate.Open;" src
+    contains "Jig.Close {" src
+    contains "input undefined;" src
+
+[<Fact>]
 let ``Two devices in one Work each keep their own line`` () =
     let store, projectId, _, flowId = skeleton "Line" "Cell" "Process"
     let w = store.AddWork("Hold", flowId)

@@ -557,6 +557,12 @@ module Ds2TextWriter =
                                     for cond in conditionsOf c.Conditions kind do
                                         inner.Add(keyword + " when " + expressionText conditionReference cond + ";")
 
+                                // ── 왜 늘 블록으로 적는가 ────────────────────────
+                                // 관계문이 이름을 이미 적었으니 `로봇.집기;` 한 줄은 군더더기다.
+                                // 그런데 **binding 은 관계문이 대신 말해 줄 수 없다** — 생략된 사양은
+                                // UndefinedValue 이고, 그것은 기본값(주소 없는 bool true)과 **다른 값**이다.
+                                // 그래서 `input`·`output` 이 늘 붙고, 줄은 늘 블록이 된다.
+                                // 군더더기를 줄이는 것은 **생성기**의 몫이다(거기선 binding 이 없다).
                                 if inner.Count = 0 then body.Add(chead + ";")
                                 else
                                     body.Add(chead + " {")
