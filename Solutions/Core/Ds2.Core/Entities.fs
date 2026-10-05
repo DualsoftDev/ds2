@@ -178,7 +178,6 @@ type Call [<JsonConstructor>] internal (devicesAlias: string, apiName: string, p
     inherit DsChild("", parentId)
 
     member val Properties = ResizeArray<CallSubmodelProperty>() with get, set
-
     [<AasxField("Status")>]                 member val Status4    : Status4              = Status4.Ready  with get, set
     [<AasxField("Position")>]               member val Position   : Xywh option          = None           with get, set
     [<AasxField("ApiCalls",  Skip = true)>] member val ApiCalls   = ResizeArray<ApiCall>()                with get, set

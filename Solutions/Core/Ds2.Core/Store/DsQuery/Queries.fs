@@ -37,6 +37,22 @@ module Queries =
     let private childrenOf (values: seq<'T>) (parentId: Guid) (getParent: 'T -> Guid) : 'T list =
         values |> Seq.filter (fun x -> getParent x = parentId) |> Seq.toList
 
+    // ReferenceOf is source topology, not a flattened storage invariant. Resolve
+    // chains at query boundaries without rewriting any entity or accepting cycles.
+    let private resolveOriginalId kind (lookup: Guid -> Guid option option) (id: Guid) =
+        let seen = System.Collections.Generic.HashSet<Guid>()
+        let mutable current = id
+        let mutable complete = false
+        while not complete do
+            if not (seen.Add current) then
+                invalidOp $"{kind} Reference cycle at {current}."
+            match lookup current with
+            | Some (Some target) -> current <- target
+            | Some None -> complete <- true
+            | None when current = id -> complete <- true // Preserve unknown-ID lookup compatibility.
+            | None -> invalidOp $"{kind} Reference target does not exist: {current}."
+        current
+
     let private orderedSystemsOf (getIds: Project -> seq<Guid>) (projectId: Guid) (store: DsStore) : DsSystem list =
         match store.Projects.TryGetValue(projectId) with
         | true, project -> getIds project |> Seq.choose (fun id -> byId store.Systems id) |> Seq.toList
@@ -195,18 +211,13 @@ module Queries =
 
     /// Reference Work이면 원본 ID, 아니면 자기 자신 ID 반환
     let resolveOriginalWorkId (workId: Guid) (store: DsStore) : Guid =
-        getWork workId store
-        |> Option.bind (fun w -> w.ReferenceOf)
-        |> Option.defaultValue workId
+        resolveOriginalId "Work" (fun id -> getWork id store |> Option.map (fun w -> w.ReferenceOf)) workId
 
     /// Reference OR 그룹: 원본 Work + 해당 원본을 참조하는 모든 reference Work의 ID
     let referenceGroupOf (workId: Guid) (store: DsStore) : Guid list =
-        let origId =
-            getWork workId store
-            |> Option.bind (fun w -> w.ReferenceOf)
-            |> Option.defaultValue workId
+        let origId = resolveOriginalWorkId workId store
         store.WorksReadOnly.Values
-        |> Seq.filter (fun w -> w.Id = origId || w.ReferenceOf = Some origId)
+        |> Seq.filter (fun w -> resolveOriginalWorkId w.Id store = origId)
         |> Seq.map (fun w -> w.Id)
         |> Seq.toList
 
@@ -234,9 +245,7 @@ module Queries =
 
     /// Reference Call이면 원본 ID, 아니면 자기 자신 ID 반환
     let resolveOriginalCallId (callId: Guid) (store: DsStore) : Guid =
-        getCall callId store
-        |> Option.bind (fun c -> c.ReferenceOf)
-        |> Option.defaultValue callId
+        resolveOriginalId "Call" (fun id -> getCall id store |> Option.map (fun c -> c.ReferenceOf)) callId
 
     /// <summary>System 폐포 — 대상 System + 하위 ApiCall 들이 참조(ApiDef)하는 시스템들을 재귀 수집.</summary>
     /// System 단위 실행(멀티 PLC)에서 인과(ApiCall→ApiDef)가 끊기지 않는 최소 엔진 범위.
@@ -282,12 +291,9 @@ module Queries =
 
     /// Reference OR 그룹: 원본 Call + 해당 원본을 참조하는 모든 reference Call의 ID
     let callReferenceGroupOf (callId: Guid) (store: DsStore) : Guid list =
-        let origId =
-            getCall callId store
-            |> Option.bind (fun c -> c.ReferenceOf)
-            |> Option.defaultValue callId
+        let origId = resolveOriginalCallId callId store
         store.CallsReadOnly.Values
-        |> Seq.filter (fun c -> c.Id = origId || c.ReferenceOf = Some origId)
+        |> Seq.filter (fun c -> resolveOriginalCallId c.Id store = origId)
         |> Seq.map (fun c -> c.Id)
         |> Seq.toList
 
@@ -476,8 +482,9 @@ module Queries =
     /// 동작 시간이 critical path 계산에서 통째로 누락된다.
     /// Tx=Rx 인 일반 2-API 디바이스는 폴백이 발동하지 않아 동작이 동일하다.
     let private callDeviceDurationMs (call: Call) (store: DsStore) : int =
+        let call = getCall (resolveOriginalCallId call.Id store) store |> Option.defaultValue call
         let durationOfWork (workId: Guid) =
-            getWork workId store |> Option.bind (fun w -> w.Duration)
+            getWork (resolveOriginalWorkId workId store) store |> Option.bind (fun w -> w.Duration)
         call.ApiCalls
         |> Seq.choose (fun apiCall ->
             apiCall.ApiDefId
@@ -500,10 +507,11 @@ module Queries =
 
     /// Work 하나에 직접 설정된 abnormal duration range(ms)를 반환합니다.
     let tryGetWorkDurationRangeMs (workId: Guid) (store: DsStore) : RxTimingRange option =
-        getWork workId store |> Option.bind directWorkDurationRangeMs
+        getWork (resolveOriginalWorkId workId store) store |> Option.bind directWorkDurationRangeMs
 
     /// Call 하나의 Device abnormal duration range(ms): Call → ApiCall → ApiDef → RxGuid → Device Work → Min/MaxDuration.
     let private callDeviceDurationRangeMs (call: Call) (store: DsStore) : RxTimingRange option =
+        let call = getCall (resolveOriginalCallId call.Id store) store |> Option.defaultValue call
         let rangeOptions =
             call.ApiCalls
             |> Seq.choose (fun apiCall ->
@@ -543,13 +551,17 @@ module Queries =
         // Call → 사용하는 Device Work(RxGuid) 목록
         let callRxWorks =
             calls
+            // References name one event; separate original Calls remain separate
+            // resource users even when they happen to invoke the same API.
+            |> List.distinctBy (fun c -> resolveOriginalCallId c.Id store)
+            |> List.map (fun c -> getCall (resolveOriginalCallId c.Id store) store |> Option.defaultValue c)
             |> List.map (fun c ->
                 c.ApiCalls
                 |> Seq.choose (fun apiCall ->
                     apiCall.ApiDefId
                     |> Option.bind (fun defId -> getApiDef defId store)
                     |> Option.bind (fun def -> def.RxGuid)
-                    |> Option.bind (fun rxId -> getWork rxId store))
+                    |> Option.bind (fun rxId -> getWork (resolveOriginalWorkId rxId store) store))
                 |> Seq.toList)
 
         let rxWorks =
@@ -617,6 +629,7 @@ module Queries =
     /// 최장 경로(critical path)를 계산하고, 디바이스 자원(mutex) 직렬화 하한과의 max 를 취합니다.
     /// Device duration이 없으면 None.</summary>
     let tryGetDeviceDurationMs (workId: Guid) (store: DsStore) : int option =
+        let workId = resolveOriginalWorkId workId store
         let calls = callsOf workId store
         if calls.IsEmpty then None
         else
@@ -659,6 +672,7 @@ module Queries =
     /// <summary>Work 내 Call들의 Device abnormal duration range(ms)를 critical path 기준으로 반환합니다.
     /// MinDuration 미명시는 0ms 로 해석하지만, MaxDuration 이 없는 Device Work 는 range 계산에서 제외합니다.</summary>
     let tryGetDeviceDurationRangeMs (workId: Guid) (store: DsStore) : RxTimingRange option =
+        let workId = resolveOriginalWorkId workId store
         let calls = callsOf workId store
         if calls.IsEmpty then tryGetWorkDurationRangeMs workId store
         else

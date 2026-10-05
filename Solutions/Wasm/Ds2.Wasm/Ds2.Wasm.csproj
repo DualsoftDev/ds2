@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishTrimmed>true</PublishTrimmed>
+    <WasmEnableSIMD>false</WasmEnableSIMD>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- IL2026: 리플렉션 STJ 를 의도적으로 쓴다(위 JsonSerializerIsReflectionEnabledByDefault 와 한 쌍) -->
+    <NoWarn>$(NoWarn);IL2026;IL2104;CS1591</NoWarn>
+    <!-- Ds2.Core 의 JsonConverter 는 리플렉션 기반 System.Text.Json 을 쓴다.
+         WASM 기본값은 이를 막아 로드가 런타임에 죽는다 (JsonSerializerIsReflectionDisabled). -->
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ⚠ 아래 넷은 «없으면 빌드는 통과하고 런타임에 죽는» 설정이다. 지우지 말 것.
+         · Ds2.Core / FSharp.Core : F# 레코드 생성자를 FSharp.Reflection 이 찾는데 트리머가 지운다
+                                    → "The record type 'Ds2.Core.TokenSpec' is invalid."
+         · Ds2.Runtime            : 엔진 내부도 같은 이유
+         · log4net                : 리포지토리 타입을 리플렉션으로 확인한다
+                                    → "Hierarchy ... must implement the ILoggerRepository interface" -->
+    <!-- Ds2.Wasm 자신도 제외한다. HierarchyBuilder 의 GraphicHierarchy/GraphicNode 를
+         리플렉션 STJ 가 직렬화하는데, 트리머가 속성 메타데이터를 지우면
+         rootId·meta 같은 필드가 **조용히 빠진 JSON** 이 나온다 (setHierarchy → false). -->
+    <TrimmerRootAssembly Include="Ds2.Wasm" />
+    <TrimmerRootAssembly Include="Ds2.Core" />
+    <TrimmerRootAssembly Include="Ds2.Runtime" />
+    <TrimmerRootAssembly Include="FSharp.Core" />
+    <TrimmerRootAssembly Include="log4net" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\Convert\Ds2.Text\Ds2.Text.fsproj" />
+    <ProjectReference Include="..\..\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- __HIERARCHY 투영기. Promaker 가 원본을 소유하고 있어 «링크» 로 한 벌만 유지한다.
+         공유 라이브러리로 승격하는 건 Promaker 쪽 네임스페이스를 건드려야 해서 뒤로 미룬다. -->
+    <Compile Include="..\..\..\Apps\Promaker\Promaker\Windows\GraphicInfoWindow\HierarchyBuilder.cs"
+             Link="HierarchyBuilder.cs" />
+  </ItemGroup>
+
+</Project>

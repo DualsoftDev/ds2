@@ -124,6 +124,7 @@ module internal DirectPasteOps =
             ) (Map.empty, Map.empty, PasteDeviceOps.initialDevicePasteState)
         replayWorkArrows store targetSystemId sourceWorkArrows workMap
         replayCallArrows store sourceCallArrows callMap
+        let owners = workMap |> Map.add sourceFlow.Id pastedFlow.Id |> Map.add sourceSystemId targetSystemId
         pastedFlow.Id
 
     let pasteWorksToFlowBatch (store: DsStore) (sourceWorks: Work list) (targetFlowId: Guid) (baseIndex: int) (mode: CrossFlowDeviceMode) : Guid list =
@@ -152,6 +153,12 @@ module internal DirectPasteOps =
         | Some flow -> replayWorkArrows store flow.ParentId sourceWorkArrows workMap
         | None -> ()
         replayCallArrows store sourceCallArrows callMap
+        let owners =
+            sourceWorks |> List.fold (fun map w -> Map.add w.ParentId targetFlowId map) workMap
+        let owners =
+            match Queries.getFlow targetFlowId store with
+            | Some flow -> sourceSystemIds |> Set.fold (fun map id -> Map.add id flow.ParentId map) owners
+            | None -> owners
         pastedIdsRev |> List.rev
 
     let pasteCallsToWorkBatchWithMode
@@ -180,6 +187,7 @@ module internal DirectPasteOps =
                 Map.add sc.Id pc.Id cm, pc.Id :: ids, nds
             ) (Map.empty, [], PasteDeviceOps.initialDevicePasteState)
         replayCallArrows store sourceCallArrows callMap
+        let owners = sourceWorkIds |> Seq.map (fun id -> id, targetWorkId) |> Map.ofSeq
         pastedIdsRev |> List.rev
 
     let pasteCallsToWorkBatch (store: DsStore) (sourceCalls: Call list) (targetWorkId: Guid) (baseIndex: int) : Guid list =

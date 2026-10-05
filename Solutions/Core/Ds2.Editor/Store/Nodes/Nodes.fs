@@ -460,7 +460,7 @@ type DsStoreNodesExtensions =
                             |> Seq.map (fun a -> a.Id)
                             |> Seq.toList
                         for aid in arrowIds do
-                            store.TrackRemove(store.ArrowWorks, aid)
+                            CascadeRemove.removeWorkArrow store aid
                         store.TrackMutate(store.Works, w.Id, fun x ->
                             x.ParentId <- targetFlowId
                             x.FlowPrefix <- targetFlow.Name))
@@ -485,6 +485,10 @@ type DsStoreNodesExtensions =
                 |> Seq.toList
             if movables.IsEmpty then 0
             else
+                let movedFlowIds = movables |> Seq.map (fun f -> f.Id) |> Set.ofSeq
+                let movedWorkIds =
+                    movables |> Seq.collect (fun f -> Queries.worksOf f.Id store)
+                    |> Seq.map (fun w -> w.Id) |> Set.ofSeq
                 store.WithTransaction($"Move {movables.Length} Flow(s) to System", fun () ->
                     for flow in movables do
                         let workIds =
@@ -497,7 +501,7 @@ type DsStoreNodesExtensions =
                                 store.TrackMutate(store.ArrowWorks, arrow.Id, fun a ->
                                     a.ParentId <- targetSystemId)
                             elif srcIn || tgtIn then
-                                store.TrackRemove(store.ArrowWorks, arrow.Id)
+                                CascadeRemove.removeWorkArrow store arrow.Id
                         let existingNames =
                             Queries.flowsOf targetSystemId store |> List.map (fun f -> f.Name)
                         // oldName 캡처 필수 — TrackMutate 는 같은 인스턴스를 뮤테이트하므로

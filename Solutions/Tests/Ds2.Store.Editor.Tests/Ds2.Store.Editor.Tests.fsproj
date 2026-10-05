@@ -30,6 +30,8 @@
     <Compile Include="SkipActionConditionTests.fs" />
     <Compile Include="EditorProjectionTests.fs" />
     <Compile Include="SimulationTests.fs" />
+    <Compile Include="ExplicitInitializationTests.fs" />
+    <Compile Include="ReferenceChainRuntimeTests.fs" />
     <Compile Include="AbnormalDetectorTests.fs" />
     <Compile Include="SimulationTimeIgnoreTests.fs" />
     <Compile Include="SimulationConnectionReloadTests.fs" />
@@ -39,6 +41,7 @@
     <Compile Include="ControlVirtualPlantInteropTests.fs" />
     <Compile Include="ReferenceCallInteropTests.fs" />
     <Compile Include="RuntimeSnapshotBindingTests.fs" />
+    <Compile Include="InputValueOriginTests.fs" />
     <Compile Include="SimulationCommandFacadeTests.fs" />
     <Compile Include="TagWizardBaseAddressTests.fs" />
     <Compile Include="LsPackReadTests.fs" />
@@ -67,6 +70,7 @@
     <Compile Include="AddTargetQueriesTests.fs" />
     <Compile Include="UndoCapacityTests.fs" />
     <Compile Include="StoreIndexParityTests.fs" />
+    <Compile Include="Ds2TextTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -88,6 +92,7 @@
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\..\Core\Ds2.Editor\Ds2.Editor.fsproj" />
     <ProjectReference Include="..\..\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
+    <ProjectReference Include="..\..\Convert\Ds2.Text\Ds2.Text.fsproj" />
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime.Remote\Ds2.Runtime.Remote.fsproj" />
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />

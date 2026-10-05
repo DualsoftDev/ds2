@@ -1953,12 +1953,14 @@ module IOValueResetClearTests =
             engine.ForceCallState(callId, Status4.Finish)
             Assert.True(waitUntil 1000 (fun () ->
                 engine.State.IOValues |> Map.containsKey apiCallId))
+            Assert.Equal(Some InputValueOrigin.EngineSynthesis, engine.State.IOValueOrigins |> Map.tryFind apiCallId)
 
             // Reset (R) 시점에 clearCallIOValues 가 발화되어야 함.
             engine.ForceCallState(callId, Status4.Ready)
             let cleared = waitUntil 1000 (fun () ->
                 engine.State.IOValues |> Map.containsKey apiCallId |> not)
             Assert.True(cleared, "Simulation 모드에서 Call Reset 시 IOValue 가 비워져야 함")
+            Assert.False(engine.State.IOValueOrigins |> Map.containsKey apiCallId)
         finally
             engine.Stop()
 
@@ -1971,6 +1973,7 @@ module IOValueResetClearTests =
             engine.InjectIOValue(apiCallId, "true")
             Assert.True(waitUntil 1000 (fun () ->
                 engine.State.IOValues |> Map.tryFind apiCallId = Some "true"))
+            Assert.Equal(Some InputValueOrigin.Unspecified, engine.State.IOValueOrigins |> Map.tryFind apiCallId)
 
             // Reset 전이 — Monitoring 은 외부 IO 가 진실원이라 clear 하면 안 됨.
             engine.ForceCallState(callId, Status4.Ready)

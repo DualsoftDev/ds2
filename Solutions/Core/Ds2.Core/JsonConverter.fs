@@ -13,7 +13,18 @@ open Ds2.Core
 module JsonConverter =
 
     /// JSON 직렬화 옵션
-    let private defaultOptions = JsonOptions.createProjectSerializationOptions ()
+    let private defaultOptions =
+        let options = JsonOptions.createProjectSerializationOptions ()
+        let resolver = Serialization.Metadata.DefaultJsonTypeInfoResolver()
+        resolver.Modifiers.Add(fun info ->
+            if info.Type = typeof<Project> then
+                // A missing file timestamp is not the time of loading. Keep the
+                // legacy Text sentinel deterministic; explicit JSON overwrites it.
+                // Ordinary Project construction still uses DateTimeOffset.Now.
+                info.OnDeserializing <- Action<obj>(fun value ->
+                    (value :?> Project).DateTime <- DateTimeOffset.UnixEpoch))
+        options.TypeInfoResolver <- resolver
+        options
     let private sdfExtension = ".sdf"
 
     let private hasExtension (filePath: string) (extension: string) =

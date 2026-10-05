@@ -98,6 +98,9 @@ type DsStoreArrowsExtensions =
             |> Seq.distinct
             |> Seq.toList
         let links = DirectArrowOps.orderedWorkChainLinks store orderedIds
+        let retainedGroupPairs =
+            if arrowType = ArrowType.Group then links |> Seq.map (fun (_, a, b) -> a, b) |> Set.ofSeq
+            else Set.empty
         for arrowId in arrowIdsToRemove do
             store.TrackRemove(store.ArrowWorks, arrowId)
         for (systemId, sourceId, targetId) in links do
@@ -123,8 +126,8 @@ type DsStoreArrowsExtensions =
             StoreLog.debug($"count={toRemove.Length}")
             store.WithTransaction("Delete Arrows", fun () ->
                 for (arrowId, isWork) in toRemove do
-                    if isWork then store.TrackRemove(store.ArrowWorks, arrowId)
-                    else store.TrackRemove(store.ArrowCalls, arrowId))
+                    if isWork then CascadeRemove.removeWorkArrow store arrowId
+                    else CascadeRemove.removeCallArrow store arrowId)
             store.EmitConnectionsChangedAndHistory()
             toRemove.Length
 

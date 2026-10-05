@@ -132,6 +132,12 @@ module internal SystemPackageOps =
                         | true, ad when not (visited.Contains ad.ParentId) -> queue.Enqueue ad.ParentId
                         | _ -> ()
 
+        let groupOwners = HashSet<Guid>(Seq.concat [
+            rootSystems |> Seq.map (fun x -> x.Id)
+            deviceSystems |> Seq.map (fun x -> x.Id)
+            flows |> Seq.map (fun x -> x.Id)
+            works |> Seq.map (fun x -> x.Id) ])
+        let memberIds = HashSet<Guid>(Seq.append (works |> Seq.map (fun x -> x.Id)) (calls |> Seq.map (fun x -> x.Id)))
         { RootSystems   = List.ofSeq rootSystems
           DeviceSystems = List.ofSeq deviceSystems
           Flows         = List.ofSeq flows
@@ -139,7 +145,8 @@ module internal SystemPackageOps =
           Calls         = List.ofSeq calls
           ApiDefs       = List.ofSeq apiDefs
           ArrowWorks    = List.ofSeq arrowWorks
-          ArrowCalls    = List.ofSeq arrowCalls }
+          ArrowCalls    = List.ofSeq arrowCalls
+          }
 
     /// 조건 트리(클론) 를 제자리 갱신 — Condition/ApiCall Id 재발급 + ApiDefId·OriginFlowId remap.
     /// map 에 없는 ApiDefId 는 원본 유지 (소스 자체가 dangling 이던 경우 — 경고는 사후 스캔이 담당).

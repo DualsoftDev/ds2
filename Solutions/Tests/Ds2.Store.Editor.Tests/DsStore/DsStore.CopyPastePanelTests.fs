@@ -625,3 +625,10 @@ module PanelTests =
 // =============================================================================
 // File I/O
 // =============================================================================
+
+module NamedGroupPasteTests =
+    let private paste store kind ids targetKind target =
+        match (store: DsStore).PasteEntities(kind, ids, targetKind, target, 0) with
+        | PasteResult.Ok ids -> ids
+        | result -> failwithf "%A" result
+

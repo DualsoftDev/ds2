@@ -57,7 +57,7 @@ type DsStoreCallMoveExtensions =
             |> Seq.map (fun arrow -> arrow.Id)
             |> Seq.toList
         for arrowId in attachedArrowIds do
-            store.TrackRemove(store.ArrowCalls, arrowId)
+            CascadeRemove.removeCallArrow store arrowId
         store.TrackMutate(store.Calls, call.Id, fun current ->
             current.ParentId <- targetWork.Id)
 

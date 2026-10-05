@@ -224,6 +224,17 @@ module RenameTests =
 module ArrowTests =
 
     [<Fact>]
+    let ``RemoveArrows deletes arrows`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.ResetReset) |> ignore
+        let arrowId = store.ArrowWorks.Values |> Seq.head |> fun a -> a.Id
+        let removed = store.RemoveArrows([ arrowId ])
+        Assert.Equal(1, removed)
+        Assert.Equal(0, store.ArrowWorks.Count)
+
+    [<Fact>]
     let ``ConnectSelectionInOrder creates ArrowBetweenWorks with parentId = systemId`` () =
         let store = createStore ()
         let _, system, flow, work1 = setupBasicHierarchy store
@@ -579,19 +590,3 @@ module ArrowTests =
 
         Assert.False(changed)
         Assert.Contains(store.ArrowWorks.Values, fun arrow -> arrow.Id = arrowToReconnect.Id && arrow.TargetId = work3.Id)
-
-    [<Fact>]
-    let ``RemoveArrows deletes arrows`` () =
-        let store = createStore ()
-        let _, _, flow, work1 = setupBasicHierarchy store
-        let work2 = addWork store "W2" flow.Id
-        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.ResetReset) |> ignore
-        let arrowId = store.ArrowWorks.Values |> Seq.head |> fun a -> a.Id
-        let removed = store.RemoveArrows([ arrowId ])
-        Assert.Equal(1, removed)
-        Assert.Equal(0, store.ArrowWorks.Count)
-
-// =============================================================================
-// Paste
-// =============================================================================
-

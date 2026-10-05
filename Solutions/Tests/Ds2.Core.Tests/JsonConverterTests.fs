@@ -481,3 +481,33 @@ module ApiDefTypeRoundTripTests =
             let apiDef = ApiDef("A", Guid.NewGuid())
             apiDef.SensingType <- value
             Assert.Equal(value, (roundTrip apiDef).SensingType)
+
+
+module ProjectDateTimeDefaults =
+    [<Fact>]
+    let ``missing project timestamp is deterministic on file read`` () =
+        let source = """{"name":"Legacy"}"""
+        let first = JsonConverter.deserialize<Project> source
+        let second = JsonConverter.deserialize<Project> source
+        Assert.Equal(DateTimeOffset.UnixEpoch, first.DateTime)
+        Assert.Equal(first.DateTime, second.DateTime)
+
+    [<Fact>]
+    let ``explicit timestamp preserves offset and one tick precision`` () =
+        let project = JsonConverter.deserialize<Project> """{"name":"P","dateTime":"2026-10-04T09:10:11.1234567+09:00"}"""
+        let copy = roundTrip project
+        Assert.Equal(TimeSpan.FromHours(9.0), copy.DateTime.Offset)
+        Assert.Equal(1234567L, copy.DateTime.Ticks % TimeSpan.TicksPerSecond)
+        Assert.Equal(project.DateTime.Ticks, copy.DateTime.Ticks)
+
+    [<Fact>]
+    let ``new project construction still records current time`` () =
+        let before = DateTimeOffset.UtcNow
+        let project = Project("New")
+        let after = DateTimeOffset.UtcNow
+        Assert.True(project.DateTime >= before && project.DateTime <= after)
+
+    [<Fact>]
+    let ``explicit minimum timestamp is not treated as missing`` () =
+        let project = JsonConverter.deserialize<Project> """{"name":"P","dateTime":"0001-01-01T00:00:00+00:00"}"""
+        Assert.Equal(DateTimeOffset.MinValue, project.DateTime)
