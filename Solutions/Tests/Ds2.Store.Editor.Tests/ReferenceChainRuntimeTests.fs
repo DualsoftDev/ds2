@@ -283,3 +283,60 @@ let ``Work reference means OR - either inbound path can raise the shared event``
     // 이것이 없으면 위 둘은 「늘 참인 검사」일 수 있다.
     Assert.False(canStart (withFinished [ pathA.Id; pathB.Id ]) after.Id,
         "공유사건이 아직 안 끝났는데 뒷일이 선다 — OR 가 아니라 아무거나 통과시키고 있다")
+
+/// Work 의 `skip when` 을 글로 열어도 되는가 — **교착 가설을 실측으로 가린다.**
+///
+/// 가설(DS2_CONDITION_TEXT_STRATEGY Stage 3): 건너뛴 Work 는 epoch 이 오르지 않아
+/// 뒷일이 영영 서지 못한다. 추정으로 막거나 열지 않기로 했으므로 재어 본다.
+///
+/// 엔진 스레드는 쓰지 않는다 — 전에 `ForceWorkState` 와 경합해 간헐 실패했다.
+/// StateManager 의 전이 한 지점과 선행 판정만 직접 두드린다.
+[<Fact>]
+let ``skipped Work finishes and its successor still starts - no epoch deadlock`` () =
+    let store = createStore ()
+    let project, _, flow, before = setupBasicHierarchy store
+    let target = addWork store "Target" flow.Id
+    let after = addWork store "After" flow.Id
+    store.ConnectSelectionInOrder([ before.Id; target.Id; after.Id ], ArrowType.Start) |> ignore
+
+    // 조건이 가리킬 신호 — 장치 Work 가 Finish 면 「켜짐」으로 읽힌다(IO 없는 모드).
+    let device = addSystem store "Device" project.Id false
+    let deviceFlow = addFlow store "Motion" device.Id
+    let move = addWork store "Move" deviceFlow.Id
+    move.Duration <- Some (TimeSpan.FromMilliseconds 10.)
+    let api = addApiDef store "Run" device.Id
+    api.TxGuid <- Some move.Id
+    api.RxGuid <- Some move.Id
+    let gate = store.AddCallWithLinkedApiDefs(before.Id, "Device", "Run", [ api.Id ])
+    store.AddWorkConditionWithApiCalls(target.Id, ConditionType.SkipAction,
+                                       [ store.Calls[gate].ApiCalls[0].Id ]) |> ignore
+
+    let index = SimIndex.build store 10
+    let manager = StateManager(index, 10)
+    let skipper g = WorkConditionChecker.shouldSkipWork index (manager.GetState()) g
+    let canStart g = WorkConditionChecker.canStartWorkPredOnly index (manager.GetState()) g
+
+    // ── ① 조건이 거짓일 때 — 건너뛰지 **않는다** ──────────────────────
+    // 반대쪽을 먼저 본다. 이것이 없으면 ②는 「늘 참인 검사」다.
+    Assert.False(skipper target.Id, "신호가 꺼졌는데 건너뛴다")
+    let going = manager.ApplyWorkTransition(target.Id, Status4.Going, skipper)
+    Assert.Equal(Status4.Going, going.ActualNewState)
+    Assert.False(going.IsSkipped)
+    Assert.False(canStart after.Id, "Target 이 돌고 있는데 뒷일이 섰다")
+
+    // Target 을 Ready 로 되돌려 ②를 같은 출발선에서 잰다
+    manager.ApplyWorkTransition(target.Id, Status4.Ready, (fun _ -> false)) |> ignore
+
+    // ── ② 신호를 켠다 — 건너뛰고 **Finish 가 된다** ───────────────────
+    manager.ApplyWorkTransition(move.Id, Status4.Finish, (fun _ -> false)) |> ignore
+    Assert.True(skipper target.Id, "신호가 켜졌는데 건너뛰지 않는다")
+    let skipped = manager.ApplyWorkTransition(target.Id, Status4.Going, skipper)
+    Assert.Equal(Status4.Finish, skipped.ActualNewState)
+    Assert.True(skipped.IsSkipped, "건너뛴 사실이 관측되지 않는다")
+    Assert.True(skipped.HasChanged)
+
+    // ── ③ 교착 가설의 핵심 — 뒷일이 **선다** ──────────────────────────
+    // 건너뛴 Work 는 Call 을 하나도 돌리지 않았다. 그래도 뒷일의 선행 판정은
+    // Work 상태(Finish)로 하므로 Call epoch 과 무관하다. 가설은 **반증됐다.**
+    Assert.Equal(Status4.Finish, manager.GetWorkState target.Id)
+    Assert.True(canStart after.Id, "건너뛴 Work 뒤에서 뒷일이 서지 못한다 — 교착")
