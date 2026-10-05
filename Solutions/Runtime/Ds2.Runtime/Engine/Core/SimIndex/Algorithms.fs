@@ -179,18 +179,15 @@ module internal SimIndexAlgorithms =
         map |> Map.tryFind key |> Option.defaultValue []
 
     let private computeWorkDuration (store: DsStore) (workCallGuids: Map<Guid, Guid list>) (workGuid: Guid) : float =
-        match Queries.getWork workGuid store with
+        let resolvedId = Queries.resolveOriginalWorkId workGuid store
+        match Queries.getWork resolvedId store with
         | None -> 0.0
         | Some work ->
-            let periodSource =
-                match work.ReferenceOf with
-                | Some origId -> Queries.getWork origId store |> Option.bind (fun w -> w.Duration)
-                | None -> work.Duration
+            let periodSource = work.Duration
             let userDurationMs =
                 periodSource
                 |> Option.map (fun ts -> ts.TotalMilliseconds)
                 |> Option.defaultValue 0.0
-            let resolvedId = work.ReferenceOf |> Option.defaultValue work.Id
             let callGuids = findOrEmpty resolvedId workCallGuids
             if callGuids.IsEmpty then userDurationMs
             else
@@ -220,10 +217,7 @@ module internal SimIndexAlgorithms =
         |> List.fold (fun (acc: Map<Guid, RxTimingRange>) workGuid ->
             if skipGuids.Contains workGuid then acc
             else
-                let resolvedGuid =
-                    Queries.getWork workGuid store
-                    |> Option.bind (fun work -> work.ReferenceOf)
-                    |> Option.defaultValue workGuid
+                let resolvedGuid = Queries.resolveOriginalWorkId workGuid store
                 match Queries.tryGetDeviceDurationRangeMs resolvedGuid store with
                 | Some range -> acc.Add(workGuid, range)
                 | None -> acc.Remove(workGuid)) currentRanges

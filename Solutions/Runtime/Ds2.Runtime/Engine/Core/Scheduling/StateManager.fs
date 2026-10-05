@@ -154,6 +154,10 @@ type StateManager(index: SimIndex, initialTickMs: int) =
     member _.SetIOValue(apiCallGuid: Guid, value: string) =
         lock syncRoot (fun () -> state <- SimState.setIOValue apiCallGuid value state)
 
+    /// Diagnostic-only source marking; the same value/epoch/stability rules apply.
+    member _.SetSynthesizedIOValue(apiCallGuid: Guid, value: string) =
+        lock syncRoot (fun () -> state <- SimState.setSynthesizedIOValue apiCallGuid value state)
+
     member _.ClearIOValues(apiCallGuids: Guid seq) =
         lock syncRoot (fun () -> state <- SimState.clearIOValues apiCallGuids state)
 

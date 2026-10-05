@@ -90,11 +90,11 @@ module internal EngineLifecycle =
     /// InitialFlag가 붙은 RxWork들을 즉시 Finish 상태로 고정하고 Ready→Finish 전이 이벤트 발행.
     /// Engine.ApplyInitialStates의 외부화 버전.
     let applyInitialFinishStates
-        (index: SimIndex)
+        (initialFinishWorkGuids: Set<Guid>)
         (stateManager: StateManager)
         (resolveWorkName: Guid -> string)
         (triggerWorkStateChanged: WorkStateChangedArgs -> unit) =
-        for workGuid in SimIndex.findInitialFlagRxWorkGuids index do
+        for workGuid in initialFinishWorkGuids do
             stateManager.ForceWorkState(workGuid, Status4.Finish)
             triggerWorkStateChanged {
                 WorkGuid = workGuid

@@ -53,6 +53,13 @@ module internal SimIndexBuild =
     let buildScoped (store: DsStore) (tickMs: int) (targetSystemIds: Set<Guid> option) : SimIndex =
         let project = Queries.allProjects store |> List.tryHead
 
+        let originalWork id =
+            Queries.getWork (Queries.resolveOriginalWorkId id store) store
+            |> Option.defaultWith (fun () -> invalidOp $"Work Reference target does not exist: {id}.")
+        let originalCall id =
+            Queries.getCall (Queries.resolveOriginalCallId id store) store
+            |> Option.defaultWith (fun () -> invalidOp $"Call Reference target does not exist: {id}.")
+
         let inTarget (systemId: Guid) =
             match targetSystemIds with
             | Some ids -> ids.Contains systemId
@@ -101,10 +108,7 @@ module internal SimIndexBuild =
         }
 
         let addCallData (work: Work) (callStartPreds: Map<Guid, Guid list>) (call: Call) =
-            let dataSource =
-                match call.ReferenceOf with
-                | Some origId -> Queries.getCall origId store |> Option.defaultValue call
-                | None -> call
+            let dataSource = originalCall call.Id
             let apiCallIds = dataSource.ApiCalls |> Seq.map (fun apiCall -> apiCall.Id) |> Seq.toList
             state.CallApiCallGuids <- state.CallApiCallGuids.Add(call.Id, apiCallIds)
             state.CallStartPreds <- state.CallStartPreds.Add(call.Id, findOrEmpty dataSource.Id callStartPreds)
@@ -131,15 +135,13 @@ module internal SimIndexBuild =
             (workStartPreds: Map<Guid, Guid list>)
             (workPureStartPreds: Map<Guid, Guid list>)
             (workResetPreds: Map<Guid, Guid list>) =
-            let periodSource =
-                match work.ReferenceOf with
-                | Some origId -> Queries.getWork origId store |> Option.bind (fun w -> w.Duration)
-                | None -> work.Duration
+            let source = originalWork work.Id
+            let periodSource = source.Duration
             let userDurationMs =
                 periodSource
                 |> Option.map (fun ts -> ts.TotalMilliseconds)
                 |> Option.defaultValue 0.0
-            let resolvedId = work.ReferenceOf |> Option.defaultValue work.Id
+            let resolvedId = source.Id
             // device work(leaf)의 plan Going 지속 = work.Duration 만(순수 가동시간).
             // ActionType timeAppend(출력 유지)는 Going 막대를 늘이지 않고, 간트에 빨간 채워진 사각형(시각화)으로만 표기한다(사용자 확정 2026-06-06).
             let duration =
@@ -162,10 +164,7 @@ module internal SimIndexBuild =
             state.WorkSystemName <- state.WorkSystemName.Add(work.Id, system.Name)
             state.WorkName <- state.WorkName.Add(work.Id, work.Name)
             state.WorkFlowGuid <- state.WorkFlowGuid.Add(work.Id, flowId)
-            let conditionsSource =
-                match work.ReferenceOf with
-                | Some origId -> Queries.getWork origId store |> Option.map (fun w -> w.Conditions) |> Option.defaultValue work.Conditions
-                | None -> work.Conditions
+            let conditionsSource = source.Conditions
             state.WorkSkipActionConditions <- state.WorkSkipActionConditions.Add(work.Id, buildConditionExpression store ConditionType.SkipAction conditionsSource)
             state.AllWorkGuids <- work.Id :: state.AllWorkGuids
 
@@ -217,7 +216,7 @@ module internal SimIndexBuild =
                 let works = Queries.worksOf flow.Id store
 
                 for work in works do
-                    let resolvedWorkId = work.ReferenceOf |> Option.defaultValue work.Id
+                    let resolvedWorkId = (originalWork work.Id).Id
                     let calls = Queries.callsOf resolvedWorkId store
                     let callGuids = calls |> List.map (fun c -> c.Id)
 
@@ -236,7 +235,7 @@ module internal SimIndexBuild =
             state.AllWorkGuids
             |> List.choose (fun workGuid ->
                 Queries.getWork workGuid store
-                |> Option.map (fun work -> workGuid, (work.ReferenceOf |> Option.defaultValue workGuid)))
+                |> Option.map (fun _ -> workGuid, (originalWork workGuid).Id))
             |> Map.ofList
         let workReferenceGroups = SimIndexAlgorithms.buildReferenceGroups workCanonicalGuids
 
@@ -244,7 +243,7 @@ module internal SimIndexBuild =
             state.AllCallGuids
             |> List.choose (fun callGuid ->
                 Queries.getCall callGuid store
-                |> Option.map (fun call -> callGuid, (call.ReferenceOf |> Option.defaultValue callGuid)))
+                |> Option.map (fun _ -> callGuid, (originalCall callGuid).Id))
             |> Map.ofList
         let callReferenceGroups = SimIndexAlgorithms.buildReferenceGroups callCanonicalGuids
 

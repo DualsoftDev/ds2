@@ -7,6 +7,10 @@ open Ds2.Core.Store
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module SimIndex =
 
+    /// Positive model flags only; no Call-order or RET-name fallback.
+    let findExplicitInitialFinishWorkGuids (index: SimIndex) : Set<Guid> =
+        SimIndexHomingQueries.findExplicitInitialFinishWorkGuids index
+
     let findOrEmpty key map =
         SimIndexAlgorithms.findOrEmpty key map
 

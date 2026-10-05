@@ -32,6 +32,7 @@ module internal EventDrivenCompositionContext =
         (stateManager: StateManager)
         (scheduler: EventScheduler)
         runtimeMode
+        rearmingPolicy
         getIsHomingPhase
         getTimeIgnore
         scheduleConditionEvaluation
@@ -44,6 +45,7 @@ module internal EventDrivenCompositionContext =
         StateManager = stateManager
         Scheduler = scheduler
         RuntimeMode = runtimeMode
+        RearmingPolicy = rearmingPolicy
         IsHomingPhase = getIsHomingPhase
         TimeIgnore = getTimeIgnore
         ScheduleConditionEvaluation = scheduleConditionEvaluation

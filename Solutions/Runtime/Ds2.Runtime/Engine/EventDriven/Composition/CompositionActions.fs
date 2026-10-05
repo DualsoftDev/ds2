@@ -8,8 +8,13 @@ open Ds2.Runtime.Engine.Core
 
 module internal EventDrivenCompositionActions =
 
-    let applyInitialStates (index: SimIndex) (stateManager: StateManager) resolveWorkName triggerWorkStateChanged =
-        EngineLifecycle.applyInitialFinishStates index stateManager resolveWorkName triggerWorkStateChanged
+    let applyInitialStates (index: SimIndex) initialization (stateManager: StateManager) resolveWorkName triggerWorkStateChanged =
+        let targets =
+            if initialization = SimulationInitializationPolicy.ModelOnly then
+                SimIndex.findExplicitInitialFinishWorkGuids index
+            else
+                SimIndex.findInitialFlagRxWorkGuids index
+        EngineLifecycle.applyInitialFinishStates targets stateManager resolveWorkName triggerWorkStateChanged
 
     let applyToken (stateManager: StateManager) emitTokenEvent scheduleConditionEvaluation (workGuid, newValue, kind, token) =
         stateManager.SetWorkToken(workGuid, newValue)
@@ -53,6 +58,7 @@ module internal EventDrivenCompositionActions =
 
     let startWithHomingPhase
         (index: SimIndex)
+        initialization
         applyInitialStates
         getIsHomingPhase
         setIsHomingPhase
@@ -62,24 +68,29 @@ module internal EventDrivenCompositionActions =
         subscribeWorkStateChanged
         startEngine
         executeCallHoming =
-        let isFinishedGuids = SimIndex.findInitialFlagRxWorkGuids index
-        applyInitialStates ()
-        let plan = HomingPhaseSetup.computePlan index isFinishedGuids
-        let homingContext : HomingPhaseContext = {
-            AllGoingTargets = plan.AllGoingTargets
-            DisplayHomingCallGuids = plan.DisplayHomingCallGuids
-            ExecutionCallGuids = plan.ExecutionCallGuids
-            ActiveWorkGuids = plan.ActiveWorkGuids
-            IsHomingPhase = getIsHomingPhase
-            SetIsHomingPhase = setIsHomingPhase
-            SetWorkStateDirect = setWorkStateDirect
-            SetCallStateDirect = setCallStateDirect
-            TriggerHomingPhaseCompleted = triggerHomingPhaseCompleted
-            SubscribeWorkStateChanged = subscribeWorkStateChanged
-            StartEngine = startEngine
-            ExecuteCallHoming = executeCallHoming
-        }
-        EventDrivenHoming.startWithHomingPhase homingContext
+        if initialization = SimulationInitializationPolicy.ModelOnly then
+            applyInitialStates ()
+            startEngine ()
+            false
+        else
+            let isFinishedGuids = SimIndex.findInitialFlagRxWorkGuids index
+            applyInitialStates ()
+            let plan = HomingPhaseSetup.computePlan index isFinishedGuids
+            let homingContext : HomingPhaseContext = {
+                AllGoingTargets = plan.AllGoingTargets
+                DisplayHomingCallGuids = plan.DisplayHomingCallGuids
+                ExecutionCallGuids = plan.ExecutionCallGuids
+                ActiveWorkGuids = plan.ActiveWorkGuids
+                IsHomingPhase = getIsHomingPhase
+                SetIsHomingPhase = setIsHomingPhase
+                SetWorkStateDirect = setWorkStateDirect
+                SetCallStateDirect = setCallStateDirect
+                TriggerHomingPhaseCompleted = triggerHomingPhaseCompleted
+                SubscribeWorkStateChanged = subscribeWorkStateChanged
+                StartEngine = startEngine
+                ExecuteCallHoming = executeCallHoming
+            }
+            EventDrivenHoming.startWithHomingPhase homingContext
 
     let enqueueHubIOValueByAddress
         (ioMap: SignalIOMap)

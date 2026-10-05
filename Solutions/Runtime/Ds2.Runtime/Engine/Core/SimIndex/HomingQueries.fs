@@ -56,16 +56,19 @@ module internal SimIndexHomingQueries =
                 |> Seq.exists (fun apiDef -> apiDef.TxGuid = Some workGuid || apiDef.RxGuid = Some workGuid))
             readyTargets
 
+    let findExplicitInitialFinishWorkGuids (index: SimIndex) : Set<Guid> =
+        index.AllWorkGuids
+        |> List.filter (fun workGuid ->
+            Queries.getWork workGuid index.Store
+            |> Option.bind (fun work -> work.GetSimulationProperties())
+            |> Option.map (fun simProps -> simProps.IsFinished)
+            |> Option.defaultValue false)
+        |> Set.ofList
+
     let findInitialFlagRxWorkGuids (index: SimIndex) : Set<Guid> =
-        let isFinishedWorks =
-            index.AllWorkGuids
-            |> List.filter (fun workGuid ->
-                Queries.getWork workGuid index.Store
-                |> Option.bind (fun work -> work.GetSimulationProperties())
-                |> Option.map (fun simProps -> simProps.IsFinished)
-                |> Option.defaultValue false)
+        let isFinishedWorks = findExplicitInitialFinishWorkGuids index
         if not isFinishedWorks.IsEmpty then
-            isFinishedWorks |> Set.ofList
+            isFinishedWorks
         else
             let autoTargets = computeAutoHomingTargets index
             if not autoTargets.IsEmpty then

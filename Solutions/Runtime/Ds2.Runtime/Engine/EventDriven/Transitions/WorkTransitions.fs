@@ -16,6 +16,7 @@ module internal WorkTransitions =
         StateManager: StateManager
         Scheduler: EventScheduler
         RuntimeMode: Ds2.Core.RuntimeMode
+        RearmingPolicy: SimulationRearmingPolicy
         IsHomingPhase: unit -> bool
         TimeIgnore: unit -> bool
         ScheduleConditionEvaluation: unit -> unit
@@ -196,7 +197,7 @@ module internal WorkTransitions =
     let handleWorkFinishTransition (ctx: Context) workGuid =
         ctx.OnWorkFinish workGuid
         // device 한정: ADV/RET 동시-Finish 교착이면 한쪽을 Homing 으로 깨워 cycle 재기동.
-        if isDeviceWork ctx workGuid then
+        if ctx.RearmingPolicy = SimulationRearmingPolicy.LegacyDeviceRecovery && isDeviceWork ctx workGuid then
             tryBreakMutualFinishDeadlock ctx workGuid
         ctx.ScheduleConditionEvaluation()
 

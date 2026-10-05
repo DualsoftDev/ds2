@@ -63,6 +63,12 @@ type TokenEventArgs = {
     Clock: TimeSpan
 }
 
+/// Diagnostic provenance of the latest stored input write. This is not a
+/// receipt event, condition permission, or proof of physical sensor origin.
+type InputValueOrigin =
+    | Unspecified = 0
+    | EngineSynthesis = 1
+
 /// 시뮬레이션 상태 (immutable snapshot)
 type SimState = {
     WorkStates: Map<Guid, Status4>
@@ -72,6 +78,7 @@ type SimState = {
     Clock: TimeSpan
     TickMs: int
     IOValues: Map<Guid, string>
+    IOValueOrigins: Map<Guid, InputValueOrigin>
     IOValueEpoch: Map<Guid, int>
     /// v10 §11.2 — 현재 IOValue 가 마지막으로 *변경된* sim clock 시점.
     /// WaitInputStable / WaitInputEdgeStable 의 n ms 안정 측정에 사용.
@@ -107,6 +114,7 @@ module SimState =
         Clock = TimeSpan.Zero
         TickMs = tickMs
         IOValues = Map.empty
+        IOValueOrigins = Map.empty
         IOValueEpoch = Map.empty
         IOValueChangedAt = Map.empty
         CallInputEpochSnapshot = Map.empty
@@ -153,7 +161,7 @@ module SimState =
             let elapsed = simState.Clock - goingAt
             if elapsed < TimeSpan.Zero then 0 else int elapsed.TotalMilliseconds)
 
-    let setIOValue (apiCallGuid: Guid) (value: string) simState =
+    let private setIOValueWithOrigin origin (apiCallGuid: Guid) (value: string) simState =
         let previous = simState.IOValues |> Map.tryFind apiCallGuid
         let isChanged = previous <> Some value
         let nextEpoch =
@@ -167,14 +175,24 @@ module SimState =
             else simState.IOValueChangedAt
         { simState with
             IOValues = simState.IOValues.Add(apiCallGuid, value)
+            IOValueOrigins = simState.IOValueOrigins.Add(apiCallGuid, origin)
             IOValueEpoch = nextEpoch
             IOValueChangedAt = nextChangedAt }
+
+    // Preserve legacy epoch/stability semantics: equal-value writes change the
+    // diagnostic origin, but do not imply a new value change or a fresh receipt.
+    let setIOValue apiCallGuid value simState =
+        setIOValueWithOrigin InputValueOrigin.Unspecified apiCallGuid value simState
+
+    let setSynthesizedIOValue apiCallGuid value simState =
+        setIOValueWithOrigin InputValueOrigin.EngineSynthesis apiCallGuid value simState
 
     /// 지정된 ApiCall 들의 IOValue 만 제거. Simulation/Control Reset 시 다음 사이클을 위해 사용.
     let clearIOValues (apiCallGuids: Guid seq) simState =
         let nextValues = apiCallGuids |> Seq.fold (fun (m: Map<Guid, string>) g -> m.Remove g) simState.IOValues
         let nextChangedAt = apiCallGuids |> Seq.fold (fun (m: Map<Guid, TimeSpan>) g -> m.Remove g) simState.IOValueChangedAt
-        { simState with IOValues = nextValues; IOValueChangedAt = nextChangedAt }
+        let nextOrigins = apiCallGuids |> Seq.fold (fun (m: Map<Guid, InputValueOrigin>) g -> m.Remove g) simState.IOValueOrigins
+        { simState with IOValues = nextValues; IOValueChangedAt = nextChangedAt; IOValueOrigins = nextOrigins }
 
     /// v10 §11.2 — 현재 IOValue 가 ON 으로 유지된 ms. 변경 기록이 없으면 0.
     let getIOStableMs (apiCallGuid: Guid) simState : int =
@@ -262,6 +280,7 @@ module SimState =
             FlowStates = simState.FlowStates |> Map.map (fun _ _ -> FlowTag.Ready)
             Clock = TimeSpan.Zero
             IOValues = Map.empty
+            IOValueOrigins = Map.empty
             IOValueEpoch = Map.empty
             IOValueChangedAt = Map.empty
             CallInputEpochSnapshot = Map.empty

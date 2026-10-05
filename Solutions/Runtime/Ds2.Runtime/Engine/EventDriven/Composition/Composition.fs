@@ -11,7 +11,10 @@ open Ds2.Runtime.Engine.Abnormal
 
 /// 이벤트 기반 시뮬레이션 엔진
 /// H 상태 구현: F->H (내부 Call R 정리) -> H->R (최소 1ms)
-type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (string -> string -> unit) option) =
+type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (string -> string -> unit) option, executionOptions: SimulationExecutionOptions) =
+    do
+        if obj.ReferenceEquals(executionOptions, null) then nullArg "executionOptions"
+        executionOptions.ValidateRuntimeMode(runtimeMode)
     // 인덱스에 담긴 Call 로 IO 매핑 스코프를 맞춘다 — System 단위 실행이면 그 System 의 주소만,
     // 전체 인덱스면 기존과 동일한 전 매핑 (AllCallGuids = 전 Call).
     let ioMap = Ds2.Runtime.IO.SignalIOMap.buildFiltered index.Store (Some (Set.ofList index.AllCallGuids))
@@ -158,7 +161,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
                         | Some apiDefId ->
                             match index.Store.ApiDefs.TryGetValue(apiDefId) with
                             | true, apiDef when apiDef.RxGuid = Some workGuid ->
-                                stateManager.SetIOValue(apiCall.Id, RuntimeSemantics.activeInputValue apiCall)
+                                stateManager.SetSynthesizedIOValue(apiCall.Id, RuntimeSemantics.activeInputValue apiCall)
                                 let debounceMs = SimIndex.apiCallSensingAppendMs index apiCall.Id
                                 if debounceMs > maxDebounceMs then maxDebounceMs <- debounceMs
                             | _ -> ()
@@ -177,6 +180,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             stateManager
             scheduler
             runtimeMode
+            executionOptions.Rearming
             (fun () -> isHomingPhase)
             (fun () -> timeIgnore)
             scheduleConditionEvaluation
@@ -429,17 +433,27 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
                 |> Option.map (fun ts -> int ts.TotalMilliseconds))
     let advanceStepRuntime targetTimeMs =
         EventDrivenEngineRuntime.advanceAndDrain runtimeContext targetTimeMs
+    /// 스레드를 만들 수 없는 플랫폼인가 — 브라우저 WebAssembly 가 그렇다(단일 스레드).
+    /// 거기서는 `Thread.Start()` 가 PlatformNotSupportedException 을 던지므로
+    /// 엔진이 드라이버를 소유하지 않고 **호스트가 Step() 으로 시간을 민다**.
+    /// 데스크톱·서버는 이 값이 false 라 기존 경로와 한 글자도 다르지 않다.
+    let hostDrivenLoop = OperatingSystem.IsBrowser()
     let startEngineThread (tokenSource: CancellationTokenSource) =
         runtimeClock.Reset()
-        let thread = Thread(ThreadStart(fun () -> EventDrivenEngineRuntime.simulationLoop runtimeContext tokenSource.Token))
-        thread.IsBackground <- true
-        thread.Name <- "EventDrivenEngine"
-        // Control 모드에서 외부 PLC 와 ms 단위 응답성 유지 위해 우선순위 상향.
-        // wakeSignal 도착 후 simulationLoop 이 lock 잡고 advance 시작하기까지 OS scheduler 의존
-        // — AboveNormal 로 두면 일반 thread 들 사이에서 우선 깨어나게.
-        thread.Priority <- ThreadPriority.AboveNormal
-        thread.Start()
-        engineThread <- Some thread
+        if hostDrivenLoop then
+            // simulationLoop 만 생략한다. 상태·클럭·CancellationTokenSource 준비는 스레드 경로와 동일하며,
+            // stop/resume 의 스레드 정리 로직은 engineThread = None 을 이미 정상 처리한다.
+            engineThread <- None
+        else
+            let thread = Thread(ThreadStart(fun () -> EventDrivenEngineRuntime.simulationLoop runtimeContext tokenSource.Token))
+            thread.IsBackground <- true
+            thread.Name <- "EventDrivenEngine"
+            // Control 모드에서 외부 PLC 와 ms 단위 응답성 유지 위해 우선순위 상향.
+            // wakeSignal 도착 후 simulationLoop 이 lock 잡고 advance 시작하기까지 OS scheduler 의존
+            // — AboveNormal 로 두면 일반 thread 들 사이에서 우선 깨어나게.
+            thread.Priority <- ThreadPriority.AboveNormal
+            thread.Start()
+            engineThread <- Some thread
     let runExternalMutation action =
         // 외부 mutation 은 lock 안에서 상태/스케줄러만 변경하고 wake 신호만 보낸다.
         // advance 는 simulationLoop thread 가 단독으로 처리해서 두 thread 가 번갈아
@@ -492,7 +506,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             scheduleConditionEvaluation
 
     let applyInitialStates () =
-        EventDrivenCompositionActions.applyInitialStates index stateManager resolveWorkName workStateChangedEvent.Trigger
+        EventDrivenCompositionActions.applyInitialStates index executionOptions.Initialization stateManager resolveWorkName workStateChangedEvent.Trigger
 
     let applyToken (workGuid, newValue, kind, token) =
         EventDrivenCompositionActions.applyToken stateManager emitTokenEvent scheduleConditionEvaluation (workGuid, newValue, kind, token)
@@ -533,6 +547,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let startWithHomingPhase () : bool =
         EventDrivenCompositionActions.startWithHomingPhase
             index
+            executionOptions.Initialization
             applyInitialStates
             (fun () -> isHomingPhase)
             (fun value -> isHomingPhase <- value)
@@ -563,6 +578,14 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         match abnormalAdapter with
         | Some a -> a.IsMaxMeasured <- (fun g -> f.Invoke g)   // Control adapter 경로
         | None -> ()
+
+    /// true 면 이 엔진은 드라이버 스레드 없이 돈다(브라우저 WebAssembly).
+    /// 호스트가 `Step()` / `AdvanceSimulationTo` 로 시간을 밀지 않으면 상태는 전진하지 않는다.
+    /// 조용히 멈춘 것처럼 보이지 않도록 호스트가 이 값을 보고 펌프를 걸어야 한다.
+    member _.IsHostDrivenLoop = hostDrivenLoop
+
+    /// Session choices remain fixed across Reset and connection reloads.
+    member _.ExecutionOptions = executionOptions
 
     interface ISimulationEngine with
         member _.State = stateManager.GetState()
@@ -689,4 +712,8 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             EngineLifecycle.stop lifecycleContext
             wakeSignal.Dispose()
 
-    new(index: SimIndex, runtimeMode: RuntimeMode) = new EventDrivenEngine(index, runtimeMode, None)
+    new(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (string -> string -> unit) option) =
+        new EventDrivenEngine(index, runtimeMode, writeTag, SimulationExecutionOptions.Legacy)
+
+    new(index: SimIndex, runtimeMode: RuntimeMode) =
+        new EventDrivenEngine(index, runtimeMode, None, SimulationExecutionOptions.Legacy)

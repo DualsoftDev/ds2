@@ -49,7 +49,7 @@ module internal CallTransitions =
         |> List.iter (fun apiCallId ->
             Queries.getApiCall apiCallId ctx.Index.Store
             |> Option.iter (fun apiCall ->
-                ctx.StateManager.SetIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)
+                ctx.StateManager.SetSynthesizedIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)
                 scheduleDebounceReeval ctx apiCallId))
 
     /// Call R(Reset) 시 그 Call 이 직접 owning 한 ApiCall 들의 IOValue 를 비움.
@@ -72,7 +72,7 @@ module internal CallTransitions =
                     |> Option.bind (fun def -> def.RxGuid)
                     |> Option.isSome
                 if hasRx then
-                    ctx.StateManager.SetIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)
+                    ctx.StateManager.SetSynthesizedIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)
                     scheduleDebounceReeval ctx apiCallId))
 
     let private shouldSynthesizeInputValues (ctx: Context) =
