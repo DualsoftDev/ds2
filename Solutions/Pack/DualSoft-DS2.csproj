@@ -1,0 +1,101 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DualSoft-DS2 — 공개 NuGet 패키지.
+
+    ── 왜 이 파일이 다시 생겼는가 ────────────────────────────────────────
+    0.1.23 까지 게시했지만 이 `.csproj` 는 **저장소에 없었다**(bin/obj 잔해만 남아 있었다).
+    그래서 「어떻게 게시했는가」가 저장소 어디에도 없었고, 받아 쓰는 쪽(DualSoftAI)은
+    0.1.23 에 멈춰 있다 — 그 패키지에는 `DsGroup`·`TextName`·`Ordinal` 은 물론
+    `AssetInterfaces` 조차 없다(실측: 전부 0건).
+
+    게시본 0.1.23 의 내용물을 그대로 되짚어 복원했다. 맞는지는 **빌드해서 파일 목록을
+    0.1.23 과 맞춰 보는 것**으로 확인한다 — 말로 맞다고 하지 않는다.
+
+    ── 무엇을 담는가 ────────────────────────────────────────────────────
+    담는 것은 **규격**이다 — 도메인 모델(.sdf)·변환기·런타임·DS2 Text 표기.
+    생성 지침·PLC 증거 해석·후보 평가 같은 내부 기술은 여기 담지 않는다.
+    그쪽은 비공개 저장소에서 이 패키지를 **받아 쓴다.**
+
+    ── 0.1.23 과 달라진 것 ──────────────────────────────────────────────
+    `Ds2.Text` 를 더했다. DS2 Text v4 원문을 쓰는 유일한 구현이고,
+    이것이 없으면 받아 쓰는 쪽이 모델을 글로 적지 못한다.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <!-- 이 프로젝트 자체는 코드가 없다. 참조한 것들을 모아 담기만 한다. -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <!-- `samples/` 의 예제는 **담기만** 한다. SDK 가 `**/*.cs` 를 자동으로 컴파일 대상에
+         넣어 버려서, 받아 쓰는 사람용 예제가 이 프로젝트의 코드로 빨려 들어갔다. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+
+    <PackageId>DualSoft-DS2</PackageId>
+    <!-- 올릴 때 `dotnet pack -p:Version=x.y.z` 로 덮어쓴다. 기본값은 다음 후보 번호다. -->
+    <Version>0.1.24</Version>
+    <Authors>Dualsoft</Authors>
+    <Copyright>Copyright © Dualsoft 2025</Copyright>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/DualsoftDev/ds2</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/DualsoftDev/ds2.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageIcon>logo_Dualsoft.png</PackageIcon>
+    <PackageReadmeFile>Readme.md</PackageReadmeFile>
+    <Description>DualSoft DS2 — 도메인 모델·DsStore + Mermaid·CSV·AASX import/export + Runtime simulation/report + DS2 Text v4 writer</Description>
+  </PropertyGroup>
+
+  <!--
+    담을 라이브러리. 여기 적힌 것만 `lib/net9.0/` 에 들어간다.
+
+    `PrivateAssets="all"` 가 **반드시** 있어야 한다. 없으면 NuGet 이 이것들을
+    «받아서 쓸 패키지» 로 적어 버린다 — `Ds2.Core 1.0.0` 같은, 세상에 없는 패키지를.
+    받는 쪽은 restore 에서 바로 막힌다. (처음 빌드했을 때 실제로 그렇게 나왔다:
+    게시본 0.1.23 의 의존성은 AasCore·ClosedXML·FSharp.Core·log4net 4건인데
+    내 빌드는 Ds2.* 7건이었고 그 넷이 통째로 빠져 있었다.)
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Core\Ds2.Core\Ds2.Core.fsproj" PrivateAssets="all" />
+    <ProjectReference Include="..\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" PrivateAssets="all" />
+    <ProjectReference Include="..\Convert\Ds2.CSV\Ds2.CSV.fsproj" PrivateAssets="all" />
+    <ProjectReference Include="..\Convert\Ds2.Mermaid\Ds2.Mermaid.fsproj" PrivateAssets="all" />
+    <ProjectReference Include="..\Convert\Ds2.Text\Ds2.Text.fsproj" PrivateAssets="all" />
+    <ProjectReference Include="..\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" PrivateAssets="all" />
+    <ProjectReference Include="..\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!--
+    받는 쪽이 실제로 필요로 하는 외부 의존. 게시본 0.1.23 과 같은 넷이다.
+    `PrivateAssets="all"` 로 프로젝트 참조를 숨겼으니 이쪽은 직접 적어야 한다 —
+    안 적으면 받는 쪽이 FSharp.Core 조차 없이 받아 **쓰는 순간** 터진다.
+  -->
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="AasCore.Aas3_1" />
+    <PackageReference Include="ClosedXML" />
+    <PackageReference Include="log4net" />
+  </ItemGroup>
+
+  <!-- 패키지에 같이 들어가는 글·그림·예제. 0.1.23 과 같은 자리에 둔다. -->
+  <ItemGroup>
+    <None Include="Readme.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\Apps\Promaker\Installer\logo_Dualsoft.png" Pack="true" PackagePath="\" />
+    <None Include="samples\**\*" Pack="true" PackagePath="samples\" />
+  </ItemGroup>
+
+  <!--
+    참조한 프로젝트의 산출물을 `lib/` 로 모은다.
+    `IncludeBuildOutput=false` 라 기본 경로로는 아무것도 안 담기므로 직접 모은다.
+  -->
+  <Target Name="IncludeReferencedAssemblies" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <_PackLib Include="@(ReferenceCopyLocalPaths)"
+                Condition="'%(Extension)' == '.dll' or '%(Extension)' == '.xml'" />
+      <None Include="@(_PackLib)"
+            Condition="$([System.String]::Copy('%(Filename)').StartsWith('Ds2.'))"
+            Pack="true" PackagePath="lib\$(TargetFramework)\" />
+    </ItemGroup>
+  </Target>
+
+</Project>

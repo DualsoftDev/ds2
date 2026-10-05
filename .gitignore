@@ -94,6 +94,10 @@ scripts/scratch/
 
 # Samples
 [Ss]amples/
+# 다만 **패키지에 실리는 예제**는 담는다. `[Ss]amples/` 가 이것까지 삼켜서
+# 게시본 0.1.23 의 `samples/` 가 저장소 어디에도 없었다 — 패키지를 다시 만들 수 없었다는 뜻이다.
+!Solutions/Pack/samples/
+!Solutions/Pack/samples/**
 
 # Installer build artifacts
 Apps/Promaker/Installer/Output/
@@ -150,3 +154,4 @@ Apps/DSPilot/DSPilot/wwwroot/uploads/cctv-overlays.json
 # DSPilot 런타임 AASX 역기록/추출 산출물 — dev 실행 시 CWD(Apps/DSPilot)에 생성되는 OPC 패키지 조각.
 #   project.aasx 는 ProgramData\Dualsoft\Shared\project.aasx 의 복사본이고 소스가 아니다.
 Apps/DSPilot/aasx/
+

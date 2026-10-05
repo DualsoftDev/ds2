@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <DualSoftDs2Version Condition="'$(DualSoftDs2Version)' == ''">0.1.23</DualSoftDs2Version>
+    <UseLocalDs2Projects Condition="'$(UseLocalDs2Projects)' == ''">false</UseLocalDs2Projects>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(UseLocalDs2Projects)' != 'true'">
+    <PackageReference Include="DualSoft-DS2" Version="$(DualSoftDs2Version)" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseLocalDs2Projects)' == 'true'">
+    <ProjectReference Include="..\..\ds2\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\ds2\Solutions\Convert\Ds2.Mermaid\Ds2.Mermaid.fsproj" />
+    <ProjectReference Include="..\..\ds2\Solutions\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
+    <ProjectReference Include="..\..\ds2\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
+    <ProjectReference Include="..\..\ds2\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
+    <ProjectReference Include="..\..\ds2\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" Version="9.0.100" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="sample-line.mmd" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

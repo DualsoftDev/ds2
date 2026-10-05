@@ -1,0 +1,15 @@
+graph TD
+    subgraph Assembly["Assembly"]
+        subgraph PickPart["PickPart"]
+            PickCall["Robot.Pick"]
+        end
+        subgraph WeldJoint["WeldJoint"]
+            WeldCall["Welder.Start"]
+        end
+        subgraph PlacePart["PlacePart"]
+            PlaceCall["Robot.Place"]
+        end
+
+        PickPart --> WeldJoint
+        WeldJoint --> PlacePart
+    end
