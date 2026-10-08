@@ -38,11 +38,9 @@
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- __HIERARCHY 투영기. Promaker 가 원본을 소유하고 있어 «링크» 로 한 벌만 유지한다.
-         공유 라이브러리로 승격하는 건 Promaker 쪽 네임스페이스를 건드려야 해서 뒤로 미룬다. -->
-    <Compile Include="..\..\..\Apps\Promaker\Promaker\Windows\GraphicInfoWindow\HierarchyBuilder.cs"
-             Link="HierarchyBuilder.cs" />
-  </ItemGroup>
+  <!-- __HIERARCHY 투영기는 **이 프로젝트가 들고 있다**(GraphicInfo/).
+       전에는 Promaker 쪽 파일을 «링크» 로 끌어다 썼는데, 그 경로가 사라지고
+       git 도 그 파일을 한 번도 추적하지 않아 **빌드가 CS2001 로 멈췄다**.
+       바깥 링크는 이렇게 조용히 끊긴다 — 쓰는 쪽이 들고 있는다. -->
 
 </Project>
