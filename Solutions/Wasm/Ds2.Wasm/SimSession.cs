@@ -420,7 +420,8 @@ internal sealed class SimSession : IDisposable
         }, Json);
     }
 
-    // 노드 id 접두사는 HierarchyBuilder 의 공개 규약(W: / C:)과 같아야 뷰가 찾는다.
+    // 노드 id 접두사(`W:` / `C:`)는 **뷰와의 공개 규약**이다. 계층 투영기는 확장 쪽
+    // TS(`src/lang/hierarchy.ts`)로 옮겼지만, 이 접두사는 여기서도 같아야 뷰가 찾는다.
     private static string Code(Status4 s) => s switch
     {
         Status4.Going => "going",

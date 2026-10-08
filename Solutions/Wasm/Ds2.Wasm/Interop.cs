@@ -100,15 +100,6 @@ public static partial class Interop
         Stores.Remove(handle);
     }
 
-    /// <summary>11뷰가 먹는 __HIERARCHY JSON.</summary>
-    [JSExport]
-    internal static string BuildHierarchy(int handle)
-    {
-        var store = Require(handle);
-        var projectId = FirstProjectId(store);
-        return Promaker.Windows.GraphicInfo.HierarchyBuilder.BuildJson(store, projectId);
-    }
-
     /// <summary>정규 DS2 Text v4 원문.</summary>
     [JSExport]
     internal static string BuildDs2Text(int handle)
