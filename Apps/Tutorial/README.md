@@ -24,7 +24,3 @@ dotnet run --project Apps/Tutorial/Ds2.Tutorial.csproj
 Step 01~02는 DS2 소스 레벨 튜토리얼이라 `Project`, `Work` 같은 internal 생성자를 직접 사용합니다. 이 프로젝트는 assembly name이 `Ds2.Tutorial`이고 `Ds2.Core`의 friend assembly로 등록되어 있어 컴파일됩니다.
 
 NuGet 패키지 소비자는 internal 생성자에 접근할 수 없으므로 `Ds2.Mermaid.MermaidImporter`, `Ds2.CSV.CsvImporter`, `Ds2.Aasx.PlcAasxFacade` 같은 public import/facade API로 `DsStore`를 만든 뒤 Runtime으로 넘기는 방식을 사용합니다. 패키지 소비자 기준 예제는 [`Solutions/Pack/samples/CSharp`](../../Solutions/Pack/samples/CSharp)를 참고합니다.
-
-## 별도 튜토리얼
-
-- 외부 OPC UA 클라이언트 연결·구독 — DSPilot PFX 발급, Application Certificate 승인, AID/XGT Variable 구독 튜토리얼. DS2 Hub 저장소(`ds2-Hub`)의 `Apps/Tutorial/OpcUaExternalClient/README.md` 로 옮겨졌습니다.

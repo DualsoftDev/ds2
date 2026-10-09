@@ -25,7 +25,7 @@ DS2 는 설비 시퀀스 제어 모델을 다루는 .NET 9 / F# 라이브러리 
 - **변환기** — Mermaid / CSV / AASX(Asset Administration Shell) / DS2 Text v4 로 읽고 쓴다
 - **시뮬레이션 런타임** — 이벤트 구동 토큰 시뮬레이션 엔진과 HTML/CSV 리포트
 
-편집기(Promaker), 현장 백엔드(DS2 Hub), 모니터링 웹(DSPilot), AASX 편집기는 각자 저장소에서 이 저장소를 `external/ds2` 서브모듈로 가져다 쓴다.
+편집기(Promaker)와 AASX 편집기는 각자 저장소에서 이 저장소를 `external/ds2` 서브모듈로 가져다 쓴다.
 
 ---
 
@@ -178,13 +178,10 @@ dotnet pack Solutions/Pack/DualSoft-DS2.csproj -c Release -p:Version=0.1.24
 
 ## 이 라이브러리를 쓰는 저장소
 
-| 저장소 | 역할 | 공개 | 서브모듈 |
-|:--|:--|:--:|:--|
-| `ds2-Promaker` | 시퀀스 모델 편집기 + 시뮬레이션 (WPF) — `Ds2.Editor`, `Ds2.IOList`, `Ds2.View3D` 포함 | public | `external/ds2` |
-| `ds2-AasxEditor` | AASX JSON 편집기 (Blazor) | public | `external/ds2` |
-| `ds2-Hub` | 현장 백엔드 — PLC 스캔 · SignalR Hub · OPC UA 서버 · Collector | private | `external/ds2` |
-| `ds2-Pilot` | 현장 모니터링 웹(DSPilot) · BriefingRelay · 통합 인스톨러 | private | `external/ds2-Hub` (그 안에 `external/ds2`) |
-| `ds2-Edge` | 엣지 단말(Pi5) PLC 수집 데몬 | private | `external/ds2-Hub` (그 안에 `external/ds2`) |
+| 저장소 | 역할 | 서브모듈 |
+|:--|:--|:--|
+| [`ds2-Promaker`](https://github.com/DualsoftDev/ds2-Promaker) | 시퀀스 모델 편집기 + 시뮬레이션 (WPF) — `Ds2.Editor`, `Ds2.IOList`, `Ds2.View3D` 포함 | `external/ds2` |
+| [`ds2-AasxEditor`](https://github.com/DualsoftDev/ds2-AasxEditor) | AASX JSON 편집기 (Blazor) | `external/ds2` |
 
 소비 저장소는 이 저장소의 프로젝트를 `external/ds2/Solutions/...` 경로로 직접 참조한다. 받을 때는 서브모듈까지 함께 받는다.
 
@@ -198,7 +195,6 @@ git clone --recurse-submodules https://github.com/DualsoftDev/ds2-Promaker.git
 
 | 문서 | 내용 |
 |:-----|:-----|
-| [`RUNTIME.md`](RUNTIME.md) | 편집 명령 · CRUD · Undo/Redo · 복사/붙여넣기 · JSON 직렬화 · AASX import/export 동작 상세. 편집 절(1~5, 7)은 `Ds2.Editor`(ds2-Promaker) 기준, JSON·AASX 절은 이 저장소 기준 |
 | [`Apps/Tutorial/README.md`](Apps/Tutorial/README.md) | C# 튜토리얼 단계 설명 |
 | [`Solutions/Pack/Readme.md`](Solutions/Pack/Readme.md) | NuGet 패키지 구성·배포 |
 

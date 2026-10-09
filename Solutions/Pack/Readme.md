@@ -28,7 +28,7 @@ dotnet run --project Solutions/Pack/samples/CSharp
 - `EventDrivenEngine`으로 시뮬레이션 실행
 - `ReportService`로 HTML/CSV 리포트 생성
 
-서버 호스트(SignalR Hub · PLC 게이트웨이 · OPC UA)는 별도 저장소 `ds2-Hub` 의 몫이라 이 패키지에 포함하지 않는다.
+서버 호스트(SignalR Hub · PLC 게이트웨이 · OPC UA)는 배포용 레이어라 이 패키지에 포함하지 않는다.
 
 ## 구조
 

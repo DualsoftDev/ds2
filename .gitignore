@@ -158,3 +158,6 @@ Apps/DSPilot/DSPilot/wwwroot/uploads/cctv-overlays.json
 #   project.aasx 는 ProgramData\Dualsoft\Shared\project.aasx 의 복사본이고 소스가 아니다.
 Apps/DSPilot/aasx/
 
+
+# 내부 작업 문서 — public 저장소에 싣지 않는다 (추적 해제: git rm --cached)
+/RUNTIME.md
