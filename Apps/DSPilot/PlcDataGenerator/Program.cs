@@ -6,7 +6,6 @@ using Dapper;
 using Microsoft.Data.Sqlite;
 using Ds2.Core;
 using Ds2.Core.Store;
-using Ds2.Editor;
 using Microsoft.FSharp.Collections;
 
 namespace PlcDataGenerator;

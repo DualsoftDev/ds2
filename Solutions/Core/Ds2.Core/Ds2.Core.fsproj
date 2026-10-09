@@ -62,6 +62,8 @@
     <Compile Include="Store\DsQuery\StoreIndex.fs" />
     <Compile Include="Store\DsQuery\Queries.fs" />
     <Compile Include="Store\DsQuery\Device.fs" />
+    <Compile Include="Store\UserTagStore.fs" />
+    <Compile Include="Store\WorkDurationStore.fs" />
     <Compile Include="Store\StoreHierarchyQueries.fs" />
     <Compile Include="Store\Queries\ConditionQueries.fs" />
     <Compile Include="Store\Queries\CallValidation.fs" />

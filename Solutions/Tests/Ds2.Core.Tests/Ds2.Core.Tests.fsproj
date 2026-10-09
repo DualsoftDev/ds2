@@ -11,6 +11,8 @@
     <Compile Include="JsonConverterTests.fs" />
     <Compile Include="FSharpJsonConvertersTests.fs" />
     <Compile Include="Tests.fs" />
+    <Compile Include="UserTagStoreTests.fs" />
+    <Compile Include="WorkDurationStoreTests.fs" />
     <Compile Include="AbnormalTests.fs" />
     <Compile Include="V10ValidationTests.fs" />
     <!-- Phase 0 · Foundation value type tests -->

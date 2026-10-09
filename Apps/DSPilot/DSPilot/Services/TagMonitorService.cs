@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
-using Ds2.Editor;
+using Ds2.Core.Store;
 using DSPilot.Infrastructure;
 using DSPilot.Kpi;
 using DSPilot.Models.TagMonitor;

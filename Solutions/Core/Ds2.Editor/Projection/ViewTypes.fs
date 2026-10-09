@@ -143,23 +143,6 @@ type UserTagPanelItem(index: int, name: string, logLevel: string, tagAddress: st
     member _.MatchOp    = matchOp
     member _.MatchValue = matchValue
 
-/// 프로젝트 전체 UserTag 행 (Tag Inspector 의 사용자 태그 탭용)
-/// 어느 System 소속인지 표시하기 위해 SystemId / SystemName 동반.
-[<Sealed>]
-type ProjectUserTagRow
-    (systemId: Guid, systemName: string,
-     index: int, name: string, logLevel: string, tagAddress: string, valueType: string,
-     matchOp: string, matchValue: string) =
-    member _.SystemId   = systemId
-    member _.SystemName = systemName
-    member _.Index      = index
-    member _.Name       = name
-    member _.LogLevel   = logLevel
-    member _.TagAddress = tagAddress
-    member _.ValueType  = valueType
-    member _.MatchOp    = matchOp
-    member _.MatchValue = matchValue
-
 /// TX/RX Work 드롭다운 항목 (C# 소비용)
 [<Sealed>]
 type WorkDropdownItem(id: Guid, name: string, ?isNone: bool) =

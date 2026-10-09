@@ -4,7 +4,6 @@
 using DSPilot.Models;
 using Ds2.Core;
 using Ds2.Core.Store;
-using Ds2.Editor;
 using CallDirection = Ds2.Core.CallDirection;
 
 namespace DSPilot.Services;

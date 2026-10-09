@@ -4,7 +4,7 @@
 using System.Collections.Concurrent;
 using Microsoft.AspNetCore.SignalR;
 using Ds2.Core;
-using Ds2.Editor;
+using Ds2.Core.Store;
 using DSPilot.Hubs;
 using DSPilot.Infrastructure;
 using DSPilot.Models.UserTagAlerts;

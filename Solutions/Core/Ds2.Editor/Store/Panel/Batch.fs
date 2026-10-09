@@ -173,34 +173,18 @@ type DsStorePanelBatchExtensions =
                     store.TrackMutate(store.Works, workId, fun work -> work.Duration <- period))
             store.EmitRefreshAndHistory()
 
-    /// Work Duration / abnormal MinDuration / MaxDuration 일괄 변경 (Nullable 허용)
+    /// Work Duration / abnormal MinDuration / MaxDuration 일괄 변경 (Nullable 허용) — 한 Undo 트랜잭션.
+    /// 변경 계획·모델 쓰기는 Core 의 WorkDurationStore 가 하고, 여기서는 트랜잭션·변경 추적·갱신 이벤트로 감싼다.
+    /// Undo 없는 서버 측 쓰기는 Core 의 ApplyWorkDurationRanges.
     [<Extension>]
     static member UpdateWorkDurationRangesBatch(store: DsStore, changes: seq<struct(Guid * Nullable<int> * Nullable<int> * Nullable<int>)>) =
-        let toPeriod (value: Nullable<int>) =
-            if value.HasValue && value.Value > 0 then Some (TimeSpan.FromMilliseconds(float value.Value)) else None
-
-        let changeList =
-            changes
-            |> Seq.map (fun struct(workId, durationMs, minDurationMs, maxDurationMs) ->
-                let resolvedId = Queries.resolveOriginalWorkId workId store
-                struct(resolvedId, toPeriod durationMs, toPeriod minDurationMs, toPeriod maxDurationMs))
-            |> Seq.distinctBy (fun struct(workId, _, _, _) -> workId)
-            |> Seq.filter (fun struct(workId, duration, minDuration, maxDuration) ->
-                match Queries.getWork workId store with
-                | Some work ->
-                    work.Duration <> duration
-                    || work.MinDuration <> minDuration
-                    || work.MaxDuration <> maxDuration
-                | None -> false)
-            |> Seq.toList
+        let changeList = WorkDurationStore.planChanges store changes
         if not changeList.IsEmpty then
             StoreLog.debug($"UpdateWorkDurationRangesBatch: {changeList.Length} items")
             store.WithTransaction("Work Duration/Range 일괄 변경", fun () ->
                 for struct(workId, duration, minDuration, maxDuration) in changeList do
                     store.TrackMutate(store.Works, workId, fun work ->
-                        work.Duration <- duration
-                        work.MinDuration <- minDuration
-                        work.MaxDuration <- maxDuration))
+                        WorkDurationStore.apply work (duration, minDuration, maxDuration)))
             store.EmitRefreshAndHistory()
 
     /// Work TokenRole 일괄 변경 (단일 Undo 트랜잭션)

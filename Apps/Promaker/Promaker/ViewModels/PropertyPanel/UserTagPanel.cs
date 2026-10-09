@@ -208,7 +208,7 @@ public partial class PropertyPanelState
         int applied;
         if (replace)
         {
-            if (!_host.TryFunc(() => Store.ReplaceUserTags(systemId, filteredRows), out applied, 0))
+            if (!_host.TryFunc(() => Store.ReplaceUserTagsWithUndo(systemId, filteredRows), out applied, 0))
                 return;
         }
         else

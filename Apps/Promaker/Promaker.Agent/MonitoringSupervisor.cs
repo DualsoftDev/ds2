@@ -12,7 +12,6 @@ using Ds2.Backend.Plc;
 using Ds2.Backend.Runtime;
 using Ds2.Core;
 using Ds2.Core.Store;
-using Ds2.Editor;
 using Ds2.Runtime.Engine;
 using Ds2.Runtime.Engine.Core;
 using Ds2.Runtime.IO;

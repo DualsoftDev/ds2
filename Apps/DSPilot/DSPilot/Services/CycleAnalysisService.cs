@@ -6,7 +6,6 @@ using DSPilot.Models.Plc;
 using DSPilot.Repositories;
 using Ds2.Core;
 using Ds2.Core.Store;
-using Ds2.Editor;
 
 namespace DSPilot.Services;
 

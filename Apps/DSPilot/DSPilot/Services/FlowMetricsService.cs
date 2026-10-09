@@ -3,7 +3,6 @@
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Ds2.Core;
 using Ds2.Core.Store;
-using Ds2.Editor;
 using DSPilot.Repositories;
 using DSPilot.Services.FlowAnalysis;
 using System.Collections.Concurrent;

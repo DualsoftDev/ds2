@@ -4,7 +4,6 @@
 using System.Security.Cryptography;
 using Ds2.Core;
 using Ds2.Core.Store;
-using Ds2.Editor;
 using DSPilot.Infrastructure;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
@@ -694,7 +693,7 @@ public class DsProjectService
     /// 실측 보정값을 각 Device Work 의 Duration/MinDuration/MaxDuration 에 기록하고 공유 project.aasx 로 재export 한다.
     /// flow.html 의 'Call lane 확장 → 실측 적용' 경로. <see cref="WriteSequenceLabelsAndExport"/> 와 동일한
     /// store 변경 → exportFromStore → LastLoadedSha256 갱신(AasxFileWatcher 자기-쓰기 재로드 억제) 패턴이며,
-    /// Promaker DurationBatch 가 쓰는 <c>Store.UpdateWorkDurationRangesBatch</c> 와 동일 메서드를 사용한다(형상 호환).
+    /// 모델 쓰기는 Core 의 <c>ApplyWorkDurationRanges</c>(Undo 없음) — Promaker 의 <c>UpdateWorkDurationRangesBatch</c> 와 같은 변경 계획(WorkDurationStore.planChanges)을 쓴다.
     /// changes: (workId, durationMs?, minMs?, maxMs?) — ms. min ≤ duration ≤ max 로 정규화 후 기록(실측은 자연 성립하나 방어적).
     /// </summary>
     /// <param name="markMinMeasured">true 면(FillMin = 사용자가 '최소값도 실측으로 기록' 의사 확정) Min 을 실제로
@@ -740,7 +739,7 @@ public class DsProjectService
         }
         try
         {
-            _store.UpdateWorkDurationRangesBatch(batch);
+            _store.ApplyWorkDurationRanges(batch);
 
             var ok = Ds2.Aasx.AasxExporter.exportFromStore(
                 _store, AasxFilePath, AasxIriPrefix, AasxSplitDevice, AasxAutoCreateEmptySubmodels);
@@ -1058,7 +1057,7 @@ public class DsProjectService
         }
         try
         {
-            _store.UpdateWorkDurationRangesBatch(batch);
+            _store.ApplyWorkDurationRanges(batch);
 
             var ok = Ds2.Aasx.AasxExporter.exportFromStore(
                 _store, AasxFilePath, AasxIriPrefix, AasxSplitDevice, AasxAutoCreateEmptySubmodels);
@@ -1088,12 +1087,6 @@ public class DsProjectService
         {
             SharedWriteLock.Release("DSPilot");
         }
-    }
-
-    public List<(double X, double Y)> ComputeArrowPath(Xywh source, Xywh target)
-    {
-        var visual = Ds2.Editor.ArrowPathCalculator.computePath(source, target);
-        return [.. visual.Points.Select(p => (p.Item1, p.Item2))];
     }
 
     /// <summary>
