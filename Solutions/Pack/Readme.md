@@ -34,14 +34,14 @@ dotnet run --project Solutions/Pack/samples/CSharp
 
 - 패키지 프로젝트는 [`DualSoft-DS2.csproj`](DualSoft-DS2.csproj) 한 파일이다. 코드 없이 같은 저장소의 라이브러리 프로젝트를 `PrivateAssets="all"` 로 참조해 산출 DLL 만 `lib/net9.0/` 에 모은다.
 - 받는 쪽이 필요로 하는 외부 의존은 넷 — `FSharp.Core` · `AasCore.Aas3_1` · `ClosedXML` · `log4net`. 프로젝트 참조를 숨겼으므로 이쪽은 csproj 에 직접 적는다.
-- 버전은 csproj 의 `<Version>` 이 다음 후보 번호이고, 올릴 때 `-p:Version` 으로 덮어쓴다.
+- 버전은 `Solutions/BuildVersion.txt` 하나가 정본이다(모든 Ds2.* 어셈블리와 패키지에 주입). 급하면 `-p:Version` 으로 덮어쓴다.
 - License: Apache-2.0 (ds2 저장소 따름).
 
 ## 빌드 / 배포
 
 ```bash
-dotnet pack Solutions/Pack/DualSoft-DS2.csproj -c Release -p:Version=0.1.24
-# 산출물: Solutions/Pack/bin/Release/DualSoft-DS2.0.1.24.nupkg
+dotnet pack Solutions/Pack/DualSoft-DS2.csproj -c Release
+# 산출물: Solutions/Pack/bin/Release/DualSoft-DS2.<BuildVersion.txt>.nupkg
 
 dotnet nuget push Solutions/Pack/bin/Release/DualSoft-DS2.0.1.24.nupkg \
   --source https://api.nuget.org/v3/index.json --api-key "$NUGET_API_KEY"

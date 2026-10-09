@@ -14,6 +14,15 @@
     <PackageProjectUrl>https://github.com/DualsoftDev/ds2</PackageProjectUrl>
   </PropertyGroup>
 
+  <!-- ds2 라이브러리(모든 Ds2.* 어셈블리와 NuGet 패키지 DualSoft-DS2) 버전의 SSOT = Solutions/BuildVersion.txt. csproj 에 <Version> 을 두지 않는다 —
+       매 빌드 시 이 props 가 값을 읽어 Version / AssemblyVersion / FileVersion 에 주입한다. -->
+  <PropertyGroup>
+    <Ds2Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)BuildVersion.txt').Trim())</Ds2Version>
+    <Version>$(Ds2Version)</Version>
+    <AssemblyVersion>$(Ds2Version)</AssemblyVersion>
+    <FileVersion>$(Ds2Version)</FileVersion>
+  </PropertyGroup>
+
   <!-- Release 빌드 설정 -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <Optimize>true</Optimize>

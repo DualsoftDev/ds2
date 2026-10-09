@@ -33,8 +33,7 @@
     <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
 
     <PackageId>DualSoft-DS2</PackageId>
-    <!-- 올릴 때 `dotnet pack -p:Version=x.y.z` 로 덮어쓴다. 기본값은 다음 후보 번호다. -->
-    <Version>0.1.24</Version>
+    <!-- 패키지 버전 = Solutions/BuildVersion.txt (Directory.Build.props 가 주입). 급하면 `dotnet pack -p:Version=x.y.z` 로 덮어쓴다. -->
     <Authors>Dualsoft</Authors>
     <Copyright>Copyright © Dualsoft 2025</Copyright>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>

@@ -171,7 +171,7 @@ dotnet add package DualSoft-DS2
 `Ds2.Core` · `Ds2.Aasx` · `Ds2.CSV` · `Ds2.Mermaid` · `Ds2.Text` · `Ds2.Runtime` · `Ds2.Runtime.Report` 를 한 패키지로 담는다. 만드는 법과 소비자용 예제는 [`Solutions/Pack/Readme.md`](Solutions/Pack/Readme.md).
 
 ```bash
-dotnet pack Solutions/Pack/DualSoft-DS2.csproj -c Release -p:Version=0.1.24
+dotnet pack Solutions/Pack/DualSoft-DS2.csproj -c Release    # 버전 = Solutions/BuildVersion.txt
 ```
 
 ---
