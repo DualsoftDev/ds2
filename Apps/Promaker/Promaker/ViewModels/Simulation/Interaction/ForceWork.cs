@@ -62,7 +62,7 @@ public partial class SimulationPanelState
     private bool CanForceWork() =>
         SimulationCommandFacade.IsAccepted(
             SimulationCommandFacade.DecideForceWork(
-                IsSimulating, IsSimPaused, IsHomingPhase, SelectedRuntimeMode,
+                IsSimulating, IsSimPaused, IsHomingPhase, RuntimeMode.Simulation,
                 SelectedSimWork is not null));
 
     private (Guid SelectedSourceGuid, bool AutoStartSources) GetStepAdvanceSelection()

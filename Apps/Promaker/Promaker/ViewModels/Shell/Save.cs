@@ -5,12 +5,12 @@ using System.Text;
 using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
+using Ds2.Core.StandardSubmodels;
 using Ds2.Core.Store;
 using Ds2.Editor;
 
 using Microsoft.Win32;
 using Promaker.Dialogs;
-using Promaker.Dialogs.Pv;
 using Promaker.Presentation;
 using Promaker.Services;
 
@@ -40,201 +40,6 @@ public partial class MainViewModel
         TrySaveFileAs();
     }
 
-    /// <summary>'Agent에 업로드 (직접 수집)' — Agent 가 PlcScanService 로 현장 PLC 에 직접 접속해 읽는다.</summary>
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private System.Threading.Tasks.Task UploadDirect() => UploadCoreAsync(delegatedScan: false);
-
-    /// <summary>'Edge 단말로 업로드 (위임 수집)' — Agent 는 PLC 에 안 붙고 Edge 단말(Pi5 수집기)이
-    /// 스캔해 WriteTags 로 push 한다. Control 은 OUT 직접 쓰기가 필요해 불가(버튼 비활성 + 이중 가드).</summary>
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private System.Threading.Tasks.Task UploadDelegated() => UploadCoreAsync(delegatedScan: true);
-
-    /// <summary>
-    /// 업로드 공통 코어 — 모델(AASX)을 Promaker · DSPilot 공유 경로
-    /// (%ProgramData%\DualSoft\Shared\project.aasx) 로 저장하고, PLC 설정과 함께 Promaker.Agent
-    /// 모니터링 세션(session.json + active.flag)을 기록한다. Agent 는 파일 변경을 감지해
-    /// 새 모델/설정으로 (재)시작하고, DSPilot 도 같은 경로를 읽어 동기화된다.
-    /// 모니터링 PLAY 는 업로드 없이 Agent Hub 접속만 한다 — 업로드는 이 명령이 유일한 경로.
-    /// 폴더가 없으면 자동 생성 (인스톨러가 보장하지만 클린 환경 대비).
-    /// <paramref name="delegatedScan"/> = 수집 방식: false=Agent 직접 스캔 / true=Edge 단말 위임 —
-    /// session.json 의 isRealPlcConnected(=!delegatedScan) 로 박제되어 Agent 의 스캔 분기를 가른다.
-    /// </summary>
-    private async System.Threading.Tasks.Task UploadCoreAsync(bool delegatedScan)
-    {
-        // 업로드 전 현재 파일 저장 선행 — 새 프로젝트(경로 없음)면 다른 이름으로 저장 다이얼로그가 뜨고,
-        // 취소하면 업로드도 중단. 업로드본과 사용자 파일이 어긋난 채 배포되는 것을 방지.
-        if (!TrySaveFile())
-        {
-            StatusText = "Agent 업로드 취소 — 파일 저장이 선행되어야 합니다.";
-            return;
-        }
-
-        // 대상 결정: ◎로컬(이 머신 공유폴더) ○네트워크(특정 IP zip 전송) ○클라우드(PV 단말 인스턴스).
-        if (!AgentModelTransfer.TryResolveAasxPath(CurrentAgentTransferTarget, out var targetAasxPath, out var targetError))
-        {
-            _dialogService.ShowWarning(targetError);
-            return;
-        }
-
-        // 수집 방식 가드는 export 전에 — 취소 시 공유 AASX 가 이미 덮어써진 반쪽 상태를 남기지 않는다.
-        // session.RuntimeMode 로 Agent 가 engine 모드를 결정 — Control 이면 read-write, 그 외 read-only.
-        var modeName = Simulation.SelectedRuntimeMode == Ds2.Core.RuntimeMode.Control ? "Control" : "Monitoring";
-        // Control 은 OUT 을 실 PLC 에 직접 써야 하므로 위임 수집 불가 — 버튼 비활성의 이중 가드.
-        if (delegatedScan && modeName == "Control")
-        {
-            _dialogService.ShowWarning("Control 모드는 OUT 을 실 PLC 에 직접 써야 하므로 Edge 위임 수집으로 업로드할 수 없습니다.\n'Agent에 업로드 (직접 수집)' 을 사용하세요.");
-            return;
-        }
-
-        // 업로드 전 1회 확인 — 아래 두 사유를 한 다이얼로그에 묶는다(연속 팝업 금지).
-        //  ① 수집 방식이 마지막 업로드(session.json)와 달라짐 — 위임 현장에서 습관적으로 직접 버튼을 눌러
-        //     Agent 가 PLC 직접 접속을 시도(접속실패/CommBlackout)하는 실수 방지.
-        //  ② USB 접속 System 이 있는데 '직접 수집'으로 원격(네트워크/클라우드) Agent 에 올림 — USB PLC 는
-        //     수집하는 PC 에 물리적으로 꽂혀 있어야 하므로 그 Agent PC 에 PLC 가 없으면 접속 실패만 반복된다.
-        //     클라우드 인스턴스는 USB 를 꽂을 수 없어 위임 수집(Edge 단말)이 유일한 경로다.
-        //     로컬(올인원 PC)은 정상 시나리오라 묻지 않는다.
-        var confirmLines = new System.Collections.Generic.List<string>();
-        var prevSession = Promaker.Shared.AgentSession.TryLoad();
-        if (prevSession is not null && prevSession.IsRealPlcConnected == delegatedScan)
-        {
-            var from = prevSession.IsRealPlcConnected ? "Agent 직접" : "Edge 단말 위임";
-            var to = delegatedScan ? "Edge 단말 위임" : "Agent 직접";
-            confirmLines.Add($"PLC 수집 방식이 바뀝니다: {from} → {to}");
-        }
-        if (!delegatedScan && CurrentAgentTransferTarget.Kind != AgentTransferTargetKind.Local)
-        {
-            var usbSystems = Simulation.ListPlcSystemEndpoints()
-                .Where(e => e.HasEndpoint && e.Profile.IsUsb)
-                .Select(e => e.SystemName)
-                .ToList();
-            if (usbSystems.Count > 0)
-            {
-                var systems = string.Join(", ", usbSystems);
-                confirmLines.Add(CurrentAgentTransferTarget.Kind == AgentTransferTargetKind.Cloud
-                    ? $"USB 접속 System({systems})을 '직접 수집'으로 클라우드 인스턴스 Agent 에 올립니다.\n" +
-                      "클라우드 인스턴스에는 USB PLC 를 꽂을 수 없습니다 — PLC 가 Edge 단말에 꽂혀 있다면 '위임 수집'을 사용하세요. " +
-                      "이대로 올리면 접속 실패만 반복됩니다."
-                    : $"USB 접속 System({systems})을 '직접 수집'으로 원격 Agent({CurrentAgentTransferTarget.Ip})에 올립니다.\n" +
-                      "USB PLC 는 수집하는 PC 에 직접 꽂혀 있어야 합니다 — 그 Agent PC 에 PLC 가 USB 로 연결돼 있지 않으면 접속 실패가 계속됩니다.");
-            }
-        }
-        if (confirmLines.Count > 0)
-        {
-            var answer = Promaker.Dialogs.DialogHelpers.ShowThemedMessageBox(
-                string.Join("\n\n", confirmLines) + "\n\n업로드하면 Agent 가 새 설정으로 재시작됩니다. 계속할까요?",
-                "업로드 확인", System.Windows.MessageBoxButton.YesNo,
-                Promaker.Dialogs.DialogHelpers.IconWarn);
-            if (answer != System.Windows.MessageBoxResult.Yes)
-            {
-                StatusText = "업로드 취소 — 확인 미승인";
-                return;
-            }
-        }
-
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(targetAasxPath)!);
-        }
-        catch (Exception ex)
-        {
-            Log.Error($"공유 폴더 생성 실패: {targetAasxPath}", ex);
-            _dialogService.ShowWarning($"공유 폴더를 만들 수 없습니다:\n{targetAasxPath}\n\n{ex.Message}");
-            return;
-        }
-
-        // 조용한 export — SaveToPath/CompleteSave 를 타면 _currentFilePath 가 공유 경로로 바뀌어
-        // 이후 Ctrl+S 가 사용자의 원본 파일이 아닌 공유 AASX 로 가버린다. 업로드는 부수 내보내기일 뿐
-        // 작업 파일 전환이 아니므로 현재 열린 파일/타이틀/IsDirty 를 건드리지 않는다.
-        // 공유 폴더 쓰기 직렬화 — DSPilot 실측 export / Agent 업로드 수신과 동시 쓰기 충돌 방지.
-        if (!Promaker.Shared.SharedWriteLock.TryAcquire("Promaker", out var lockHolder))
-        {
-            _dialogService.ShowWarning(
-                $"공유 폴더를 다른 프로그램이 쓰는 중입니다 (점유: {lockHolder.Holder}).\n잠시 후 다시 시도하세요.");
-            StatusText = "Agent 업로드 보류 — 공유 폴더 쓰기 잠금 중";
-            return;
-        }
-        // 화면에서 확정한 PLC 입력값을 AID endpoint에 반영한 뒤 업로드본을 만든다.
-        Simulation.PlcSettings.Save();
-        StampPlcConnection();
-
-        bool exported;
-        try
-        {
-            exported = AasxExporter.exportFromStore(
-                _store, targetAasxPath,
-                AppSettings.IriPrefix, AppSettings.SplitDeviceAasx, AppSettings.CreateDefaultEntitiesOnEmptyAasx);
-        }
-        catch (Exception ex)
-        {
-            Log.Error($"Agent 업로드용 AASX export 실패: {targetAasxPath}", ex);
-            _dialogService.ShowWarning($"공유 경로 AASX 저장 실패:\n{ex.Message}");
-            return;
-        }
-        finally
-        {
-            Promaker.Shared.SharedWriteLock.Release("Promaker");
-        }
-        if (!exported)
-        {
-            _dialogService.ShowWarning("내보낼 프로젝트가 없습니다.");
-            return;
-        }
-
-        // 수집 방식은 업로드 버튼 선택으로 결정 — Agent 의 직접(true)/위임(false, Edge 수집) 스캔을 가른다.
-        var session = Promaker.Shared.AgentSession.ForCurrentDefaults(
-            requestedBy: "promaker", runtimeMode: modeName,
-            isRealPlcConnected: !delegatedScan);
-        if (!session.TryWrite())
-        {
-            _dialogService.ShowWarning("Agent 세션 기록 실패 — 공유 폴더 권한을 확인하세요.");
-            StatusText = "Agent 업로드 실패 — 세션 기록 불가";
-            return;
-        }
-
-        // 클라우드 대상: PV 로그인 후 사이트/단말 탐색으로 타겟을 고르고, 그 단말의 인스턴스 IP 로
-        // 기존 원격 Agent 업로드(AgentUploadClient) 를 그대로 태운다. (Pi5 가 아니라 인스턴스 Agent 로 감)
-        if (CurrentAgentTransferTarget.Kind == AgentTransferTargetKind.Cloud)
-        {
-            // 로그인 안 됐으면 업로드 흐름에서 로그인창부터 띄운다 (취소하면 업로드 중단).
-            if (!PvSession.IsLoggedIn)
-            {
-                var login = PvLoginDialog.Show(PvSession.Client);
-                if (login is not { Ok: true })
-                    return;
-                PvSession.Token = login.Token;
-            }
-            var target = PvTargetDialog.Show(PvSession.Client, PvSession.Token ?? "", PvTransferIntent.Upload);
-            if (target is null)
-                return; // 사용자 취소
-            var instanceIp = target.Value.Edge.PublicIp;
-            if (string.IsNullOrWhiteSpace(instanceIp))
-            {
-                _dialogService.ShowWarning("선택한 단말에 인스턴스 IP 가 없습니다 (인스턴스가 아직 생성 중일 수 있습니다).");
-                return;
-            }
-            StatusText = $"클라우드 업로드 중 — {target.Value.Site.DisplayName} / {target.Value.Edge.DisplayName} ({instanceIp})...";
-            var (cloudOk, cloudMsg) = await AgentUploadClient.UploadAsync(instanceIp);
-            StatusText = cloudMsg;
-            if (!cloudOk) _dialogService.ShowWarning(cloudMsg);
-            return;
-        }
-
-        // 네트워크 대상이면 방금 로컬 공유폴더에 만든 모델/설정/세션을 원격 Agent 로 zip 전송.
-        // (원격 Agent 가 풀어서 자기 공유폴더 배치 + session 경로 로컬 교정 + active.flag → 모니터링 시작)
-        if (CurrentAgentTransferTarget.Kind == AgentTransferTargetKind.Network)
-        {
-            StatusText = $"원격 Agent({CurrentAgentTransferTarget.Ip}) 업로드 중...";
-            var (ok, msg) = await AgentUploadClient.UploadAsync(CurrentAgentTransferTarget.Ip);
-            StatusText = msg;
-            if (!ok) _dialogService.ShowWarning(msg);
-            return;
-        }
-
-        StatusText = SimulationHubBridge.IsAgentAvailable
-            ? $"Agent에 업로드됨 ({modeName}): {targetAasxPath}"
-            : "Agent에 업로드됨 — Agent 서비스 미실행, 서비스 시작 시 자동 적용";
-    }
-
     private bool TrySaveFileAs()
     {
         var projects = Queries.allProjects(_store);
@@ -262,13 +67,9 @@ public partial class MainViewModel
     }
 
     /// <summary>
-    /// 저장 직전 AID InterfaceXGT 바인딩을 재보장한다 — 편집으로 늘어난 IO맵/UserTag 주소를
-    /// endpoint interaction 에 병합하는 것이 목적.
-    ///
-    /// endpoint 가 있는 System 은 <b>그 endpoint 자체 값</b>으로 재보장한다 — 접속 편집의 정본이
-    /// System 속성 패널(AID 직접 기록)로 옮겨져, 전역 PlcSettings 로 덮으면 stale 값이
-    /// 패널에서 편집한 endpoint 를 클로버할 수 있기 때문. endpoint 가 하나도 없는 모델만
-    /// 종전 경로(전역 PLC 설정 → 단일 System 바인딩 생성)를 탄다.
+    /// 저장 직전 AID 바인딩을 재보장한다 — 편집으로 늘어난 IO맵/UserTag 주소를 endpoint interaction 에
+    /// 병합하는 것이 목적. endpoint 가 있는 System 만, <b>그 endpoint 자체 값</b>으로 재보장한다
+    /// (접속 편집의 정본은 System 속성 패널이 AID 에 직접 기록한 값이다).
     /// </summary>
     private void StampPlcConnection()
     {
@@ -277,59 +78,37 @@ public partial class MainViewModel
             var sim = Simulation;
             if (sim is null) return;
 
-            var entries = sim.ListPlcSystemEndpoints();
             var stamped = 0;
-            foreach (var entry in entries)
+            foreach (var entry in sim.ListPlcSystemEndpoints())
             {
                 if (!entry.HasEndpoint) continue;
-                var poco = sim.PlcSettings.ToPoco();
-                poco.Vendor = entry.Vendor.ToString();
-                poco.ApplyProfile(entry.Profile);
-                poco.WasPersisted = true;
                 var systemAddresses = sim.EnumeratePlcAddressesForSystem(entry.SystemId);
 
-                // 벤더에 따라 어느 바인딩을 재보장하는지가 갈린다. SX 를 XGT 동기화기에 넘기면
-                // AidXgtEndpointSettings 가 비-LS 를 거부해(0 반환) 조용히 아무것도 안 되고,
-                // 모델에 새로 생긴 주소가 SX endpoint 에 병합되지 않는다 — Agent 가 그 주소를
-                // 스캔하지 못하게 된다.
+                // 벤더에 따라 어느 바인딩을 재보장하는지가 갈린다. SX 를 XGT 쪽에 넘기면 비-LS 라 거절돼(0)
+                // 조용히 아무것도 안 되고, 모델에 새로 생긴 주소가 SX endpoint 에 병합되지 않는다.
                 bool ok;
                 if (entry.Vendor == PlcVendorChoice.MicrexSx)
                 {
-                    // SX 전용 값의 정본은 endpoint 자신이다. 전역 PlcSettings 로 덮으면
-                    // 패널에서 편집한 매핑표·쓰기 허용이 stale 값에 클로버된다.
-                    var sxConn = Promaker.Shared.AidMicrexSxEndpointSynchronizer.TryReadFromStore(
-                        _store, entry.SystemId);
-                    if (sxConn is not null)
-                    {
-                        poco.SxIoMapPath = sxConn.IoMapPath ?? string.Empty;
-                        poco.SxWritableAreas = sxConn.WritableAreas.ToList();
-                    }
-                    ok = Promaker.Shared.AidMicrexSxEndpointSynchronizer.EnsureToStore(
-                        _store, entry.SystemId, poco, systemAddresses);
+                    // SX 전용 값(매핑표·쓰기 허용)의 정본은 endpoint 자신이다.
+                    var sxConn = _store.TryReadMicrexSxEndpoint(entry.SystemId);
+                    ok = _store.EnsureMicrexSxEndpoint(
+                        entry.SystemId, entry.Profile,
+                        sxConn?.IoMapPath ?? string.Empty,
+                        sxConn?.WritableAreas ?? System.Array.Empty<string>(),
+                        systemAddresses);
                 }
                 else
                 {
-                    ok = Promaker.Shared.AidXgtEndpointSynchronizer.EnsureToStore(
-                        _store, entry.SystemId, poco, systemAddresses);
+                    ok = _store.EnsureXgtEndpoint(entry.SystemId, entry.Vendor, entry.Profile, systemAddresses);
                 }
                 if (ok) stamped++;
             }
             if (stamped > 0)
-            {
                 Log.Info($"AID PLC 바인딩 동기화 — System endpoint {stamped}개 (endpoint 값 기준, 주소 병합)");
-                return;
-            }
-
-            // endpoint 가 하나도 없는 모델 — 레거시 경로: 전역 PLC 설정으로 단일 System 바인딩 생성.
-            // (다중 System 이면 무인자 EnsureToStore 가 no-op — 속성 패널에서 System별로 지정해야 한다.)
-            var settings = sim.PlcSettings.ToPoco();
-            var addresses = sim.EnumeratePlcAddresses();
-            var n = Promaker.Shared.AidXgtEndpointSynchronizer.EnsureToStore(_store, settings, addresses);
-            Log.Info($"AID XGT 바인딩 동기화(레거시 단일) — interaction={n}, 주소 {addresses.Count}개");
         }
         catch (Exception ex)
         {
-            Log.Warn($"AID XGT endpoint 동기화 실패 (무시하고 저장 계속): {ex.Message}", ex);
+            Log.Warn($"AID endpoint 동기화 실패 (무시하고 저장 계속): {ex.Message}", ex);
         }
     }
 

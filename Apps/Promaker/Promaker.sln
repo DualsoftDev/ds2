@@ -45,6 +45,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{0AB3BF05
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.OpcUa.Server.Tests", "..\..\Solutions\Tests\Ds2.OpcUa.Server.Tests\Ds2.OpcUa.Server.Tests.fsproj", "{0D19D3A2-B47C-4632-AC2B-376E00EEE14C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Promaker.Tests", "..\..\Solutions\Tests\Promaker.Tests\Promaker.Tests.csproj", "{D53E9672-CC23-4D56-98AF-6A605E8C2460}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -259,6 +261,18 @@ Global
 		{0D19D3A2-B47C-4632-AC2B-376E00EEE14C}.Release|x64.Build.0 = Release|Any CPU
 		{0D19D3A2-B47C-4632-AC2B-376E00EEE14C}.Release|x86.ActiveCfg = Release|Any CPU
 		{0D19D3A2-B47C-4632-AC2B-376E00EEE14C}.Release|x86.Build.0 = Release|Any CPU
+		{D53E9672-CC23-4D56-98AF-6A605E8C2460}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D53E9672-CC23-4D56-98AF-6A605E8C2460}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D53E9672-CC23-4D56-98AF-6A605E8C2460}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D53E9672-CC23-4D56-98AF-6A605E8C2460}.Debug|x64.Build.0 = Debug|Any CPU
+		{D53E9672-CC23-4D56-98AF-6A605E8C2460}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D53E9672-CC23-4D56-98AF-6A605E8C2460}.Debug|x86.Build.0 = Debug|Any CPU
+		{D53E9672-CC23-4D56-98AF-6A605E8C2460}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D53E9672-CC23-4D56-98AF-6A605E8C2460}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D53E9672-CC23-4D56-98AF-6A605E8C2460}.Release|x64.ActiveCfg = Release|Any CPU
+		{D53E9672-CC23-4D56-98AF-6A605E8C2460}.Release|x64.Build.0 = Release|Any CPU
+		{D53E9672-CC23-4D56-98AF-6A605E8C2460}.Release|x86.ActiveCfg = Release|Any CPU
+		{D53E9672-CC23-4D56-98AF-6A605E8C2460}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

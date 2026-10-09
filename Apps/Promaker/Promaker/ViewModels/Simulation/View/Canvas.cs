@@ -240,10 +240,9 @@ public partial class SimulationPanelState
                     if (entry.GanttRowKind == 1) lastCallDuration = dur;
                     break;
                 }
-                case 2: // ApiCall — timeAppend는 ApiCall 각자의 ApiDef 값만 (Call 단위 max 아님). VP·Monitoring은 0.
+                case 2: // ApiCall — timeAppend는 ApiCall 각자의 ApiDef 값만 (Call 단위 max 아님).
                 {
-                    int apiOut = UsesSignalDrivenGanttTimeline(SelectedRuntimeMode)
-                        ? 0 : SimulationProjection.apiCallOutputAppendMs(_simEngine.Index, entry.Id);
+                    int apiOut = SimulationProjection.apiCallOutputAppendMs(_simEngine.Index, entry.Id);
                     GanttChart.AddApiCallEntry(
                         entry.Id, entry.Name,
                         entry.ParentWorkId!.Value, entry.ParentCallId!.Value,

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows</TargetFramework>
@@ -20,19 +20,12 @@
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="AvalonEdit" />
     <PackageReference Include="log4net" />
-    <PackageReference Include="System.ServiceProcess.ServiceController" />
     <PackageReference Include="MahApps.Metro.IconPacks.Material" />
     <PackageReference Include="MdXaml" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.Web.WebView2" />
     <!-- AvalonDock (MIT) — DockHost / DockAnchor / IDockManager 코드는 Promaker/Dock/ 폴더. -->
     <PackageReference Include="Dirkster.AvalonDock" />
     <PackageReference Include="Dirkster.AvalonDock.Themes.VS2013" />
-    <!-- OPC UA — Promaker 는 EmbeddedUaServer 를 인프로세스 구동 (Ds2.OpcUa.Server 참조).
-         Core/Configuration 은 UA 스택 초기화, Server 는 EmbeddedUaServer 가 사용. -->
-    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Core" />
-    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Configuration" />
-    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Server" />
   </ItemGroup>
   <ItemGroup>
     <None Update="log4net.config">
@@ -46,7 +39,6 @@
     <Resource Include="Assets\Promaker.ico" />
     <Resource Include="Assets\SdfFile.ico" />
     <Resource Include="Resources\Icons\aas.png" />
-    <Resource Include="Assets\Runtime\**\*.png" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Update="Resources\Strings.resx">
@@ -61,8 +53,6 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
-    <!-- 네이티브 PvClient.dll(C++, P/Invoke) 을 실행 폴더로 복사. 없으면 스킵(사내 배포 산출물이라 CI/타 개발자엔 없을 수 있음). -->
-    <None Include="..\..\..\ExternalDlls\PvClient.dll" Link="PvClient.dll" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\..\ExternalDlls\PvClient.dll')" />
     <!-- 샘플 모델 — "샘플" 버튼이 build output 의 Sample\ 폴더에서 로드. -->
     <Content Include="..\Sample\**\*" Link="Sample\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\models\**\*" Link="wwwroot\models\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
@@ -91,11 +81,6 @@
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Mermaid\Ds2.Mermaid.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
-    <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Remote\Ds2.Runtime.Remote.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
-    <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.OpcUa.Server\Ds2.OpcUa.Server.fsproj" />
-    <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
-    <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
-    <ProjectReference Include="..\Promaker.Shared\Promaker.Shared.csproj" />
   </ItemGroup>
 </Project>

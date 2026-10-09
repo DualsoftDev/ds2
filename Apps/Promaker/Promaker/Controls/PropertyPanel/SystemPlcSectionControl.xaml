@@ -194,7 +194,6 @@
                     <CheckBox Content="쓰기 허용 (M1 사용자 메모리)" FontSize="11"
                               Margin="0,10,0,0"
                               IsChecked="{Binding PlcSxWriteAllow}"
-                              IsEnabled="{Binding IsPlcSxWriteSelectable}"
                               ToolTip="해제하면 SX 커넥터가 쓰기 권한 발급을 거부합니다(읽기 전용). 모니터링 모드에서는 선택할 수 없습니다."/>
                     <TextBlock Text="{Binding PlcSxWriteSummary}" FontSize="10"
                                Margin="0,4,0,0" TextWrapping="Wrap"

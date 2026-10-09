@@ -18,6 +18,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\Apps\Promaker\Promaker\Promaker.csproj" />
+    <!-- PlcConnection.json(Hub 설정) 테스트가 남아 있어 직접 참조 — 테스트 재배치 때 Hub 로 간다. -->
+    <ProjectReference Include="..\..\..\Apps\Promaker\Promaker.Shared\Promaker.Shared.csproj" />
   </ItemGroup>
 
 </Project>

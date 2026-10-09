@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 
 namespace Promaker.Services;
@@ -33,11 +33,6 @@ public static class SettingsPaths
     }
 
     public static string PlcConfig                       => Of("PlcConfig.txt");
-    /// <summary>실 PLC 연결 다이얼로그가 마지막으로 입력한 벤더/IP/포트/Timeout/Scan 등을 저장.
-    /// Promaker 재실행 시 같은 값으로 다시 채워져 사용자 입력 부담 감소.</summary>
-    public static string PlcConnection                   => Of("PlcConnection.json");
-    /// <summary>Promaker 가 호스팅하는 OPC UA 서버 설정 (Enabled · Endpoint · MaxSessions · Timeouts 등) 저장 파일.</summary>
-    public static string OpcUaServer                     => Of("OpcUaServer.json");
     public static string SplitDeviceAasx                 => Of("splitDeviceAasx.txt");
     public static string IriPrefix                       => Of("iriPrefix.txt");
     public static string CreateDefaultEntitiesOnEmptyAasx => Of("createDefaultEntitiesOnEmptyAasx.txt");
@@ -55,43 +50,15 @@ public static class SettingsPaths
     /// <summary>`.yaml` 저장 시 lossy 안내 dialog 의 "다시 보지 않기" persistence. true 면 다음 호출부터 dialog skip.</summary>
     public static string YamlSaveNoticeShown             => Of("yamlSaveNoticeShown.txt");
 
-    /// <summary>Monitoring + 실 PLC PLAY 시 "Agent 가 모니터링을 (재)시작했습니다" 안내 다이얼로그의
-    /// "다시 보지 않기" persistence. 파일 존재 = 다음부터 다이얼로그 생략 (SimLog 한 줄만).</summary>
-    public static string AgentDelegationNoticeSuppress   => Of("agentDelegationNoticeSuppress.txt");
-
-    /// <summary>Agent 보내기/가져오기 대상 — "true" 면 네트워크(특정 IP 공유폴더), 아니면 로컬 공유폴더.</summary>
-    public static string AgentTransferUseNetwork         => Of("agentTransferUseNetwork.txt");
-
-    /// <summary>Agent 네트워크 대상 IP 주소 (네트워크 모드일 때만 사용).</summary>
-    public static string AgentTransferIp                 => Of("agentTransferIp.txt");
-
-    /// <summary>Agent 보내기/가져오기 대상 모드 — "Local" | "Network" | "Cloud".</summary>
-    public static string AgentTransferMode               => Of("agentTransferMode.txt");
-
-    /// <summary>Monitoring + 실 PLC PLAY 시 DSPilot 이 미설치라 브라우저 실행을 건너뛸 때 보여주는 안내
-    /// 다이얼로그의 "다시 보지 않기" persistence. 파일 존재 = 다음부터 다이얼로그 생략.</summary>
-    public static string DspilotMissingNoticeSuppress    => Of("dspilotMissingNoticeSuppress.txt");
-
     /// <summary>AASX 사용자 템플릿 폴더 — 디폴트 위치 (AppData\Dualsoft\Promaker\AasxUserTemplates).</summary>
     public static string DefaultAasxUserTemplatesDir => Path.Combine(AppDataRoot, "AasxUserTemplates");
 
     /// <summary>PLC 템플릿 사용자 복사본 폴더 — AppData\Dualsoft\Promaker\PlcTemplate</summary>
     public static string PlcTemplateDir => Path.Combine(AppDataRoot, "PlcTemplate");
 
-    /// <summary>사용자 추가 LLM system prompt 폴더 — AppData\Dualsoft\Promaker\Prompts. *.md 자동 흡수 (PromptLoader user-tier).</summary>
-    public static string UserPromptsDir => Path.Combine(AppDataRoot, "Prompts");
-
-    /// <summary>사용자 정의 LLM 작업 지침 폴더 — AppData\Dualsoft\Promaker\Instructions. 명시 승인된 항목만 instruction-tier 로 주입.</summary>
-    public static string CustomInstructionsDir => Path.Combine(AppDataRoot, "Instructions");
-
     /// <summary>인스턴스 간 시스템 복사의 파일 채널 스풀 — OS 클립보드가 막혀도 복사/붙여넣기가
     /// 성립하게 하는 정본 저장소. 사용자별 AppData 라 같은 계정의 두 인스턴스가 공유한다.</summary>
     public static string ClipboardSpoolDir => Path.Combine(AppDataRoot, "ClipboardSpool");
-
-    /// <summary>v0.x 사용자 prompts 폴더 — Dualsoft 누락된 옛 경로. 부트 시 존재 감지용 (마이그레이션 안내).</summary>
-    public static string LegacyUserPromptsDir => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Promaker", "Prompts");
 
     /// <summary>PlcConfig 미존재 시 동봉 XGI_Template.xml 가 복사될 기본 위치.</summary>
     public static string DefaultXgiTemplate => Path.Combine(PlcTemplateDir, "XGI_Template.xml");

@@ -35,7 +35,7 @@ public partial class SimulationPanelState
     private bool CanSeedToken() =>
         SimulationCommandFacade.IsAccepted(
             SimulationCommandFacade.DecideSeedToken(
-                IsSimulating, IsSimPaused, IsHomingPhase, SelectedRuntimeMode,
+                IsSimulating, IsSimPaused, IsHomingPhase, RuntimeMode.Simulation,
                 SelectedTokenSource is not null));
 
     private void InitTokenSources()

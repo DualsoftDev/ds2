@@ -5,11 +5,10 @@ using Ds2.Core;
 using Ds2.Core.StandardSubmodels;
 using Ds2.Core.Store;
 using Ds2.Editor;
-using PromakerShared = Promaker.Shared;
 
 namespace Promaker.ViewModels;
 
-/// <summary>연결 방식 콤보 항목 — Value 는 문자열 계약(<see cref="PromakerShared.PlcTransports"/>), Label 은 표시용.</summary>
+/// <summary>연결 방식 콤보 항목 — Value 는 문자열 계약(<see cref="PlcTransports"/>), Label 은 표시용.</summary>
 public sealed record PlcTransportOption(string Value, string Label);
 
 /// <summary>
@@ -30,7 +29,7 @@ public sealed record PlcTransportOption(string Value, string Label);
 public partial class PropertyPanelState
 {
     /// <summary>접속 매체 라벨 — "tcp" | "udp" | "usb".</summary>
-    [ObservableProperty] private string _plcTransport = PromakerShared.PlcTransports.Tcp;
+    [ObservableProperty] private string _plcTransport = PlcTransports.Tcp;
 
     /// <summary>USB 장치 선택 키. 화면에서 입력하는 값이 아니라 <b>AID 에 이미 있던 값을 그대로 되돌려
     /// 보내기 위한 통로</b>다 — 손으로 적은 AASX 의 키가 다른 항목을 저장할 때 조용히 지워지면 안 된다.
@@ -55,15 +54,15 @@ public partial class PropertyPanelState
     /// <summary>"내장 이더넷" 체크박스는 LS 이더넷에서만 의미가 있다(USB 로더 포트에는 없는 개념).</summary>
     public bool IsPlcLsEthernet => IsPlcVendorLs && IsPlcEthernet;
 
-    /// <summary>현재 벤더가 고를 수 있는 연결 방식. 목록은 Promaker.Shared 가 정한다(UDP 는 Mitsubishi, USB 는 LS).</summary>
+    /// <summary>현재 벤더가 고를 수 있는 연결 방식. 목록은 Core 의 PlcVendorProfile.TransportsFor 가 정한다(UDP 는 Mitsubishi, USB 는 LS).</summary>
     public IReadOnlyList<PlcTransportOption> PlcTransportChoices =>
-        PromakerShared.PlcVendorProfile.TransportsFor((PromakerShared.PlcVendorChoice)PlcVendor)
+        PlcVendorProfile.TransportsFor(PlcVendor)
             .Select(t => new PlcTransportOption(t, TransportLabelOf(t)))
             .ToList();
 
     private static string TransportLabelOf(string transport) =>
-        transport == PromakerShared.PlcTransports.Usb ? "USB (로더 포트)"
-        : transport == PromakerShared.PlcTransports.Udp ? "Ethernet (UDP)"
+        transport == PlcTransports.Usb ? "USB (로더 포트)"
+        : transport == PlcTransports.Udp ? "Ethernet (UDP)"
         : "Ethernet (TCP)";
 
     partial void OnPlcTransportChanged(string value)
@@ -100,11 +99,11 @@ public partial class PropertyPanelState
     {
         OnPropertyChanged(nameof(PlcTransportChoices));
         OnPropertyChanged(nameof(IsPlcLsEthernet));
-        if (PromakerShared.PlcVendorProfile.TransportsFor((PromakerShared.PlcVendorChoice)PlcVendor).Contains(PlcTransport))
+        if (PlcVendorProfile.TransportsFor(PlcVendor).Contains(PlcTransport))
             return;
 
         var wasUsb = IsPlcUsb;
-        PlcTransport = PromakerShared.PlcTransports.Tcp;
+        PlcTransport = PlcTransports.Tcp;
         if (wasUsb && !_suppressPlcDirty)
             _host.SetStatusText(
                 $"{PlcVendor} 는 USB 수집을 지원하지 않아 연결 방식을 Ethernet(TCP) 로 되돌렸습니다 — IP/Port 를 확인하세요.");

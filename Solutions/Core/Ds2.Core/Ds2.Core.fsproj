@@ -39,6 +39,7 @@
     <!-- Phase 0 · IDTA standard submodels -->
     <Compile Include="StandardSubmodels\AidEndpointBase.fs" />
     <Compile Include="StandardSubmodels\AssetInterfacesDescription.fs" />
+    <Compile Include="StandardSubmodels\PlcVendor.fs" />
     <Compile Include="StandardSubmodels\AssetInterfacesMappingConfiguration.fs" />
     <Compile Include="StandardSubmodels\OperationalData.fs" />
     <!-- Phase 0 · CollectionPolicy 는 04_Logging.fs 안으로 흡수 (별도 SM 파일 없음) -->
@@ -64,6 +65,7 @@
     <Compile Include="Store\DsQuery\Device.fs" />
     <Compile Include="Store\UserTagStore.fs" />
     <Compile Include="Store\WorkDurationStore.fs" />
+    <Compile Include="Store\PlcEndpointStore.fs" />
     <Compile Include="Store\StoreHierarchyQueries.fs" />
     <Compile Include="Store\Queries\ConditionQueries.fs" />
     <Compile Include="Store\Queries\CallValidation.fs" />

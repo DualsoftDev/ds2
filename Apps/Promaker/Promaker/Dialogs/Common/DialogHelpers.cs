@@ -404,21 +404,20 @@ internal static class DialogHelpers
     }
 
     /// <summary>
-    /// 시뮬레이션/모니터링 중 편집 차단 경고 + "시뮬레이션 종료"/"모니터링 종료" 옵션 다이얼로그.
+    /// 시뮬레이션 중 편집 차단 경고 + "시뮬레이션 종료" 옵션 다이얼로그.
     /// 버튼 순서는 [종료, 취소]. "취소" 가 default(Enter)/Esc 이며 거부(false),
-    /// "시뮬레이션 종료"/"모니터링 종료" 는 명시적 클릭 시 true.
+    /// "시뮬레이션 종료" 는 명시적 클릭 시 true.
     /// </summary>
-    /// <param name="isMonitoring">실 PLC 모니터링 세션이면 제목/버튼을 "모니터링" 문구로 표시</param>
     /// <returns>사용자가 종료를 선택했으면 true, 그 외 false</returns>
     // TODO: 향후 동일한 커스텀 버튼 라벨 다이얼로그가 한 번 더 필요해지면
     //       ShowThemedMessageBox에 (string label, MessageBoxResult value)[] 오버로드를 추가하여 통합할 것.
-    internal static bool ShowSimulationStopOptionDialog(string message, bool isMonitoring)
+    internal static bool ShowSimulationStopOptionDialog(string message)
     {
-        var stopLabel = isMonitoring ? "모니터링 종료" : "시뮬레이션 종료";
+        const string stopLabel = "시뮬레이션 종료";
         var owner = Application.Current.MainWindow;
         var dialog = new Window
         {
-            Title = isMonitoring ? "모니터링 중 편집 차단" : "시뮬레이션 중 편집 차단",
+            Title = "시뮬레이션 중 편집 차단",
             Width = 440,
             SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,

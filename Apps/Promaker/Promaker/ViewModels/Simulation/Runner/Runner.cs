@@ -36,16 +36,7 @@ public partial class SimulationPanelState
         AdvanceSimUiGeneration();
         var engine = _simEngine;
         _simEngine = null;
-        _runtimeSession = null;
-        _passiveInference = null;
-        ResetPassiveGanttClockAnchor();
         ContinuousInjection.ClearCycle();
-
-        // UA 브릿지는 engine 참조를 붙들고 있으므로 engine.Dispose 전에 detach 필요.
-        // OPC UA 서버 자체는 살아있음 — App.OnExit 에서만 stop.
-        var bridge = _uaBridge;
-        _uaBridge = null;
-        try { bridge?.Dispose(); } catch { /* best-effort */ }
 
         try
         {
@@ -71,46 +62,33 @@ public partial class SimulationPanelState
         _simEngine?.SetAllFlowStates(FlowTag.Pause);
         _simEngine?.Pause();
         GanttChart.IsRunning = false;
-        // STEP 모드는 Simulation 모드 전용. Control/VP/Monitoring 은 단순 일시 정지.
-        var isStepEligible = SelectedRuntimeMode == RuntimeMode.Simulation;
-        _isStepMode = isStepEligible;
-        SimStatusText = isStepEligible ? SimText.StepMode : SimText.Paused;
+        // Pause 는 곧 단계 제어(STEP) 모드 진입.
+        _isStepMode = true;
+        SimStatusText = SimText.StepMode;
         ApplySimulationUiState(
             isSimPaused: true,
             statusText: SimText.Paused,
-            logText: isStepEligible ? "단계 제어 모드 진입" : "시뮬레이션 일시 정지");
+            logText: "단계 제어 모드 진입");
         RefreshSimulationProgressUi();
     }
 
-    // VP/Monitoring 은 외부 Hub 신호로 진행되어 일시정지 자체가 의미 없음 → 버튼 비활성.
-    // Control + 실 PLC 연결 시에도 Pause 비활성 — Pause 는 엔진만 freeze 하고
-    // 이미 송출된 OUT 코일은 그대로 유지되므로 PLC 측 액추에이터 모션이 멈추지 않음.
-    // 사용자가 "Pause = 라인 멈춤" 으로 오해하는 안전 위험 차단. 실 라인 정지는 STOP 사용
-    // (BroadcastClearOwnOutputsAsync 로 모든 OUT 을 false 송출 → 솔레노이드 OFF).
     private bool CanPauseSimulation() =>
         SimulationCommandFacade.IsAccepted(DecidePause());
 
     private SimulationCommandFacade.Decision DecidePause() =>
         SimulationCommandFacade.DecidePause(
-            IsSimulating, IsSimPaused, IsHomingPhase, SelectedRuntimeMode, IsRealPlcConnected);
+            IsSimulating, IsSimPaused, IsHomingPhase, RuntimeMode.Simulation, false);
 
     [RelayCommand(CanExecute = nameof(CanStopSimulation))]
     private void StopSimulation()
     {
         AdvanceSimUiGeneration();
-        // homing-only 세션 도중 사용자가 STOP 으로 빠져나오는 경우에도 플래그 리셋.
-        _homingOnlyMode = false;
-        // Agent 위임(Monitoring+실PLC)에선 _simEngine 이 원격 proxy 다. proxy.Stop() 은 RuntimeStop 을
-        // Agent 로 보내 sticky monitoring 을 깨뜨리므로 호출하지 않는다 — "정지" 는 아래 Hub.Stop() 으로
-        // Promaker 의 Hub 연결/화면만 정리하고 active.flag 는 유지되어 Agent 는 계속 모니터링한다.
-        if (!IsAgentDelegationMode
-            && _simEngine is not null
+        if (_simEngine is not null
             && !TryWithSimEngine("Simulation stop", engine => engine.Stop()))
             return;
         if (_simEngine is not null)
             _simEngine.HomingPhaseCompleted -= OnHomingPhaseCompleted;
         IsHomingPhase = false;
-        Hub.Stop();
         ClearSimStateFromCanvas();
         ClearAllWarnings();
         ContinuousInjection.ClearCycle();
@@ -130,226 +108,22 @@ public partial class SimulationPanelState
 
         // 시뮬 종료 시 결과 시나리오 자동 박제 (TechnicalData.SimulationResults).
         // CapturedRuns 에 누적되어 "시뮬레이션 결과 보기" 다이얼로그에 표시된다.
-        // 자동 박제는 Simulation 모드 한정 — VP/Control 은 외부 신호 기반이라 의도된 "Run" 경계가 없고
-        // scenario 객체가 무거워(_stateChangeRecords 전체 + KPI + traversals) 누적 시 메모리 폭증.
         try
         {
             // 활성 traversal 들을 finalize → KPI 집계가 모든 토큰을 본다.
             // (분기 도중 stuck 된 branch 까지 포함; 완주 branch 가 있으면 그 max 시각으로 기록.)
             TokenTraversal.FinalizePending();
-            if (SelectedRuntimeMode == RuntimeMode.Simulation)
-                Report.TryCaptureScenario($"Run_{DateTime.Now:yyyyMMdd_HHmmss}");
+            Report.TryCaptureScenario($"Run_{DateTime.Now:yyyyMMdd_HHmmss}");
         }
         catch { /* best-effort */ }
 
         // 토큰 traversal 누적 초기화 — 다음 Run 이 이전 완주 카운트/이력 위에 누적되지 않도록.
         // (Capture 가 _completedTraversals 를 사용하므로 반드시 capture 이후에 reset.)
         TokenTraversal.Reset();
-
-        // 자동 줄자: 모니터링으로 학습된 device duration 이 있으면 정지 시 모델 반영 여부를 묻는다.
-        TryApplyLearnedDurationsOnStop();
     }
 
     private bool CanStopSimulation() =>
         SimulationCommandFacade.IsAccepted(SimulationCommandFacade.DecideStop(IsSimulating));
-
-    /// <summary>Agent 가 push 한 학습 duration 누적(UI 스레드). 정지 시 일괄 반영 대상.</summary>
-    private void OnLearnedDurationReceived(Ds2.Backend.Common.LearnedDurationPayload p)
-    {
-        if (!AutoDurationCalibrate) return;
-        if (Guid.TryParse(p.WorkId, out var workGuid))
-            _learnedDurations[workGuid] = (p.AvgMs, p.MinMs, p.MaxMs);
-    }
-
-    /// <summary>로컬 실측 duration 학습기 생성 — Agent proxy 모드에서는 Agent 학습 결과만 소비해 중복 학습하지 않는다.
-    /// call(원본·참조 모두) → device Work(RxGuid) 매핑을 PLAY 시점 모델에서 빌드.</summary>
-    private void InitDurationLearning()
-    {
-        StopLocalDurationLearning();
-        if (!ShouldUseLocalDurationLearning(SelectedRuntimeMode, UsesAgentProxy, AutoDurationCalibrate))
-        {
-            return;
-        }
-
-        var store = _storeProvider();
-        var map = new System.Collections.Generic.Dictionary<Guid, Guid[]>();
-        var activeWorks = new System.Collections.Generic.HashSet<Guid>();
-        foreach (var call in store.Calls.Values)
-        {
-            var rxWorks = Queries.callRxWorkGuids(call.Id, store);
-            if (rxWorks.Length > 0)
-                map[call.Id] = System.Linq.Enumerable.ToArray(rxWorks);
-            activeWorks.Add(call.ParentId);   // Call 을 가진 Work = Active Work, 자체 실측 대상
-        }
-        _durationLearning = new CallDurationLearning(map, activeWorks);
-
-        // 건강 기준선 추적 — 학습기의 정상 샘플 스트림에 업혀 work 단위로 동결/드리프트를 본다.
-        var workMaxMs = new System.Collections.Generic.Dictionary<Guid, double>();
-        var workNames = new System.Collections.Generic.Dictionary<Guid, string>();
-        foreach (var w in store.Works.Values)
-        {
-            workNames[w.Id] = w.Name;
-            if (w.MaxDuration is { } maxOpt)   // F# option — None 은 null
-                workMaxMs[w.Id] = maxOpt.Value.TotalMilliseconds;
-        }
-        _healthBaseline = new HealthBaselineTracker(workMaxMs, workNames);
-        _durationLearning.SampleRecorded += OnHealthBaselineSample;
-    }
-
-    private void StopLocalDurationLearning()
-    {
-        if (_durationLearning is not null)
-            _durationLearning.SampleRecorded -= OnHealthBaselineSample;
-        _durationLearning = null;
-        _healthBaseline = null;
-    }
-
-    /// <summary>
-    /// 학습 실행 소유권 정책. 실제 PLC Monitoring/Control은 Agent가 단일 소유자이고 Promaker는 결과만 받는다.
-    /// </summary>
-    internal static bool ShouldUseLocalDurationLearning(
-        RuntimeMode runtimeMode, bool usesAgentProxy, bool autoDurationCalibrate) =>
-        autoDurationCalibrate
-        && runtimeMode != RuntimeMode.Simulation
-        && !usesAgentProxy;
-
-    /// <summary>학습 샘플 1건 → 건강 기준선 추적 + 전이(동결/IQR 경보)만 로그로 승격.
-    /// 드리프트 % 자체는 사이클마다 찍지 않는다 — 정지 시 요약과 경보가 사용자 접점.</summary>
-    private void OnHealthBaselineSample(Guid workGuid, double spanMs)
-    {
-        if (_healthBaseline is not { } health) return;
-        var r = health.OnSample(workGuid, spanMs, DateTime.Now);
-
-        if (r.JustFrozen is { } frozen)
-        {
-            var how = r.FrozenByCap ? "상한 도달(수렴 미달) 동결" : "수렴 자동 동결";
-            SimLog.Info($"[Health] {health.NameOf(workGuid)} 기준선 {how} — 중앙값 {frozen.MedianMs:F0}ms, IQR {frozen.IqrMs:F0}ms, 표본 {frozen.SampleCount}");
-            AddSimLog($"[건강 기준선] {health.NameOf(workGuid)} 동결 — 중앙값 {frozen.MedianMs:F0}ms ({how}). 이후 드리프트를 추적합니다.", LogSeverity.System);
-        }
-        if (r.IqrAlarmRaised)
-        {
-            SimLog.Warn($"[Health] {health.NameOf(workGuid)} IQR 확대 경보 — 드리프트 {r.DriftPct:+0.0;-0.0}%");
-            AddSimLog($"[건강 경보] {health.NameOf(workGuid)} 동작 변동 폭(IQR)이 기준선의 {HealthBaselineTracker.IqrAlarmRatio:F1}배를 넘었습니다 — 노화/이상 조기 신호일 수 있습니다.", LogSeverity.Warn);
-        }
-        else if (r.IqrAlarmCleared)
-        {
-            SimLog.Info($"[Health] {health.NameOf(workGuid)} IQR 경보 해제");
-            AddSimLog($"[건강 경보 해제] {health.NameOf(workGuid)} 동작 변동 폭이 정상 범위로 돌아왔습니다.", LogSeverity.System);
-        }
-    }
-
-    // 리본 "기준선 동결" 버튼은 제거됨(사용자 결정) — 동결의 본선은 자동 수렴이고,
-    // 수동 동결은 DSPilot 설정 페이지 → hub FreezeHealthBaseline 브로드캐스트 경로만 남긴다.
-
-    /// <summary>수동 "기준선 지금 동결" — 로컬 추적기 동결 + 로그. 허브 브로드캐스트(OnHealthBaselineFreeze) 수신용.</summary>
-    internal void FreezeHealthBaselineNow(string origin)
-    {
-        if (_healthBaseline is not { } health)
-        {
-            AddSimLog("[건강 기준선] 추적 중이 아닙니다 — 비-Simulation 모드 PLAY 중에만 동결할 수 있습니다.", LogSeverity.Warn);
-            return;
-        }
-        var frozen = health.FreezeNow(DateTime.Now);
-        if (frozen.Count == 0)
-        {
-            AddSimLog($"[건강 기준선] 동결할 항목이 없습니다 — 이미 동결됐거나 표본이 {HealthBaselineTracker.MinManualFreezeSamples}사이클 미만입니다. ({origin})", LogSeverity.Info);
-            return;
-        }
-        foreach (var (workId, b) in frozen)
-            SimLog.Info($"[Health] {health.NameOf(workId)} 기준선 수동 동결({origin}) — 중앙값 {b.MedianMs:F0}ms, IQR {b.IqrMs:F0}ms, 표본 {b.SampleCount}");
-        AddSimLog($"[건강 기준선] {frozen.Count}개 device 기준선을 수동 동결했습니다 ({origin}). 이후 드리프트를 추적합니다.", LogSeverity.System);
-    }
-
-    /// <summary>학습값 자동 반영 전 확인이 필요한가 — 정상 설비 가정(사용자 합의) 하에 조용히
-    /// 자동 적용하되, 어떤 항목의 학습 범위가 비정상적으로 넓으면(상한이 중앙값의 2배 초과
-    /// 또는 하한이 절반 미만) 워밍업 불안정/비정상 사이클 혼입 가능성이라 사용자에게 묻는다.</summary>
-    internal static bool ShouldConfirmLearnedDurations(
-        System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<Guid, (int avg, int min, int max)>> snapshot)
-    {
-        foreach (var kv in snapshot)
-        {
-            var (avg, min, max) = kv.Value;
-            if (avg <= 0) return true;
-            if (max > avg * 2 || min < avg / 2) return true;
-        }
-        return false;
-    }
-
-    // ※ 라이브 반영(동작 중 store 갱신 + engine.ReloadDurations)은 제거됨 — 2회 실측(11:34, 12:19)에서
-    //   [Learn] 라이브 반영 직후 SensorShort 무더기 → 사이클 체인 단절 = 무개입 라인 정지를 유발.
-    //   ratchet(경계 완화만)으로도 재발 → 경계 값이 아니라 동작 중 ReloadDurations 호출 자체가
-    //   엔진 전이와 race 하는 것으로 추정. 동작 중 Reload 안전성이 규명되기 전까지 반영은 정지 시에만.
-
-    /// <summary>정지 시 학습 duration 을 모델 Work 에 반영 + dirty.
-    /// 소스 = Agent proxy이면 Agent push(_learnedDurations), self-hosted이면 로컬 실측(_durationLearning) 하나만 사용.
-    /// 학습값이 없으면 조용히 통과.
-    /// 정상 범위면 묻지 않고 자동 적용(정상 설비 가정) — 학습값이 비정상적으로 흔들릴 때만 확인.
-    /// 저장은 기존 Save 흐름이 AASX 로 영속.</summary>
-    private void TryApplyLearnedDurationsOnStop()
-    {
-        // 건강 기준선 — 정지 시 work 별 드리프트/외삽 요약. 파일엔 전부, 화면 로그엔
-        // 유의미한 것(IQR 경보/큰 드리프트/정비 권고)만 — 정지마다 수십 줄 쏟아지는 노이즈 방지.
-        if (_healthBaseline is { HasFrozenBaseline: true } health)
-        {
-            foreach (var (line, significant) in health.SummaryEntries())
-            {
-                SimLog.Info($"[Health] {line}");
-                if (significant)
-                    AddSimLog($"[건강 요약] {line}", LogSeverity.Warn);
-            }
-        }
-        if (_durationLearning is { HasSamples: true } learning)
-        {
-            foreach (var kv in learning.Snapshot())
-                _learnedDurations[kv.Key] = kv.Value;
-        }
-        StopLocalDurationLearning();
-
-        if (_learnedDurations.Count == 0) return;
-        var snapshot = System.Linq.Enumerable.ToArray(_learnedDurations);
-        _learnedDurations.Clear();
-
-        // 자동 정합 ON + 학습값 있음 → 항상 "AASX 반영?" 묻는다. (이전엔 정상 범위면 조용히 자동
-        // 반영해 다이얼로그가 안 떴고, 체크박스를 끌 기회도 없었음 — 실기 "다이얼로그 안 뜸" 원인.)
-        // 자동 정합 OFF 면 모델 확정값을 이미 기준으로 쓰므로 학습 반영 묻지 않는다.
-        if (!AutoDurationCalibrate) return;
-
-        var unstable = ShouldConfirmLearnedDurations(snapshot)
-            ? "\n(일부 항목의 변동 폭이 큽니다 — 워밍업 불안정/비정상 사이클 혼입 가능)" : "";
-        var apply = Promaker.Dialogs.DialogHelpers.Confirm(
-            System.Windows.Application.Current?.MainWindow,
-            $"학습된 device duration {snapshot.Length}건을 모델(AASX)에 반영할까요?{unstable}\n" +
-            "예: 모델에 기록하고 자동 정합을 끕니다(이후 이 값으로 판정).\n아니오: 반영하지 않고 다음 운전에서 계속 학습합니다.",
-            "duration 정합 반영");
-        if (!apply) return;
-
-        var store = _storeProvider();
-        var applied = 0;
-        var appliedRanges = new System.Collections.Generic.List<(Guid, int?, int?)>();
-        foreach (var kv in snapshot)
-        {
-            if (store.Works.TryGetValue(kv.Key, out var w))
-            {
-                var (avg, min, max) = kv.Value;
-                w.Duration    = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.Some(TimeSpan.FromMilliseconds(avg));
-                w.MinDuration = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.Some(TimeSpan.FromMilliseconds(min));
-                w.MaxDuration = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.Some(TimeSpan.FromMilliseconds(max));
-                appliedRanges.Add((kv.Key, min, max));
-                applied++;
-            }
-        }
-        if (applied > 0)
-        {
-            // 사이드카 정합 — 학습값과 어긋난 실측 확정(calibration-state) 해제. 학습값에 도장을 새로
-            // 찍지는 않는다(여유 없는 밴드값 — 임계 확정 아님). 2026-08-24 우진 "stale 26건 침묵" 재발 방지.
-            var cleared = Promaker.Shared.CalibrationSidecar.ReconcileAfterDurationWrite(appliedRanges);
-            MarkDirty?.Invoke();
-            // 반영 = 모델 확정값으로 전환 → 자동 정합 OFF (hub 동기화로 Agent 판정도 모델 기준).
-            AutoDurationCalibrate = false;
-            var clearedSuffix = cleared > 0 ? $" (실측 확정 {cleared}건 해제 — 재확정 필요)" : "";
-            AddSimLog($"duration {applied}건 모델 반영 + 자동 정합 OFF(런타임 세팅에서 재활성화 가능) — 저장하면 파일에 기록됩니다.{clearedSuffix}", LogSeverity.System);
-        }
-    }
 
     private void InitSceneEventHandler()
     {
@@ -361,16 +135,10 @@ public partial class SimulationPanelState
     private void ResetSimulation()
     {
         AdvanceSimUiGeneration();
-        // Agent 위임(Monitoring+실PLC proxy)에선 proxy.Reset() 이 RuntimeReset 을 Agent 로 보내
-        // 단일 호스팅 engine 을 리셋해버린다 — Promaker 로컬 Reset 은 Agent 를 건드리지 않는다.
-        if (!IsAgentDelegationMode
-            && _simEngine is not null
+        if (_simEngine is not null
             && !TryWithSimEngine("Simulation reset", engine => engine.Reset()))
             return;
         _simStartTime = DateTime.Now;
-        ResetPassiveGanttClockAnchor();
-        StopLocalDurationLearning();   // 리셋 = 학습 폐기 (정지 시 반영 흐름을 안 탔으므로)
-        ResetCommBlackout();
         ApplySimulationResetUiState(clearCollections: false);
         GanttChart.Reset(_simStartTime);
         InitGanttEntries();

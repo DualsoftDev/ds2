@@ -13,6 +13,8 @@
     <Compile Include="Tests.fs" />
     <Compile Include="UserTagStoreTests.fs" />
     <Compile Include="WorkDurationStoreTests.fs" />
+    <Compile Include="PlcVendorTests.fs" />
+    <Compile Include="PlcEndpointStoreTests.fs" />
     <Compile Include="AbnormalTests.fs" />
     <Compile Include="V10ValidationTests.fs" />
     <!-- Phase 0 · Foundation value type tests -->

@@ -12,8 +12,7 @@ namespace Promaker.ViewModels;
 ///
 /// 비교는 2단계 — 1차 mtime (싸다) 으로 후보 검출 → 2차 SHA256 으로 콘텐츠 동일성 확인.
 /// 콘텐츠 동일이면 (자기 자신의 silent re-export · 백업 도구 touch · AV stamp 등) silent 하게 캐시만 갱신,
-/// dialog 띄우지 않음. Promaker 자체의 <see cref="MainViewModel.TryPublishAasxToSharedForDspilot"/> 가
-/// CompleteSave 를 거치지 않고 디스크에 다시 쓰는 케이스(특히 Agent 전송 연타) 의 false dialog 를 막는다.
+/// dialog 띄우지 않음.
 ///
 /// reload 경로는 OpenFilePath → _store.LoadFromFile / ReplaceStore / importIntoStore 중 하나로 분기되며,
 /// 모두 DsStore.ApplyNewStore hook 을 통과 → Revision++ → LLM snapshot 다음 turn 자동 첨부.

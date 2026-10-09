@@ -75,29 +75,6 @@ public partial class SimulationPanelState
     /// Action* 는 elapsedMs 동반, Sensor* 는 -1. 캔버스 하이라이트 등 상세 UI 는 P6.</summary>
     private void OnAbnormalDetected(AbnormalRecord record)
     {
-        // 통신 blackout — 두절 구간의 abnormal 은 증거가 아니라 신호 부재의 산물 (backend 와 동형 억제).
-        if (_commBlackout)
-        {
-            SimLog.Info($"[CommBlackout] abnormal suppressed: {record.Kind}");
-            return;
-        }
-
-        // 학습 오염 차단 — abnormal 사이클의 진행 중 duration 측정은 폐기 (기준선이 비정상을 따라가면 안 됨).
-        if (_durationLearning is { } learning)
-        {
-            if (Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(record.Target.CallId))
-            {
-                var callId = record.Target.CallId.Value;
-                learning.Invalidate(callId);
-                // abnormal Call 이 속한 Active Work 의 이번 사이클 측정도 폐기.
-                var call = OptionValue(Queries.getCall(callId, Store));
-                if (call is not null)
-                    learning.InvalidateWork(call.ParentId);
-            }
-            if (Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(record.Target.WorkId))
-                learning.InvalidateWork(record.Target.WorkId.Value);
-        }
-
         // 간트 경고색 — 판정된 Call 의 해당 사이클 바만 (RxWork=device Work 는 간트에 행이 없어 Call 단위가 전부).
         if (Microsoft.FSharp.Core.FSharpOption<Guid>.get_IsSome(record.Target.CallId))
             GanttChart.MarkAbnormal(Queries.resolveOriginalCallId(record.Target.CallId.Value, Store));
@@ -198,11 +175,6 @@ public partial class SimulationPanelState
 
     private void OnWorkStateChanged(WorkStateChangedArgs args)
     {
-        // Active Work 자체 실측 학습 — device 합산에 안 잡히는 단계 간 전환 갭 포함 전체 사이클.
-        _durationLearning?.OnWorkStateChanged(args.WorkGuid, args.NewState, args.Clock.TotalMilliseconds);
-        // 라이브 반영(사이클 경계마다 store 갱신 + ReloadDurations)은 2회 실측에서 라인 정지를
-        // 유발해 제거 — 동작 중 ReloadDurations 가 엔진 전이와 race(In 신호 미아) 하는 것으로 추정.
-        // 엔진의 동작 중 Reload 안전성이 규명되기 전까지 학습 반영은 정지 시에만.
         ApplyWorkStateChangeToVisibleNode(args);
 #if DEBUG
         AddSimLog($"W {args.WorkName}: {args.PreviousState}→{args.NewState} @{args.Clock}", SeverityFromState(args.NewState));
@@ -215,8 +187,6 @@ public partial class SimulationPanelState
 
     private void OnCallStateChanged(CallStateChangedArgs args)
     {
-        // 실측 duration 학습 — raw engine clock 으로 Going→Finish 구간 측정 (간트 표시 시계와 무관).
-        _durationLearning?.OnCallStateChanged(args.CallGuid, args.NewState, args.Clock.TotalMilliseconds);
         ApplyCallStateChangeToVisibleNode(args);
 #if DEBUG
         var skip = args.IsSkipped ? " (Skip)" : "";
@@ -239,10 +209,6 @@ public partial class SimulationPanelState
         _stateCache.Set(canonicalId, args.NewState);
         UpdateSimNodeState(canonicalId, args.NewState);
         GanttChart.UpdateNodeState(canonicalId, args.NewState, timestamp);
-
-        // 통신 재개 후 첫 실측 Going — shadow coast 추정 위치와 대조(무에러 합류 판정).
-        if (args.NewState == Status4.Going)
-            TryReconcileShadowCoastOnResume(canonicalId, timestamp);
 
         Report.RecordStateChange(args.CallGuid.ToString(), args.CallName + suffix, EntityKind.Call.ToString(), systemName, args.NewState);
         UpdateSimClock();
@@ -315,110 +281,10 @@ public partial class SimulationPanelState
     internal static DateTime ResolveGanttEventTimestamp(DateTime simStartTime, TimeSpan clock) =>
         simStartTime + clock;
 
-    internal static TimeSpan ResolvePassiveGanttElapsed(TimeSpan clock, TimeSpan anchor) =>
-        clock >= anchor ? clock - anchor : TimeSpan.Zero;
-
-    internal static bool UsesSignalDrivenGanttTimeline(RuntimeMode mode) =>
-        mode == RuntimeMode.VirtualPlant
-        || mode == RuntimeMode.Monitoring;
-
-    internal static DateTime ResolveSignalDrivenGanttNow(
-        DateTime simStartTime,
-        TimeSpan? anchor,
-        TimeSpan baseElapsed,
-        DateTime baseWall,
-        DateTime now)
-    {
-        if (anchor is null)
-            return simStartTime;
-
-        var wallElapsed = now >= baseWall ? now - baseWall : TimeSpan.Zero;
-        return simStartTime + baseElapsed + wallElapsed;
-    }
-
-    internal static TimeSpan ResolvePassiveEventBaseElapsed(TimeSpan eventElapsed, TimeSpan estimatedElapsed) =>
-        eventElapsed > estimatedElapsed ? eventElapsed : estimatedElapsed;
-
-    /// <summary>
-    /// 간트 시간축을 "첫 신호 anchor 기준"으로 둘지 여부.
-    /// VP/Monitoring 은 외부 신호 owner 라 항상 anchor.
-    /// Control+실PLC(UsesAgentProxy) 는 Agent engine clock 의 원점이 WPF Start 가 아니라 Agent 시작 시점.
-    /// self-hosted Control 도 PLAY 처리에서 _simStartTime 설정(간트 원점) 과 engine.Start() 사이에
-    /// Hub 스냅샷 동기 대기(최대 ~8초) 가 끼므로 raw clock 은 그 소요시간만큼 wall 대비 과거로 어긋난다
-    /// — 진행 바가 빨간선까지 늘어지다 전이 때 과거 위치로 챡 붙는 왜곡의 원인.
-    /// → Simulation(보간 시계가 원점 공유) 을 제외한 모든 모드를 anchor 로 첫 이벤트 기준 0 정렬한다.
-    /// </summary>
-    internal static bool UsesAnchoredGanttTimeline(RuntimeMode mode) =>
-        mode != RuntimeMode.Simulation;
-
-    private bool IsSignalDrivenGanttTimeline =>
-        UsesAnchoredGanttTimeline(SelectedRuntimeMode);
-
-    private void ResetPassiveGanttClockAnchor()
-    {
-        _passiveGanttClockAnchor = null;
-        _passiveGanttBaseWall = DateTime.Now;
-        _passiveGanttBaseElapsed = TimeSpan.Zero;
-    }
-
-    private TimeSpan EstimatePassiveGanttElapsed(DateTime now)
-    {
-        if (_passiveGanttClockAnchor is null)
-            return TimeSpan.Zero;
-
-        var wallElapsed = now >= _passiveGanttBaseWall ? now - _passiveGanttBaseWall : TimeSpan.Zero;
-        return _passiveGanttBaseElapsed + wallElapsed;
-    }
-
-    private void AdvancePassiveGanttBase(TimeSpan eventElapsed)
-    {
-        var now = DateTime.Now;
-        var estimatedElapsed = EstimatePassiveGanttElapsed(now);
-        _passiveGanttBaseElapsed = ResolvePassiveEventBaseElapsed(eventElapsed, estimatedElapsed);
-        _passiveGanttBaseWall = now;
-    }
-
-    private TimeSpan ResolveDisplayClock(TimeSpan clock)
-    {
-        if (!IsSignalDrivenGanttTimeline)
-            return clock;
-
-        if (_passiveGanttClockAnchor is null)
-        {
-            _passiveGanttClockAnchor = clock;
-            _passiveGanttBaseElapsed = TimeSpan.Zero;
-            _passiveGanttBaseWall = DateTime.Now;
-            return TimeSpan.Zero;
-        }
-
-        var elapsed = ResolvePassiveGanttElapsed(clock, _passiveGanttClockAnchor.Value);
-        AdvancePassiveGanttBase(elapsed);
-        return elapsed;
-    }
-
-    private DateTime ResolveSignalDrivenGanttNow() =>
-        ResolveSignalDrivenGanttNow(
-            _simStartTime,
-            _passiveGanttClockAnchor,
-            _passiveGanttBaseElapsed,
-            _passiveGanttBaseWall,
-            DateTime.Now);
-
-    /// <summary>
-    /// Engine event clock is the source of truth for persisted Gantt segments in every runtime mode.
-    /// Control/VP events can be marshaled to the UI dispatcher in a burst after the real 500ms delay already
-    /// elapsed; using AdjustedNow at dispatch time collapses those segments into near-zero-width bars.
-    /// VP/Monitoring additionally anchor their display clock at the first accepted signal so PLAY order does not
-    /// add idle lead time before Ctrl/PLC starts broadcasting.
-    /// </summary>
-    private DateTime ResolveEventTimestamp(TimeSpan clock) => ToGanttTimestamp(ResolveDisplayClock(clock));
+    /// <summary>엔진 이벤트 clock 이 간트 구간의 시간 원천이다 — dispatcher 로 옮겨진 뒤 AdjustedNow 를 쓰면
+    /// burst dispatch 때 구간이 0 너비로 붕괴한다.</summary>
+    private DateTime ResolveEventTimestamp(TimeSpan clock) => ToGanttTimestamp(clock);
 
     private DateTime CurrentGanttTimestamp() =>
-        IsSignalDrivenGanttTimeline
-            ? _passiveGanttClockAnchor is null || _simEngine is null
-                ? _simStartTime
-                : ToGanttTimestamp(ResolvePassiveGanttElapsed(_simEngine.State.Clock, _passiveGanttClockAnchor.Value))
-            : SelectedRuntimeMode != RuntimeMode.Simulation
-                ? GanttChart.AdjustedNow
-                : _simEngine is null ? GanttChart.AdjustedNow : ToGanttTimestamp(_simEngine.State.Clock);
+        _simEngine is null ? GanttChart.AdjustedNow : ToGanttTimestamp(_simEngine.State.Clock);
 }

@@ -129,8 +129,6 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SaveFileCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveFileAsCommand))]
-    [NotifyCanExecuteChangedFor(nameof(UploadDirectCommand))]
-    [NotifyCanExecuteChangedFor(nameof(UploadDelegatedCommand))]
     [NotifyCanExecuteChangedFor(nameof(CloseFileCommand))]
     [NotifyCanExecuteChangedFor(nameof(ShowProjectPropertiesCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddSystemCommand))]
@@ -145,7 +143,6 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ExportCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(ConnectSelectedNodesCommand))]
     [NotifyCanExecuteChangedFor(nameof(Open3DViewCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ShowRuntimeSettingsCommand))]
     private bool _hasProject;
     [ObservableProperty] private bool _isDarkTheme = ThemeManager.CurrentTheme == AppTheme.Dark;
     [ObservableProperty] private string _themeButtonText = ThemeManager.CurrentTheme == AppTheme.Dark ? Strings.LightTheme : Strings.DarkTheme;

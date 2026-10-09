@@ -7,7 +7,7 @@ using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
 using Microsoft.Win32;
-using PromakerShared = Promaker.Shared;
+using Ds2.Core.StandardSubmodels;
 
 namespace Promaker.ViewModels;
 
@@ -21,8 +21,7 @@ namespace Promaker.ViewModels;
 ///
 /// * LS(XGI/XGK/XGB) → AID InterfaceXGT endpoint, MICREX-SX → AID InterfaceMicrexSx endpoint
 ///   (SavePlcEndpointForSystem → store 기록 → 파일 저장 시 AASX 에 실림)
-/// * Mitsubishi → AID 표현이 없어 SavePlcConnectionGlobally → 전역 PlcConnection.json 에만 저장.
-///   Agent 는 게이트웨이를 AID 에서만 조립하므로 이 벤더는 아직 런타임 수집이 되지 않는다.
+/// * Mitsubishi → AID 표현이 없어 저장할 곳이 없다(수집기는 게이트웨이를 AID 에서만 조립한다).
 ///
 /// 접속 매체(Ethernet TCP/UDP · USB)와 USB 장치 조회는 SystemPlcPanel.Usb.cs 에 있다.
 /// </summary>
@@ -44,10 +43,7 @@ public partial class PropertyPanelState
     [ObservableProperty] private bool _isPlcDirty;
 
     // ── MICREX-SX 전용 입력 ────────────────────────────────────────────────
-    // 이 두 값은 AID InterfaceXGT 에 실을 자리가 없어 전역 PLC 연결(PlcConnection.json)에
-    // 저장된다. 그래도 여기서 편집하게 두는 이유: Promaker 에는 전역 연결 편집 UI 가 따로
-    // 없고(실행 설정에서 상태만 보여준다), 사용자는 이미 이 패널에서 IP·포트를 넣고 있다.
-    // 다른 화면으로 보내면 "어디서 설정하나" 가 되고, 그게 실제로 일어난 일이다.
+    // InterfaceMicrexSx endpoint 에 실린다.
 
     /// <summary>D300win 프로젝트에서 뽑은 I/O 매핑표 경로. 비우면 네이티브 주소만 쓴다.</summary>
     [ObservableProperty] private string _plcSxIoMapPath = string.Empty;
@@ -56,13 +52,8 @@ public partial class PropertyPanelState
     ///
     /// 영역별 체크박스 세 개(M1/IO/M10)를 두었더니 무엇을 켜야 하는지가 되물어졌다.
     /// I/O 이미지와 시스템 메모리는 잘못 쓰면 설비를 움직이는 영역이라 화면에서 고를 값이
-    /// 아니다 — 필요한 현장은 PlcConnection.json 에 직접 적는다(아래 요약이 그 상태를 보여준다).</summary>
+    /// 아니다 — 필요한 현장은 AASX 의 endpoint 에 직접 적는다(아래 요약이 그 상태를 보여준다).</summary>
     [ObservableProperty] private bool _plcSxWriteAllow;
-
-    /// <summary>모니터링 모드에서는 쓰기를 고를 수 없다 — 읽어서 상태만 추적하는 모드다.
-    /// 나머지 모드(제어·가상플랜트·시뮬레이션)에서는 선택 가능.</summary>
-    public bool IsPlcSxWriteSelectable =>
-        _host.Simulation.SelectedRuntimeMode != RuntimeMode.Monitoring;
 
     /// <summary>설정 파일에 M1 외의 영역이 들어 있었으면 그 사실을 잊지 않기 위해 보관한다.
     /// 화면에서 껐다 켜는 것으로 조용히 사라지면 안 되는 정보다.</summary>
@@ -77,8 +68,6 @@ public partial class PropertyPanelState
     {
         get
         {
-            if (!IsPlcSxWriteSelectable)
-                return "모니터링 모드 — 쓰기가 원천 차단됩니다 (읽어서 상태만 추적)";
             if (!PlcSxWriteAllow)
                 return "읽기 전용 — 쓰기가 원천 차단됩니다";
             if (_plcSxExtraAreas.Count > 0)
@@ -87,28 +76,17 @@ public partial class PropertyPanelState
         }
     }
 
-    /// <summary>런타임 모드가 바뀌면 쓰기 선택 가능 여부가 달라진다. 모니터링으로 들어가면
-    /// 자동으로 선택을 해제한다 — 비활성만 하고 체크를 남겨 두면 저장 시 쓰기가 열린다.</summary>
-    internal void OnRuntimeModeChangedForPlc()
-    {
-        if (!IsPlcSxWriteSelectable && PlcSxWriteAllow)
-            PlcSxWriteAllow = false;
-        OnPropertyChanged(nameof(IsPlcSxWriteSelectable));
-        OnPropertyChanged(nameof(PlcSxWriteSummary));
-    }
-
     public IReadOnlyList<PlcVendorChoice> PlcVendorChoices { get; } =
         (PlcVendorChoice[])Enum.GetValues(typeof(PlcVendorChoice));
 
     public bool IsPlcVendorMx => PlcVendor == PlcVendorChoice.Mitsubishi;
     public bool IsPlcVendorSx => PlcVendor == PlcVendorChoice.MicrexSx;
     public bool IsPlcVendorLs =>
-        PromakerShared.PlcVendorProfile.IsAidXgtVendor((PromakerShared.PlcVendorChoice)PlcVendor);
+        PlcVendorProfile.IsAidXgtVendor(PlcVendor);
 
     public string SystemPlcHeader =>
-        // Mitsubishi 는 아직 AID 표현이 없어 전역 연결에만 저장된다 — "⚠ 미지정" 으로 보이면
-        // 설정이 안 된 줄 안다. SX 는 InterfaceMicrexSx 로 AASX 에 실리므로 여기 해당하지 않는다.
-        IsPlcVendorMx       ? $"PLC 연결 · {PlcVendor} 전역 · 주소 {PlcAddressCount}개"
+        // Mitsubishi 는 아직 AID 표현이 없어 AASX 에 실리지 않는다. SX 는 InterfaceMicrexSx 로 실린다.
+        IsPlcVendorMx       ? $"PLC 연결 · {PlcVendor} ⚠ AID 미지원 · 주소 {PlcAddressCount}개"
         : PlcIsLegacyEndpoint ? $"PLC 연결 · 구버전 — 저장 시 이 System 에 귀속 · 주소 {PlcAddressCount}개"
         : PlcHasEndpoint    ? $"PLC 연결 · 주소 {PlcAddressCount}개"
                             : $"PLC 연결 · ⚠ 미지정 · 주소 {PlcAddressCount}개";
@@ -116,7 +94,7 @@ public partial class PropertyPanelState
     /// <summary>패널 로드 시 원본 스냅샷 — dirty 판정 기준. Refresh 중 재발화 방지용 suppress 와 짝.</summary>
     private (PlcVendorChoice Vendor, string Ip, int Port, int Timeout, int Scan,
              bool Eth, int Net, int Stn, string Transport, string UsbSelector) _plcOriginal;
-    /// <summary>SX 전용 값의 원본 스냅샷 — 전역 연결에서 읽어 온 값이 기준이다.</summary>
+    /// <summary>SX 전용 값의 원본 스냅샷.</summary>
     private (string IoMap, bool WriteAllow) _plcSxOriginal;
     private bool _suppressPlcDirty;
 
@@ -157,9 +135,8 @@ public partial class PropertyPanelState
         // 상태일 때만 새 벤더의 기본값으로 옮긴다. Refresh 중에는 저장된 값이 기준이므로 제외.
         if (!_suppressPlcDirty)
         {
-            if (PromakerShared.PlcVendorProfile.IsAnyVendorDefaultPort(PlcPort))
-                PlcPort = PromakerShared.PlcVendorProfile.Defaults(
-                    (PromakerShared.PlcVendorChoice)value).Port;
+            if (PlcVendorProfile.IsAnyVendorDefaultPort(PlcPort))
+                PlcPort = PlcVendorProfile.Defaults(value).Port;
         }
 
         UpdatePlcDirty();
@@ -194,22 +171,19 @@ public partial class PropertyPanelState
         var sim = _host.Simulation;
         PlcAddressCount = sim.EnumeratePlcAddressesForSystem(systemId).Count;
 
-        var conn = PromakerShared.AidXgtEndpointSynchronizer.TryReadFromStore(Store, systemId);
+        var conn = Store.TryReadXgtEndpoint(systemId);
         var legacyUnassigned = false;
         if (conn is null)
         {
             // 구버전(8/5~8/20, systemRef 없는) endpoint 표시 폴백 — 단일 System 프로젝트만(소유 모호성 없음).
             // 저장하면 EnsureBindingForSystem 의 "무주인 endpoint 1개 claim" 규칙이 이 System 으로 귀속시킨다.
-            conn = PromakerShared.AidXgtEndpointSynchronizer.TryReadLegacyUnassigned(Store);
+            conn = Store.TryReadLegacyUnassignedXgtEndpoint();
             legacyUnassigned = conn is not null;
         }
-        var global = sim.PlcSettings;
         // SX 는 InterfaceMicrexSx endpoint 가 정본이다. 이것을 XGT 보다 먼저 보는 이유:
         // 벤더를 SX 로 저장하면 상대 바인딩이 지워지지만, 읽는 순서를 정해 두지 않으면
         // 과거 파일처럼 둘이 함께 있는 경우 화면이 흔들린다.
-        var sxConn = PromakerShared.AidMicrexSxEndpointSynchronizer.TryReadFromStore(Store, systemId);
-        // Mitsubishi 는 아직 AID 표현이 없어 전역 연결이 유일한 저장소다.
-        var globalIsMxOnly = global.Vendor == PlcVendorChoice.Mitsubishi && sxConn is null;
+        var sxConn = Store.TryReadMicrexSxEndpoint(systemId);
 
         _suppressPlcDirty = true;
         try
@@ -226,25 +200,8 @@ public partial class PropertyPanelState
                 PlcLocalEthernet = true;
                 PlcNetworkNumber = 0;
                 PlcStationNumber = 0;
-                PlcTransport = PromakerShared.PlcTransports.Tcp;
+                PlcTransport = PlcTransports.Tcp;
                 PlcUsbDeviceSelector = string.Empty;
-            }
-            else if (globalIsMxOnly)
-            {
-                var defaults = PromakerShared.PlcVendorProfile.Defaults(
-                    (PromakerShared.PlcVendorChoice)global.Vendor);
-                PlcHasEndpoint = false;
-                PlcIsLegacyEndpoint = false;
-                PlcVendor = global.Vendor;
-                PlcIpAddress = global.IpAddress ?? string.Empty;
-                PlcPort = global.Port > 0 ? global.Port : defaults.Port;
-                PlcTimeoutMs = global.TimeoutMs > 0 ? global.TimeoutMs : defaults.TimeoutMs;
-                PlcScanIntervalMs = global.ScanIntervalMs > 0 ? global.ScanIntervalMs : defaults.ScanIntervalMs;
-                PlcLocalEthernet = global.LocalEthernet;
-                PlcNetworkNumber = global.NetworkNumber;
-                PlcStationNumber = global.StationNumber;
-                PlcTransport = global.Transport;
-                PlcUsbDeviceSelector = global.UsbDeviceSelector;
             }
             else if (conn is not null
                 && Enum.TryParse<PlcVendorChoice>(conn.Vendor, ignoreCase: true, out var vendor))
@@ -259,19 +216,17 @@ public partial class PropertyPanelState
                 PlcLocalEthernet = conn.LocalEthernet;
                 PlcNetworkNumber = conn.NetworkNumber;
                 PlcStationNumber = conn.StationNumber;
-                PlcTransport = PromakerShared.PlcTransports.Normalize(conn.Transport);
+                PlcTransport = PlcTransports.Normalize(conn.Transport);
                 PlcUsbDeviceSelector = conn.UsbDeviceSelector;
             }
             else
             {
-                // endpoint 미보유 — 현재 화면 벤더의 기본 프로파일로 시작하되 IP 는 비워
+                // endpoint 미보유 — LS XGI 기본 프로파일로 시작하되 IP 는 비워
                 // 사용자가 명시 입력해야만 저장되게 한다(기본 IP 로 endpoint 가 생기는 사고 방지).
                 PlcHasEndpoint = false;
                 PlcIsLegacyEndpoint = false;
-                var fallbackVendor = sim.PlcSettings.Vendor;
-                var defaults = PromakerShared.PlcVendorProfile.Defaults(
-                    (PromakerShared.PlcVendorChoice)fallbackVendor);
-                PlcVendor = fallbackVendor;
+                var defaults = PlcVendorProfile.Defaults(PlcVendorChoice.LsXgi);
+                PlcVendor = PlcVendorChoice.LsXgi;
                 PlcIpAddress = string.Empty;
                 PlcPort = defaults.Port;
                 PlcTimeoutMs = defaults.TimeoutMs;
@@ -283,21 +238,14 @@ public partial class PropertyPanelState
                 PlcUsbDeviceSelector = defaults.UsbDeviceSelector;
             }
 
-            // SX 전용 값의 정본은 endpoint 다. endpoint 가 아직 없으면(벤더를 방금 SX 로 바꾼
-            // 경우) 전역 연결의 값을 초기값으로 보여 준다 — 직전에 입력하던 값이 사라지지 않는다.
-            PlcSxIoMapPath = sxConn is not null
-                ? (sxConn.IoMapPath ?? string.Empty)
-                : (global.SxIoMapPath ?? string.Empty);
-            var writable = sxConn is not null
-                ? sxConn.WritableAreas.ToList()
-                : (global.SxWritableAreas ?? new List<string>());
+            // SX 전용 값의 정본은 endpoint 다.
+            PlcSxIoMapPath = sxConn?.IoMapPath ?? string.Empty;
+            var writable = sxConn is not null ? sxConn.WritableAreas.ToList() : new List<string>();
             _plcSxExtraAreas = writable
                 .Where(a => !string.Equals(a, "M1", StringComparison.OrdinalIgnoreCase))
                 .ToList();
-            // 모니터링 모드에서는 저장된 값이 무엇이든 화면에서 쓰기를 켜 두지 않는다.
-            PlcSxWriteAllow = writable.Count > 0 && IsPlcSxWriteSelectable;
+            PlcSxWriteAllow = writable.Count > 0;
             _plcSxOriginal = ((PlcSxIoMapPath ?? "").Trim(), PlcSxWriteAllow);
-            OnPropertyChanged(nameof(IsPlcSxWriteSelectable));
             OnPropertyChanged(nameof(PlcSxWriteSummary));
 
             _plcOriginal = (PlcVendor, (PlcIpAddress ?? "").Trim(), PlcPort, PlcTimeoutMs,
@@ -404,7 +352,7 @@ public partial class PropertyPanelState
             return;
         }
 
-        var profile = new PromakerShared.PlcVendorProfile
+        var profile = new PlcVendorProfile
         {
             Name = systemNode.Name,
             IpAddress = ip,
@@ -423,7 +371,7 @@ public partial class PropertyPanelState
         {
             _host.ShowWarning(
                 IsPlcVendorMx
-                    ? "전역 PLC 연결 저장에 실패했습니다 (PlcConnection.json 쓰기 실패)."
+                    ? "Mitsubishi 는 AID 표현이 없어 AASX 에 저장할 수 없습니다."
                     : "PLC 접속 저장에 실패했습니다. 입력값을 확인하세요.");
             return;
         }
@@ -431,12 +379,8 @@ public partial class PropertyPanelState
         var writeState = IsPlcVendorSx
             ? (SxWritableAreas().Count == 0 ? " · 읽기 전용" : $" · 쓰기 {string.Join("/", SxWritableAreas())}")
             : "";
-        // Mitsubishi 만 AID 표현이 없어 AASX 에 실리지 않는다.
-        var destination = IsPlcVendorMx
-            ? "전역 PLC 연결 · AASX 에는 기록되지 않습니다"
-            : "파일 저장 시 AASX 에 기록";
         _host.SetStatusText(
-            $"'{systemNode.Name}' PLC 접속 저장됨 — {PlcVendor} {profile.EndpointLabel}{writeState} ({destination})");
+            $"'{systemNode.Name}' PLC 접속 저장됨 — {PlcVendor} {profile.EndpointLabel}{writeState} (파일 저장 시 AASX 에 기록)");
         RefreshSystemPlcPanel(systemNode.Id, isPassive: false);
     }
 }

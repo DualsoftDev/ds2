@@ -11,14 +11,12 @@ namespace Promaker.ViewModels;
 /// <summary>
 /// 연속 토큰 투입 controller. Source Work 가 Finish 되면 자동으로 다음 cycle 을 시작.
 /// SimulationPanelState 의 partial 에서 분리. 사용자 토글(IsEnabled) 과 source guid set 보유.
-/// 시뮬 상태(runtime mode / pause / homing 등) 은 Func 로 주입.
+/// 시뮬 상태(pause / homing 등) 은 Func 로 주입.
 /// </summary>
 public sealed partial class SimulationContinuousInjectionController : ObservableObject
 {
     private readonly HashSet<Guid> _sources = [];
 
-    private readonly Func<RuntimeMode>          _runtimeMode;
-    private readonly Func<bool>                 _isRealPlcConnected;
     private readonly Func<bool>                 _isSimulating;
     private readonly Func<bool>                 _isSimPaused;
     private readonly Func<bool>                 _isHomingPhase;
@@ -30,8 +28,6 @@ public sealed partial class SimulationContinuousInjectionController : Observable
     private bool _isEnabled;
 
     public SimulationContinuousInjectionController(
-        Func<RuntimeMode>           runtimeMode,
-        Func<bool>                  isRealPlcConnected,
         Func<bool>                  isSimulating,
         Func<bool>                  isSimPaused,
         Func<bool>                  isHomingPhase,
@@ -39,8 +35,6 @@ public sealed partial class SimulationContinuousInjectionController : Observable
         Func<DsStore>               storeProvider,
         Action<string, LogSeverity> addSimLog)
     {
-        _runtimeMode          = runtimeMode;
-        _isRealPlcConnected   = isRealPlcConnected;
         _isSimulating         = isSimulating;
         _isSimPaused          = isSimPaused;
         _isHomingPhase        = isHomingPhase;
@@ -49,13 +43,9 @@ public sealed partial class SimulationContinuousInjectionController : Observable
         _addSimLog            = addSimLog;
     }
 
-    /// <summary>연속투입 토글 사용 가능 여부. Monitoring 또는 Control+실 PLC 에서는 외부(PLC/원격 호스트) 가
-    /// 토큰 투입 owner 이므로 시뮬 로컬 자동 투입이 의미 없고 충돌 위험 → 비활성.</summary>
+    /// <summary>연속투입 토글 사용 가능 여부 — 로컬 시뮬레이션은 항상 자기가 토큰 투입 owner 다.</summary>
     public bool IsAvailable =>
-        RuntimeCommandPolicy.isContinuousInjectionAvailable(_runtimeMode(), _isRealPlcConnected());
-
-    /// <summary>본체 RuntimeMode/PLC 토글 시 호출 — computed IsAvailable 의 PropertyChanged 발화.</summary>
-    internal void RaiseIsAvailableChanged() => OnPropertyChanged(nameof(IsAvailable));
+        RuntimeCommandPolicy.isContinuousInjectionAvailable(RuntimeMode.Simulation, false);
 
     partial void OnIsEnabledChanged(bool value)
     {

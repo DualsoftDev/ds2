@@ -251,7 +251,7 @@ public sealed class RebuildScopeTests
         public string? PromptName(string title, string defaultName) => defaultName;
         public bool Confirm(string message, string title) => true;
         public void ShowWarning(string message) { }
-        public bool WarnSimulationEditBlocked(string message, bool isMonitoring) => false;
+        public bool WarnSimulationEditBlocked(string message) => false;
         public void ShowError(string message) { }
         public void ShowInfo(string message) { }
         public MessageBoxResult AskSaveChanges() => MessageBoxResult.No;

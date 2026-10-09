@@ -131,13 +131,6 @@ public partial class App : Application
             try { TimeEndPeriod(TimerPeriodMs); } catch { }
         }
 
-        try
-        {
-            Promaker.Shared.OpcUaServerHost.Instance.StopAsync()
-                .GetAwaiter().GetResult();
-        }
-        catch (Exception ex) { Log.Warn($"OPC UA 서버 정지 중 예외: {ex.Message}"); }
-
         var uptimeMs = (DateTimeOffset.Now - RunStartedAt).TotalMilliseconds;
         Log.Info(
             $"PROMAKER_RUN_END runId={RunId} pid={Environment.ProcessId} " +

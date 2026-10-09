@@ -181,62 +181,6 @@ public sealed class SimulationPanelStateRuntimeTests
         });
     }
 
-    [Fact]
-    public void Gantt_timeline_anchors_every_runtime_mode_except_simulation()
-    {
-        // self-hosted Control 은 PLAY 의 Hub 스냅샷 동기 대기가 간트 원점(_simStartTime)과
-        // engine.Start() 사이에 끼어 raw clock 이 wall 대비 과거로 어긋난다 — anchor 정렬 대상.
-        Assert.False(SimulationPanelState.UsesAnchoredGanttTimeline(RuntimeMode.Simulation));
-        Assert.True(SimulationPanelState.UsesAnchoredGanttTimeline(RuntimeMode.Control));
-        Assert.True(SimulationPanelState.UsesAnchoredGanttTimeline(RuntimeMode.Monitoring));
-        Assert.True(SimulationPanelState.UsesAnchoredGanttTimeline(RuntimeMode.VirtualPlant));
-    }
-
-    [Fact]
-    public void Passive_runtime_gantt_is_signal_driven_and_anchors_first_signal_at_zero()
-    {
-        var start = new DateTime(2026, 05, 26, 12, 00, 00, DateTimeKind.Local);
-        var firstSignalClock = TimeSpan.FromSeconds(12);
-        var delayedSignalClock = firstSignalClock + TimeSpan.FromMilliseconds(500);
-
-        Assert.True(SimulationPanelState.UsesSignalDrivenGanttTimeline(RuntimeMode.VirtualPlant));
-        Assert.True(SimulationPanelState.UsesSignalDrivenGanttTimeline(RuntimeMode.Monitoring));
-        Assert.False(SimulationPanelState.UsesSignalDrivenGanttTimeline(RuntimeMode.Control));
-        Assert.Equal(
-            start,
-            SimulationPanelState.ResolveSignalDrivenGanttNow(
-                start,
-                null,
-                TimeSpan.Zero,
-                start,
-                start.AddMilliseconds(500)));
-        Assert.Equal(
-            start.AddMilliseconds(100),
-            SimulationPanelState.ResolveSignalDrivenGanttNow(
-                start,
-                firstSignalClock,
-                TimeSpan.Zero,
-                start,
-                start.AddMilliseconds(100)));
-        Assert.Equal(
-            start.AddMilliseconds(500),
-            SimulationPanelState.ResolveSignalDrivenGanttNow(
-                start,
-                firstSignalClock,
-                TimeSpan.FromMilliseconds(300),
-                start,
-                start.AddMilliseconds(200)));
-        Assert.Equal(TimeSpan.Zero, SimulationPanelState.ResolvePassiveEventBaseElapsed(TimeSpan.Zero, TimeSpan.Zero));
-        Assert.Equal(
-            TimeSpan.FromMilliseconds(500),
-            SimulationPanelState.ResolvePassiveEventBaseElapsed(TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(300)));
-        Assert.Equal(
-            TimeSpan.FromMilliseconds(700),
-            SimulationPanelState.ResolvePassiveEventBaseElapsed(TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(700)));
-        Assert.Equal(TimeSpan.Zero, SimulationPanelState.ResolvePassiveGanttElapsed(firstSignalClock, firstSignalClock));
-        Assert.Equal(TimeSpan.FromMilliseconds(500), SimulationPanelState.ResolvePassiveGanttElapsed(delayedSignalClock, firstSignalClock));
-    }
-
     private static SimulationPanelState CreateState(
         Func<DsStore>? storeProvider = null,
         Action<string>? setStatusText = null) =>

@@ -5,123 +5,12 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Ds2.Core.StandardSubmodels;
-using XgtEndpointBase = Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.XgtEndpointBase;
-using XgtTransport = Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.XgtTransport;
 
 namespace Promaker.Shared;
 
-/// <summary>PLC 벤더 선택 — Promaker WPF 다이얼로그와 Agent 양쪽이 공유.</summary>
-public enum PlcVendorChoice
-{
-    LsXgi,
-    LsXgk,
-    LsXgb,
-    Mitsubishi,
-    /// <summary>Fuji MICREX-SX (SPH2000 계열) — 로더 프로토콜.</summary>
-    MicrexSx
-}
-
-/// <summary>
-/// 접속 매체 라벨 상수 — 문자열 계약의 정본은 Ds2.Core 의 <c>XgtEndpointBase.transportLabel</c> 이고
-/// 여기서는 그 값을 C# 이름으로 부를 뿐이다(리터럴을 다시 적지 않는다).
-/// AASX Property <c>transport</c>, PlcConnection.json, 수집기 payload 가 모두 이 세 값을 쓴다.
-/// </summary>
-public static class PlcTransports
-{
-    public static readonly string Tcp = XgtEndpointBase.transportLabel(XgtTransport.XgtTcp);
-    public static readonly string Udp = XgtEndpointBase.transportLabel(XgtTransport.XgtUdp);
-    public static readonly string Usb = XgtEndpointBase.transportLabel(XgtTransport.XgtUsb);
-
-    /// <summary>모르는 값(옛 파일·오타)은 TCP 로 읽는다 — 이더넷만 있던 시절의 기본값.</summary>
-    public static string Normalize(string? label) =>
-        string.Equals(label, Udp, StringComparison.OrdinalIgnoreCase) ? Udp
-        : string.Equals(label, Usb, StringComparison.OrdinalIgnoreCase) ? Usb
-        : Tcp;
-}
-
-/// <summary>
-/// 벤더별 연결 파라미터 프로파일. <see cref="PlcConnectionSettings.Profiles"/> 에 벤더 enum 이름을
-/// 키로 저장돼 사용자가 벤더를 바꿔도 그 벤더에 입력했던 값이 그대로 복원된다.
-/// </summary>
-public sealed class PlcVendorProfile
-{
-    public string Name { get; set; } = "PLC#1";
-    /// <summary>이더넷 host. USB 접속에서는 쓰이지 않는다(빈 값 허용).</summary>
-    public string IpAddress { get; set; } = "192.168.0.10";
-    public int Port { get; set; } = 2004;
-    public int TimeoutMs { get; set; } = 3000;
-    public int ScanIntervalMs { get; set; } = PlcConnectionSettings.DefaultScanIntervalMs;
-    public bool LocalEthernet { get; set; } = true;
-    public byte NetworkNumber { get; set; } = 0;
-    public byte StationNumber { get; set; } = 0xFF;
-    /// <summary>접속 매체 — <see cref="PlcTransports"/> 의 "tcp" | "udp" | "usb".
-    /// UDP 는 미쓰비시 MC 프로토콜에서만 의미가 있고(PLC Ethernet 모듈 파라미터가 UDP 면 클라이언트도 UDP 로),
-    /// USB 는 LS(XGI/XGK/XGB) CPU 전면 USB 로더 포트다.</summary>
-    public string Transport { get; set; } = PlcTransports.Tcp;
-    /// <summary>USB 전용 — 장치 선택 키(목록번호 · serial · bus:addr · product 부분일치). "" = 첫 매칭 장치.</summary>
-    public string UsbDeviceSelector { get; set; } = string.Empty;
-
-    public bool IsUsb => PlcEndpointLabel.isUsb(Transport);
-
-    /// <summary>사람이 읽는 접속 표기(host:port | USB | USB(selector)) — 상태바·로그가 그대로 쓴다.</summary>
-    public string EndpointLabel => PlcEndpointLabel.format(Transport, IpAddress ?? string.Empty, Port, UsbDeviceSelector ?? string.Empty);
-
-    public static PlcVendorProfile Defaults(PlcVendorChoice vendor) => vendor switch
-    {
-        PlcVendorChoice.Mitsubishi => new PlcVendorProfile { Port = 5007 },
-        // 509 = 로더 인터페이스 서버(권장). 507 = 로더 명령 서버.
-        PlcVendorChoice.MicrexSx => new PlcVendorProfile { Port = 509 },
-        _ => new PlcVendorProfile { Port = 2004 },   // LsXgi, LsXgk
-    };
-
-    /// <summary>이 벤더를 AID InterfaceXGT endpoint 로 표현할 수 있는가.
-    ///
-    /// 진실의 출처는 Ds2.Core 의 <c>XgtCpuModel = Xgi | Xgk | Xgb</c> 닫힌 DU 와
-    /// <c>AidXgtEndpointSettings.tryCpuModel</c> 이다 — 비-LS 벤더는 거기서 None 이 되어
-    /// EnsureBindingForSystem 이 0(변경 없음)을 돌려준다.
-    ///
-    /// 이 판정이 갈라놓는 것: 저장 경로(AID endpoint ↔ 전역 PlcConnection.json)와,
-    /// System 속성 패널이 화면에 무엇을 진실로 삼을지. 한쪽만 틀리면 저장한 벤더가
-    /// 옛 AID endpoint 값으로 되돌아간다.</summary>
-    public static bool IsAidXgtVendor(PlcVendorChoice vendor) =>
-        vendor is PlcVendorChoice.LsXgi or PlcVendorChoice.LsXgk or PlcVendorChoice.LsXgb;
-
-    /// <summary>이 벤더가 고를 수 있는 접속 매체. USB 는 LS 로더 포트만 dsev2 가 지원하고(미쓰비시 USB 는
-    /// Linux 전용 진단 경로, SX 는 이더넷 로더만), UDP 는 미쓰비시 MC 프로토콜만 쓴다.</summary>
-    public static IReadOnlyList<string> TransportsFor(PlcVendorChoice vendor) => vendor switch
-    {
-        PlcVendorChoice.Mitsubishi => new[] { PlcTransports.Tcp, PlcTransports.Udp },
-        PlcVendorChoice.MicrexSx => new[] { PlcTransports.Tcp },
-        _ => new[] { PlcTransports.Tcp, PlcTransports.Usb },
-    };
-
-    /// <summary>이 포트 값이 <b>어떤 벤더의 기본 포트</b>인가 — 사용자가 직접 넣은 포트인지
-    /// 판정하는 데 쓴다. 벤더를 바꿀 때 기본 포트 상태면 새 벤더 기본값으로 옮기고, 사용자가
-    /// 손으로 넣은 값은 건드리지 않는다.
-    ///
-    /// 열거는 enum 에서 파생시킨다 — 포트 목록을 손으로 적어 두면 벤더가 늘 때 조용히 낡는다.</summary>
-    public static bool IsAnyVendorDefaultPort(int port) =>
-        port > 0 && Enum.GetValues<PlcVendorChoice>().Any(v => Defaults(v).Port == port);
-
-    public PlcVendorProfile Clone() => new()
-    {
-        Name = Name,
-        IpAddress = IpAddress,
-        Port = Port,
-        TimeoutMs = TimeoutMs,
-        ScanIntervalMs = ScanIntervalMs,
-        LocalEthernet = LocalEthernet,
-        NetworkNumber = NetworkNumber,
-        StationNumber = StationNumber,
-        Transport = Transport,
-        UsbDeviceSelector = UsbDeviceSelector,
-    };
-}
-
 /// <summary>
 /// PLC 연결 설정 POCO. JSON 직렬화/역직렬화 단일 책임.
-/// Promaker WPF 의 PlcSettings(ObservableObject) 와 Promaker.Agent 의 부트스트랩이
-/// 모두 이 POCO 를 읽고 쓴다. MVVM 의존성 없음.
+/// Promaker.Agent 의 부트스트랩이 읽고 쓴다. 벤더·프로파일 타입은 Ds2.Core(PlcVendor.fs) 의 것이다.
 ///
 /// 영속화 경로는 <see cref="SharedPaths.PlcConnectionFilePath"/> 가 기본 — Promaker.Agent (SYSTEM)
 /// 가 같은 파일을 보기 위해 사용자 AppData 가 아닌 ProgramData 에 위치.
@@ -135,7 +24,7 @@ public sealed class PlcVendorProfile
 /// </summary>
 public sealed class PlcConnectionSettings
 {
-    public const int DefaultScanIntervalMs = 100;
+    public const int DefaultScanIntervalMs = PlcVendorDefaults.ScanIntervalMs;
     private const int PreviousDefaultScanIntervalMs = 50;
 
     public string Vendor { get; set; } = nameof(PlcVendorChoice.LsXgi);
@@ -183,8 +72,7 @@ public sealed class PlcConnectionSettings
     /// 이 값들이 실제 파일에서 왔는가(= 이 PC 에 PLC 설정이 저장된 적 있는가). <b>출처 표식이지 설정이 아니다</b> —
     /// <see cref="JsonIgnoreAttribute"/> 로 직렬화에서 빠지므로 Agent 의 설정 지문에도 영향을 주지 않는다.
     ///
-    /// <para>false = 파일이 없어 생성자 기본값을 쓰고 있는 상태. 아무도 고른 적 없는 값이므로
-    /// AID endpoint에 기록하면 안 된다(<see cref="AidXgtEndpointSynchronizer.EnsureToStore(Ds2.Core.Store.DsStore, Guid, PlcConnectionSettings, IEnumerable{string})"/>).
+    /// <para>false = 파일이 없어 생성자 기본값을 쓰고 있는 상태. 아무도 고른 적 없는 값이다.
     /// 값 비교로는 이 판별을 할 수 없다 — 실제로 192.168.0.10:2004 을 쓰는 현장과 구분되지 않는다.</para>
     /// </summary>
     [JsonIgnore]

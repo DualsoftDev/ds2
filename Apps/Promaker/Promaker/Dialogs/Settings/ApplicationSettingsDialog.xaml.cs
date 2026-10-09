@@ -7,7 +7,6 @@ using System.Windows.Controls;
 using Microsoft.Win32;
 using Promaker.Presentation;
 using Promaker.Services;
-using Promaker.Shared;
 
 namespace Promaker.Dialogs;
 
@@ -35,34 +34,8 @@ public partial class ApplicationSettingsDialog : Window
     public string[] ResultPresetSystemTypes { get; private set; } = Array.Empty<string>();
 
     /// <summary>탭 SSOT — XAML 의 TabItem 순서와 일치.
-    /// General=0, Aasx=1, Plc=2, OpcUa=3, Preset=4, Account=5.</summary>
-    public enum SettingsTab { General = 0, Aasx = 1, Plc = 2, OpcUa = 3, Preset = 4, Account = 5 }
-
-    private void RefreshPvStatus()
-    {
-        var on = Promaker.Services.PvSession.IsLoggedIn;
-        PvStatusText.Text = on
-            ? $"로그인됨{(string.IsNullOrEmpty(Promaker.Services.PvSession.DisplayName) ? "" : $" ({Promaker.Services.PvSession.DisplayName})")}"
-            : "로그인되지 않음";
-        PvLoginButton.IsEnabled = !on;
-        PvLogoutButton.IsEnabled = on;
-    }
-
-    private void PvLoginButton_Click(object sender, RoutedEventArgs e)
-    {
-        var r = Promaker.Dialogs.Pv.PvLoginDialog.Show(Promaker.Services.PvSession.Client, this);
-        if (r is { Ok: true })
-        {
-            Promaker.Services.PvSession.Token = r.Token;
-            RefreshPvStatus();
-        }
-    }
-
-    private void PvLogoutButton_Click(object sender, RoutedEventArgs e)
-    {
-        Promaker.Services.PvSession.Logout();
-        RefreshPvStatus();
-    }
+    /// General=0, Aasx=1, Plc=2, Preset=3.</summary>
+    public enum SettingsTab { General = 0, Aasx = 1, Plc = 2, Preset = 3 }
 
     /// <summary>
     /// <paramref name="initialTab"/> 으로 특정 탭을 선택해서 열 수 있음. 유효 범위 밖이면 ArgumentOutOfRangeException
@@ -80,7 +53,6 @@ public partial class ApplicationSettingsDialog : Window
     public ApplicationSettingsDialog()
     {
         InitializeComponent();
-        RefreshPvStatus();
 
         IriPrefixBox.Text = AppSettingStore.LoadStringOrDefault(IriPrefixSettingsPath, DefaultIriPrefix);
         SplitDeviceAasxBox.IsChecked = AppSettingStore.LoadBoolOrDefault(SplitDeviceAasxSettingsPath, false);
@@ -89,8 +61,6 @@ public partial class ApplicationSettingsDialog : Window
         var plcCfg = PlcConfig.Settings;
         PlcXgiTemplatePathBox.Text = plcCfg.EffectiveXgiTemplatePath;
         PlcXg5000ExePathBox.Text   = plcCfg.EffectiveXg5000ExePath;
-
-        LoadOpcUaSettings();
 
         LoadPresetMappings();
 
@@ -234,69 +204,8 @@ public partial class ApplicationSettingsDialog : Window
             PlcXgiTemplatePathBox.Text.Trim(),
             PlcXg5000ExePathBox.Text.Trim());
 
-        SaveOpcUaSettings();
-
         DialogResult = true;
     }
-
-    // ─── OPC UA 탭 (서버) ──────────────────────────────────────────────────────────
-    // Promaker 는 EmbeddedUaServer 를 인프로세스 호스팅. 이 탭은 그 서버의 설정 편집 UI.
-
-    /// <summary>OPC UA 서버 설정 파일에서 로드해 컨트롤에 반영. Enabled 체크박스가 나머지 필드 dim 을 제어.</summary>
-    private void LoadOpcUaSettings()
-    {
-        var s = OpcUaServerSettings.LoadOrDefault(SettingsPaths.OpcUaServer);
-
-        OpcUaEnabledBox.IsChecked                = s.Enabled;
-        OpcUaEndpointUrlBox.Text                 = s.EndpointUrl;
-        OpcUaApplicationNameBox.Text             = s.ApplicationName;
-        OpcUaApplicationUriBox.Text              = s.ApplicationUri;
-        OpcUaMaxSessionsBox.Text                 = s.MaxSessions.ToString();
-        OpcUaSessionTimeoutBox.Text              = s.SessionTimeoutMs.ToString();
-        OpcUaMinSamplingIntervalBox.Text         = s.MinSamplingIntervalMs.ToString();
-        OpcUaDefaultSamplingIntervalBox.Text     = s.DefaultSamplingIntervalMs.ToString();
-        OpcUaPublishingIntervalBox.Text          = s.PublishingIntervalMs.ToString();
-        OpcUaAllowAnonymousBox.IsChecked         = s.AllowAnonymous;
-        OpcUaAllowUnsecuredEndpointBox.IsChecked = s.AllowUnsecuredEndpoint;
-        OpcUaAutoAcceptCertsBox.IsChecked        = s.AutoAcceptUntrustedCertificates;
-    }
-
-    /// <summary>현재 컨트롤 값을 POCO 로 스냅샷.</summary>
-    private OpcUaServerSettings SnapshotOpcUaFromControls()
-    {
-        static int TryParseInt(string text, int fallback) =>
-            int.TryParse(text, out var v) && v > 0 ? v : fallback;
-
-        static string TrimOrDefault(string? text, string fallback) =>
-            string.IsNullOrWhiteSpace(text) ? fallback : text.Trim();
-
-        return new OpcUaServerSettings
-        {
-            Enabled                         = OpcUaEnabledBox.IsChecked == true,
-            EndpointUrl                     = TrimOrDefault(OpcUaEndpointUrlBox.Text,
-                                                            OpcUaServerSettings.DefaultEndpointUrl),
-            ApplicationName                 = TrimOrDefault(OpcUaApplicationNameBox.Text,
-                                                            OpcUaServerSettings.DefaultApplicationName),
-            ApplicationUri                  = TrimOrDefault(OpcUaApplicationUriBox.Text,
-                                                            OpcUaServerSettings.DefaultApplicationUri),
-            MaxSessions                     = TryParseInt(OpcUaMaxSessionsBox.Text,
-                                                          OpcUaServerSettings.DefaultMaxSessions),
-            SessionTimeoutMs                = TryParseInt(OpcUaSessionTimeoutBox.Text,
-                                                          OpcUaServerSettings.DefaultSessionTimeoutMs),
-            MinSamplingIntervalMs           = TryParseInt(OpcUaMinSamplingIntervalBox.Text,
-                                                          OpcUaServerSettings.DefaultMinSamplingIntervalMs),
-            DefaultSamplingIntervalMs       = TryParseInt(OpcUaDefaultSamplingIntervalBox.Text,
-                                                          OpcUaServerSettings.DefaultDefaultSamplingIntervalMs),
-            PublishingIntervalMs            = TryParseInt(OpcUaPublishingIntervalBox.Text,
-                                                          OpcUaServerSettings.DefaultPublishingIntervalMs),
-            AllowAnonymous                  = OpcUaAllowAnonymousBox.IsChecked == true,
-            AllowUnsecuredEndpoint          = OpcUaAllowUnsecuredEndpointBox.IsChecked == true,
-            AutoAcceptUntrustedCertificates = OpcUaAutoAcceptCertsBox.IsChecked == true,
-        };
-    }
-
-    private void SaveOpcUaSettings()
-        => SnapshotOpcUaFromControls().TrySave(SettingsPaths.OpcUaServer);
 
     private void BrowsePlcXgiTemplate_Click(object sender, RoutedEventArgs e)
     {
