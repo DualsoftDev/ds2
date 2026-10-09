@@ -3,13 +3,13 @@
 이 예제는 패키지 사용자가 내부 F# 생성자에 의존하지 않고 공개 API만으로 DS2 모델을 만들고 Runtime까지 연결하는 흐름을 보여줍니다. NuGet에 포함되는 DLL(`Ds2.Core`, `Ds2.Mermaid`, `Ds2.CSV`, `Ds2.Aasx`, `Ds2.Runtime`, `Ds2.Runtime.Report`)을 기준으로 구성했습니다.
 
 ```bash
-dotnet run --project Samples/CSharp
+dotnet run --project Solutions/Pack/samples/CSharp
 ```
 
-로컬 submodule 소스로 먼저 검증하려면:
+패키지를 올리기 전에 로컬 소스로 먼저 검증하려면 `Solutions/Pack/ds2` 자리에 ds2 체크아웃(또는 링크)을 두고:
 
 ```bash
-dotnet run --project Samples/CSharp -p:UseLocalDs2Projects=true
+dotnet run --project Solutions/Pack/samples/CSharp -p:UseLocalDs2Projects=true
 ```
 
 ## 단계별 API
