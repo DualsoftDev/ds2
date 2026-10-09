@@ -7,7 +7,7 @@
         "Action": "Start"
       },
       {
-        "Path": "..\\Apps\\Promaker\\Promaker.Agent\\Promaker.Agent.csproj",
+        "Path": "..\\Apps\\Hub\\Ds2.Hub\\Ds2.Hub.csproj",
         "Action": "Start"
       }
     ]
@@ -20,7 +20,7 @@
         "Action": "Start"
       },
       {
-        "Path": "..\\Apps\\Promaker\\Promaker.Agent\\Promaker.Agent.csproj",
+        "Path": "..\\Apps\\Hub\\Ds2.Hub\\Ds2.Hub.csproj",
         "Action": "Start"
       },
       {

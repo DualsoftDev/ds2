@@ -61,7 +61,7 @@ git 추적 대상이며, 매 `/dist` 마다 파일 맨 위에 이번 배포 entr
    - 권장 Summary: `Promaker v<CUR_VER> 배포`
    - **포함 대상 (user-facing)**: 새로운 기능 / UI 또는 동작 변경 / 버그 수정 (사용자가 체감하는 것) / 설정 / 파일 경로 / 호환성 파괴 / 설치 절차 변경 등
    - **제외 대상 (구현 세부사항)**: 내부 리팩토링 / 변수 rename / 주석·docstring / 테스트 추가/수정 / 빌드 스크립트 / CI / typo / 로그 포맷 조정 / 함수 시그니처 정리 등 — 여러 commit 이 같은 사용자 대상 개선이면 **한 줄로 merge**
-   - **정렬 원칙**: 시간 순이 아니라 **카테고리(= 기능 영역) 별로 그룹핑**. 동일 카테고리(e.g. UI / LLM Chat / Convert / Runtime / 3D View / installer / SDF 파일 / Dock layout 등) 의 user-facing 변경이 **2건 이상** 이면 해당 카테고리를 상위 bullet 로 두고 변경사항을 sub-bullet (2-space indent) 으로 nest. 1건뿐인 카테고리는 nest 없이 flat bullet.
+   - **정렬 원칙**: 시간 순이 아니라 **카테고리(= 기능 영역) 별로 그룹핑**. 동일 카테고리(e.g. UI / Convert / Runtime / 3D View / installer / SDF 파일 / Dock layout 등) 의 user-facing 변경이 **2건 이상** 이면 해당 카테고리를 상위 bullet 로 두고 변경사항을 sub-bullet (2-space indent) 으로 nest. 1건뿐인 카테고리는 nest 없이 flat bullet.
    - 구조:
      ```
      <Summary>                              ← 1줄

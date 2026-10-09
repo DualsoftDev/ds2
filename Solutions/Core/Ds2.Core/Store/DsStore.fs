@@ -13,7 +13,6 @@ type DsStore() =
 
     let mutable revision = 0
 
-    // Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md
     /// Monotonic mutation counter (runtime-only — 직렬화/디스크 저장 제외).
     /// commit / undo / redo / load / replace 직후 `BumpRevision` 으로 1 증가.
     /// **Read 는 `Volatile.Read` 로 memory ordering 보장** (round-trip §J6 review 반영) — UI dispatcher
@@ -22,7 +21,7 @@ type DsStore() =
     [<JsonIgnore>]
     member _.Revision = Volatile.Read(&revision)
 
-    /// `Interlocked.Increment` 기반 atomic ++. internal — Ds2.Editor / Ds2.LlmAgent / Promaker 의
+    /// `Interlocked.Increment` 기반 atomic ++. internal — Ds2.Editor / Promaker 의
     /// transaction commit hook (`Authoring.fs withTransaction / applyTransaction`, `DsStore.ApplyNewStore`) 만 호출.
     member internal _.BumpRevision() =
         Interlocked.Increment(&revision) |> ignore
@@ -171,11 +170,9 @@ type DsStore() =
             this.MigrateWorkNaming()
             this.MigrateSystemType()
             this.MigrateProjectAidToStore()
-            // round-trip §1.3 hook (3 지점 중 하나): load / replace / import / new — store 전체 교체 후 1회 ++.
-            // LLM chat 의 LastSentRevision 무효화 → 다음 송신에 새 snapshot 자동 첨부.
-            // **참고 (round-trip §n2)**: 새 store 인스턴스 자체로 교체되는 경로 (`MainViewModel.Reset` →
-            // `LlmChatViewModel.UpdateStore`) 는 본 hook 통과 안 함 — 새 인스턴스의 revision = 0 으로 시작하고
-            // UpdateStore 가 _lastSentRevision 을 null 로 reset 하여 정합 유지. 두 path 의 의미 차이 명시.
+            // load / replace / import / new — store 전체 교체 후 1회 ++. Revision 을 보는 쪽(파일 감시·캐시)이
+            // 교체를 변경으로 알아챈다. 새 store 인스턴스로 갈아끼우는 경로(`MainViewModel.Reset`)는 본 hook 을
+            // 통과하지 않고 revision 0 에서 다시 시작한다.
             this.BumpRevision()
             printfn $"[INFO] Store applied: {contextLabel}"
         with ex ->

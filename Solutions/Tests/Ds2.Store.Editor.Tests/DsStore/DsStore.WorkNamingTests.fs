@@ -414,7 +414,7 @@ let ``findConflictingDeviceSystemType returns None when new SystemType is None``
     Assert.Equal(None, Queries.findConflictingDeviceSystemType project.Id "dev" None store)
 
 // ─── Core 진입 가드 회귀 — 사용자 우려 ──────────────────────────────
-// 사용자 명시: "Promaker UI 가드만 있어서 AASX/LLM import 로 깨진 데이터가 들어옴".
+// 사용자 명시: "Promaker UI 가드만 있어서 AASX/Mermaid import 로 깨진 데이터가 들어옴".
 // 본 module 은 Core 진입점 (AddProject/AddSystem/AddFlow/AddWork/AddCall*) 에 추가된
 // 가드를 직접 검증 — UI 경로 우회해도 invalidOp 던지는지 확인.
 
@@ -537,7 +537,7 @@ let ``AddApiDefWithProperties rejects empty name and duplicate name in same Syst
 [<Fact>]
 let ``AddCallsWithDevice rejects SystemType conflict (same devAlias different SystemType)`` () =
     // 사용자 우려: 같은 Project 안에서 동일 DevicesAlias 가 *다른 SystemType* 으로 등록되면 충돌.
-    // 이전엔 Promaker UI Create.cs 만 검사했고 AASX/Mermaid/LlmAgent 통과.
+    // 이전엔 Promaker UI Create.cs 만 검사했고 AASX/Mermaid 통과.
     let store = createStore()
     let project, _, _, work = setupBasicHierarchy store
     // 먼저 SystemType "Conveyor" 로 등록.

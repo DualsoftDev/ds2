@@ -351,13 +351,11 @@ module internal ImportPlanDeviceOps =
                     withApiDef
             ) state
 
-    /// LLM helper 진입점 — PassiveSystem + Flow + Work×N + ApiDef×N (+ optional ResetReset Arrow) cascade 1회 발행.
+    /// PassiveSystem + Flow + Work×N + ApiDef×N (+ optional ResetReset Arrow) cascade 1회 발행.
     /// 반환 = (PassiveSystem.Id, (apiName * ApiDef.Id) list).
-    /// **반환 list 의 순서는 입력 `apiNames` 순서를 그대로 보존** — caller (LlmAgent) 가 `apiDef*Ref` /
-    /// `apiDefRefs` 의 입력 순서와 zip 하여 batch ref table 에 다중 등록한다. 순서 파괴 시 ref 가
-    /// 다른 ApiDef 를 가리키는 silent miscompile 가능 → 본 보장은 contract.
+    /// **반환 list 의 순서는 입력 `apiNames` 순서를 그대로 보존** — caller 가 입력 순서와 zip 한다. 순서가
+    /// 깨지면 ref 가 다른 ApiDef 를 가리키는 silent miscompile 이 가능하므로 본 보장은 contract.
     /// helper 는 *신규* device 생성 책임만 짐 — 동명 PassiveSystem 이 store 에 이미 존재하면 invalidOp.
-    /// 기존 device 재사용 시나리오는 LLM 이 사전에 find_by_name/export_model_doc 로 조회 후 primitive add_call 사용.
     let internal buildPassiveDeviceCascade
         (store: DsStore)
         (projectId: Guid)
@@ -368,9 +366,7 @@ module internal ImportPlanDeviceOps =
         (workDuration: TimeSpan option)
         (wiringMode: WiringMode)
         : Guid * (string * Guid) list =
-        // D9 정책 (rev 12 신설) — passive-only 검사. LlmAgent 측 진입 경로 (`ToolOperations.runDeviceCascade`) 는
-        // active+passive 통합 sibling guard (`hasSystemNameClashInProject`) 로 한 단계 앞서 fail 처리하므로 본 분기는
-        // LlmAgent 호출 시 unreachable. 본 검사는 Editor/Mermaid/CSV import 등 LlmAgent 외 호출자 보호용으로 유지.
+        // D9 정책 (rev 12 신설) — passive-only 검사. Editor/Mermaid/CSV import 등 호출자 보호용.
         let existing =
             Queries.passiveSystemsOf projectId store
             |> List.tryFind (fun s -> s.Name = name)

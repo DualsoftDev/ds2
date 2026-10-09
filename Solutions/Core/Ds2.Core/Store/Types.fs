@@ -116,9 +116,7 @@ module DevicePresets =
 //
 // 추가 시 동기화 지점:
 //   • Ds2.Editor/Store/Nodes/Remove.fs `batchRemoveEntities` cascade 분기
-//   • Ds2.LlmAgent/ToolOperations.fs `queueRemoveEntity` store dict 검사 + `addedInPlanKind`
 //   • Ds2.Core/Store/ImportPlan.fs `applyOperationDirect` RemoveEntity 분기
-//   • Ds2.LlmAgent/ModelProtocol.fs `tryPathOf` 및 path-unsupported 회귀 lock
 //   • Ds2.Editor/Queries/EntityKindRules.fs (GUI 메뉴 활성화 rule)
 
 type EntityKind =

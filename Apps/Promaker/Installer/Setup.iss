@@ -18,19 +18,19 @@
 #ifndef OutputSuffix
   #define OutputSuffix "_sc"
 #endif
-; Promaker.Agent publish 경로. Makefile 의 publish-agent 타겟이 동일 모드(sc/fd)로 산출.
-; AgentPublishDir 이 비어 있거나 Promaker.Agent.exe 가 없으면 Agent 번들/서비스 등록 모두 스킵.
+; Ds2.Hub publish 경로. Makefile 의 publish-agent 타겟이 동일 모드(sc/fd)로 산출.
+; AgentPublishDir 이 비어 있거나 Ds2.Hub.exe 가 없으면 Agent 번들/서비스 등록 모두 스킵.
 #ifndef AgentPublishDir
-  #define AgentPublishDir "..\Promaker.Agent\bin\Release\net9.0\win-x64\publish-self-contained"
+  #define AgentPublishDir "..\..\Hub\Ds2.Hub\bin\Release\net9.0\win-x64\publish-self-contained"
 #endif
-; Promaker.AgentTray publish 경로 — Agent 상태 노출용 사용자 컨텍스트 트레이.
+; Ds2.Hub.Tray publish 경로 — Agent 상태 노출용 사용자 컨텍스트 트레이.
 #ifndef AgentTrayPublishDir
-  #define AgentTrayPublishDir "..\Promaker.AgentTray\bin\Release\net9.0-windows\win-x64\publish-self-contained"
+  #define AgentTrayPublishDir "..\..\Hub\Ds2.Hub.Tray\bin\Release\net9.0-windows\win-x64\publish-self-contained"
 #endif
 
 #define AppExePath AddBackslash(PublishDir) + "Promaker.exe"
-#define AgentExePath AddBackslash(AgentPublishDir) + "Promaker.Agent.exe"
-#define AgentTrayExePath AddBackslash(AgentTrayPublishDir) + "Promaker.AgentTray.exe"
+#define AgentExePath AddBackslash(AgentPublishDir) + "Ds2.Hub.exe"
+#define AgentTrayExePath AddBackslash(AgentTrayPublishDir) + "Ds2.Hub.Tray.exe"
 #define HasAgent FileExists(AgentExePath)
 #define HasAgentTray FileExists(AgentTrayExePath)
 #define SetupIconPath "..\Promaker\Assets\Promaker.ico"
@@ -45,10 +45,10 @@
 #define MyAppPublisher "Dualsoft"
 #define MyAppURL "https://dualsoft.co.kr"
 #define MyExeName "Promaker.exe"
-#define MyAgentExeName "Promaker.Agent.exe"
-#define MyAgentTrayExeName "Promaker.AgentTray.exe"
-#define MyAgentServiceName "PromakerAgentService"
-#define MyAgentServiceDisplay "Promaker Agent Service"
+#define MyAgentExeName "Ds2.Hub.exe"
+#define MyAgentTrayExeName "Ds2.Hub.Tray.exe"
+#define MyAgentServiceName "Ds2HubService"
+#define MyAgentServiceDisplay "DS2 Hub Service"
 #define MyAgentServiceDesc "Promaker headless monitoring agent (5051 SignalR Hub + PLC scan, read-only)"
 #define MyAgentPort "5051"
 ; 모델 업로드 수신 포트 (AgentUploadReceiver, 항상 listen) — '저장 ▸ Agent에 업로드 ▸ 네트워크' 원격 전송 대상.
@@ -88,11 +88,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 #if HasAgent
-; Promaker.Agent (Windows Service) + AgentTray — 기본 체크. 본체 Promaker 가 Monitoring + 실 PLC 시
+; Ds2.Hub (Windows Service) + AgentTray — 기본 체크. 본체 Promaker 가 Monitoring + 실 PLC 시
 ; Agent 에 위임(active.flag)하는 구조라, 해제하면 실 PLC 모니터링(PLAY)이 차단된다(시뮬레이션은 가능).
 ; 통합 설치 마법사(Suite)가 구성 선택에 따라 /MERGETASKS="!installagent" 로 해제를 전달한다.
 ; 해제 설치는 "새로 안 깖"일 뿐 기존 설치본의 Agent 를 제거하지는 않는다(설정 보존 원칙).
-Name: "installagent"; Description: "Promaker Agent + Agent Tray 설치 (실 PLC 모니터링 서비스 — 해제 시 가상 시운전만 가능)"
+Name: "installagent"; Description: "DS2 Hub + Agent Tray 설치 (실 PLC 모니터링 서비스 — 해제 시 가상 시운전만 가능)"
 #endif
 
 ; fd install 시 이전 sc 빌드 잔재 정리 — sc 시절 박제된 native dll 들이 app-local 에 살아남으면:
@@ -100,7 +100,7 @@ Name: "installagent"; Description: "Promaker Agent + Agent Tray 설치 (실 PLC 
 ; (b) wpfgfx_cor3.dll 등 옛 WPF native 잔재 → 새 PresentationCore 가 EntryPointNotFoundException
 ;     ('WpfGfx_SetDisableBoundsCheckProtection' 등 새 API 호출 시) → WPF 첫 XAML load 도중 fatal UI error
 ; fd publish output 에는 본래 미박제이므로 안전 삭제. sc install 시는 본 블록 미적용 (필요 파일).
-; root + 3 subfolder (Agent / AgentTray / LightHouseService) 모두 커버 — 모든 .exe 가 같은 sc 잔재 surface.
+; root + 2 subfolder (Agent / AgentTray) 모두 커버 — 모든 .exe 가 같은 sc 잔재 surface.
 #if SelfContainedMode != "true"
 [InstallDelete]
 ; .NET host / runtime native — hostfxr 가 app-local 우선 검색 회피
@@ -160,12 +160,12 @@ Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 ; SDF 파일 전용 아이콘 복사
 Source: "..\Promaker\Assets\SdfFile.ico"; DestDir: "{app}"; Flags: ignoreversion
 #if HasAgent
-; Promaker.Agent — installagent 태스크(기본 체크) 시 번들 + [Run] 에서 서비스 등록.
-; 별도 폴더 {app}\Agent 로 분리해 Promaker.exe 와 dll 충돌 방지 + 로그 디렉터리(logs/promaker-agent.log) 격리.
+; Ds2.Hub — installagent 태스크(기본 체크) 시 번들 + [Run] 에서 서비스 등록.
+; 별도 폴더 {app}\Agent 로 분리해 Promaker.exe 와 dll 충돌 방지 + 로그 디렉터리(logs/ds2-hub.log) 격리.
 Source: "{#AgentPublishDir}\*"; DestDir: "{app}\Agent"; Tasks: installagent; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 #if HasAgentTray
-; Promaker.AgentTray — 사용자 컨텍스트 트레이. Agent 와 한 몸(installagent) — HKCU\Run 으로 로그온 시 자동 실행.
+; Ds2.Hub.Tray — 사용자 컨텍스트 트레이. Agent 와 한 몸(installagent) — HKCU\Run 으로 로그온 시 자동 실행.
 Source: "{#AgentTrayPublishDir}\*"; DestDir: "{app}\AgentTray"; Tasks: installagent; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 
@@ -183,13 +183,13 @@ Root: HKCR; Subkey: "Promaker.SDF\shell\open\command"; ValueType: string; ValueN
 #if HasAgentTray
 ; AgentTray 사용자 로그온 시 자동 시작 — HKCU\Run. Agent 를 설치할 때만 트레이도 따라 등록.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
-  ValueName: "PromakerAgentTray"; ValueData: """{app}\AgentTray\{#MyAgentTrayExeName}"""; \
+  ValueName: "Ds2HubTray"; ValueData: """{app}\AgentTray\{#MyAgentTrayExeName}"""; \
   Tasks: installagent; Flags: uninsdeletevalue
 #endif
 
 [Run]
 #if HasAgent
-; ── Promaker.Agent 서비스 등록 + 시작 (installagent 태스크 체크 시). 업그레이드 호환 — 이미 떠 있으면 stop+delete 후 재등록. ──
+; ── Ds2.Hub 서비스 등록 + 시작 (installagent 태스크 체크 시). 업그레이드 호환 — 이미 떠 있으면 stop+delete 후 재등록. ──
 ; 기존 서비스 정지/삭제 (없으면 sc 가 비-0 반환하나 runhidden 으로 무시).
 Filename: "{sys}\sc.exe"; Parameters: "stop {#MyAgentServiceName}"; Tasks: installagent; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "delete {#MyAgentServiceName}"; Tasks: installagent; Flags: runhidden
@@ -197,7 +197,7 @@ Filename: "{sys}\sc.exe"; Parameters: "delete {#MyAgentServiceName}"; Tasks: ins
 Filename: "{sys}\sc.exe"; \
   Parameters: "create {#MyAgentServiceName} binPath= ""{app}\Agent\{#MyAgentExeName}"" start= auto DisplayName= ""{#MyAgentServiceDisplay}"""; \
   Tasks: installagent; Flags: runhidden waituntilterminated; \
-  StatusMsg: "Promaker Agent 서비스 등록 중..."
+  StatusMsg: "DS2 Hub 서비스 등록 중..."
 Filename: "{sys}\sc.exe"; Parameters: "description {#MyAgentServiceName} ""{#MyAgentServiceDesc}"""; \
   Tasks: installagent; Flags: runhidden waituntilterminated
 ; 실패 복구 정책 — 10s, 10s, 30s 후 자동 재시작. 카운터는 1일 후 리셋.
@@ -206,15 +206,15 @@ Filename: "{sys}\sc.exe"; \
   Tasks: installagent; Flags: runhidden waituntilterminated
 ; 방화벽 인바운드 5051. DSPilot 가 같은 머신 localhost 만 접속하지만, 원격 모니터링 확장 대비 미리 허용.
 Filename: "{sys}\netsh.exe"; \
-  Parameters: "advfirewall firewall add rule name=""Promaker Agent Monitoring"" dir=in action=allow protocol=tcp localport={#MyAgentPort}"; \
+  Parameters: "advfirewall firewall add rule name=""DS2 Hub Monitoring"" dir=in action=allow protocol=tcp localport={#MyAgentPort}"; \
   Tasks: installagent; Flags: runhidden waituntilterminated
 ; 방화벽 인바운드 5050 — 모델 업로드 수신(AgentUploadReceiver). 원격 Promaker 의 '네트워크 업로드' 대상.
 Filename: "{sys}\netsh.exe"; \
-  Parameters: "advfirewall firewall add rule name=""Promaker Agent Upload"" dir=in action=allow protocol=tcp localport={#MyAgentUploadPort}"; \
+  Parameters: "advfirewall firewall add rule name=""DS2 Hub Upload"" dir=in action=allow protocol=tcp localport={#MyAgentUploadPort}"; \
   Tasks: installagent; Flags: runhidden waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "start {#MyAgentServiceName}"; \
   Tasks: installagent; Flags: runhidden waituntilterminated; \
-  StatusMsg: "Promaker Agent 서비스 시작 중..."
+  StatusMsg: "DS2 Hub 서비스 시작 중..."
 #endif
 #if HasAgentTray
 ; 설치 직후 한 번 트레이 띄움 (installagent 체크 시). 다음 부팅부터는 HKCU\Run 이 자동 실행.
@@ -234,9 +234,9 @@ Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#MyAgentTrayExeName}"; Flag
 ; 서비스가 등록되어 있지 않으면 비-0 반환하지만 runhidden 으로 무시 — 옵트인 안 했어도 안전하게 정리.
 Filename: "{sys}\sc.exe"; Parameters: "stop {#MyAgentServiceName}"; Flags: runhidden; RunOnceId: "StopAgentService"
 Filename: "{sys}\sc.exe"; Parameters: "delete {#MyAgentServiceName}"; Flags: runhidden; RunOnceId: "DeleteAgentService"
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Promaker Agent Monitoring"""; \
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""DS2 Hub Monitoring"""; \
   Flags: runhidden; RunOnceId: "DeleteAgentFirewall"
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Promaker Agent Upload"""; \
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""DS2 Hub Upload"""; \
   Flags: runhidden; RunOnceId: "DeleteAgentUploadFirewall"
 #endif
 
@@ -251,10 +251,13 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
 begin
-  Exec(ExpandConstant('{sys}\sc.exe'), 'stop PromakerAgentService',  '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\sc.exe'), 'stop Ds2HubService',  '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  // 구 서비스명(PromakerAgentService) — 개명 전 설치본 정리.
+  Exec(ExpandConstant('{sys}\sc.exe'), 'stop PromakerAgentService',   '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\sc.exe'), 'delete PromakerAgentService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Promaker.exe',           '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Promaker.AgentTray.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Promaker.Agent.exe',     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Ds2.Hub.Tray.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Ds2.Hub.exe',     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   // SCM 의 stop 처리 + DLL handle close 시간 확보. 1.5s = 경험적 최소.
   Sleep(1500);
   Result := '';
@@ -263,18 +266,18 @@ end;
 #if HasAgent
 // ── 설치 전 안내 / 오픈소스 고지 — Agent 를 번들할 때만(HasAgent). 통합 설치(Suite)는 /SILENT 로 이 설치본을
 // 체이닝하므로 이 페이지는 단독 설치에서만 보이고, 통합 설치는 Suite.iss 의 고지 페이지가 같은 내용을 맡는다.
-// libusb 는 LGPL-2.1 — 재배포 시 고지가 필요하고 전문/출처는 Agent 폴더에 DLL 과 함께 실린다(Promaker.Agent.csproj).
+// libusb 는 LGPL-2.1 — 재배포 시 고지가 필요하고 전문/출처는 Agent 폴더에 DLL 과 함께 실린다(Ds2.Hub.csproj).
 procedure InitializeWizard();
 begin
   CreateOutputMsgMemoPage(wpWelcome,
     '설치 안내', '설치 전 확인해 주세요.',
-    'Promaker Agent 서비스 · 방화벽 · 오픈소스 고지 안내입니다.',
+    'DS2 Hub 서비스 · 방화벽 · 오픈소스 고지 안내입니다.',
     '[Windows 서비스]' + #13#10 +
-    '  · ''Promaker Agent + Agent Tray 설치'' 를 선택하면 모니터링 서비스가 시스템 시작 시 자동 실행됩니다.' + #13#10#13#10 +
+    '  · ''DS2 Hub + Agent Tray 설치'' 를 선택하면 모니터링 서비스가 시스템 시작 시 자동 실행됩니다.' + #13#10#13#10 +
     '[방화벽 — Agent 설치 시 아래 인바운드 규칙이 자동 등록됩니다]' + #13#10 +
-    '  · Promaker Agent: TCP {#MyAgentPort}(모니터링) / {#MyAgentUploadPort}(모델 업로드)' + #13#10#13#10 +
+    '  · DS2 Hub: TCP {#MyAgentPort}(모니터링) / {#MyAgentUploadPort}(모델 업로드)' + #13#10#13#10 +
     '[오픈소스 고지]' + #13#10 +
-    '  Promaker Agent 는 LS PLC 의 USB 로더 포트 수집을 위해 아래 오픈소스를 포함/재배포합니다.' + #13#10 +
+    '  DS2 Hub 는 LS PLC 의 USB 로더 포트 수집을 위해 아래 오픈소스를 포함/재배포합니다.' + #13#10 +
     '  · libusb 1.0 (LGPL-2.1)  https://libusb.info' + #13#10 +
     '  동적 로드(libusb-1.0.dll)로만 사용하며 수정하지 않았습니다. 라이선스 전문과 출처·해시는' + #13#10 +
     '  설치 폴더의 Agent\LICENSE-libusb-1.0.txt, Agent\NOTICE-libusb-1.0.txt 에서 확인할 수 있습니다.');

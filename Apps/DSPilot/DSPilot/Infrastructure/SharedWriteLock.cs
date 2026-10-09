@@ -8,7 +8,7 @@ namespace DSPilot.Infrastructure;
 
 /// <summary>
 /// 공유 폴더의 AASX/사이드카 동시 쓰기를 직렬화하는 cross-process 파일 락.
-/// Promaker.Shared.SharedWriteLock 의 DSPilot 복제(B안) — DSPilot 은 Promaker.Shared 를 참조하지 않으므로
+/// Ds2.Hub.Shared.SharedWriteLock 의 DSPilot 복제(B안) — DSPilot 은 Ds2.Hub.Shared 를 참조하지 않으므로
 /// 같은 락 파일(<see cref="SharedPaths.SharedWriteLockPath"/>)·동일 프로토콜(CreateNew 원자성 + stale 회수)을 복제한다.
 /// named Mutex 는 머신 로컬이라 같은 공유 폴더를 보는 cross-machine(우분투 Agent ↔ Windows Promaker)·
 /// cross-process(Promaker WPF ↔ DSPilot 서비스) 동시 쓰기를 못 막는다.

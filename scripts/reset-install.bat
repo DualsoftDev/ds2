@@ -31,8 +31,8 @@ echo   [TEMP]         %TEMP%\promaker-kb-*  and  %TEMP%\codex-img-*
 echo   [PROGRAMDATA]  %PROGRAMDATA%\DualSoft\Shared\
 echo   [DOCUMENTS]    %USERPROFILE%\Documents\ds2_eventlog_*.txt
 echo   [DOCUMENTS]    %USERPROFILE%\Documents\ds2_iomap_*.txt
-echo   [SERVICE]      PromakerAgentService / DSPilotService (if present)
-echo   [REGISTRY]     HKCU\...\Run\PromakerAgentTray (if present)
+echo   [SERVICE]      Ds2HubService / DSPilotService (if present)
+echo   [REGISTRY]     HKCU\...\Run\Ds2HubTray (if present)
 echo.
 
 set /p CONFIRM=Proceed? (Y/N):
@@ -45,15 +45,17 @@ echo.
 echo [1/6] Killing running processes ...
 taskkill /f /im Promaker.exe           >nul 2>&1
 taskkill /f /im DSPilot.exe            >nul 2>&1
-taskkill /f /im Promaker.Agent.exe     >nul 2>&1
-taskkill /f /im Promaker.AgentTray.exe >nul 2>&1
+taskkill /f /im Ds2.Hub.exe     >nul 2>&1
+taskkill /f /im Ds2.Hub.Tray.exe >nul 2>&1
 
 echo [2/6] Removing leftover Windows services ...
-sc query PromakerAgentService >nul 2>&1
+sc stop   PromakerAgentService >nul 2>&1
+sc delete PromakerAgentService >nul 2>&1
+sc query Ds2HubService >nul 2>&1
 if not errorlevel 1 (
-    echo   - PromakerAgentService stop/delete
-    sc stop   PromakerAgentService >nul 2>&1
-    sc delete PromakerAgentService >nul 2>&1
+    echo   - Ds2HubService stop/delete
+    sc stop   Ds2HubService >nul 2>&1
+    sc delete Ds2HubService >nul 2>&1
 )
 sc query DSPilotService >nul 2>&1
 if not errorlevel 1 (
@@ -81,10 +83,10 @@ del /q "%USERPROFILE%\Documents\ds2_eventlog_*.txt" 2>nul
 del /q "%USERPROFILE%\Documents\ds2_iomap_*.txt"    2>nul
 
 echo [6/6] Cleaning leftover registry keys ...
-reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v PromakerAgentTray >nul 2>&1
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v Ds2HubTray >nul 2>&1
 if not errorlevel 1 (
-    echo   - HKCU\...\Run\PromakerAgentTray deleted
-    reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v PromakerAgentTray /f >nul 2>&1
+    echo   - HKCU\...\Run\Ds2HubTray deleted
+    reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v Ds2HubTray /f >nul 2>&1
 )
 
 echo.

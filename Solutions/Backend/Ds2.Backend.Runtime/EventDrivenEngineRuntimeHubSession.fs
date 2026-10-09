@@ -24,7 +24,7 @@ type EventDrivenEngineRuntimeHubSession
       // C# 상호운용 위해 필수 인자(F# optional ctor param 은 C# 호출이 까다로움). 미상이면 호출부가 100 명시.
       scanPeriodMs: int,
       // ActionUnder 게이트 — workGuid 의 Min 이 실측 확정(calibration-state)됐는지. Agent(C#)가 사이드카+AASX
-      // 해시로 만든 판정 함수를 주입한다. F# 는 Promaker.Shared 를 모르므로 Func 만 받는다(의존성 분리).
+      // 해시로 만든 판정 함수를 주입한다. F# 는 Ds2.Hub.Shared 를 모르므로 Func 만 받는다(의존성 분리).
       isMinMeasured: System.Func<Guid, bool>,
       // ActionOver 게이트 — workGuid 의 Max 실측 확정 여부. 엔진 SetMaxMeasured 와 동일 판정 함수를
       // adapter OUT-falling 발행 경로에도 주입한다(게이트 우회 금지 — 핸드오프 §7 가드2).

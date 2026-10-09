@@ -22,7 +22,7 @@ module BackendHost =
     let private emptyConfig : PlcGatewayConfig = { Connections = [] }
 
     /// 모든 entry point 가 공유하는 호스트 부트스트랩 — 빌더 생성, DI 등록, Hub map, StartAsync.
-    /// configureBuilder: 빌더 생성 직후 호출되는 hook. Promaker.Agent 가 Host.UseWindowsService() 주입에 사용.
+    /// configureBuilder: 빌더 생성 직후 호출되는 hook. Ds2.Hub 가 Host.UseWindowsService() 주입에 사용.
     let private bootstrap
             (port: int)
             (plcConfig: PlcGatewayConfig option)
@@ -125,7 +125,7 @@ module BackendHost =
     let startWithPlcConfigReadOnly (port: int) (plcConfig: PlcGatewayConfig) =
         startWithPlc (Some port) (Some plcConfig) true
 
-    /// Promaker.Agent 등 호스트 lifecycle 을 커스터마이즈해야 하는 호출자용 entry.
+    /// Ds2.Hub 등 호스트 lifecycle 을 커스터마이즈해야 하는 호출자용 entry.
     /// configureBuilder 에서 Host.UseWindowsService() 등을 주입할 수 있다.
     /// C# 에서 람다 그대로 전달 가능 — Action<WebApplicationBuilder>.
     /// delegated: true 면 위임 스캔(§10.10 ①) — PlcScanService 미등록(Agent 가 PLC 직접 접속 안 함),
@@ -154,7 +154,7 @@ module BackendHost =
     let stop (app: WebApplication) =
         SignalHub.ClearTagCache()
         // 기본 ShutdownTimeout(30s) 을 다 기다리는 wedge 관찰됨 — Kestrel 의 active SignalR
-        // client drain 또는 hosted service 종료 대기가 원인. Promaker.Agent 의 restart cycle 이
+        // client drain 또는 hosted service 종료 대기가 원인. Ds2.Hub 의 restart cycle 이
         // 매번 30s 씩 hang 되어 DSPilot 에서 새 PLC 설정이 늦게 반영되는 race 의 진입점이 됨.
         // 짧은 timeout 으로 강제 — graceful 실패 시 dispose 가 어차피 자원 해제.
         let stopTimeout = TimeSpan.FromSeconds 5.0

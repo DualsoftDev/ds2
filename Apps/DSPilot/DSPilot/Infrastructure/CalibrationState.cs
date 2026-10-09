@@ -7,7 +7,7 @@ namespace DSPilot.Infrastructure;
 
 /// <summary>
 /// 실측 duration 확정 상태 사이드카 (calibration-state.json). AASX 모델과 분리된 런타임 확정 메타.
-/// Promaker.Shared.CalibrationState 의 DSPilot 복제(B안) — 동일 스키마/파일/camelCase 직렬화여야
+/// Ds2.Hub.Shared.CalibrationState 의 DSPilot 복제(B안) — 동일 스키마/파일/camelCase 직렬화여야
 /// Promaker·Agent 와 같은 사이드카를 읽고 쓴다(필드/포맷 한 글자라도 어긋나면 stale).
 ///
 /// 용도: ActionUnder(Min 보다 빨리 끝남)·ActionOver(Max 초과) 판정 게이트의 SSOT.

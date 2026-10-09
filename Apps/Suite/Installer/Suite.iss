@@ -8,8 +8,8 @@
 ;   - 설치 경로는 각 서브 설치본의 기본 경로를 그대로 따른다(통합본 자체 {app} 는 uninstaller 만 보관).
 ;   - 설치 로직(서비스/포트/MediaMTX/Agent/sc·fd)은 각 .iss 가 SSOT 로 유지 → 여기엔 중복하지 않는다.
 ;
-; ── 설치 구성 선택 (3개 기본 체크: DSPilot / Promaker / Promaker Agent) ──
-; 체크 조합은 서브 설치본의 installagent 태스크로 사상한다 — Agent 서비스(PromakerAgentService)의
+; ── 설치 구성 선택 (3개 기본 체크: DSPilot / Promaker / DS2 Hub) ──
+; 체크 조합은 서브 설치본의 installagent 태스크로 사상한다 — Agent 서비스(Ds2HubService)의
 ; 이중 등록을 피하는 소유권 규칙:
 ;   Promaker ✓ + Agent ✓ : Promaker 가 Agent+Tray 동봉/소유 (installagent 기본 체크, 그대로)
 ;   Promaker ✓ + Agent ✗ : Promaker 에 /MERGETASKS="!installagent" → 본체만
@@ -227,11 +227,11 @@ begin
   CompPage := CreateInputOptionPage(wpWelcome,
     '설치 구성 선택', '설치할 프로그램을 선택하세요.',
     '설치할 구성 요소를 체크하세요. 세 가지 모두 설치하는 것이 기본입니다.' + #13#10 +
-    'Promaker Agent 는 단독 설치할 수 없습니다 (Promaker 또는 DSPilot 와 함께 선택).',
+    'DS2 Hub 는 단독 설치할 수 없습니다 (Promaker 또는 DSPilot 와 함께 선택).',
     False, False);
   CompPage.Add('DSPilot — 웹 기반 PLC 모니터링/분석 (웹 서비스 + CCTV 게이트웨이)');
   CompPage.Add('Promaker — 설비 모델 저작 데스크톱 앱');
-  CompPage.Add('Promaker Agent — 헤드리스 PLC 모니터링 서비스 (+ 알림 영역 트레이)');
+  CompPage.Add('DS2 Hub — 헤드리스 PLC 모니터링 서비스 (+ 알림 영역 트레이)');
   CompPage.Values[0] := True;
   CompPage.Values[1] := True;
   CompPage.Values[2] := True;
@@ -247,18 +247,18 @@ begin
     '설치 안내', '설치 전 확인해 주세요.',
     '서비스 자동 실행 · 방화벽 · 오픈소스 고지 안내입니다.',
     '[Windows 서비스]' + #13#10 +
-    '  · 설치되는 서비스(DSPilot / CCTV / Promaker Agent)는 시스템 시작 시 자동 실행됩니다.' + #13#10#13#10 +
+    '  · 설치되는 서비스(DSPilot / CCTV / DS2 Hub)는 시스템 시작 시 자동 실행됩니다.' + #13#10#13#10 +
     '[방화벽 — 아래 인바운드 규칙이 자동 등록됩니다]' + #13#10 +
     WebPortLine + #13#10 +
     '  · CCTV(WebRTC): TCP 8889, UDP 8189' + #13#10 +
-    '  · Promaker Agent: TCP 5051(모니터링) / 5050(모델 업로드)' + #13#10#13#10 +
+    '  · DS2 Hub: TCP 5051(모니터링) / 5050(모델 업로드)' + #13#10#13#10 +
     '[오픈소스 고지]' + #13#10 +
     '  본 제품은 CCTV 영상 중계를 위해 아래 오픈소스를 포함/재배포합니다.' + #13#10 +
     '  · MediaMTX (MIT License)  https://github.com/bluenviron/mediamtx' + #13#10 +
     '  · WinSW (MIT License)     https://github.com/winsw/winsw' + #13#10 +
     '  라이선스 전문은 설치 후 DSPilot 설치 폴더의 mediamtx\LICENSE,' + #13#10 +
     '  mediamtx\LICENSE-winsw.txt 에서 확인할 수 있습니다.' + #13#10#13#10 +
-    '  Promaker Agent 는 LS PLC 의 USB 로더 포트 수집을 위해 아래 오픈소스를 포함/재배포합니다.' + #13#10 +
+    '  DS2 Hub 는 LS PLC 의 USB 로더 포트 수집을 위해 아래 오픈소스를 포함/재배포합니다.' + #13#10 +
     '  · libusb 1.0 (LGPL-2.1)  https://libusb.info' + #13#10 +
     '  동적 로드(libusb-1.0.dll)로만 사용하며 수정하지 않았습니다. 라이선스 전문과 출처·해시는' + #13#10 +
     '  Agent 설치 폴더(Promaker\Agent 또는 DSPilot\Agent)의 LICENSE-libusb-1.0.txt,' + #13#10 +
@@ -324,7 +324,7 @@ begin
         S := S + '    · 웹 포트: ' + DsPilotPort + ' (기존 설치 포트 유지 — 다음 화면에서 변경 가능)' + #13#10;
       // Promaker 없이 Agent 선택 → Agent 는 DSPilot 설치본이 함께 설치.
       if SelAgent() and (not SelPromaker()) then
-        S := S + '    · Promaker Agent + Data Collector 포함 설치 (헤드리스 모니터링 서비스)' + #13#10;
+        S := S + '    · DS2 Hub + Data Collector 포함 설치 (헤드리스 모니터링 서비스)' + #13#10;
       S := S + #13#10;
     end;
     if SelPromaker() then
@@ -333,10 +333,10 @@ begin
         '    · Promaker 본체  (C:\Program Files\Promaker)' + #13#10;
       if SelAgent() then
         S := S +
-          '    · Promaker Agent (헤드리스 모니터링 서비스, 자동 실행 · ...\Promaker\Agent)' + #13#10 +
-          '    · Promaker Agent Tray (알림 영역 상태 표시 · ...\Promaker\AgentTray)' + #13#10
+          '    · DS2 Hub (헤드리스 모니터링 서비스, 자동 실행 · ...\Promaker\Agent)' + #13#10 +
+          '    · DS2 Hub Tray (알림 영역 상태 표시 · ...\Promaker\AgentTray)' + #13#10
       else
-        S := S + '    · Promaker Agent 제외 (실 PLC 모니터링 없이 저작/시뮬레이션만)' + #13#10;
+        S := S + '    · DS2 Hub 제외 (실 PLC 모니터링 없이 저작/시뮬레이션만)' + #13#10;
       S := S + #13#10;
     end;
     S := S + '■ 공통' + #13#10 +
@@ -402,7 +402,7 @@ begin
     // Agent 단독은 실행할 서브 설치본이 없다 — Agent 는 Promaker(동봉) 또는 DSPilot(installagent) 편승.
     if SelAgent() and (not SelPromaker()) and (not SelDsPilot()) then
     begin
-      MsgBox('Promaker Agent 는 단독으로 설치할 수 없습니다.' + #13#10 +
+      MsgBox('DS2 Hub 는 단독으로 설치할 수 없습니다.' + #13#10 +
              'Promaker 또는 DSPilot 을 함께 선택해 주세요.', mbError, MB_OK);
       Result := False;
       Exit;
@@ -469,7 +469,7 @@ begin
   Result := AddBackslash(Result);
 end;
 
-// Promaker Agent Tray 를 알림 영역에 띄운다.
+// DS2 Hub Tray 를 알림 영역에 띄운다.
 // 통합본은 Promaker 를 /SILENT 로 체이닝하므로 Promaker.iss 의 트레이 즉시실행 [Run]
 // (skipifsilent) 이 건너뛰어져 설치 직후 트레이가 안 보인다 → 여기서 직접 실행해 보완.
 // 통합본은 admin 으로 상승돼 있으므로 ExecAsOriginalUser 로 로그온(비상승) 사용자
@@ -483,7 +483,7 @@ begin
   if WizardSilent() then
     Exit;
   TrayDir := GetPromakerInstallLocation() + 'AgentTray';
-  TrayExe := AddBackslash(TrayDir) + 'Promaker.AgentTray.exe';
+  TrayExe := AddBackslash(TrayDir) + 'Ds2.Hub.Tray.exe';
   if FileExists(TrayExe) then
     ExecAsOriginalUser(TrayExe, '', TrayDir, SW_SHOW, ewNoWait, ResultCode);
 end;

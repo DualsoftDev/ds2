@@ -17,7 +17,7 @@ SHARED_DIR="/var/lib/dualsoft/Shared"
 COLLECTOR_DATA_DIR="/var/lib/dualsoft/collector"
 SVC_DSPILOT="${APP_NAME}.service"
 SVC_MEDIAMTX="${APP_NAME}-mediamtx.service"
-SVC_AGENT="promaker-agent.service"
+SVC_AGENT="ds2-hub.service"
 SVC_COLLECTOR="ds2-collector.service"
 PURGE=0
 

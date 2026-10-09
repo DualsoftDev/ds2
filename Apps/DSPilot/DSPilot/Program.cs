@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using DSPilot.Services;
@@ -265,7 +265,7 @@ builder.Services.AddSingleton<OeeNonProdPatternService>();
 builder.Services.AddSingleton<CctvMediaMtxService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<CctvMediaMtxService>());
 
-// Promaker.Agent 가 broadcast 하는 PLC 어댑터 연결 상태 캐시 — UI 배너 / 대시보드가 구독.
+// Ds2.Hub 가 broadcast 하는 PLC 어댑터 연결 상태 캐시 — UI 배너 / 대시보드가 구독.
 builder.Services.AddSingleton<PlcConnectionStatusTracker>();
 
 // Agent 보고가 없을 때(허브 끊김/모니터링 비활성) PLC 를 직접 핑(TCP)하는 폴백 — NavController 가 사용.

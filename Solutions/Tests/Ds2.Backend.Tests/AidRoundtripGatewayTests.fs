@@ -254,7 +254,7 @@ let ``InterfaceXGT XGB roundtrip selects the XGT compact PLC driver`` () =
     Assert.True(plan.Success, String.Join(" / ", plan.Errors))
     Assert.Equal(PlcVendor.LsXgb, plan.Config.Connections.Head.Vendor)
 
-/// InterfaceMicrexSx 는 Promaker.Agent 가 SX PLC 에 닿는 유일한 경로다 — Agent 는 게이트웨이를
+/// InterfaceMicrexSx 는 Ds2.Hub 가 SX PLC 에 닿는 유일한 경로다 — Agent 는 게이트웨이를
 /// AID 에서만 조립하므로(MonitoringSupervisor → AidXgtGatewayConfig.buildForProject) 이 왕복이
 /// 깨지면 모니터링이 PLC 에 붙지 못한다. 전역 PlcConnection.json 에만 저장했을 때 실제로 그랬다.
 [<Fact>]

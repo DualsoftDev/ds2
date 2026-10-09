@@ -1,4 +1,4 @@
-﻿; DSPilot Inno Setup Script
+; DSPilot Inno Setup Script
 ; Self-contained installer with Windows Service registration
 
 #define MyAppName "DSPilot"
@@ -45,17 +45,17 @@
 ; Promaker · DSPilot 공유 AASX 경로 (DSPilot/Infrastructure/SharedPaths.cs 와 동일)
 #define MySharedDir "{commonappdata}\DualSoft\Shared"
 #define MySharedAasxName "project.aasx"
-; ── Promaker.Agent (옵션 번들) ──
+; ── Ds2.Hub (옵션 번들) ──
 ; Promaker 를 따로 설치하지 않고 DSPilot 만 쓰는 환경을 위한 헤드리스 모니터링 백엔드.
 ; 5051 SignalR Hub + PLC 스캔을 SYSTEM 서비스로 제공한다(= DSPilot 가 client 로 접속하는 hub).
 ; build-installer.bat 의 [3c] 단계가 publish-agent 폴더를 self-contained 로 채운다.
-; AgentPublishDir 에 Promaker.Agent.exe 가 없으면(=에이전트 미publish) Tasks/Files/Run 전부 자동 스킵.
+; AgentPublishDir 에 Ds2.Hub.exe 가 없으면(=에이전트 미publish) Tasks/Files/Run 전부 자동 스킵.
 #ifndef AgentPublishDir
   #define AgentPublishDir "..\publish-agent"
 #endif
-#define MyAgentExeName "Promaker.Agent.exe"
-#define MyAgentServiceName "PromakerAgentService"
-#define MyAgentServiceDisplay "Promaker Agent Service"
+#define MyAgentExeName "Ds2.Hub.exe"
+#define MyAgentServiceName "Ds2HubService"
+#define MyAgentServiceDisplay "DS2 Hub Service"
 #define MyAgentServiceDesc "Promaker headless monitoring agent (5051 SignalR Hub + PLC scan, read-only)"
 #define MyAgentPort "5051"
 ; 모델 업로드 수신 포트 (AgentUploadReceiver, 항상 listen) — 원격 Promaker '네트워크 업로드' 대상.
@@ -112,10 +112,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "cctv"; Description: "CCTV 구성요소(MediaMTX · ffmpeg) 인터넷에서 내려받아 설치 (약 140MB)"
 #endif
 #if HasAgent
-; Promaker.Agent 옵션 설치 — 기본 해제(unchecked). Promaker 를 별도로 설치하지 않고 DSPilot 만
+; Ds2.Hub 옵션 설치 — 기본 해제(unchecked). Promaker 를 별도로 설치하지 않고 DSPilot 만
 ; 쓰는 PC 에서 PLC 스캔 + 5051 모니터링 Hub 백엔드를 함께 깔고 싶을 때만 체크한다.
-; Promaker 가 이미 설치된 PC 라면 Promaker 가 동일 서비스(PromakerAgentService)를 관리하므로 체크 불필요.
-Name: "installagent"; Description: "Promaker Agent + Data Collector 서비스 함께 설치 (Promaker 미설치 환경용)"; Flags: unchecked
+; Promaker 가 이미 설치된 PC 라면 Promaker 가 동일 서비스(Ds2HubService)를 관리하므로 체크 불필요.
+Name: "installagent"; Description: "DS2 Hub + Data Collector 서비스 함께 설치 (Promaker 미설치 환경용)"; Flags: unchecked
 #endif
 
 [Dirs]
@@ -164,8 +164,8 @@ Source: "ffmpeg\LICENSE*"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion skipifs
 #endif
 #endif
 #if HasAgent
-; Promaker.Agent — "installagent" 태스크 체크 시에만 {app}\Agent 로 번들(self-contained).
-; 별도 폴더로 분리해 DSPilot.exe 와 dll 충돌 방지 + Agent 로그(logs\promaker-agent.log) 격리.
+; Ds2.Hub — "installagent" 태스크 체크 시에만 {app}\Agent 로 번들(self-contained).
+; 별도 폴더로 분리해 DSPilot.exe 와 dll 충돌 방지 + Agent 로그(logs\ds2-hub.log) 격리.
 Source: "{#AgentPublishDir}\*"; DestDir: "{app}\Agent"; Tasks: installagent; \
   Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#CollectorPublishDir}\*"; DestDir: "{app}\Collector"; Tasks: installagent; \
@@ -250,41 +250,41 @@ Filename: "{sys}\netsh.exe"; \
   Flags: runhidden waituntilterminated; \
   StatusMsg: "CCTV 방화벽 규칙 추가 중 (TCP 미디어 폴백)..."
 
-; ── Promaker.Agent 서비스 등록 + 시작 (installagent 태스크 체크 시에만) ──
+; ── Ds2.Hub 서비스 등록 + 시작 (installagent 태스크 체크 시에만) ──
 ; 업그레이드 시 기존 서비스는 PrepareToInstall 이 미리 stop+delete 하므로 create 부터 진행.
 #if HasAgent
 Filename: "{sys}\sc.exe"; \
   Parameters: "create {#MyAgentServiceName} binPath=""{app}\Agent\{#MyAgentExeName}"" start=auto DisplayName=""{#MyAgentServiceDisplay}"""; \
   Flags: runhidden waituntilterminated; Tasks: installagent; \
-  StatusMsg: "Promaker Agent 서비스 등록 중..."
+  StatusMsg: "DS2 Hub 서비스 등록 중..."
 
 Filename: "{sys}\sc.exe"; \
   Parameters: "description {#MyAgentServiceName} ""{#MyAgentServiceDesc}"""; \
   Flags: runhidden waituntilterminated; Tasks: installagent; \
-  StatusMsg: "Promaker Agent 서비스 설명 설정 중..."
+  StatusMsg: "DS2 Hub 서비스 설명 설정 중..."
 
 ; 실패 복구: 10s, 10s, 30s 후 자동 재시작. 카운터는 1일 후 리셋. (DSPilot 본 서비스와 동일 정책)
 Filename: "{sys}\sc.exe"; \
   Parameters: "failure {#MyAgentServiceName} reset=86400 actions=restart/10000/restart/10000/restart/30000"; \
   Flags: runhidden waituntilterminated; Tasks: installagent; \
-  StatusMsg: "Promaker Agent 서비스 복구 옵션 설정 중..."
+  StatusMsg: "DS2 Hub 서비스 복구 옵션 설정 중..."
 
 ; 방화벽 인바운드 5051 — DSPilot 가 같은 머신 localhost 로 접속하지만 원격 모니터링 확장 대비 허용.
 Filename: "{sys}\netsh.exe"; \
-  Parameters: "advfirewall firewall add rule name=""Promaker Agent Monitoring"" dir=in action=allow protocol=tcp localport={#MyAgentPort}"; \
+  Parameters: "advfirewall firewall add rule name=""DS2 Hub Monitoring"" dir=in action=allow protocol=tcp localport={#MyAgentPort}"; \
   Flags: runhidden waituntilterminated; Tasks: installagent; \
-  StatusMsg: "Promaker Agent 방화벽 규칙 추가 중..."
+  StatusMsg: "DS2 Hub 방화벽 규칙 추가 중..."
 
 ; 방화벽 인바운드 5050 — 모델 업로드 수신(AgentUploadReceiver). 원격 Promaker 의 '네트워크 업로드' 대상.
 Filename: "{sys}\netsh.exe"; \
-  Parameters: "advfirewall firewall add rule name=""Promaker Agent Upload"" dir=in action=allow protocol=tcp localport={#MyAgentUploadPort}"; \
+  Parameters: "advfirewall firewall add rule name=""DS2 Hub Upload"" dir=in action=allow protocol=tcp localport={#MyAgentUploadPort}"; \
   Flags: runhidden waituntilterminated; Tasks: installagent; \
-  StatusMsg: "Promaker Agent 업로드 방화벽 규칙 추가 중..."
+  StatusMsg: "DS2 Hub 업로드 방화벽 규칙 추가 중..."
 
 Filename: "{sys}\sc.exe"; \
   Parameters: "start {#MyAgentServiceName}"; \
   Flags: runhidden waituntilterminated; Tasks: installagent; \
-  StatusMsg: "Promaker Agent 서비스 시작 중..."
+  StatusMsg: "DS2 Hub 서비스 시작 중..."
 
 ; Collector API는 코드 기본값 127.0.0.1:62542만 사용해 방화벽 인바운드를 열지 않는다.
 ; DB·클라이언트 인증서는 %ProgramData%\DualSoft\Collector에 보존된다.
@@ -327,17 +327,17 @@ Filename: "{sys}\sc.exe"; Parameters: "stop {#MyCollectorServiceName}"; \
   Flags: runhidden waituntilterminated; Check: ShouldRemoveCollector; RunOnceId: "StopCollectorService"
 Filename: "{sys}\sc.exe"; Parameters: "delete {#MyCollectorServiceName}"; \
   Flags: runhidden waituntilterminated; Check: ShouldRemoveCollector; RunOnceId: "DeleteCollectorService"
-; ── Promaker.Agent 서비스 정리 ──
+; ── Ds2.Hub 서비스 정리 ──
 ; Check=ShouldRemoveAgent: 이 설치본이 {app}\Agent 에 Agent 를 실제로 깔았을 때만 stop/delete.
 ; (Agent 옵션 미선택으로 {app}\Agent 가 없으면 건너뛴다 — 같은 PC 에 Promaker 가 설치돼 있어
-;  Promaker 가 등록한 PromakerAgentService 를 DSPilot 제거가 잘못 지우는 것을 막기 위함.)
+;  Promaker 가 등록한 Ds2HubService 를 DSPilot 제거가 잘못 지우는 것을 막기 위함.)
 Filename: "{sys}\sc.exe"; Parameters: "stop {#MyAgentServiceName}"; \
   Flags: runhidden waituntilterminated; Check: ShouldRemoveAgent; RunOnceId: "StopAgentService"
 Filename: "{sys}\sc.exe"; Parameters: "delete {#MyAgentServiceName}"; \
   Flags: runhidden waituntilterminated; Check: ShouldRemoveAgent; RunOnceId: "DeleteAgentService"
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Promaker Agent Monitoring"""; \
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""DS2 Hub Monitoring"""; \
   Flags: runhidden waituntilterminated; Check: ShouldRemoveAgent; RunOnceId: "DeleteAgentFirewall"
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Promaker Agent Upload"""; \
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""DS2 Hub Upload"""; \
   Flags: runhidden waituntilterminated; Check: ShouldRemoveAgent; RunOnceId: "DeleteAgentUploadFirewall"
 #endif
 
@@ -610,8 +610,8 @@ begin
 end;
 
 #if HasAgent
-// 이 설치본이 {app}\Agent 에 Promaker.Agent 를 실제로 깔았는지 — UninstallRun 의 Check.
-// 우리 Agent 폴더가 존재할 때만 PromakerAgentService 를 stop/delete 한다(코멘트는 [UninstallRun] 참조).
+// 이 설치본이 {app}\Agent 에 Ds2.Hub 를 실제로 깔았는지 — UninstallRun 의 Check.
+// 우리 Agent 폴더가 존재할 때만 Ds2HubService 를 stop/delete 한다(코멘트는 [UninstallRun] 참조).
 function ShouldRemoveAgent: Boolean;
 begin
   Result := FileExists(ExpandConstant('{app}\Agent\{#MyAgentExeName}'));
@@ -736,18 +736,18 @@ begin
   NoticeMemo.Text :=
     '[Windows 서비스]' + #13#10 +
     '  · DSPilot 웹 서비스와 CCTV 중계(MediaMTX) 서비스가 시스템 시작 시 자동 실행됩니다.' + #13#10 +
-    '  · ''Promaker Agent'' 옵션을 선택하면 모니터링 Agent와 Data Collector가 함께 등록됩니다.' + #13#10#13#10 +
+    '  · ''DS2 Hub'' 옵션을 선택하면 모니터링 Agent와 Data Collector가 함께 등록됩니다.' + #13#10#13#10 +
     '[방화벽 — 아래 인바운드 규칙이 자동 등록됩니다]' + #13#10 +
     WebPortLine + #13#10 +
     '  · CCTV(WebRTC): TCP 8889, UDP 8189' + #13#10 +
-    '  · Promaker Agent 옵션 선택 시: TCP 5051(모니터링) / 5050(모델 업로드)' + #13#10#13#10 +
+    '  · DS2 Hub 옵션 선택 시: TCP 5051(모니터링) / 5050(모델 업로드)' + #13#10#13#10 +
     '[오픈소스 고지]' + #13#10 +
     '  본 제품은 CCTV 영상 중계를 위해 아래 오픈소스를 포함/재배포합니다.' + #13#10 +
     '  · MediaMTX (MIT License)  https://github.com/bluenviron/mediamtx' + #13#10 +
     '  · WinSW (MIT License)     https://github.com/winsw/winsw' + #13#10 +
     '  라이선스 전문은 설치 폴더의 mediamtx\LICENSE,' + #13#10 +
     '  mediamtx\LICENSE-winsw.txt 에서 확인할 수 있습니다.' + #13#10#13#10 +
-    '  ''Promaker Agent'' 옵션은 LS PLC 의 USB 로더 포트 수집을 위해 아래 오픈소스를 포함/재배포합니다.' + #13#10 +
+    '  ''DS2 Hub'' 옵션은 LS PLC 의 USB 로더 포트 수집을 위해 아래 오픈소스를 포함/재배포합니다.' + #13#10 +
     '  · libusb 1.0 (LGPL-2.1)  https://libusb.info' + #13#10 +
     '  동적 로드(libusb-1.0.dll)로만 사용하며 수정하지 않았습니다. 라이선스 전문과 출처·해시는' + #13#10 +
     '  설치 폴더의 Agent\LICENSE-libusb-1.0.txt, Agent\NOTICE-libusb-1.0.txt 에서 확인할 수 있습니다.'
@@ -985,9 +985,9 @@ begin
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('delete {#MyMtxServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
 #if HasAgent
-  // Promaker.Agent 옵션을 (재)설치하는 경우에만 기존 Agent 서비스를 정지/제거 — {app}\Agent\*.dll 파일
+  // Ds2.Hub 옵션을 (재)설치하는 경우에만 기존 Agent 서비스를 정지/제거 — {app}\Agent\*.dll 파일
   // 잠금 해제 + 새 바이너리로 재등록 준비. 태스크 미선택 시엔 건드리지 않아, 같은 PC 의 Promaker 가
-  // 등록·운영 중인 PromakerAgentService 를 DSPilot 설치가 끊지 않도록 한다.
+  // 등록·운영 중인 Ds2HubService 를 DSPilot 설치가 끊지 않도록 한다.
   if WizardIsTaskSelected('installagent') then
   begin
     Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('stop {#MyCollectorServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);

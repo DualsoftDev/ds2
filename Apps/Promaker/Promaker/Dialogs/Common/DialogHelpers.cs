@@ -149,7 +149,7 @@ internal static class DialogHelpers
         var redColor = Brushes.OrangeRed;
         var yellowColor = isDark ? Brushes.Gold : Brushes.DarkOrange;
 
-        // 화면 표시(textBlock)와 동일한 내용을 plain text 로도 누적 — "복사" 버튼이 LLM 재질의용으로 사용.
+        // 화면 표시(textBlock)와 동일한 내용을 plain text 로도 누적 — "복사" 버튼용.
         var clipboardText = new StringBuilder();
 
         foreach (var section in sections)

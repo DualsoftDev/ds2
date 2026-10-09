@@ -11,7 +11,7 @@ namespace DSPilot.Services;
 /// UI 가 구독할 수 있는 이벤트로 노출. <see cref="HubSubscriberService"/> 가 hub event 를 받아 forward.
 ///
 /// Promaker WPF 에서 PLAY 시 PLC 설정 오류(IP mismatch / 잘못된 vendor 등) 가 발생하면
-/// Promaker.Agent 호스트의 PlcGateway 가 connect 실패를 감지하고 본 채널로 broadcast 한다.
+/// Ds2.Hub 호스트의 PlcGateway 가 connect 실패를 감지하고 본 채널로 broadcast 한다.
 /// DSPilot 은 캐시된 마지막 상태로 사용자에게 "PLC 통신 실패" 배너를 즉시 표시한다.
 /// </summary>
 public sealed class PlcConnectionStatusTracker

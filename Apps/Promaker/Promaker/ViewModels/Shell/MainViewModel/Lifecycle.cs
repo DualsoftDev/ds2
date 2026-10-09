@@ -78,7 +78,6 @@ public partial class MainViewModel
 
         _store = new DsStore();
         WireEvents();
-        // Hot-fix-7: LLM Chat 의 _store reference 도 동기화. 새 프로젝트 추가가 LLM 측에 안 보이는 문제 회피.
 
         _currentFilePath = null;
         FileWatcher.ResetSignature();

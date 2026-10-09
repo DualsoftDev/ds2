@@ -13,7 +13,7 @@ public sealed record PlcPingResult(
     string Name, string Vendor, string Ip, int Port, bool Connected, string? Error, DateTime AtUtc);
 
 /// <summary>
-/// PLC 어댑터 상태의 폴백 소스. 평소엔 Promaker.Agent 가 Hub 로 PLC 연결 상태를 push 하고
+/// PLC 어댑터 상태의 폴백 소스. 평소엔 Ds2.Hub 가 Hub 로 PLC 연결 상태를 push 하고
 /// <see cref="PlcConnectionStatusTracker"/> 가 캐시하지만, Agent/Hub 가 끊겨 보고가 없을 때
 /// (헤더 "실시간 상태"의 PLC 어댑터 행) DSPilot 이 <b>직접</b> 대상 PLC 에 핑을 던져 상태를 보여준다.
 ///
@@ -153,7 +153,7 @@ public sealed class PlcPingService
 
     private sealed record PlcEndpoint(string Name, string Vendor, string Ip, int Port, int TimeoutMs);
 
-    /// <summary>PlcConnection.json(camelCase) 중 핑에 필요한 필드만 — Promaker.Shared 의존 없이 읽기.</summary>
+    /// <summary>PlcConnection.json(camelCase) 중 핑에 필요한 필드만 — Ds2.Hub.Shared 의존 없이 읽기.</summary>
     private sealed class PlcConnectionFileDto
     {
         public string? Name { get; set; }

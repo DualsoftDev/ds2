@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Ds2.Hub": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

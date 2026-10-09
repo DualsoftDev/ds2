@@ -91,7 +91,7 @@ module ImportPlan =
             | None -> store.DirectWrite(store.ArrowCalls, arrow)
         | RemoveEntity (kind, id) ->
             // Direct path 는 cascade 없이 단순 dict 제거. Mermaid/CSV importer 등 raw build 용도.
-            // LLM mutation 은 ImportPlanApply 측 applyOperationTracked 가 cascade 처리.
+            // 편집기 경로(ImportPlanApply.applyOperationTracked)는 cascade 처리.
             match kind with
             | EntityKind.Project   -> store.Projects.Remove(id)   |> ignore
             | EntityKind.System    -> store.Systems.Remove(id)    |> ignore

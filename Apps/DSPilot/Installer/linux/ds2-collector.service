@@ -2,8 +2,8 @@
 # Agent의 secure OPC UA endpoint를 localhost로 구독하고 typed SQLite/Data API를 제공한다.
 [Unit]
 Description=DualSoft Data Collector (secure OPC UA to typed SQLite)
-After=network-online.target promaker-agent.service
-Wants=network-online.target promaker-agent.service
+After=network-online.target ds2-hub.service
+Wants=network-online.target ds2-hub.service
 
 [Service]
 Type=simple

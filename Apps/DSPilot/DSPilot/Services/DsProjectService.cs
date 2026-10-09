@@ -786,7 +786,7 @@ public class DsProjectService
     /// 공유 project.aasx 로 재export 한다. Promaker UserTagPanel 이 쓰는 <c>Store.ReplaceUserTags</c> 와 동일
     /// 메서드(인코딩 = UserTagHelpers.format 6필드)라 형상 호환된다.
     ///
-    /// ★ AID 병합이 핵심: Agent(Promaker.Agent) 의 PLC 스캔 대상은 AID InterfaceXGT 의 interaction 목록이지
+    /// ★ AID 병합이 핵심: Agent(Ds2.Hub) 의 PLC 스캔 대상은 AID InterfaceXGT 의 interaction 목록이지
     /// LoggingProperties.UserTags 가 아니다(AidXgtConfig.buildForProject 는 SignalPolicies 만 읽음). Promaker 는
     /// 저장 직전 StampPlcConnection 이 IO맵+UserTag 주소를 AID 에 병합해 주기 때문에 이 차이가 드러나지 않았다.
     /// 여기서 그 단계를 빠뜨리면 "정의는 보이는데 알람이 영원히 안 뜨는" 파일이 만들어지므로, System 별 기존

@@ -14,7 +14,7 @@ public interface IDockManager
     /// <summary>document area (Canvas / Welcome) 에 들어가는 content 등록.</summary>
     void RegisterDocument(DockAnchor document);
 
-    /// <summary>anchor 의 visible 토글. Promaker SSOT (예: IsLlmChatVisible PropertyChanged) 가 호출.</summary>
+    /// <summary>anchor 의 visible 토글. Promaker SSOT (IsXxxVisible PropertyChanged) 가 호출.</summary>
     void SetAnchorVisible(string contentId, bool visible);
 
     /// <summary>현재 anchor 의 visible 상태 조회. 보기 메뉴 OneWay binding 등에 활용.</summary>

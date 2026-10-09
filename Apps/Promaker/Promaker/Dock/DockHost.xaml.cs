@@ -297,12 +297,8 @@ public partial class DockHost : UserControl, IDockManager
                     var pane = new LayoutAnchorablePane();
                     if (position == DockAnchorPosition.RightMiddle) pane.DockHeight = new GridLength(220);
                     group.Children.Add(pane);
-                    switch (position)
-                    {
-                        case DockAnchorPosition.RightTop: _rightTopPane = pane; break;
-                        case DockAnchorPosition.RightMiddle: _rightMiddlePane = pane; break;
-                        default: _rightBottomPane = pane; break;
-                    }
+                    if (position == DockAnchorPosition.RightTop) _rightTopPane = pane;
+                    else _rightMiddlePane = pane;
                     return pane;
                 }
         }
@@ -350,7 +346,6 @@ public partial class DockHost : UserControl, IDockManager
         var newBottomPane       = new LayoutAnchorablePane { DockHeight = new GridLength(200) };
         var newRightTopPane     = new LayoutAnchorablePane();
         var newRightMiddlePane  = new LayoutAnchorablePane { DockHeight = new GridLength(220) };
-        var newRightBottomPane  = new LayoutAnchorablePane();
 
         var docGroup = new LayoutDocumentPaneGroup();
         docGroup.Children.Add(newDocumentPane);
@@ -366,7 +361,6 @@ public partial class DockHost : UserControl, IDockManager
         };
         rightGroup.Children.Add(newRightTopPane);
         rightGroup.Children.Add(newRightMiddlePane);
-        rightGroup.Children.Add(newRightBottomPane);
 
         var rootPanel = new LayoutPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
         rootPanel.Children.Add(newLeftPane);
@@ -379,7 +373,6 @@ public partial class DockHost : UserControl, IDockManager
         _bottomPane       = newBottomPane;
         _rightTopPane     = newRightTopPane;
         _rightMiddlePane  = newRightMiddlePane;
-        _rightBottomPane  = newRightBottomPane;
 
         foreach (var contentId in _defaultPositions.Keys.ToList())
             _defaultAnchorablePanes[contentId] = ResolveAnchorPane(_defaultPositions[contentId]);
@@ -532,7 +525,6 @@ public partial class DockHost : UserControl, IDockManager
                         case DockAnchorPosition.Bottom: _bottomPane = livePane; break;
                         case DockAnchorPosition.RightTop: _rightTopPane = livePane; break;
                         case DockAnchorPosition.RightMiddle: _rightMiddlePane = livePane; break;
-                        case DockAnchorPosition.RightBottom: _rightBottomPane = livePane; break;
                     }
                 }
             }
@@ -547,7 +539,7 @@ public partial class DockHost : UserControl, IDockManager
     /// <summary>
     /// <see cref="DockAnchorPosition"/> → XAML 박제 LayoutAnchorablePane 매핑.
     /// PR-A6 — Bottom 단일화 (Log / Gantt / StatusMonitor tabbed).
-    ///   Left=Explorer / Bottom=Log·Gantt·StatusMonitor / RightTop=Properties / RightMiddle=History / RightBottom=LlmChat.
+    ///   Left=Explorer / Bottom=Log·Gantt·StatusMonitor / RightTop=Properties / RightMiddle=History.
     /// </summary>
     private LayoutAnchorablePane ResolveAnchorPane(DockAnchorPosition position) => position switch
     {
@@ -555,7 +547,6 @@ public partial class DockHost : UserControl, IDockManager
         DockAnchorPosition.Bottom => _bottomPane,
         DockAnchorPosition.RightTop => _rightTopPane,
         DockAnchorPosition.RightMiddle => _rightMiddlePane,
-        DockAnchorPosition.RightBottom => _rightBottomPane,
         _ => throw new ArgumentOutOfRangeException(nameof(position), position, "Unsupported anchor position."),
     };
 

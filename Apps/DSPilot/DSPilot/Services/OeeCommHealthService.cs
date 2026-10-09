@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
+// SPDX-License-Identifier: LicenseRef-Dualsoft-Commercial
 // Copyright (c) 2026 Dualsoft Inc. All rights reserved.
 // Commercial license required for use. See Apps/DSPilot/LICENSE.
 using Dapper;
@@ -39,7 +39,7 @@ public sealed class OeeCommHealthService : BackgroundService
     // 컬럼 도입 이전의 plcOk=0 행은 cause=NULL → 'unknown'(PLC/Agent 구분 소급 불가).
     /// <summary>어댑터 보고 또는 TCP 핑이 PLC 단절을 확인.</summary>
     public const string CausePlc = "plc";
-    /// <summary>수신 경로(Hub/Promaker.Agent) 단절 — PLC 자체 상태는 미상.</summary>
+    /// <summary>수신 경로(Hub/Ds2.Hub) 단절 — PLC 자체 상태는 미상.</summary>
     public const string CauseAgent = "agent";
     /// <summary>심박 행 부재 = DSPilot(수집 서비스) 미가동.</summary>
     public const string CauseService = "service";
@@ -215,7 +215,7 @@ public sealed class OeeCommHealthService : BackgroundService
     /// 현재 수신 상태. 판정 순서:
     ///   ① Hub 연결 + 에이전트 보고 있음 → 보고 기준(하나라도 끊김=down, comm blackout 배너와 동일).
     ///   ② 핑 대상 미설정(PlcConnection.json 없음 = 시뮬레이션/미구성) → true(미계측 주장 안 함 — 보수).
-    ///   ③ PLC 는 설정돼 있는데 Hub(Promaker.Agent) 단절 → false — 태그 수신 경로 자체가 죽어 있어 PLC 가
+    ///   ③ PLC 는 설정돼 있는데 Hub(Ds2.Hub) 단절 → false — 태그 수신 경로 자체가 죽어 있어 PLC 가
     ///      핑에 응답해도 수신은 0 이다(에이전트 다운이 §3.4 문제 정의의 명시 케이스). 핑만 믿으면 '계측됨' 오기록.
     ///   ④ Hub 연결 + 어댑터 보고 부재(모니터링 비활성 등) → 직접 TCP 핑 폴백.
     /// 반환 Cause 는 Ok=false 일 때의 원인 토큰(CausePlc/CauseAgent) — Ok=true 면 null.

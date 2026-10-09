@@ -3,7 +3,7 @@
     "Name": "Promaker + Agent",
     "Projects": [
       {
-        "Path": "Promaker.Agent\\Promaker.Agent.csproj",
+        "Path": "..\\Hub\\Ds2.Hub\\Ds2.Hub.csproj",
         "Action": "Start"
       },
       {

@@ -10,7 +10,7 @@ title DSPilot Lite Build ^& Installer
 ::
 :: How it gets small:
 ::   1) framework-dependent publish (no bundled .NET runtime) for DSPilot,
-::      Promaker.Agent and Ds2.Collector  -> ~70 MB less raw per app.
+::      Ds2.Hub and Ds2.Collector  -> ~70 MB less raw per app.
 ::   2) ffmpeg (100 MB) / MediaMTX (55 MB) / WinSW are NOT bundled. The
 ::      installer downloads them at install time (optional "cctv" task),
 ::      together with the ASP.NET Core 9 runtime when the target PC lacks it.
@@ -26,7 +26,7 @@ set "SOLUTION_DIR=%~dp0"
 set "PROJECT_DIR=%SOLUTION_DIR%DSPilot"
 set "PUBLISH_DIR=%SOLUTION_DIR%publish-lite"
 set "OUTPUT_DIR=%SOLUTION_DIR%Output-lite"
-set "AGENT_PROJECT=%SOLUTION_DIR%..\Promaker\Promaker.Agent\Promaker.Agent.csproj"
+set "AGENT_PROJECT=%SOLUTION_DIR%..\Hub\Ds2.Hub\Ds2.Hub.csproj"
 set "AGENT_PUBLISH_DIR=%SOLUTION_DIR%publish-agent-lite"
 set "COLLECTOR_PROJECT=%SOLUTION_DIR%..\..\Solutions\Runtime\Ds2.Collector\Ds2.Collector.fsproj"
 set "COLLECTOR_PUBLISH_DIR=%SOLUTION_DIR%publish-collector-lite"
@@ -56,17 +56,17 @@ if !errorlevel! neq 0 goto :fail_publish
 echo       Done.
 echo.
 
-echo [3c] Publishing Promaker.Agent (optional, framework-dependent, win-x64)...
+echo [3c] Publishing Ds2.Hub (optional, framework-dependent, win-x64)...
 if exist "%AGENT_PROJECT%" (
     dotnet publish "%AGENT_PROJECT%" -c Release -r win-x64 --self-contained false -o "%AGENT_PUBLISH_DIR%" -p:PublishSingleFile=false -m:1
     if !errorlevel! neq 0 (
-        echo       [WARN] Promaker.Agent publish FAILED - installer will be built WITHOUT the Agent option.
+        echo       [WARN] Ds2.Hub publish FAILED - installer will be built WITHOUT the Agent option.
         if exist "%AGENT_PUBLISH_DIR%" rmdir /s /q "%AGENT_PUBLISH_DIR%"
     ) else (
         echo       Done.
     )
 ) else (
-    echo       [WARN] Promaker.Agent project not found - skipping Agent bundle.
+    echo       [WARN] Ds2.Hub project not found - skipping Agent bundle.
 )
 echo.
 

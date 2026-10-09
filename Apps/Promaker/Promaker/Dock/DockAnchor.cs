@@ -22,7 +22,6 @@ public sealed record DockAnchor(
 /// <item><see cref="Bottom"/>     — Log / Gantt Chart / Status Monitor (tabbed, 기본 첫 탭=Log)</item>
 /// <item><see cref="RightTop"/>   — Properties</item>
 /// <item><see cref="RightMiddle"/>— History</item>
-/// <item><see cref="RightBottom"/>— LlmChat (lazy)</item>
 /// <item><see cref="Document"/>   — Welcome / Canvas (tabbed)</item>
 /// </list>
 /// </summary>
@@ -32,6 +31,5 @@ public enum DockAnchorPosition
     Bottom,
     RightTop,
     RightMiddle,
-    RightBottom,
     Document,
 }

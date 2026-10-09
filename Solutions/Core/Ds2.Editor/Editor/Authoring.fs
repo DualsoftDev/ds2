@@ -28,8 +28,6 @@ module internal StoreAuthoring =
         let editorState = state store
         editorState.CurrentSnapshotBytes <- editorState.CurrentSnapshotBytes + int64 bytes
 
-    // Round-trip 최적화 — doc: Apps/Promaker/Docs/done-promaker-llm-roundtrip-optimization.md
-    // (`§1.3 hook` 표기는 본 doc 참조)
 
     /// 빈번한 일괄 작업 (Wizard Apply 등) 의 노이즈 방지용. 에러 로그는 영향 없음.
     let withTransaction (store: DsStore) (label: string) (action: unit -> 'T) : 'T =

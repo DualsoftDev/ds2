@@ -14,10 +14,6 @@ module Constants =
         let [<Literal>] MermaidExtLegacy = ".md"
         /// IoTag 페어 사이드카 suffix — `<stem>.iotag.json`
         let [<Literal>] IoTagPairSuffix = ".iotag.json"
-        /// LLM 응답 안 IoTag 페어 fence 라벨 (` ```iotag-json `)
-        let [<Literal>] IoTagJsonFence = "iotag-json"
-        /// 구 fence 라벨 (deprecated, backward-compat 만 인식)
-        let [<Literal>] PlcBindingsFenceLegacy = "plc-bindings"
 
     /// 모델 구조 기본값
     module Model =

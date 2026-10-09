@@ -15,7 +15,7 @@ namespace Promaker.ViewModels;
 /// dialog 띄우지 않음.
 ///
 /// reload 경로는 OpenFilePath → _store.LoadFromFile / ReplaceStore / importIntoStore 중 하나로 분기되며,
-/// 모두 DsStore.ApplyNewStore hook 을 통과 → Revision++ → LLM snapshot 다음 turn 자동 첨부.
+/// 모두 DsStore.ApplyNewStore hook 을 통과 → Revision++.
 /// </summary>
 public sealed class ExternalFileChangeWatcher
 {

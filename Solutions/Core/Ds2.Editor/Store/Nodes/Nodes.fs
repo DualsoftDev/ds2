@@ -12,7 +12,7 @@ type DsStoreNodesExtensions =
 
     // ─── Invariant 공통 헬퍼 ─────────────────────────────────────────
     /// 빈/공백 이름 거부 — 모든 Add* / Rename* 진입점이 공유.
-    /// UI / AASX / Mermaid / LlmAgent 어느 진입점이든 통과해야 store 에 들어옴.
+    /// UI / AASX / Mermaid 어느 진입점이든 통과해야 store 에 들어옴.
     static member private RequireNonEmptyName(kind: string, name: string) =
         if System.String.IsNullOrWhiteSpace name then
             invalidOp $"{kind} 이름은 비어있거나 공백만일 수 없습니다."
@@ -143,7 +143,7 @@ type DsStoreNodesExtensions =
 
     /// 같은 Project 내에서 동일 DevicesAlias 가 다른 SystemType 으로 이미 등록돼 있으면 reject.
     /// Promaker UI `Create.cs:findConflictingDeviceSystemType` 호출이 같은 검사를 했지만
-    /// AASX/Mermaid/LlmAgent 진입은 우회. Core 진입 시점에서 일괄 차단.
+    /// AASX/Mermaid 진입은 우회. Core 진입 시점에서 일괄 차단.
     static member private RequireNoSystemTypeConflict
         (store: DsStore, projectId: Guid, devAliases: string seq, systemType: string option) =
         match systemType with

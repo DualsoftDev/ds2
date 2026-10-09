@@ -12,8 +12,7 @@
           │           └─ _bottomPane (LayoutAnchorablePane, DockHeight=200) — Log / Gantt Chart / Status Monitor (tabbed)
           └─ Right : LayoutAnchorablePaneGroup(Vertical, DockWidth=280)
                       ├─ _rightTopPane    — Properties
-                      ├─ _rightMiddlePane — History (DockHeight=220)
-                      └─ _rightBottomPane — LlmChat
+                      └─ _rightMiddlePane — History (DockHeight=220)
     -->
     <ad:DockingManager x:Name="_dockManager"
                        AllowMixedOrientation="True"
@@ -34,7 +33,6 @@
                 <ad:LayoutAnchorablePaneGroup Orientation="Vertical" DockWidth="280">
                     <ad:LayoutAnchorablePane x:Name="_rightTopPane"/>
                     <ad:LayoutAnchorablePane x:Name="_rightMiddlePane" DockHeight="220"/>
-                    <ad:LayoutAnchorablePane x:Name="_rightBottomPane"/>
                 </ad:LayoutAnchorablePaneGroup>
 
             </ad:LayoutPanel>

@@ -1328,7 +1328,7 @@
                                 </div>
                                 <div class="card-content" x-show="svcRestartOpen" x-cloak x-transition>
                                     <button class="btn btn-outlined w-100" style="margin-bottom:8px;" @click="restartService('agent')" :disabled="busy">
-                                        <span class="material-icons">restart_alt</span> Promaker.Agent 재시작
+                                        <span class="material-icons">restart_alt</span> Ds2.Hub 재시작
                                     </button>
                                     <button class="btn btn-outlined w-100" style="margin-bottom:8px;" @click="restartService('mtx')" :disabled="busy">
                                         <span class="material-icons">restart_alt</span> DSPilot MediaMTX 재시작
@@ -3413,10 +3413,10 @@
                 async restartService(target) {
                     if (this.busy) return;
                     const meta = {
-                        agent: { name: 'Promaker.Agent', self: false },
+                        agent: { name: 'Ds2.Hub', self: false },
                         mtx: { name: 'DSPilot MediaMTX', self: false },
                         dspilot: { name: 'DSPilot', self: true },
-                        all: { name: '세 서비스 전체 (MediaMTX · Promaker.Agent · DSPilot)', self: true },
+                        all: { name: '세 서비스 전체 (MediaMTX · Ds2.Hub · DSPilot)', self: true },
                     }[target];
                     if (!meta) return;
                     const selfNote = meta.self

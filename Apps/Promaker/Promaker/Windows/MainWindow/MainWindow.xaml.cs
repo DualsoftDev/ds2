@@ -43,7 +43,7 @@ public partial class MainWindow : Window
 
     // --review mn5 — 5 standard anchor (explorer/simulation/properties/history/log) 의 (contentId, vmProp, get, set)
     // 통합 table. Vm_PropertyChanged / DockHost_AnchorVisibilityChanged / RestoreDockLayoutAndSyncVm 의 switch+magic
-    // string 중복을 단일 source 로 통합. LlmChat 은 baseline §5 (consent 흐름 + lazy 생성) 보존 별도.
+    // string 중복을 단일 source 로 통합.
     private record AnchorSync(string ContentId, string VmPropertyName, Func<bool> Get, Action<bool> Set);
     private readonly AnchorSync[] _anchorSyncs;
 
@@ -90,7 +90,7 @@ public partial class MainWindow : Window
         dockHost.CaptureDefaultLayout();
 
         // PR-D5 — VM SSOT ↔ DockHost 양방향 wiring.
-        //   VM → DockHost : VM.PropertyChanged 의 IsXxxVisible / IsLlmChatVisible / HasProject 에 반응.
+        //   VM → DockHost : VM.PropertyChanged 의 IsXxxVisible / HasProject 에 반응.
         //   DockHost → VM : X 버튼 등 DX 자체 visibility 변경 → AnchorVisibilityChanged → VM property set.
         // 양방향 _suppressAnchorSync 가드로 loop 차단 (F3 박제).
         _vm.PropertyChanged += Vm_PropertyChanged;
@@ -109,8 +109,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// VM property → DockHost 호출 (SSOT → View).
-    /// IsLlmChatVisible: baseline 박제 보존 (ToggleLlmChat 의 consent 거부 / lazy 생성 그대로) — 본 핸들러는
-    /// 단순히 변경된 값을 DockHost 에 통보. 4 anchor visibility 도 동일 패턴.
+    /// 변경된 값을 DockHost 에 통보한다 — anchor visibility 전부 같은 패턴.
     /// HasProject: Welcome ↔ Canvas swap.
     /// </summary>
     private void Vm_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -192,10 +191,8 @@ public partial class MainWindow : Window
     ///   1. `_suppressAnchorSync=true` set — Restore 가 발화하는 ItemIsVisibleChanged raise loop 차단.
     ///   2. `dockHost.RestoreLayout(...)` — 파일 없음 / parse 실패 시 default 유지.
     ///   3. 4 anchor property 강제 sync (`IsAnchorVisible` API 활용 — PR-D5 검열 Minor 1 해소).
-    ///   4. LlmChat 만 별도 처리 — baseline 박제 §5 의 consent 흐름 보존을 위해 Restore 결과 무시 + false 강제.
-    ///      (사용자가 LLM Chat 버튼 click 시 ToggleLlmChat 의 consent 검사를 거쳐 정상 흐름 진입.)
-    ///   5. HasProject SSOT 정합 — Welcome / Canvas 는 Restore 결과 무시 + SyncWelcomeCanvasVisibility 재적용.
-    ///   6. `_suppressAnchorSync=false`.
+    ///   4. HasProject SSOT 정합 — Welcome / Canvas 는 Restore 결과 무시 + SyncWelcomeCanvasVisibility 재적용.
+    ///   5. `_suppressAnchorSync=false`.
     /// </summary>
     private void RestoreDockLayoutAndSyncVm()
     {
@@ -221,7 +218,7 @@ public partial class MainWindow : Window
     /// <see cref="SyncWelcomeCanvasVisibility"/> 의 guard 미적용 버전.
     /// 호출자가 이미 `_suppressAnchorSync=true` 안에 있을 때 사용 (이중 set 회피).
     /// 사용자 의도 박제: HasProject=false 시 Log 제외 4 anchor (Explorer/Properties/History/Simulation) 자동 hide,
-    /// HasProject=true 시 자동 show. LlmChat 은 baseline §5 보존 (consent 흐름), Log 는 시스템 로그라 무관.
+    /// HasProject=true 시 자동 show. Log 는 시스템 로그라 무관.
     /// VM property 도 함께 sync 하여 보기 메뉴 체크박스 UI 와 일관.
     /// </summary>
     private void SyncWelcomeCanvasVisibilityNoGuard()
@@ -260,7 +257,6 @@ public partial class MainWindow : Window
         {
             dockHost.ResetToDefaultLayout();
             SyncWelcomeCanvasVisibilityNoGuard();
-            // LlmChat 은 RegisterAnchor 가 lazy/consent 흐름 (baseline §5) 으로 별도 처리되므로 본 reset 시 강제 토글 안 함.
         }
         finally { _suppressAnchorSync = false; }
     }

@@ -459,13 +459,13 @@ public class SettingsController : ControllerBase
 
     // ── 서비스명(SSOT = Installer/DSPilot.iss) ──
     private const string SvcDspilot = "DSPilotService";
-    private const string SvcAgent = "PromakerAgentService";
+    private const string SvcAgent = "Ds2HubService";
     private const string SvcMtx = "DSPilotMediaMtx";
 
     // Windows 서비스로 기동된 설치본에서만 서비스 재시작을 제공한다. (SSOT — app-info 의
     // ServiceControlSupported 로 노출되어 설정 화면이 카드 자체를 숨긴다.)
     // net stop/start 는 Windows 서비스 제어 명령이라, systemd 서비스·콘솔 실행에서는 대응 수단이
-    // 아니다(Linux 는 systemctl 로 dspilot / promaker-agent / dspilot-mediamtx 를 재시작해야 하고,
+    // 아니다(Linux 는 systemctl 로 dspilot / ds2-hub / dspilot-mediamtx 를 재시작해야 하고,
     // 서비스 계정 dspilot 에 polkit 예외가 필요하다 — 미구현).
     private static bool ServiceControlSupported => WindowsServiceHelpers.IsWindowsService();
 
@@ -494,7 +494,7 @@ public class SettingsController : ControllerBase
         var svc = new Dictionary<string, (string name, string label)>
         {
             ["dspilot"] = (SvcDspilot, "DSPilot"),
-            ["agent"] = (SvcAgent, "Promaker.Agent"),
+            ["agent"] = (SvcAgent, "Ds2.Hub"),
             ["mtx"] = (SvcMtx, "DSPilot MediaMTX"),
         };
 

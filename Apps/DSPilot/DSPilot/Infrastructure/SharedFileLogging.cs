@@ -9,7 +9,7 @@ using log4net.Config;
 namespace DSPilot.Infrastructure;
 
 /// <summary>
-/// DSPilot 의 <see cref="ILogger"/> 출력을 공유 폴더의 파일로 남긴다 — Agent 의 promaker-agent.log 와 같은 규약.
+/// DSPilot 의 <see cref="ILogger"/> 출력을 공유 폴더의 파일로 남긴다 — Agent 의 ds2-hub.log 와 같은 규약.
 /// <para>
 /// 왜 필요한가: DSPilot 은 콘솔 로거만 달고 있었는데, Windows 서비스/systemd 로 기동되면 stdout 이 어디에도
 /// 붙지 않아 로그가 통째로 증발한다. 2026-09-22 현장 장애 때 "모델 적재가 30회 실패하고 엔진이 초기화되지

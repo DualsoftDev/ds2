@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -55,7 +55,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Promaker", "Promaker", "{F0
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Promaker", "..\Apps\Promaker\Promaker\Promaker.csproj", "{9549F201-B709-4840-9922-B85EB25F5C62}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Promaker.Agent", "..\Apps\Promaker\Promaker.Agent\Promaker.Agent.csproj", "{B9A01B8D-15AF-4DC8-A0CD-722A11E99677}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ds2.Hub", "..\Apps\Hub\Ds2.Hub\Ds2.Hub.csproj", "{B9A01B8D-15AF-4DC8-A0CD-722A11E99677}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tutorial", "Tutorial", "{D67C44D5-1358-C107-7763-C493AF473C05}"
 EndProject
@@ -81,9 +81,9 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AasxEditor.Desktop", "..\Ap
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Backend.Plc", "Backend\Ds2.Backend.Plc\Ds2.Backend.Plc.fsproj", "{90AC4DCD-6765-4BD8-8869-4B108952D929}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Promaker.Shared", "..\Apps\Promaker\Promaker.Shared\Promaker.Shared.csproj", "{C782C8F2-8401-4094-89C0-32C820467245}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ds2.Hub.Shared", "..\Apps\Hub\Ds2.Hub.Shared\Ds2.Hub.Shared.csproj", "{C782C8F2-8401-4094-89C0-32C820467245}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Promaker.AgentTray", "..\Apps\Promaker\Promaker.AgentTray\Promaker.AgentTray.csproj", "{D1663D58-25B1-4153-B516-F3B5A8B965F0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ds2.Hub.Tray", "..\Apps\Hub\Ds2.Hub.Tray\Ds2.Hub.Tray.csproj", "{D1663D58-25B1-4153-B516-F3B5A8B965F0}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DSPilot.Tests", "..\Apps\DSPilot\DSPilot.Tests\DSPilot.Tests.csproj", "{FB72BA60-C605-40FB-A00C-76B124252464}"
 EndProject

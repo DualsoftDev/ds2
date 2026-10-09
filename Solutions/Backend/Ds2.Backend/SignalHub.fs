@@ -431,7 +431,7 @@ and SignalHub(
 
     static member IsDelegatedScan = delegatedScanMode
 
-    /// 스캔 주기 영속화 훅 — 호스트(Promaker.Agent 등)가 PlcConnection.json 기록 람다를 주입.
+    /// 스캔 주기 영속화 훅 — 호스트(Ds2.Hub 등)가 PlcConnection.json 기록 람다를 주입.
     /// null 이면 라이브 적용만 (재시작 시 파일값으로 복귀). readOnlyMode 와 무관 — 설정이지 태그 쓰기가 아님.
     static member val PersistScanIntervalMs : Action<int> = null with get, set
 
@@ -439,7 +439,7 @@ and SignalHub(
     /// OFF 상태가 재시작 후에도 유지되게 한다(정지 시 AASX 반영→OFF 의 결과 보존).
     static member val PersistAutoCalibrate : Action<bool> = null with get, set
 
-    /// 원격 수집 클라이언트(Pi5 엣지 수집기)의 단말 신원 검증 훅 — 호스트(Promaker.Agent)가 주입.
+    /// 원격 수집 클라이언트(Pi5 엣지 수집기)의 단말 신원 검증 훅 — 호스트(Ds2.Hub)가 주입.
     /// 시그니처: deviceId, credential → 등록된 단말 자격 증명이면 true.
     /// **null(미설정)이면 검증 생략** — localhost 올인원/로컬 개발은 인증 불필요(기존 동작 유지, 회귀 0).
     /// 설정돼 있고 미등록이면 OnConnectedAsync 가 연결을 Abort. Pi5 는 X-Device-Id 헤더로 시리얼을 싣는다

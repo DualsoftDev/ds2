@@ -52,10 +52,10 @@ export DOTNET_CLI_TELEMETRY_OPTOUT   := 1
 # ── 경로 ──────────────────────────────────────────────────
 PROJECT_FILE   := Promaker/Promaker.csproj
 PUBLISH_DIR    := $(abspath Promaker/bin/Release/net9.0-windows/win-x64/$(PUBLISH_SUBDIR))
-# Promaker.Agent — 헤드리스 모니터링 Windows Service (Setup.iss 가 옵트인으로 등록).
+# Ds2.Hub — 헤드리스 모니터링 Windows Service (Setup.iss 가 옵트인으로 등록).
 # net9.0 (windows 미부착), SDK Web. 동일 sc/fd 모드 따라감.
-AGENT_PROJECT  := Promaker.Agent/Promaker.Agent.csproj
-AGENT_PUBLISH  := $(abspath Promaker.Agent/bin/Release/net9.0/win-x64/$(PUBLISH_SUBDIR))
+AGENT_PROJECT  := ../Hub/Ds2.Hub/Ds2.Hub.csproj
+AGENT_PUBLISH  := $(abspath ../Hub/Ds2.Hub/bin/Release/net9.0/win-x64/$(PUBLISH_SUBDIR))
 SETUP_ISS      := Installer/Setup.iss
 OUTPUT_DIR     := $(abspath Installer/Output)
 INSTALLER_EXE  := $(OUTPUT_DIR)/Promaker_Setup_$(PROMAKER_VER)$(OUTPUT_SUFFIX).exe
@@ -81,9 +81,7 @@ help:
 	@echo "  clean           - Remove bin/obj/Output"
 	@echo ""
 	@echo "Targets (build):"
-	@echo "  build           - Build Promaker apps in Debug (Promaker / Promaker.Agent / Promaker.AgentTray)"
-	@echo "                    + delegate to ../../Solutions/Tools/Makefile build target"
-	@echo "                    (Ds2.LightHouse.Cli / Ollama / LightHouseService)."
+	@echo "  build           - Build Promaker apps in Debug (Promaker / Ds2.Hub / Ds2.Hub.Tray)"
 	@echo "  build-release   - Same as 'build' but Release config."
 	@echo ""
 	@echo "Targets (run):"
@@ -119,27 +117,27 @@ publish:
 		-o "$(PUBLISH_DIR)" \
 		-p:DebugType=none -p:DebugSymbols=false -m:1
 
-# Promaker.Agent — Setup.iss 가 {app}\Agent\ 로 번들. Setup.iss 의 HasAgent 매크로가
-# AgentPublishDir 안에 Promaker.Agent.exe 가 있을 때만 [Tasks]/[Files]/[Run] 활성화 → 산출물
+# Ds2.Hub — Setup.iss 가 {app}\Agent\ 로 번들. Setup.iss 의 HasAgent 매크로가
+# AgentPublishDir 안에 Ds2.Hub.exe 가 있을 때만 [Tasks]/[Files]/[Run] 활성화 → 산출물
 # 누락 시에도 Promaker 본체 인스톨러는 정상 생성된다. publish 와 동일 sc/fd 모드 따라감.
 publish-agent:
-	@echo "=== dotnet restore (Promaker.Agent) ==="
+	@echo "=== dotnet restore (Ds2.Hub) ==="
 	dotnet restore "$(AGENT_PROJECT)" --verbosity quiet
-	@echo "=== dotnet publish Promaker.Agent ($(MODE), self-contained=$(SELF_CONTAINED)) ==="
+	@echo "=== dotnet publish Ds2.Hub ($(MODE), self-contained=$(SELF_CONTAINED)) ==="
 	dotnet publish "$(AGENT_PROJECT)" -c Release -r win-x64 \
 		--self-contained $(SELF_CONTAINED) \
 		-o "$(AGENT_PUBLISH)" \
 		-p:DebugType=none -p:DebugSymbols=false -m:1
 
-# Promaker.AgentTray — Agent 상태 노출용 사용자 컨텍스트 트레이 (WPF).
+# Ds2.Hub.Tray — Agent 상태 노출용 사용자 컨텍스트 트레이 (WPF).
 # Setup.iss 의 HasAgentTray 매크로가 동일하게 산출물 존재 시에만 번들/HKCU\Run 등록.
-AGENT_TRAY_PROJECT := Promaker.AgentTray/Promaker.AgentTray.csproj
-AGENT_TRAY_PUBLISH := $(abspath Promaker.AgentTray/bin/Release/net9.0-windows/win-x64/$(PUBLISH_SUBDIR))
+AGENT_TRAY_PROJECT := ../Hub/Ds2.Hub.Tray/Ds2.Hub.Tray.csproj
+AGENT_TRAY_PUBLISH := $(abspath ../Hub/Ds2.Hub.Tray/bin/Release/net9.0-windows/win-x64/$(PUBLISH_SUBDIR))
 
 publish-agenttray:
-	@echo "=== dotnet restore (Promaker.AgentTray) ==="
+	@echo "=== dotnet restore (Ds2.Hub.Tray) ==="
 	dotnet restore "$(AGENT_TRAY_PROJECT)" --verbosity quiet
-	@echo "=== dotnet publish Promaker.AgentTray ($(MODE), self-contained=$(SELF_CONTAINED)) ==="
+	@echo "=== dotnet publish Ds2.Hub.Tray ($(MODE), self-contained=$(SELF_CONTAINED)) ==="
 	dotnet publish "$(AGENT_TRAY_PROJECT)" -c Release -r win-x64 \
 		--self-contained $(SELF_CONTAINED) \
 		-o "$(AGENT_TRAY_PUBLISH)" \
@@ -168,26 +166,23 @@ clean:
 	@echo "=== Cleaning bin/obj/Output ==="
 	-rm -rf Installer/Output
 	-rm -rf Promaker/bin Promaker/obj
-	-rm -rf Promaker.Agent/bin Promaker.Agent/obj
-	-rm -rf Promaker.AgentTray/bin Promaker.AgentTray/obj
-	-rm -rf Promaker.Shared/bin Promaker.Shared/obj
+	-rm -rf ../Hub/Ds2.Hub/bin ../Hub/Ds2.Hub/obj
+	-rm -rf ../Hub/Ds2.Hub.Tray/bin ../Hub/Ds2.Hub.Tray/obj
+	-rm -rf ../Hub/Ds2.Hub.Shared/bin ../Hub/Ds2.Hub.Shared/obj
 
-# ── build (Promaker apps + Tools gateway) ─────────────────
-# Promaker 작업 디렉터리에서 본체/Agent/AgentTray + LightHouse 솔루션을
-# 한 줄로 일괄 빌드하기 위함.
+# ── build (Promaker apps) ─────────────────────────────────
+# Promaker 작업 디렉터리에서 본체/Agent/AgentTray 를 한 줄로 일괄 빌드하기 위함.
 #   - Promaker 본체:  Promaker.csproj (WPF, net9.0-windows)
-#   - Agent:          Promaker.Agent.csproj (Windows Service, net9.0)
-#   - AgentTray:      Promaker.AgentTray.csproj (WPF tray)
-#   - (Promaker.Shared 는 본체가 참조 — transitively 빌드)
-# Tools/Makefile 의 build 가 Ds2.LightHouse.{Cli,Ollama,LightHouseService} 를 커버.
-TOOLS_DIR    := ../../Solutions/Tools
+#   - Agent:          Ds2.Hub.csproj (Windows Service, net9.0)
+#   - AgentTray:      Ds2.Hub.Tray.csproj (WPF tray)
+#   - (Ds2.Hub.Shared 는 Agent 가 참조 — transitively 빌드)
 # build/run 의 기본 config 는 Debug — Release 산출물은 build-release / run-release 로 분리.
 BUILD_CONFIG ?= Debug
 
 PROMAKER_BUILD_PROJECTS := \
 	Promaker/Promaker.csproj \
-	Promaker.Agent/Promaker.Agent.csproj \
-	Promaker.AgentTray/Promaker.AgentTray.csproj
+	../Hub/Ds2.Hub/Ds2.Hub.csproj \
+	../Hub/Ds2.Hub.Tray/Ds2.Hub.Tray.csproj
 
 build:
 	@echo "=== build Promaker apps (CONFIG=$(BUILD_CONFIG)) ==="
@@ -195,8 +190,6 @@ build:
 		echo "==> build $$proj ($(BUILD_CONFIG))"; \
 		dotnet build "$$proj" -c $(BUILD_CONFIG) || exit $$?; \
 	done
-	@echo "=== build Tools (CONFIG=$(BUILD_CONFIG)) — delegate to $(TOOLS_DIR)/Makefile ==="
-	$(MAKE) -C "$(TOOLS_DIR)" build CONFIG=$(BUILD_CONFIG)
 
 # build-release — build 를 Release config 로 재귀 호출 (installer -> dist-installer MODE=fd 패턴과 동일).
 build-release:

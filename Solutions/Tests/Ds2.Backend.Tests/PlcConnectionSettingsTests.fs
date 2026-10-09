@@ -3,7 +3,7 @@ module Ds2.Backend.Tests.PlcConnectionSettingsTests
 open System
 open System.IO
 open Ds2.Core.StandardSubmodels
-open Promaker.Shared
+open Ds2.Hub.Shared
 open Xunit
 
 /// 임시 폴더에 PlcConnection.json 을 쓰고 읽은 결과를 돌려준다. 폴더는 끝나면 지운다.

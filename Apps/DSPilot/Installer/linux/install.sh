@@ -8,7 +8,7 @@
 #    sudo ./install.sh [--port N] [--shared-dir PATH] [--no-cctv] [--no-firewall] [--no-agent|--with-agent]
 #
 #  기본값: 포트 8080, 공유 디렉터리 /var/lib/dualsoft/Shared, CCTV/방화벽/Agent 활성.
-#  --no-agent 로 Promaker.Agent(PLC 스캔 백엔드) 제외, --with-agent 로 명시 포함(기본값).
+#  --no-agent 로 Ds2.Hub(PLC 스캔 백엔드) 제외, --with-agent 로 명시 포함(기본값).
 # ============================================================================
 set -euo pipefail
 
@@ -21,7 +21,7 @@ INSTALL_DIR="/opt/dspilot"
 SHARED_DIR="/var/lib/dualsoft/Shared"
 SHARED_DIR_EXPLICIT=0
 COLLECTOR_DATA_DIR="/var/lib/dualsoft/collector"
-# 공유 디렉터리 단일 출처(SSOT). DSPilot·Promaker.Agent 의 systemd 유닛이 이 파일을 EnvironmentFile 로
+# 공유 디렉터리 단일 출처(SSOT). DSPilot·Ds2.Hub 의 systemd 유닛이 이 파일을 EnvironmentFile 로
 # 함께 읽어 항상 같은 폴더를 본다 — 경로를 바꾸려면 이 값 한 줄만 고치고 install.sh 를 재실행한다.
 ENV_FILE="/etc/dualsoft/dualsoft.env"
 WEB_PORT="8080"
@@ -34,12 +34,12 @@ AGENT_EXPLICIT=0
 # CCTV WebRTC 포트 (mediamtx.yml 과 일치해야 함): 8889/tcp=WHEP·시그널링, 8189/udp=ICE 미디어, 8189/tcp=UDP 차단망 폴백.
 WEBRTC_TCP_PORT=8889
 WEBRTC_UDP_PORT=8189
-AGENT_PORT=5051          # Promaker.Agent SignalR Hub (모니터링 active 시, DSPilot 구독)
+AGENT_PORT=5051          # Ds2.Hub SignalR Hub (모니터링 active 시, DSPilot 구독)
 AGENT_UPLOAD_PORT=5050   # 모델 업로드 수신 (항상 listen — Promaker '네트워크 업로드' 대상)
 
 SVC_DSPILOT="${APP_NAME}.service"
 SVC_MEDIAMTX="${APP_NAME}-mediamtx.service"
-SVC_AGENT="promaker-agent.service"
+SVC_AGENT="ds2-hub.service"
 SVC_COLLECTOR="ds2-collector.service"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -87,7 +87,7 @@ if [[ $SHARED_DIR_EXPLICIT -eq 0 && -f "$ENV_FILE" ]]; then
 fi
 
 # Agent 옵션 정리 — 켜져 있으나 패키지에 Agent 바이너리가 없으면 자동 스킵(빌드 시 미동봉).
-if [[ $ENABLE_AGENT -eq 1 && ( ! -f "$SCRIPT_DIR/agent/Promaker.Agent" || ! -f "$SCRIPT_DIR/collector/Ds2.Collector" ) ]]; then
+if [[ $ENABLE_AGENT -eq 1 && ( ! -f "$SCRIPT_DIR/agent/Ds2.Hub" || ! -f "$SCRIPT_DIR/collector/Ds2.Collector" ) ]]; then
   [[ $AGENT_EXPLICIT -eq 1 ]] && echo "경고: --with-agent 지정됐으나 Agent/Collector 바이너리 중 하나가 없어 전체 수집 스택을 건너뜁니다."
   ENABLE_AGENT=0
 fi
@@ -154,14 +154,14 @@ mkdir -p "$INSTALL_DIR" "$SHARED_DIR" "$SHARED_DIR/agent" "$COLLECTOR_DATA_DIR" 
 cp -a "$SCRIPT_DIR/app/." "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/DSPilot"
 
-# ── 4b) Promaker.Agent 파일 배치 (옵션, Linux 기본 ON) ───────────────────────
+# ── 4b) Ds2.Hub 파일 배치 (옵션, Linux 기본 ON) ───────────────────────
 # Agent 는 별도 폴더 {INSTALL_DIR}/agent 로 분리(DSPilot 바이너리와 충돌 방지 + 로그 격리).
 AGENT_DIR="$INSTALL_DIR/agent"
 if [[ $ENABLE_AGENT -eq 1 ]]; then
-  echo "==> Promaker.Agent 파일 복사: $AGENT_DIR"
+  echo "==> Ds2.Hub 파일 복사: $AGENT_DIR"
   mkdir -p "$AGENT_DIR"
   cp -a "$SCRIPT_DIR/agent/." "$AGENT_DIR/"
-  chmod +x "$AGENT_DIR/Promaker.Agent"
+  chmod +x "$AGENT_DIR/Ds2.Hub"
 
   COLLECTOR_DIR="$INSTALL_DIR/collector"
   echo "==> Ds2.Collector 파일 복사: $COLLECTOR_DIR"
@@ -224,10 +224,10 @@ chmod -R u+rwX "$SHARED_DIR"
 chmod -R u+rwX "$COLLECTOR_DATA_DIR"
 
 # ── 7b) 공유 디렉터리 단일 출처(SSOT) 기록 ───────────────────────────────────
-# DSPilot·Promaker.Agent 의 systemd 유닛이 EnvironmentFile 로 이 파일을 읽어 동일 폴더로 정합된다.
+# DSPilot·Ds2.Hub 의 systemd 유닛이 EnvironmentFile 로 이 파일을 읽어 동일 폴더로 정합된다.
 mkdir -p "$(dirname "$ENV_FILE")"
 cat > "$ENV_FILE" <<EOF
-# DualSoft 공유 런타임 디렉터리(단일 출처). DSPilot·Promaker.Agent 가 project.aasx / plc.db / oee.db /
+# DualSoft 공유 런타임 디렉터리(단일 출처). DSPilot·Ds2.Hub 가 project.aasx / plc.db / oee.db /
 # PlcConnection.json / agent/active.flag 를 주고받는 폴더. 두 서비스가 이 파일을 EnvironmentFile 로 읽어
 # 항상 같은 경로를 본다 — 경로를 바꾸려면 이 값 한 줄만 고치고 install.sh 를 재실행한다.
 DUALSOFT_SHARED_DIR=$SHARED_DIR
@@ -284,9 +284,9 @@ if [[ $ENABLE_AGENT -eq 1 ]]; then
   # Agent 유닛도 동일 SSOT(env 파일)를 EnvironmentFile 로 읽는다 → DSPilot 과 같은 공유 폴더 정합.
   sed -e "s|@USER@|$APP_USER|g" \
       -e "s|@AGENT_WORKDIR@|$AGENT_DIR|g" \
-      -e "s|@AGENT_EXEC@|$AGENT_DIR/Promaker.Agent|g" \
+      -e "s|@AGENT_EXEC@|$AGENT_DIR/Ds2.Hub|g" \
       -e "s|@SHARED_DIR@|$SHARED_DIR|g" \
-      "$SCRIPT_DIR/systemd/promaker-agent.service" > "/etc/systemd/system/$SVC_AGENT"
+      "$SCRIPT_DIR/systemd/ds2-hub.service" > "/etc/systemd/system/$SVC_AGENT"
 
   echo "==> systemd 유닛 설치: /etc/systemd/system/$SVC_COLLECTOR"
   sed -e "s|@USER@|$APP_USER|g" \

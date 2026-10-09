@@ -1,0 +1,47 @@
+# Ds2.Hub systemd 유닛 템플릿. install.sh 가 @TOKEN@ 을 치환해
+# /etc/systemd/system/ds2-hub.service 로 설치한다.
+# 헤드리스 PLC 모니터링 백엔드 — 5051 SignalR Hub + PLC 스캔(read-only).
+# 공유 디렉터리의 active.flag / session.json / PlcConnection.json 변경에 반응해 모니터링 start/stop.
+# (Agent 는 UseSystemd 를 호출하지 않으므로 Type=notify 가 아닌 Type=simple. WindowsServiceHelpers
+#  .IsWindowsService() 가 Linux 에서 false → 일반 콘솔 호스트로 기동된다.)
+[Unit]
+Description=DS2 Hub - Headless PLC Monitoring (5051 SignalR Hub)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+WorkingDirectory=@AGENT_WORKDIR@
+ExecStart=@AGENT_EXEC@
+# 공유 디렉터리 단일 출처(SSOT) — DSPilot 과 같은 파일을 읽어 동일 폴더(active.flag / session.json /
+# PlcConnection.json / project.aasx)를 보도록 정합(SharedPaths 가 이 환경변수를 최우선).
+# install.sh 가 /etc/dualsoft/dualsoft.env 를 생성한다(DSPilot 유닛과 동일 파일 → 항상 같은 경로).
+EnvironmentFile=/etc/dualsoft/dualsoft.env
+Restart=on-failure
+RestartSec=10
+# .NET Generic Host 는 SIGINT/SIGTERM 으로 graceful shutdown.
+KillSignal=SIGINT
+TimeoutStopSec=30
+SyslogIdentifier=ds2-hub
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+# 로그도 공유 agent/logs 아래에 기록하므로 설치 바이너리 디렉터리는 쓰기 권한이 필요 없다.
+ReadWritePaths=@SHARED_DIR@
+
+[Install]
+WantedBy=multi-user.target

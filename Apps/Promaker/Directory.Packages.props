@@ -43,7 +43,7 @@
     <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
 
-  <!-- Promaker.Agent (Windows Service 헤드리스 모니터링) -->
+  <!-- Ds2.Hub (Windows Service 헤드리스 모니터링) -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
     <PackageVersion Include="System.ServiceProcess.ServiceController" Version="9.0.5" />
@@ -59,7 +59,7 @@
     <!-- Microsoft.Extensions.Hosting — Ds2.OpcUa.Server 가 Worker SDK 이므로 hosting 스택 필요. -->
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.5" />
   </ItemGroup>
-  <!-- AID southbound adapters owned by Promaker.Agent. -->
+  <!-- AID southbound adapters owned by Ds2.Hub. -->
   <ItemGroup>
     <PackageVersion Include="MQTTnet" Version="5.2.0.1603" />
     <PackageVersion Include="NModbus" Version="3.0.83" />

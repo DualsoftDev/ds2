@@ -25,11 +25,11 @@ public static class SharedPaths
     /// <summary>실 PLC 연결 설정(SSOT) — Promaker WPF/Agent 가 쓰고, DSPilot 은 읽기 전용으로 본다.
     /// 평소 PLC 상태는 Agent 가 Hub 로 push 하지만, Agent/Hub 가 끊겨 보고가 없을 때 DSPilot 이 직접
     /// 핑(TCP) 으로 확인할 대상 IP/Port 를 여기서 얻는다(<see cref="Services.PlcPingService"/>).
-    /// Promaker.Shared.SharedPaths.PlcConnectionFilePath 와 동일 경로여야 한다.</summary>
+    /// Ds2.Hub.Shared.SharedPaths.PlcConnectionFilePath 와 동일 경로여야 한다.</summary>
     public static string PlcConnectionFilePath { get; } = Path.Combine(SharedDirectory, "PlcConnection.json");
 
     /// <summary>Agent 전용 작업 디렉터리 — active.flag, session.json, calibration-state.json 등.
-    /// Promaker.Shared.SharedPaths.AgentDirectory 와 동일 경로(SharedDirectory/agent)여야 세 앱이 같은 사이드카를 본다.</summary>
+    /// Ds2.Hub.Shared.SharedPaths.AgentDirectory 와 동일 경로(SharedDirectory/agent)여야 세 앱이 같은 사이드카를 본다.</summary>
     public static string AgentDirectory { get; } = Path.Combine(SharedDirectory, "agent");
 
     /// <summary>DSPilot 로그 디렉터리 — Agent 의 <c>SharedDirectory/agent/logs</c> 와 대칭 위치.
@@ -45,12 +45,12 @@ public static class SharedPaths
 
     /// <summary>실측 duration 확정 상태 사이드카 — Work 별 "Min 실측 확정(minMeasured)" + 확정 시점 AASX 해시.
     /// ActionUnder(시간 미만) 판정 게이트의 SSOT. DSPilot 실측 보정(FillMin)이 여기에 기록하면 Agent 어댑터가 읽어 게이트를 연다.
-    /// Promaker.Shared.SharedPaths.CalibrationStateJsonPath 와 동일 경로여야 한다.</summary>
+    /// Ds2.Hub.Shared.SharedPaths.CalibrationStateJsonPath 와 동일 경로여야 한다.</summary>
     public static string CalibrationStateJsonPath { get; } = Path.Combine(AgentDirectory, "calibration-state.json");
 
     /// <summary>공유 AASX/사이드카 동시 쓰기 직렬화용 cross-process 락 파일. 저장 주체(Promaker 실측반영 /
     /// DSPilot 실측반영 / Agent 업로드 수신)가 쓰기 전 원자적 생성으로 획득하고 끝나면 삭제한다.
-    /// Promaker.Shared.SharedPaths.SharedWriteLockPath 와 동일 경로여야 한다.</summary>
+    /// Ds2.Hub.Shared.SharedPaths.SharedWriteLockPath 와 동일 경로여야 한다.</summary>
     public static string SharedWriteLockPath { get; } = Path.Combine(AgentDirectory, ".shared-write.lock");
 
     private static string ResolveSharedDirectory()
@@ -65,7 +65,7 @@ public static class SharedPaths
                 "DualSoft", "Shared");
         // Linux/macOS: CommonApplicationData(/usr/share)는 root 전용이라 서비스 계정이 못 쓴다.
         // systemd 가변 상태 디렉터리 표준 위치 — install.sh 가 서비스 계정 소유로 생성·권한 부여.
-        // 대문자 "Shared" 고정: Linux 는 경로 대소문자를 구분하므로 Promaker.Shared.SharedPaths 의
+        // 대문자 "Shared" 고정: Linux 는 경로 대소문자를 구분하므로 Ds2.Hub.Shared.SharedPaths 의
         // Linux 기본값(대문자 Shared)과 글자까지 동일해야 두 앱이 같은 폴더를 본다(env 변수 누락 시 폴백 정합).
         return "/var/lib/dualsoft/Shared";
     }

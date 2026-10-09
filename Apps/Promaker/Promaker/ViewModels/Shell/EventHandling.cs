@@ -118,7 +118,7 @@ public partial class MainViewModel
                 return;
 
             case { IsStoreRefreshed: true }:
-                // LLM ApplyImportPlan / Undo·Redo 이후 store 갱신 — HasProject 동기화 후 RefreshScope.All 로 RebuildAll.
+                // ApplyImportPlan / Undo·Redo 이후 store 갱신 — HasProject 동기화 후 RefreshScope.All 로 RebuildAll.
                 HasProject = Queries.allProjects(_store).Any();
                 ApplyRefreshScope(RefreshScopeDecision.ForEditorEvent(evt));
                 // RebuildAll 은 tree/canvas 만 재구축하고 3D(BuildScene)는 안 건드린다. Undo/Redo 로 Flow

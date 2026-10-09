@@ -35,7 +35,7 @@
     <ProjectReference Include="..\..\Backend\Ds2.Backend.Plc\Ds2.Backend.Plc.fsproj" />
     <ProjectReference Include="..\..\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
     <ProjectReference Include="..\..\Backend\Ds2.Backend.Runtime\Ds2.Backend.Runtime.fsproj" />
-    <ProjectReference Include="..\..\..\Apps\Promaker\Promaker.Shared\Promaker.Shared.csproj" />
+    <ProjectReference Include="..\..\..\Apps\Hub\Ds2.Hub.Shared\Ds2.Hub.Shared.csproj" />
     <ProjectReference Include="..\Ds2.TestKit\Ds2.TestKit.fsproj" />
   </ItemGroup>
 

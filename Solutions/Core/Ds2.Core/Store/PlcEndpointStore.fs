@@ -11,7 +11,7 @@ open Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes
 /// PLC 접속 정보의 정본은 AASX 안 AID 다 — 편집기(Promaker)가 쓰고, 수집기(Hub)가 읽어 게이트웨이를 조립하고,
 /// DSPilot 이 보여 준다. 세 쪽이 같은 규칙으로 기록해야 하므로 "소유 Project 찾기 → AID 없으면 생성 →
 /// 바인딩 보장(없으면 주소로 생성, 있으면 endpoint 갱신 + 새 주소 병합) → 같은 System 의 상대 바인딩 제거"
-/// 를 여기 한 곳에 둔다. 예전엔 이 글루가 Promaker.Shared(C#) 에 있어 DSPilot 이 쓸 수 없었다.
+/// 를 여기 한 곳에 둔다. 예전엔 이 글루가 Ds2.Hub.Shared(C#) 에 있어 DSPilot 이 쓸 수 없었다.
 ///
 /// 모델만 바꾼다 — dirty 표시·Undo 는 호출자 몫이다. 접속 축 검증과 base 조립은 AidXgtEndpointSettings /
 /// AidMicrexSxEndpointSettings 가 한다.

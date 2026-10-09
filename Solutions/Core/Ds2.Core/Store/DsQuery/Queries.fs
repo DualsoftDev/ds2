@@ -177,7 +177,7 @@ module Queries =
         |> not
 
     /// Project 내 System 이름 중복 검사 (Active + Passive 모두 대상, excludeId: 자기 자신 제외).
-    /// Promaker UI / AASX / Mermaid import / LlmAgent 등 모든 진입점에서 사용 가능한 공통 헬퍼.
+    /// Promaker UI / AASX / Mermaid import 등 모든 진입점에서 사용 가능한 공통 헬퍼.
     let isSystemNameUniqueInProject (projectId: Guid) (name: string) (excludeId: Guid option) (store: DsStore) : bool =
         match store.Projects.TryGetValue(projectId) with
         | false, _ -> true

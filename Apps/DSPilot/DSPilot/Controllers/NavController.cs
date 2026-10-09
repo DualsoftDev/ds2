@@ -137,7 +137,7 @@ public class NavController : ControllerBase
         // ── agent (통신 상태) ──
         var hubState = HubStateString(_hub.CurrentStatus);
 
-        // PLC 어댑터 상태 — 1순위: Promaker.Agent 가 Hub 로 보고한 상태(IP 포함). 보고가 없으면
+        // PLC 어댑터 상태 — 1순위: Ds2.Hub 가 Hub 로 보고한 상태(IP 포함). 보고가 없으면
         // (허브 끊김 또는 모니터링 비활성으로 PlcConnectionStatusTracker 캐시가 비어 있으면)
         // 2순위로 DSPilot 이 PlcConnection.json 의 대상 IP 에 직접 핑(TCP)을 던져 상태를 만든다.
         var plc = _plcStatus.CurrentStatuses;
@@ -425,7 +425,7 @@ public record NavAgentDto(
     int PlcTotal,
     int PlcConnected,
     int PlcDisconnected,
-    /// <summary>PLC 어댑터 상태 출처 — "agent"(Promaker.Agent 보고) | "ping"(DSPilot 직접 TCP 핑) | "none"(대상 미설정).</summary>
+    /// <summary>PLC 어댑터 상태 출처 — "agent"(Ds2.Hub 보고) | "ping"(DSPilot 직접 TCP 핑) | "none"(대상 미설정).</summary>
     string PlcSource,
     List<NavPlcAdapterDto> Adapters,
     // 모델(AASX) 주소 수신 커버리지 — Expected=적힌 주소 수, Seen=부팅 후 1건 이상 수신한 주소 수,
