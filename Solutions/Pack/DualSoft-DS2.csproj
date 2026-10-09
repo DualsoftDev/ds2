@@ -80,7 +80,7 @@
   <!-- 패키지에 같이 들어가는 글·그림·예제. 0.1.23 과 같은 자리에 둔다. -->
   <ItemGroup>
     <None Include="Readme.md" Pack="true" PackagePath="\" />
-    <None Include="..\..\Apps\Promaker\Installer\logo_Dualsoft.png" Pack="true" PackagePath="\" />
+    <None Include="logo_Dualsoft.png" Pack="true" PackagePath="\" />
     <None Include="samples\**\*" Pack="true" PackagePath="samples\" />
   </ItemGroup>
 
