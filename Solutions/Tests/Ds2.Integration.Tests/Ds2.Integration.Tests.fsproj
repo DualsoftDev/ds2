@@ -9,6 +9,8 @@
   <ItemGroup>
     <Compile Include="Tests.fs" />
     <Compile Include="TemplateRoundTripTests.fs" />
+    <Compile Include="MapperTests.fs" />
+    <Compile Include="AasxProjectCacheTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -24,6 +26,7 @@
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\..\Core\Ds2.Editor\Ds2.Editor.fsproj" />
     <ProjectReference Include="..\..\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
+    <ProjectReference Include="..\..\Convert\Ds2.Mermaid\Ds2.Mermaid.fsproj" />
 </ItemGroup>
 
 </Project>

@@ -98,6 +98,9 @@ scripts/scratch/
 # 게시본 0.1.23 의 `samples/` 가 저장소 어디에도 없었다 — 패키지를 다시 만들 수 없었다는 뜻이다.
 !Solutions/Pack/samples/
 !Solutions/Pack/samples/**
+# 되살린 건 예제 소스지 빌드 산출물이 아니다 — 위 negation 이 obj/bin 까지 풀어 버린다.
+Solutions/Pack/samples/**/bin/
+Solutions/Pack/samples/**/obj/
 
 # Installer build artifacts
 Apps/Promaker/Installer/Output/

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!-- 테스트 공용 키트 — 편집기(Ds2.Editor) 없이 모델을 만드는 빌더와 공용 픽스처.
+       ds2 라이브러리 테스트(Runtime·CSV·Aasx)와 Hub 테스트(Backend)가 같이 쓴다. Editor 는 Promaker 쪽으로 가므로
+       여기서는 절대 참조하지 않는다. -->
+  <ItemGroup>
+    <Compile Include="ModelBuilder.fs" />
+    <Compile Include="PilotAssetFixtures.fs" />
+    <Compile Include="AidTestHelpers.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
+  </ItemGroup>
+
+</Project>

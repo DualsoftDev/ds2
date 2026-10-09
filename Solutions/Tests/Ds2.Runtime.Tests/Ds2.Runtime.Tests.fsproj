@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="InputValueOriginTests.fs" />
+    <Compile Include="RuntimeCommandPolicyTests.fs" />
+    <Compile Include="RuntimeModeTransitionTests.fs" />
+    <Compile Include="SimulationCommandFacadeTests.fs" />
+    <Compile Include="StepPrimingPlanTests.fs" />
+    <Compile Include="EngineAwareHomingPlanTests.fs" />
+    <Compile Include="TokenTraversalSessionTests.fs" />
+    <Compile Include="EngineRealTimeClockTests.fs" />
+    <Compile Include="StartClearCycleTests.fs" />
+    <Compile Include="BodyLineTests.fs" />
+    <Compile Include="DurE2E.fs" />
+    <Compile Include="AbnormalPolicyTests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
+    <ProjectReference Include="..\..\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
+    <ProjectReference Include="..\..\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
+    <ProjectReference Include="..\Ds2.TestKit\Ds2.TestKit.fsproj" />
+  </ItemGroup>
+
+</Project>

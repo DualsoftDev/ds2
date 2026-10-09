@@ -8,14 +8,12 @@
 
   <ItemGroup>
     <Compile Include="AasxSemanticsTests.fs" />
-    <Compile Include="PilotAssetFixtures.fs" />
     <Compile Include="StandardSubmodelsRoundtripTests.fs" />
     <Compile Include="KpiFixtures.fs" />
     <Compile Include="SequenceKpiGeneratorTests.fs" />
     <Compile Include="KpiExportIntegrationTests.fs" />
     <Compile Include="OpcUaScaleTests.fs" />
     <Compile Include="NewProjectExportTests.fs" />
-    <Compile Include="AasxProjectCacheTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -29,18 +27,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
-    <ProjectReference Include="..\..\Core\Ds2.Editor\Ds2.Editor.fsproj" />
     <ProjectReference Include="..\..\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
-    <ProjectReference Include="..\..\Backend\Ds2.Backend.Plc\Ds2.Backend.Plc.fsproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- PlcTagDef.DataType 의 형식(CoreDataTypesModule.PlcDataType)이 이 어셈블리에 정의돼 있어,
-         테스트가 PlcGatewayConfig 를 직접 조립하려면 참조가 필요하다(F# 형식 이름 해석 요구). -->
-    <Reference Include="Ev2.PLC.Common.FS">
-      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Common.FS.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
+    <ProjectReference Include="..\Ds2.TestKit\Ds2.TestKit.fsproj" />
   </ItemGroup>
 
 </Project>

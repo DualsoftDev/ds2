@@ -7,7 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="ParserTests.fs" />
+    <Compile Include="CsvFormatDetectorTests.fs" />
+    <Compile Include="AiCsvTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -21,7 +22,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
-    <ProjectReference Include="..\..\Convert\Ds2.Mermaid\Ds2.Mermaid.fsproj" />
+    <ProjectReference Include="..\..\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
+    <ProjectReference Include="..\..\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
+    <ProjectReference Include="..\..\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
   </ItemGroup>
 
 </Project>
