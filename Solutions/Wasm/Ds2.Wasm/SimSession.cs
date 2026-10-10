@@ -141,6 +141,39 @@ internal sealed class SimSession : IDisposable
         return Snapshot();
     }
 
+    /// <summary>
+    /// 돌고 있는 세션에 <b>토큰을 한 번 더 넣는다.</b>
+    ///
+    /// 씨 뿌리기는 첫 <c>Start()</c> 한 번뿐이라, 그 뒤로는 바깥에서 새 작업물을
+    /// 들여보낼 길이 없었다. 연속 운전을 재려면 <b>요청마다</b> 넣을 수 있어야 한다.
+    ///
+    /// <b>차 있으면 거절한다.</b> source work 가 Ready 가 아니면 아직 앞 토큰이
+    /// 그 자리에 있다는 뜻이다. 덮어쓰면 넣은 수와 처리한 수가 어긋나 「연속 운전이
+    /// 된다」는 말 자체를 믿을 수 없게 된다. 거절은 실패가 아니라 <b>사실</b>이므로
+    /// 받은 것과 거절한 것을 함께 돌려준다.
+    ///
+    /// <c>Reset()</c> 과 다르다 — 시계도 상태도 건드리지 않고, 새 epoch 을 열지 않는다.
+    /// </summary>
+    public string InjectToken()
+    {
+        if (!_started) throw new InvalidOperationException("Call SimStart before injecting a token.");
+        var accepted = new List<string>();
+        var busy = new List<string>();
+        RecordBoundary("inject");
+        foreach (var g in _index.TokenSourceGuids)
+        {
+            var st = _sim.GetWorkState(g);
+            if (st != null && st.Value == Status4.Ready) { _sim.StartSourceWork(g); accepted.Add(g.ToString()); }
+            else busy.Add(g.ToString());
+        }
+        return JsonSerializer.Serialize(new
+        {
+            clockMs = _clockMs,
+            accepted = accepted.ToArray(),
+            busy = busy.ToArray(),
+        });
+    }
+
     /// <summary>논리 시간을 밀고 <b>바뀐 것만</b> 돌려준다.</summary>
     public string AdvanceTo(long targetMs)
     {

@@ -239,6 +239,16 @@ public static partial class Interop
     [JSExport]
     internal static void SimReset(int simId) => RequireSim(simId).Reset();
 
+    /// <summary>
+    /// 돌고 있는 세션에 토큰을 한 번 더 넣는다. 씨 뿌리기는 첫 SimStart 한 번뿐이라
+    /// 그 뒤로는 새 작업물을 들여보낼 길이 없었다 — 연속 운전을 재려면 필요하다.
+    /// source 가 차 있으면 <b>거절</b>한다(덮어쓰면 넣은 수와 처리한 수가 어긋난다).
+    /// 받은 것과 거절한 것을 함께 돌려준다: <c>{clockMs, accepted[], busy[]}</c>.
+    /// 시계도 상태도 건드리지 않으며 새 epoch 을 열지 않는다 — SimReset 과 다르다.
+    /// </summary>
+    [JSExport]
+    internal static string SimInjectToken(int simId) => RequireSim(simId).InjectToken();
+
     /// <summary>Read current Work result bits and ApiCall input presence/raw
     /// values without evaluating conditions, synthesizing defaults or draining events.</summary>
     [JSExport]
