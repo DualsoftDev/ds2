@@ -28,6 +28,9 @@
     <TrimmerRootAssembly Include="Ds2.Wasm" />
     <TrimmerRootAssembly Include="Ds2.Core" />
     <TrimmerRootAssembly Include="Ds2.Runtime" />
+    <TrimmerRootAssembly Include="Ds2.Aasx" />
+    <!-- AAS 메타모델은 리플렉션으로 직렬화한다 — 트리밍이 먹으면 빈 패키지가 나간다. -->
+    <TrimmerRootAssembly Include="AasCore.Aas3_1" />
     <TrimmerRootAssembly Include="FSharp.Core" />
     <TrimmerRootAssembly Include="log4net" />
   </ItemGroup>
@@ -35,6 +38,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\..\Convert\Ds2.Text\Ds2.Text.fsproj" />
+    <!-- AASX 내보내기는 **Promaker 가 쓰는 그 함수**를 그대로 부른다 (#8641) —
+         직렬화 규칙을 TypeScript 로 다시 적으면 두 벌이 갈라진다. -->
+    <ProjectReference Include="..\..\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
   </ItemGroup>
 

@@ -91,6 +91,39 @@ public static partial class Interop
         }
     }
 
+    /// <summary>
+    /// store 를 **AASX 패키지 바이트**로 내보낸다.
+    ///
+    /// Promaker 의 「다른 이름으로 저장 → AASX」가 부르는 **바로 그 함수**를 부른다
+    /// (`Ds2.Aasx.AasxExporter.exportFromStore`). 직렬화 규칙을 TypeScript 로 다시 적으면
+    /// 두 벌이 갈라진다 — 한쪽만 고쳐지고, 어느 쪽이 규격인지 아무도 모르게 된다.
+    ///
+    /// 파일로 쓰고 되읽는 것은 `SaveSdf` 와 같은 수법이다. exporter 가 경로를 받기 때문인데,
+    /// WASM 의 가상 파일 체계에서 이미 그렇게 돌고 있다.
+    ///
+    /// ⚠ `splitDeviceAasx` 는 **여러 파일**을 만든다. 그 설정에서는 바이트 하나로 돌려줄 수
+    ///   없으므로 여기서 거절한다 — 조용히 하나만 돌려주면 나머지가 사라진 줄도 모른다.
+    /// </summary>
+    [JSExport]
+    internal static byte[] ExportAasx(int handle, string iriPrefix, bool splitDeviceAasx, bool autoCreateEmptySubmodels)
+    {
+        if (splitDeviceAasx)
+            throw new InvalidOperationException("splitDeviceAasx 는 파일을 여러 개 만듭니다 — 바이트 하나로 돌려줄 수 없습니다.");
+        var store = Require(handle);
+        var temp = Path.Combine(Path.GetTempPath(), $"ds2_{Guid.NewGuid():N}.aasx");
+        try
+        {
+            // false 는 「내보낼 Project 가 없다」는 뜻이다. 빈 파일을 성공으로 돌려주지 않는다.
+            if (!Ds2.Aasx.AasxExporter.exportFromStore(store, temp, iriPrefix, false, autoCreateEmptySubmodels))
+                throw new InvalidOperationException("AASX export failed: store 에 내보낼 Project 가 없습니다.");
+            return File.ReadAllBytes(temp);
+        }
+        finally
+        {
+            try { File.Delete(temp); } catch { /* 임시 파일 정리 실패는 무시 */ }
+        }
+    }
+
     /// <summary>store 를 닫는다. 열려 있던 시뮬도 함께 정리한다.</summary>
     [JSExport]
     internal static void CloseModel(int handle)
