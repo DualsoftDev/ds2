@@ -324,6 +324,41 @@ module AssetInterfacesDescriptionTypes =
 
         static member Empty () = AssetInterfacesDescription()
 
+    /// 바인딩 수명주기 — endpoint.SystemId 가 가리키는 System 이 프로젝트에 더 없을 때(SystemPackage 재가져오기·
+    /// 시스템 교체로 GUID 가 바뀐 뒤) 남는 "죽은" 바인딩을 걸러낸다. 현장(2026-10-13)에선 PLC 5대에 XGT 바인딩이
+    /// 10개(세대마다 1벌) 쌓여 AASX 가 두 배로 커지고 Hub 가 같은 PLC 에 어댑터를 두 벌 열었다.
+    /// SystemId 가 None 인 무주인 바인딩은 EnsureBindingForSystem 이 다음 저장에서 배정하므로 보존한다.
+    module AidBindingLifecycle =
+        let bindingSystemId (binding: AidBinding) : Guid option =
+            match binding with
+            | OpcUa (ep, _, _) | Modbus (ep, _) | Mqtt (ep, _) | Http (ep, _) -> ep.SystemId
+            | Xgt (ep, _) -> ep.SystemId
+            | MicrexSx (ep, _) -> ep.SystemId
+
+        let isDead (liveSystemIds: HashSet<Guid>) (binding: AidBinding) : bool =
+            match bindingSystemId binding with
+            | Some id -> not (liveSystemIds.Contains id)
+            | None -> false
+
+        /// 죽은 바인딩을 뺀 사본과 뺀 개수. 원본 aid 는 바꾸지 않는다(undo 와 무관, 내보내기 전용 필터).
+        /// 뺄 것이 없으면 원본을 그대로 돌려준다.
+        [<CompiledName("WithoutDeadBindings")>]
+        let withoutDeadBindings (aid: AssetInterfacesDescription, liveSystemIds: seq<Guid>) : AssetInterfacesDescription * int =
+            if isNull (box aid) then aid, 0
+            else
+                let live = HashSet<Guid>(liveSystemIds)
+                let kept = aid.Interfaces |> Seq.filter (fun b -> not (isDead live b)) |> List.ofSeq
+                let removed = aid.Interfaces.Count - kept.Length
+                if removed = 0 then aid, 0
+                else
+                    let copy = AssetInterfacesDescription()
+                    copy.IdShort <- aid.IdShort
+                    copy.SemanticId <- aid.SemanticId
+                    copy.Interfaces <- ResizeArray<AidBinding>(kept)
+                    copy.AutoOriginIdShorts <- HashSet<string>(aid.AutoOriginIdShorts)
+                    copy.SuppressedAutoIdShorts <- HashSet<string>(aid.SuppressedAutoIdShorts)
+                    copy, removed
+
     /// C# 경계(Promaker·DSPilot)가 AID InterfaceXGT endpoint 를 **읽고 쓸 때** 함께 쓰는 평탄화 DTO.
     ///
     /// 읽기 결과와 쓰기 요청이 같은 축(벤더·전송·주소·타이밍)이라 한 타입을 양방향으로 쓴다 —

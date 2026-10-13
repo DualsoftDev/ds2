@@ -37,73 +37,12 @@ module internal AasxExportGraph =
                   |> List.choose (fun ac -> ac.ApiDefId |> Option.bind (fun id -> Queries.getApiDef id store))
                   |> List.distinctBy (fun ad -> ad.Id)) }
 
-    // ── CD URI 매핑: (TypeName, FieldName) → CD URI ───────────────────────────
+    // ── CD URI 매핑 ────────────────────────────────────────────────────────────
     // BaseUrl 은 AasxSemantics.CdBaseUrl 단일 진실 원천에서 가져온다.
-    // 필드 단위 CD 는 SequenceModel 서브모델 하위 네임스페이스에 둔다.
+    // semanticId 는 컬렉션 노드(ActiveSystems·Flows·Works…)에만 붙인다. 스칼라 속성(Guid·Name·Status…)에는
+    // 붙이지 않는다 — 가져오기는 처음부터 idShort 로만 읽었고, 속성마다 ~300B 참조 블록이 붙으면 현장 모델
+    // (속성 69만 개)에서 XML 의 절반 이상이 그 반복이었다(2026-10-13).
     let private cdBase = CdBaseUrl + "/sm/SequenceModel"
-
-    let private cdUriMap : Map<string * string, string> =
-        Map.ofList [
-            // Project
-            ("Project",  "Guid"),             $"{cdBase}/Project/Guid"
-            ("Project",  "Name"),             $"{cdBase}/Project/Name"
-            ("Project",  "Author"),           $"{cdBase}/Project/Author"
-            ("Project",  "Version"),          $"{cdBase}/Project/Version"
-            ("Project",  "DateTime"),         $"{cdBase}/Project/DateTime"
-            ("Project",  "TokenSpecs"),       $"{cdBase}/Project/TokenSpecs"
-            // DsSystem
-            ("DsSystem", "Guid"),             $"{cdBase}/System/Guid"
-            ("DsSystem", "Name"),             $"{cdBase}/System/Name"
-            ("DsSystem", "IRI"),              $"{cdBase}/System/IRI"
-            ("DsSystem", "SystemType"),       $"{cdBase}/System/SystemType"
-            // Flow
-            ("Flow",     "Guid"),             $"{cdBase}/Flow/Guid"
-            ("Flow",     "Name"),             $"{cdBase}/Flow/Name"
-            // Work
-            ("Work",     "Guid"),             $"{cdBase}/Work/Guid"
-            ("Work",     "Name"),             $"{cdBase}/Work/Name"
-            ("Work",     "Status"),           $"{cdBase}/Work/Status"
-            ("Work",     "Position"),         $"{cdBase}/Work/Position"
-            ("Work",     "TokenRole"),        $"{cdBase}/Work/TokenRole"
-            ("Work",     "Duration"),         $"{cdBase}/Work/Duration"
-            ("Work",     "MinDuration"),      $"{cdBase}/Work/MinDuration"
-            ("Work",     "MaxDuration"),      $"{cdBase}/Work/MaxDuration"
-            ("Work",     "ReferenceOf"),      $"{cdBase}/Work/ReferenceOf"
-            ("Work",     "Conditions"),       $"{cdBase}/Work/Conditions"
-            // Call
-            ("Call",     "Guid"),             $"{cdBase}/Call/Guid"
-            ("Call",     "Name"),             $"{cdBase}/Call/Name"
-            ("Call",     "Status"),           $"{cdBase}/Call/Status"
-            ("Call",     "Position"),         $"{cdBase}/Call/Position"
-            ("Call",     "ReferenceOf"),      $"{cdBase}/Call/ReferenceOf"
-            ("Call",     "SequenceLabel"),    $"{cdBase}/Call/SequenceLabel"
-            ("Call",     "Conditions"),   $"{cdBase}/Call/Conditions"
-            // ApiCall
-            ("ApiCall",  "Guid"),             $"{cdBase}/ApiCall/Guid"
-            ("ApiCall",  "Name"),             $"{cdBase}/ApiCall/Name"
-            ("ApiCall",  "InTag"),            $"{cdBase}/ApiCall/InTag"
-            ("ApiCall",  "OutTag"),           $"{cdBase}/ApiCall/OutTag"
-            ("ApiCall",  "ApiDefId"),         $"{cdBase}/ApiCall/ApiDefId"
-            ("ApiCall",  "InputSpec"),        $"{cdBase}/ApiCall/InputSpec"
-            ("ApiCall",  "OutputSpec"),       $"{cdBase}/ApiCall/OutputSpec"
-            ("ApiCall",  "OriginFlowId"),     $"{cdBase}/ApiCall/OriginFlowId"
-            // ApiDef
-            ("ApiDef",   "Guid"),             $"{cdBase}/ApiDef/Guid"
-            ("ApiDef",   "Name"),             $"{cdBase}/ApiDef/Name"
-            ("ApiDef",   "ActionType"),       $"{cdBase}/ApiDef/ActionType"
-            ("ApiDef",   "SensingType"),      $"{cdBase}/ApiDef/SensingType"
-            ("ApiDef",   "TxGuid"),           $"{cdBase}/ApiDef/TxGuid"
-            ("ApiDef",   "RxGuid"),           $"{cdBase}/ApiDef/RxGuid"
-            // Arrow
-            ("ArrowBetweenWorks", "Guid"),    $"{cdBase}/Arrow/Guid"
-            ("ArrowBetweenWorks", "Source"),  $"{cdBase}/Arrow/Source"
-            ("ArrowBetweenWorks", "Target"),  $"{cdBase}/Arrow/Target"
-            ("ArrowBetweenWorks", "Type"),    $"{cdBase}/Arrow/Type"
-            ("ArrowBetweenCalls", "Guid"),    $"{cdBase}/Arrow/Guid"
-            ("ArrowBetweenCalls", "Source"),  $"{cdBase}/Arrow/Source"
-            ("ArrowBetweenCalls", "Target"),  $"{cdBase}/Arrow/Target"
-            ("ArrowBetweenCalls", "Type"),    $"{cdBase}/Arrow/Type"
-        ]
 
     // 컬렉션 노드 CD URI
     let private collectionCdUri : Map<string, string> =
@@ -169,19 +108,16 @@ module internal AasxExportGraph =
 
     /// Arrow SMC 생성 (Call/Work 공통)
     let private mkArrowSmc (arrow: DsArrow) =
-        let tn = arrow.GetType().Name
-        let sem f = Map.tryFind (tn, f) cdUriMap
         mkSmc "Arrow" [
-            yield mkProp "Guid"   (arrow.Id.ToString())       |> withSemId (sem "Guid")
-            yield mkProp "Source" (arrow.SourceId.ToString()) |> withSemId (sem "Source")
-            yield mkProp "Target" (arrow.TargetId.ToString()) |> withSemId (sem "Target")
-            yield mkProp "Type"   (string arrow.ArrowType)    |> withSemId (sem "Type")
+            yield mkProp "Guid"   (arrow.Id.ToString())
+            yield mkProp "Source" (arrow.SourceId.ToString())
+            yield mkProp "Target" (arrow.TargetId.ToString())
+            yield mkProp "Type"   (string arrow.ArrowType)
         ]
 
-    /// AasxField Attribute가 있는 속성들을 자동으로 Property로 변환 (semanticId 포함)
+    /// AasxField Attribute가 있는 속성들을 자동으로 Property로 변환 (스칼라 속성에는 semanticId 를 붙이지 않는다)
     let internal mkPropsFromAasxFields<'T> (entity: 'T) =
         let entityType = entity.GetType()  // 런타임 타입 사용 (상속 고려)
-        let typeName = entityType.Name
 
         // 현재 타입과 모든 베이스 타입의 속성을 가져오기
         let rec getAllProperties (t: Type) =
@@ -201,7 +137,6 @@ module internal AasxExportGraph =
                 | null -> None
                 | :? AasxFieldAttribute as attr when not attr.Skip ->
                     let value = prop.GetValue(entity)
-                    let cdUri = Map.tryFind (typeName, attr.FieldName) cdUriMap
                     // 특수 타입 처리
                     let elemOpt =
                         if prop.PropertyType = typeof<Xywh option> then
@@ -250,7 +185,7 @@ module internal AasxExportGraph =
                                 | :? (Guid option) as opt -> opt |> Option.map (fun g -> g.ToString()) |> Option.defaultValue ""
                                 | v -> v.ToString()
                             Some (mkProp attr.FieldName strValue)
-                    elemOpt |> Option.map (withSemId cdUri)
+                    elemOpt
                 | _ -> None)
         |> Array.toList
 
@@ -284,7 +219,7 @@ module internal AasxExportGraph =
         let smc = SubmodelElementCollection()
         smc.IdShort <- mkEntityIdShort "Work" work.Id
         smc.Value <- ResizeArray<ISubmodelElement>([
-            yield mkProp FlowGuid_ (work.ParentId.ToString()) |> withSemId (Some $"{cdBase}/Work/FlowGuid")
+            yield mkProp FlowGuid_ (work.ParentId.ToString())
             yield! mkPropsFromAasxFields work
             yield! mkSmcOpt "DomainReferences" domainRefs |> Option.toList
             yield! mkSmlSem Calls_ calls |> Option.toList

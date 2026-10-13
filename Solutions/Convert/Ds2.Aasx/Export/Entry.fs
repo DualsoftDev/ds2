@@ -282,15 +282,28 @@ module AasxExporter =
                 if uri.Scheme = Uri.UriSchemeHttp && not uri.IsLoopback then
                     invalidOp "A non-loopback DS2_DATA_API_PUBLIC_URL must use https://."
                 if uri.AbsolutePath.TrimEnd('/').EndsWith("/v1/series", StringComparison.OrdinalIgnoreCase) then
-                    trimmed
-                else trimmed + "/v1/series"
-            | _ -> "http://127.0.0.1:62542/v1/series"
+                    Some trimmed
+                else Some (trimmed + "/v1/series")
+            // Data API 가 설정되지 않으면 TimeSeries 를 쓰지 않는다. 종전엔 127.0.0.1:62542 자리표시 주소로
+            // 신호마다 LinkedSegment 를 무조건 썼고(현장 42,208 신호 → XML 230MB), 읽는 쪽은 아무도 없었다.
+            | _ -> None
         [
             // AID 의 소유는 store (Project 엔티티에서 분리 — DsStore.AssetInterfaces 주석 참조).
             match store.TryGetAssetInterfaces project.Id with
             | Some aid when aid.Interfaces.Count > 0 ->
-                yield aidToSubmodel aid project.Name
-                yield timeSeriesToSubmodel aid aidAssetId project.Id project.Name dataApiEndpoint
+                // 프로젝트에 더 없는 System(교체·재가져오기로 GUID 가 바뀐 옛 세대)의 바인딩은 파일에 싣지 않는다.
+                // store 의 aid 는 건드리지 않는다 — 되돌리기로 System 이 돌아오면 바인딩도 그대로 살아 있다.
+                let liveSystemIds =
+                    Seq.append (Queries.activeSystemsOf project.Id store) (Queries.passiveSystemsOf project.Id store)
+                    |> Seq.map (fun s -> s.Id)
+                let aid, deadBindings = Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes.AidBindingLifecycle.withoutDeadBindings (aid, liveSystemIds)
+                if deadBindings > 0 then
+                    log.Info(sprintf "[AID] dropped %d binding(s) whose System no longer exists in the project" deadBindings)
+                if aid.Interfaces.Count > 0 then
+                    yield aidToSubmodel aid project.Name
+                    match dataApiEndpoint with
+                    | Some endpoint -> yield timeSeriesToSubmodel aid aidAssetId project.Id project.Name endpoint
+                    | None -> ()
             | _ -> ()
             match project.AssetInterfacesMapping with
             | Some aimc when aimc.Mappings.Count > 0 ->
