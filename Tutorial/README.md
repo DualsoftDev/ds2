@@ -3,7 +3,7 @@
 `Ds2.Tutorial`은 DS2 소스 레벨 C# 튜토리얼입니다. Core 모델 생성부터 변환, Runtime 시뮬레이션, 리포트까지 한 Store가 단계별로 확장되는 흐름을 보여줍니다.
 
 ```bash
-dotnet run --project Apps/Tutorial/Ds2.Tutorial.csproj
+dotnet run --project Tutorial/Ds2.Tutorial.csproj
 ```
 
 전체 실행은 `0`, 특정 단계만 실행하려면 단계 번호를 입력합니다. stdin이 리다이렉트된 환경에서는 Simulation CLI가 자동 데모 모드로 실행됩니다.
