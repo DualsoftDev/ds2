@@ -153,6 +153,32 @@ module AasxImporter =
                             PropertyConversion.importCallProperty submodelType callSmc call.Properties)))
 
 
+    /// 2026-01 이전 저장본은 요소 idShort 에 고유 번호 접미사가 붙었다(Name1690, Guid2766). 지금 임포터는 정확한
+    /// idShort 로 읽으므로 그런 파일은 값이 하나도 안 잡혀 "이름 없는 빈 프로젝트" 가 된다 — 조용히 열리는 대신 거절한다.
+    let private isLegacySuffixedIdShortFormat (sm: ISubmodel) : bool =
+        if isNull sm || isNull sm.SubmodelElements then false
+        else
+            sm.SubmodelElements
+            |> Seq.tryPick (function :? SubmodelElementCollection as smc -> Some smc | _ -> None)
+            |> Option.map (fun projectSmc ->
+                if isNull projectSmc.Value then false
+                else
+                    let propertyIds =
+                        projectSmc.Value
+                        |> Seq.choose (function :? Property as p when not (isNull p.IdShort) -> Some p.IdShort | _ -> None)
+                        |> List.ofSeq
+                    let hasExactName = propertyIds |> List.contains "Name"
+                    let hasSuffixedName =
+                        propertyIds
+                        |> List.exists (fun id ->
+                            id.Length > 4 && id.StartsWith "Name" && id.Substring 4 |> Seq.forall Char.IsDigit)
+                    (not hasExactName) && hasSuffixedName)
+            |> Option.defaultValue false
+
+    let [<Literal>] private LegacyFormatError =
+        "지원하지 않는 구 포맷 AASX 입니다(요소 idShort 에 번호 접미사가 붙은 2026-01 이전 저장본).\n" +
+        "그 파일을 저장한 버전의 Promaker 로 열어 .sdf 로 저장한 뒤 다시 가져오세요."
+
     let internal importFromAasxFile (path: string) : DsStore option =
         let mainDir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path))
         readEnvironment path
@@ -164,16 +190,18 @@ module AasxImporter =
                 let result =
                     env.Submodels
                     |> Seq.tryPick (fun sm ->
-                        // SequenceModel 서브모델 찾기 (구 버전 "SequenceControlSubmodel"도 호환)
-                        if sm.IdShort = SubmodelModelIdShort || sm.IdShort = LegacySubmodelIdShort then
+                        // SequenceModel 서브모델 찾기 (구 버전 "SequenceControlSubmodel" 이름도 받는다 — 요소 idShort 가 지금 규격일 때만)
+                        if (sm.IdShort = SubmodelModelIdShort || sm.IdShort = LegacySubmodelIdShort)
+                           && not (isLegacySuffixedIdShortFormat sm) then
                             submodelToProjectStore sm (Some mainDir)
                         else None)
                 match result with
                 | None ->
                     let idShorts = env.Submodels |> Seq.map (fun sm -> sm.IdShort) |> Seq.toList
-                    let hasLegacy = idShorts |> List.exists (fun id -> id = "SequenceControlSubmodel")
-                    if hasLegacy then
-                        log.Warn($"AASX import 실패: 구 포맷('SequenceControlSubmodel') 파일입니다. ds2 에디터에서 다시 내보내기(Export) 해 주세요. ({path})")
+                    let hasLegacySuffixed =
+                        env.Submodels |> Seq.exists (fun sm -> isLegacySuffixedIdShortFormat sm)
+                    if hasLegacySuffixed then
+                        log.Warn($"AASX import 실패: {LegacyFormatError} ({path})")
                     else
                         log.Warn($"AASX import 실패: '{SubmodelModelIdShort}' Submodel을 찾을 수 없습니다. (발견된 Submodels: {idShorts}) ({path})")
                     None
@@ -218,6 +246,10 @@ module AasxImporter =
         | Ok env ->
             if env.Submodels = null then
                 Error "AASX 파일 구조 오류:\n\nSubmodels가 없습니다."
+            elif env.Submodels |> Seq.exists (fun sm ->
+                    (sm.IdShort = SubmodelModelIdShort || sm.IdShort = LegacySubmodelIdShort)
+                    && isLegacySuffixedIdShortFormat sm) then
+                Error LegacyFormatError
             else
                 let mainDir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path))
                 let result =

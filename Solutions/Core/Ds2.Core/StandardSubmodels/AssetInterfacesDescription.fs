@@ -581,14 +581,18 @@ module AssetInterfacesDescriptionTypes =
         /// 찍는 것은 막는다. 다른 System 의 바인딩은 건드리지 않는다.
         ///
         /// 요청은 읽기 DTO 와 같은 AidXgtConnectionInfo 다 — 접속 축(이더넷 host:port / USB selector)의 검증과
-        /// base 조립은 tryEndpointOf 한 곳에서만 한다. 반환 = 최종 동기화된 interaction 수(0 = 변경 없음).
-        [<CompiledName("EnsureBindingForSystem")>]
-        let ensureBindingForSystem
+        /// base 조립은 tryEndpointOf 한 곳에서만 한다.
+        /// 반환 = Ok 최종 동기화된 interaction 수 / Error 요청이 성립하지 않는 이유(AID 는 건드리지 않음).
+        /// 주소가 하나도 없어도 endpoint 는 만든다 — 접속 정보는 주소와 별개의 사실이고, 새 System 은 태그를
+        /// 붙이기 전에 PLC 부터 정한다. 주소는 다음 저장에서 병합된다.
+        [<CompiledName("TryEnsureBindingForSystem")>]
+        let tryEnsureBindingForSystem
             (aid: AssetInterfacesDescription,
              systemId: Guid,
              request: AidXgtConnectionInfo,
-             addresses: seq<string>) : int =
-            if isNull (box aid) || systemId = Guid.Empty then 0
+             addresses: seq<string>) : Result<int, string> =
+            if isNull (box aid) then Error "AID 가 없습니다."
+            elif systemId = Guid.Empty then Error "System 이 지정되지 않았습니다."
             else
                 let xgtBindings =
                     aid.Interfaces
@@ -603,7 +607,8 @@ module AssetInterfacesDescriptionTypes =
                         then Some xgtBindings.Head
                         else None)
                 match tryEndpointOf systemId (target |> Option.map (fun (_, endpoint, _) -> endpoint)) request with
-                | None -> 0
+                | None ->
+                    Error "LS 벤더(XGI/XGK/XGB)와 접속 축(이더넷 IP:포트 또는 USB 선택 키)이 성립해야 합니다."
                 | Some nextEndpoint ->
                     let normalizedAddresses =
                         let seen = HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -628,16 +633,39 @@ module AssetInterfacesDescriptionTypes =
                                 else None)
                         let merged = normalizedExisting @ added
                         aid.Interfaces.[index] <- Xgt (nextEndpoint, merged)
-                        // 반환값은 최종 동기화된 interaction 수. 주소가 추가되지 않아도 endpoint 갱신 성공을 드러낸다.
-                        List.length merged
-                    | None when normalizedAddresses.IsEmpty -> 0
+                        Ok (List.length merged)
                     | None ->
                         // 새 endpoint — 기존 endpoint 전체가 점유한 signalId 를 피해서 부여한다.
                         let claimed = claimedSignalIdsExcept aid -1
                         let interactions =
                             normalizedAddresses |> List.map (interactionForAddressIn claimed (Some systemId))
                         aid.Interfaces.Add(Xgt (nextEndpoint, interactions))
-                        List.length interactions
+                        Ok (List.length interactions)
+
+        /// 반환 = 최종 동기화된 interaction 수. 요청이 성립하지 않으면 0 — 성패를 가려야 하면 TryEnsureBindingForSystem.
+        [<CompiledName("EnsureBindingForSystem")>]
+        let ensureBindingForSystem
+            (aid: AssetInterfacesDescription,
+             systemId: Guid,
+             request: AidXgtConnectionInfo,
+             addresses: seq<string>) : int =
+            match tryEnsureBindingForSystem (aid, systemId, request, addresses) with
+            | Ok count -> count
+            | Error _ -> 0
+
+        /// systemRef 없는 구버전 endpoint — XGT 바인딩이 그것 하나뿐일 때만 돌려준다
+        /// (EnsureBindingForSystem 의 claim 조건과 같다). 그 외는 null: 다른 System 의 endpoint 를 "구버전" 으로 보여 주지 않는다.
+        [<CompiledName("TryReadUnassigned")>]
+        let tryReadUnassigned (aid: AssetInterfacesDescription) : AidXgtConnectionInfo =
+            if isNull (box aid) then null
+            else
+                let xgtEndpoints =
+                    aid.Interfaces
+                    |> Seq.choose (function Xgt (endpoint, _) -> Some endpoint | _ -> None)
+                    |> List.ofSeq
+                match xgtEndpoints with
+                | [ endpoint ] when endpoint.SystemId.IsNone -> toConnectionInfo endpoint |> Option.defaultValue null
+                | _ -> null
 
         /// 주소별 표시 단위(engineering unit)를 이 System 의 XGT interaction 에 심는다.
         /// 단위는 값 자체가 아니라 "그 값을 어떻게 읽어야 하는가" 라서 신호 정의(interaction)의 자리이며,
@@ -831,9 +859,9 @@ module AssetInterfacesDescriptionTypes =
 
         /// 지정 System 의 SX 바인딩을 보장한다 — 없으면 주소 목록으로 만들고, 있으면 endpoint 를
         /// 갱신하고 새 주소만 병합한다(기존 interaction 의 signalId 는 보존 — 다운스트림 영속 키다).
-        /// 반환값은 만들거나 고친 요소 수. 입력이 성립하지 않으면 0 이고 AID 를 건드리지 않는다.
-        [<CompiledName("EnsureBindingForSystem")>]
-        let ensureBindingForSystem
+        /// 반환 = Ok 만들거나 고친 요소 수 / Error 입력이 성립하지 않는 이유(AID 는 건드리지 않음).
+        [<CompiledName("TryEnsureBindingForSystem")>]
+        let tryEnsureBindingForSystem
             (aid: AssetInterfacesDescription,
              systemId: Guid,
              ipAddress: string,
@@ -842,9 +870,10 @@ module AssetInterfacesDescriptionTypes =
              writableAreas: seq<string>,
              timeoutMs: int,
              scanIntervalMs: int,
-             addresses: seq<string>) : int =
-            if isNull (box aid) || systemId = Guid.Empty
-               || String.IsNullOrWhiteSpace ipAddress || port <= 0 then 0
+             addresses: seq<string>) : Result<int, string> =
+            if isNull (box aid) then Error "AID 가 없습니다."
+            elif systemId = Guid.Empty then Error "System 이 지정되지 않았습니다."
+            elif String.IsNullOrWhiteSpace ipAddress || port <= 0 then Error "IP 주소와 포트(1 이상)가 필요합니다."
             else
                 let normalizedAddresses =
                     let seen = HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -890,13 +919,29 @@ module AssetInterfacesDescriptionTypes =
                         |> List.filter (fun a -> not (known.Contains a))
                         |> List.map (interactionForAddressIn claimed (Some systemId))
                     aid.Interfaces.[index] <- MicrexSx (endpointOf (Some systemId), interactions @ added)
-                    1 + List.length added
+                    Ok (1 + List.length added)
                 | None ->
                     let claimed = AidInteractionIds.claimedSignalIdsExcept aid -1
                     let interactions =
                         normalizedAddresses |> List.map (interactionForAddressIn claimed (Some systemId))
                     aid.Interfaces.Add(MicrexSx (endpointOf (Some systemId), interactions))
-                    1 + List.length interactions
+                    Ok (1 + List.length interactions)
+
+        /// 반환값은 만들거나 고친 요소 수. 입력이 성립하지 않으면 0 — 성패를 가려야 하면 TryEnsureBindingForSystem.
+        [<CompiledName("EnsureBindingForSystem")>]
+        let ensureBindingForSystem
+            (aid: AssetInterfacesDescription,
+             systemId: Guid,
+             ipAddress: string,
+             port: int,
+             ioMapPath: string,
+             writableAreas: seq<string>,
+             timeoutMs: int,
+             scanIntervalMs: int,
+             addresses: seq<string>) : int =
+            match tryEnsureBindingForSystem (aid, systemId, ipAddress, port, ioMapPath, writableAreas, timeoutMs, scanIntervalMs, addresses) with
+            | Ok count -> count
+            | Error _ -> 0
 
         /// 이 System 의 SX 바인딩을 지운다 — 벤더를 SX 에서 LS 로 되돌렸을 때 옛 endpoint 가
         /// 남아 Agent 가 연결을 하나 더 만드는 것을 막는다. 반환값은 지운 개수.

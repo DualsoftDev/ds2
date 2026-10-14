@@ -57,8 +57,24 @@ module PlcEndpointStore =
     /// 저장 시 귀속은 EnsureBindingForSystem 의 "무주인 endpoint 1개 claim" 규칙이 처리한다.
     let tryReadLegacyUnassignedXgt (store: DsStore) : AidXgtConnectionInfo =
         match tryAid store (onlyActiveSystemProject store) with
-        | Some aid -> AidXgtEndpointSettings.tryReadFirst aid
+        | Some aid -> AidXgtEndpointSettings.tryReadUnassigned aid
         | None -> null
+
+    /// AID 가 없으면 새로 만들어 쓰되, 요청이 성립해 실제로 기록됐을 때만 store 에 붙인다 —
+    /// 실패한 저장이 빈 AID 를 모델에 남기지 않는다.
+    let private writeAid (store: DsStore) (project: Project) (write: AssetInterfacesDescription -> Result<int, string>) : bool =
+        match store.TryGetAssetInterfaces project.Id with
+        | Some aid ->
+            match write aid with
+            | Ok _ -> true
+            | Error _ -> false
+        | None ->
+            let aid = AssetInterfacesDescription()
+            match write aid with
+            | Ok _ ->
+                store.SetAssetInterfaces(project.Id, aid)
+                true
+            | Error _ -> false
 
     /// 지정 active System 에 귀속된 SX endpoint. 없으면 null.
     let tryReadMicrexSx (store: DsStore) (systemId: Guid) : AidMicrexSxConnectionInfo =
@@ -68,7 +84,7 @@ module PlcEndpointStore =
 
     /// 지정 active System 의 XGT endpoint 를 보장한다. 성공하면 같은 System 의 SX 바인딩은 지운다 — 한 System 은
     /// PLC 1대다(남겨 두면 수집기가 AID 에서 연결을 하나 더 만들어 "1대만 설정했는데 2대" 가 된다).
-    /// 반환 = 기록 여부. 비-LS 벤더는 XGT 로 표현할 수 없어 false.
+    /// 반환 = 기록 여부. 비-LS 벤더는 XGT 로 표현할 수 없어 false. 주소가 0개여도 접속 정보는 기록된다.
     let ensureXgt
         (store: DsStore) (systemId: Guid) (vendor: PlcVendorChoice) (profile: PlcVendorProfile) (addresses: seq<string>)
         : bool =
@@ -77,13 +93,11 @@ module PlcEndpointStore =
             match owningProject store systemId with
             | None -> false
             | Some project ->
-                let aid = store.GetOrCreateAssetInterfaces project.Id
-                let written =
-                    AidXgtEndpointSettings.ensureBindingForSystem (aid, systemId, xgtRequest vendor profile, orEmpty addresses)
-                if written <= 0 then false
-                else
-                    AidMicrexSxEndpointSettings.removeForSystem (aid, systemId) |> ignore
-                    true
+                writeAid store project (fun aid ->
+                    AidXgtEndpointSettings.tryEnsureBindingForSystem (aid, systemId, xgtRequest vendor profile, orEmpty addresses)
+                    |> Result.map (fun written ->
+                        AidMicrexSxEndpointSettings.removeForSystem (aid, systemId) |> ignore
+                        written))
 
     /// 지정 active System 의 SX endpoint 를 보장한다. 성공하면 같은 System 의 XGT 바인딩은 지운다.
     let ensureMicrexSx
@@ -95,16 +109,14 @@ module PlcEndpointStore =
             match owningProject store systemId with
             | None -> false
             | Some project ->
-                let aid = store.GetOrCreateAssetInterfaces project.Id
-                let written =
-                    AidMicrexSxEndpointSettings.ensureBindingForSystem (
+                writeAid store project (fun aid ->
+                    AidMicrexSxEndpointSettings.tryEnsureBindingForSystem (
                         aid, systemId, trimOrEmpty profile.IpAddress, profile.Port,
                         (if isNull ioMapPath then "" else ioMapPath), orEmpty writableAreas,
                         profile.TimeoutMs, profile.ScanIntervalMs, orEmpty addresses)
-                if written <= 0 then false
-                else
-                    AidXgtEndpointSettings.removeForSystem (aid, systemId) |> ignore
-                    true
+                    |> Result.map (fun written ->
+                        AidXgtEndpointSettings.removeForSystem (aid, systemId) |> ignore
+                        written))
 
 /// C# 소비자(Promaker 속성 패널·저장, DSPilot)용 DsStore 확장.
 [<Extension>]

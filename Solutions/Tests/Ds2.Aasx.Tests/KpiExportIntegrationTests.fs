@@ -173,3 +173,27 @@ let ``AidBindingLifecycle drops bindings whose System is gone and keeps unowned 
     let same, none = AidBindingLifecycle.withoutDeadBindings (pruned, [ live ])
     Assert.Equal(0, none)
     Assert.Same(pruned, same)
+
+/// 잘못 설정된 DS2_DATA_API_PUBLIC_URL 하나가 AASX 저장 전체를 막았다(Uri 파싱·규칙 검사의 예외가 export 를
+/// 타고 올라옴). 환경변수는 TimeSeries 의 선택 사항일 뿐이니 저장은 되고 TimeSeries 만 빠진다.
+[<Theory>]
+[<InlineData("garbage value")>]
+[<InlineData("ftp://data-api.example.com/v1")>]
+[<InlineData("http://data-api.example.com")>]
+let ``a malformed DS2_DATA_API_PUBLIC_URL does not block saving — only TimeSeries is skipped`` (value: string) =
+    let store, _ = buildSmallProject ()
+    let envName = "DS2_DATA_API_PUBLIC_URL"
+    let previous = Environment.GetEnvironmentVariable envName
+    let tmpPath = Path.Combine(Path.GetTempPath(), sprintf "kpi_bad_env_%s.aasx" (Guid.NewGuid().ToString("N")))
+    try
+        Environment.SetEnvironmentVariable(envName, value)
+
+        Assert.True(AasxExporter.exportFromStore store tmpPath "" false true, "잘못된 환경변수로 저장이 실패했다")
+
+        let env = AasxFileIO.readEnvironmentOrRaise tmpPath
+        let idShorts = env.Submodels |> Seq.map (fun sm -> sm.IdShort) |> Set.ofSeq
+        Assert.Contains(AidSubmodelIdShort, idShorts)
+        Assert.DoesNotContain(TimeSeriesSubmodelIdShort, idShorts)
+    finally
+        Environment.SetEnvironmentVariable(envName, previous)
+        if File.Exists tmpPath then File.Delete tmpPath

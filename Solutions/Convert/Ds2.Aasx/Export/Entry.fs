@@ -270,20 +270,25 @@ module AasxExporter =
         let dataApiEndpoint =
             match System.Environment.GetEnvironmentVariable("DS2_DATA_API_PUBLIC_URL") with
             | value when not (String.IsNullOrWhiteSpace value) ->
-                let trimmed = value.Trim().TrimEnd('/')
-                let uri = Uri(trimmed, UriKind.Absolute)
-                if uri.Scheme <> Uri.UriSchemeHttp && uri.Scheme <> Uri.UriSchemeHttps then
-                    invalidOp "DS2_DATA_API_PUBLIC_URL must use http:// or https://."
-                if String.IsNullOrWhiteSpace uri.Host
-                   || not (String.IsNullOrWhiteSpace uri.UserInfo)
-                   || not (String.IsNullOrWhiteSpace uri.Fragment)
-                   || not (String.IsNullOrWhiteSpace uri.Query) then
-                    invalidOp "DS2_DATA_API_PUBLIC_URL must contain a host and must not contain credentials, query, or fragment."
-                if uri.Scheme = Uri.UriSchemeHttp && not uri.IsLoopback then
-                    invalidOp "A non-loopback DS2_DATA_API_PUBLIC_URL must use https://."
-                if uri.AbsolutePath.TrimEnd('/').EndsWith("/v1/series", StringComparison.OrdinalIgnoreCase) then
-                    Some trimmed
-                else Some (trimmed + "/v1/series")
+                // 잘못 설정된 환경변수 하나가 AASX 저장 전체를 막아선 안 된다 — TimeSeries 만 빼고 경고로 남긴다.
+                try
+                    let trimmed = value.Trim().TrimEnd('/')
+                    let uri = Uri(trimmed, UriKind.Absolute)
+                    if uri.Scheme <> Uri.UriSchemeHttp && uri.Scheme <> Uri.UriSchemeHttps then
+                        invalidOp "DS2_DATA_API_PUBLIC_URL must use http:// or https://."
+                    if String.IsNullOrWhiteSpace uri.Host
+                       || not (String.IsNullOrWhiteSpace uri.UserInfo)
+                       || not (String.IsNullOrWhiteSpace uri.Fragment)
+                       || not (String.IsNullOrWhiteSpace uri.Query) then
+                        invalidOp "DS2_DATA_API_PUBLIC_URL must contain a host and must not contain credentials, query, or fragment."
+                    if uri.Scheme = Uri.UriSchemeHttp && not uri.IsLoopback then
+                        invalidOp "A non-loopback DS2_DATA_API_PUBLIC_URL must use https://."
+                    if uri.AbsolutePath.TrimEnd('/').EndsWith("/v1/series", StringComparison.OrdinalIgnoreCase) then
+                        Some trimmed
+                    else Some (trimmed + "/v1/series")
+                with ex ->
+                    log.Warn(sprintf "DS2_DATA_API_PUBLIC_URL 이 잘못돼 TimeSeries 를 쓰지 않는다: %s" ex.Message)
+                    None
             // Data API 가 설정되지 않으면 TimeSeries 를 쓰지 않는다. 종전엔 127.0.0.1:62542 자리표시 주소로
             // 신호마다 LinkedSegment 를 무조건 썼고(현장 42,208 신호 → XML 230MB), 읽는 쪽은 아무도 없었다.
             | _ -> None

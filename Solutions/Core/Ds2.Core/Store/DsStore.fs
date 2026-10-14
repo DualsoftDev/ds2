@@ -183,6 +183,10 @@ type DsStore() =
         let loaded = Ds2.Serialization.JsonConverter.loadFromFile<DsStore> path
         if isNull (box loaded) then
             invalidOp "Loaded store is null."
+        // 알 수 없는 필드는 무시되므로 아무 JSON 객체나 "빈 store" 로 읽힌다. 프로젝트가 없는 파일은 모델 파일이
+        // 아니다 — 교체 전에 거절해 현재 store 와 파일명이 어긋난 채 남지 않게 한다.
+        if loaded.Projects.Count = 0 then
+            invalidOp "프로젝트가 없는 파일입니다 — DS2 모델 파일(.sdf/.json)이 아닙니다."
         this.ApplyNewStore(loaded, $"load file '{path}'")
 
     member this.ReplaceStore(newStore: DsStore) =
