@@ -241,13 +241,13 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
     let tryGetWorkGuidFromCall callGuid =
         index.CallWorkGuid |> Map.tryFind callGuid
 
-    let getRelatedWorkGuids address =
+    let getRelatedWorkGuids (observedSystem: Guid option) address =
         seq {
-            for mapping in ioMap.GetByOutAddress(address) do
+            for mapping in ioMap.GetByOutAddress(address) |> SignalSystemScope.filter observedSystem do
                 match tryGetWorkGuidFromCall mapping.CallGuid with
                 | Some workGuid -> yield workGuid
                 | None -> ()
-            for mapping in ioMap.GetByInAddress(address) do
+            for mapping in ioMap.GetByInAddress(address) |> SignalSystemScope.filter observedSystem do
                 match tryGetWorkGuidFromCall mapping.CallGuid with
                 | Some workGuid -> yield workGuid
                 | None -> ()
@@ -277,8 +277,12 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
               LastSequenceChangeAgeMs = lastChangeAgeMs })
         |> Seq.toArray
 
-    member _.IsAbnormalReadyForAddress(address: string) =
-        let workGuids = getRelatedWorkGuids address
+    /// systemId = 신호 소유 System("" / null = 미제공 → 주소의 모든 매핑, 종전 동작).
+    member _.IsAbnormalReadyForAddress(
+        address: string,
+        [<System.Runtime.InteropServices.Optional; System.Runtime.InteropServices.DefaultParameterValue(null: string)>] systemId: string
+    ) =
+        let workGuids = getRelatedWorkGuids (SignalSystemScope.parse systemId) address
         workGuids.Length > 0
         && (workGuids
             |> Array.exists (fun workGuid ->
@@ -292,18 +296,23 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         getWorkState: Func<Guid, Status4>,
         getCallState: Func<Guid, Status4>,
         // 원천 관측 시각(ms). 분산 store-and-forward 대비 — 생략(레거시/테스트 호출) 시 0L(=수신 시각 무의미치).
-        [<System.Runtime.InteropServices.Optional; System.Runtime.InteropServices.DefaultParameterValue(0L)>] originTsMs: int64
+        [<System.Runtime.InteropServices.Optional; System.Runtime.InteropServices.DefaultParameterValue(0L)>] originTsMs: int64,
+        // 신호 소유 System("" / null = 미제공 → 주소 단독, 종전 동작). 제공되면 그 System 매핑만 추론하고,
+        // System 간 공유 주소의 직전값은 System 별로 따로 둔다 — 두 PLC 값이 한 칸에 섞이면 edge 가 지워지거나 생겨난다.
+        [<System.Runtime.InteropServices.Optional; System.Runtime.InteropServices.DefaultParameterValue(null: string)>] systemId: string
     ) =
-        match lastObservedValue.TryGetValue(address) with
+        let observedSystem = SignalSystemScope.parse systemId
+        let valueKey = SignalSystemScope.stateKey ioMap observedSystem address
+        match lastObservedValue.TryGetValue(valueKey) with
         | true, previous when previous = value -> Array.empty
         | _ ->
-            let outMappings = ioMap.GetByOutAddress(address)
-            let inMappings = ioMap.GetByInAddress(address)
+            let outMappings = ioMap.GetByOutAddress(address) |> SignalSystemScope.filter observedSystem
+            let inMappings = ioMap.GetByInAddress(address) |> SignalSystemScope.filter observedSystem
             if List.isEmpty outMappings && List.isEmpty inMappings then
-                lastObservedValue[address] <- value
+                lastObservedValue[valueKey] <- value
                 Array.empty
             else
-                let isFirstObservation = not (lastObservedValue.ContainsKey(address))
+                let isFirstObservation = not (lastObservedValue.ContainsKey(valueKey))
                 let matchesAnySpec =
                     let matchesMapping isOut (mapping: SignalMapping) =
                         tryGetApiCallSpec mapping.ApiCallGuid isOut
@@ -313,7 +322,7 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
                     (outMappings |> List.exists (matchesMapping true))
                     || (inMappings |> List.exists (matchesMapping false))
 
-                lastObservedValue[address] <- value
+                lastObservedValue[valueKey] <- value
 
                 if baselineFirstObservation && isFirstObservation && not matchesAnySpec then
                     Array.empty
@@ -353,9 +362,14 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
                 callGoingTick.Remove(g) |> ignore
             actions.ToArray()
 
-    member _.Baseline(address: string, value: string) =
+    /// systemId = 신호 소유 System — <see cref="Observe"/> 와 같은 직전값 키를 쓰기 위해 함께 받는다.
+    member _.Baseline(
+        address: string,
+        value: string,
+        [<System.Runtime.InteropServices.Optional; System.Runtime.InteropServices.DefaultParameterValue(null: string)>] systemId: string
+    ) =
         if not (String.IsNullOrWhiteSpace(address)) then
-            lastObservedValue[address] <- value
+            lastObservedValue[SignalSystemScope.stateKey ioMap (SignalSystemScope.parse systemId) address] <- value
 
     /// 통신 blackout(PLC 단절/신호 두절) — 진행 중 관측만 무효화한다.
     /// 단절 구간은 edge 순서를 신뢰할 수 없어, stale 한 high 집합/직전값으로 재개 신호를

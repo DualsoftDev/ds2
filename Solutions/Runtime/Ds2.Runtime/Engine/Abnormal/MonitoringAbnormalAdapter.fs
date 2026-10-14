@@ -182,9 +182,20 @@ type MonitoringAbnormalAdapter
     member _.PrimeLearnedDuration(workGuid: Guid, avgMs: int) = durationLearner.Prime(workGuid, avgMs)
 
     /// PLC scan 으로 관측된 IO 값. OutTag On=going 시작, InTag On=finish.
-    member _.OnObservedIo(address: string, value: string, nowMs: int64) =
+    /// <param name="systemId">신호 소유 System(Guid 문자열). "" / null = 미제공(구버전 송신자) → 주소 단독 매칭(종전 동작).
+    /// 제공되면 그 System 매핑만 판정하고, System 간 공유 주소의 edge 상태(prevActive)는 System 별로 따로 둔다 —
+    /// 같은 주소를 쓰는 다른 PLC 의 신호가 이 System Call 의 going clock·Short/Open 판정을 오염시키지 않게.</param>
+    member _.OnObservedIo(
+        address: string,
+        value: string,
+        nowMs: int64,
+        [<System.Runtime.InteropServices.Optional; System.Runtime.InteropServices.DefaultParameterValue(null: string)>] systemId: string
+    ) =
+        let observedSystem = SignalSystemScope.parse systemId
+        let outKey addr = "OUT:" + SignalSystemScope.stateKey ioMap observedSystem addr
+        let inKey addr = "IN:" + SignalSystemScope.stateKey ioMap observedSystem addr
         // 시작측: OutAddress rising → 매핑된 모든 ApiCall 의 going clock 기록 + 직전 사이클 latch 비움.
-        match ioMap.GetByOutAddress(address) with
+        match ioMap.GetByOutAddress(address) |> SignalSystemScope.filter observedSystem with
         | [] -> ()
         | outMappings ->
             match Queries.getApiCall outMappings.Head.ApiCallGuid store with
@@ -192,11 +203,11 @@ type MonitoringAbnormalAdapter
                 let active = RuntimeSemantics.isActiveOutputValue apiCall value
                 // risingEdge 가 prevActive 를 갱신하므로 falling 판정용 직전값은 먼저 캡처(IN falling 과 동형).
                 let wasOutActive =
-                    match prevActive.TryGetValue ("OUT:" + address) with
+                    match prevActive.TryGetValue (outKey address) with
                     | true, b -> b
                     | _ -> active        // 첫 관측 baseline → falling 으로 보지 않음
-                if risingEdge ("OUT:" + address) active then
-                    everOutRisingSeen.Add("OUT:" + address) |> ignore
+                if risingEdge (outKey address) active then
+                    everOutRisingSeen.Add(outKey address) |> ignore
                     for m in outMappings do
                         goingClock.[m.ApiCallGuid] <- nowMs
                         // v12 — OUT rising = 새 사이클 시작 → 직전 사이클 abnormal latch 제거. Control 의
@@ -236,7 +247,7 @@ type MonitoringAbnormalAdapter
             | None -> ()
 
         // 완료측: InAddress rising → finish(elapsed vs range), falling → level 센서 단선 = SensorOpen.
-        match ioMap.GetByInAddress(address) with
+        match ioMap.GetByInAddress(address) |> SignalSystemScope.filter observedSystem with
         | [] -> ()
         | inMappings ->
             match Queries.getApiCall inMappings.Head.ApiCallGuid store with
@@ -244,10 +255,10 @@ type MonitoringAbnormalAdapter
                 let active = RuntimeSemantics.isActiveInputValue apiCall value
                 // risingEdge 가 prevActive 를 갱신하므로 falling 판정용 직전값은 먼저 캡처.
                 let wasInActive =
-                    match prevActive.TryGetValue ("IN:" + address) with
+                    match prevActive.TryGetValue (inKey address) with
                     | true, b -> b
                     | _ -> active        // 첫 관측 baseline → falling 으로 보지 않음
-                if risingEdge ("IN:" + address) active then
+                if risingEdge (inKey address) active then
                     for m in inMappings do
                         match apiDefOf m.ApiCallGuid with
                         | Some def when AbnormalDetector.canEvaluate store m.CallGuid def ->
@@ -294,8 +305,8 @@ type MonitoringAbnormalAdapter
                                 // off 일 때만. 중간 합류(Synced 직전 시작된 사이클)의 정상 완료 In 이
                                 // resync baseline(OUT=off)을 "관측"으로 신뢰해 Short 오판되던 실기 수정.
                                 if not (System.String.IsNullOrEmpty m.OutAddress)
-                                   && everOutRisingSeen.Contains("OUT:" + m.OutAddress) then
-                                    match prevActive.TryGetValue("OUT:" + m.OutAddress) with
+                                   && everOutRisingSeen.Contains(outKey m.OutAddress) then
+                                    match prevActive.TryGetValue(outKey m.OutAddress) with
                                     | true, outActive when not outActive ->
                                         emit (Abnormal.sensorShort target (nowUtc ()))
                                     | _ -> ()
@@ -309,7 +320,7 @@ type MonitoringAbnormalAdapter
                             let outActive =
                                 if System.String.IsNullOrEmpty m.OutAddress then false
                                 else
-                                    match prevActive.TryGetValue("OUT:" + m.OutAddress) with
+                                    match prevActive.TryGetValue(outKey m.OutAddress) with
                                     | true, b -> b
                                     | _ -> false
                             if outActive && getCallState m.CallGuid <> Status4.Ready then

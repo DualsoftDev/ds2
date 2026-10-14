@@ -53,5 +53,11 @@ type RuntimeModeSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtim
         | _ ->
             bootstrapSession.ResolveHubSnapshotEffects(tagValues)
 
-    member _.HandleHubTag(address: string, value: string, source: string) =
-        hubSession.HandleHubTag(address, value, source)
+    /// systemId = 신호 소유 System("" / null = 미제공 → 주소 단독 매칭, 종전 동작). <see cref="RuntimeHubSession.HandleHubTag"/> 참조.
+    member _.HandleHubTag(
+        address: string,
+        value: string,
+        source: string,
+        [<System.Runtime.InteropServices.Optional; System.Runtime.InteropServices.DefaultParameterValue(null: string)>] systemId: string
+    ) =
+        hubSession.HandleHubTag(address, value, source, systemId)
