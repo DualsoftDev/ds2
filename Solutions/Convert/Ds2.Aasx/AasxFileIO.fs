@@ -338,36 +338,10 @@ let private writeEnvironmentToArchive (archive: ZipArchive) (env: Environment) (
 
 /// Environment를 AASX ZIP으로 저장합니다 (XML 직렬화).
 /// preservedEntries가 제공되면 기존 엔트리를 복사하고 필요한 파일만 교체합니다.
+/// 임시 파일에 ZIP 을 끝까지 쓴 뒤 원자적으로 교체한다(Ds2.Core.AtomicFile). 예전엔 완성된 임시 파일을 원본 위에
+/// 복사하고 실패하면 UI 스레드에서 최대 22.5초 재시도했다 — 읽기 전용 대상은 그만큼 멈췄다가 실패했고, 복사 도중
+/// 디스크가 차면 원본이 반쯤 덮인 채 남았다. 파일 감시(Hub · DSPilot)는 교체가 만드는 Renamed 이벤트도 받는다.
 let writeEnvironment (env: Environment) (path: string) (thumbnail: AasxThumbnail option) (preservedEntries: System.Collections.Generic.Dictionary<string, byte[]> option) : unit =
-    let tempPath = path + ".tmp"
-
-    try
-        // 임시 파일에 ZIP 작성
-        do
-            use fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None)
-            use archive = new ZipArchive(fileStream, ZipArchiveMode.Create)
-            writeEnvironmentToArchive archive env thumbnail preservedEntries
-
-        // 파일 핸들 완전 해제
-        System.GC.Collect()
-        System.GC.WaitForPendingFinalizers()
-
-        // 파일 잠금 방지: 임시 파일을 원본으로 복사 (재시도 포함)
-        let rec replaceWithRetry (attempt: int) =
-            try
-                if File.Exists(path) then
-                    File.Copy(tempPath, path, overwrite = true)
-                    try File.Delete(tempPath) with _ -> ()
-                else
-                    File.Move(tempPath, path)
-            with
-            | :? UnauthorizedAccessException | :? IOException when attempt < 10 ->
-                System.Threading.Thread.Sleep(500 * attempt)
-                replaceWithRetry (attempt + 1)
-
-        replaceWithRetry 1
-
-    with ex ->
-        if File.Exists(tempPath) then
-            try File.Delete(tempPath) with _ -> ()
-        reraise()
+    Ds2.Core.AtomicFile.write path (fun stream ->
+        use archive = new ZipArchive(stream, ZipArchiveMode.Create, true)
+        writeEnvironmentToArchive archive env thumbnail preservedEntries)

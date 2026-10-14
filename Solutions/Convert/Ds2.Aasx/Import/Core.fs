@@ -128,31 +128,40 @@ module internal AasxImportCore =
                 else None
             else None
 
+        // 내보내기는 InvariantCulture 로 쓴다(Export/Core.fs mkDoubleProp). 읽기도 같은 문화권으로 고정한다 —
+        // 소수점 쉼표 문화권(de-DE 등)에서 "0.99" 가 99 로 읽혀 값이 조용히 바뀌던 문제.
+        let inv = Globalization.CultureInfo.InvariantCulture
+        let parseInt (s: string) = Int32.TryParse(s, Globalization.NumberStyles.Integer, inv)
+        let parseInt64 (s: string) = Int64.TryParse(s, Globalization.NumberStyles.Integer, inv)
+        let parseFloat (s: string) = Double.TryParse(s, Globalization.NumberStyles.Float, inv)
+        let parseDateTime (s: string) = DateTime.TryParse(s, inv, Globalization.DateTimeStyles.RoundtripKind)
+        let parseDateTimeOffset (s: string) = DateTimeOffset.TryParse(s, inv, Globalization.DateTimeStyles.RoundtripKind)
+        let parseTimeSpan (s: string) = TimeSpan.TryParse(s, inv)
         let tryScalar () : unit option =
             match propType with
             | t when t = typeof<string>                -> set value
             | t when t = typeof<string option>         -> set (box (Some value))
             | t when t = typeof<bool>                  -> tryP Boolean.TryParse box
             | t when t = typeof<bool option>           -> tryP Boolean.TryParse (Some >> box)
-            | t when t = typeof<int>                   -> tryP Int32.TryParse box
-            | t when t = typeof<int option>            -> tryP Int32.TryParse (Some >> box)
-            | t when t = typeof<int64>                 -> tryP Int64.TryParse box
-            | t when t = typeof<int64 option>          -> tryP Int64.TryParse (Some >> box)
-            | t when t = typeof<float>                 -> tryP Double.TryParse box
-            | t when t = typeof<float option>          -> tryP Double.TryParse (Some >> box)
+            | t when t = typeof<int>                   -> tryP parseInt box
+            | t when t = typeof<int option>            -> tryP parseInt (Some >> box)
+            | t when t = typeof<int64>                 -> tryP parseInt64 box
+            | t when t = typeof<int64 option>          -> tryP parseInt64 (Some >> box)
+            | t when t = typeof<float>                 -> tryP parseFloat box
+            | t when t = typeof<float option>          -> tryP parseFloat (Some >> box)
             | t when t = typeof<Guid>                  -> tryP Guid.TryParse box
-            | t when t = typeof<DateTime>              -> tryP DateTime.TryParse box
-            | t when t = typeof<DateTime option>       -> tryP DateTime.TryParse (Some >> box)
-            | t when t = typeof<DateTimeOffset>        -> tryP DateTimeOffset.TryParse box
-            | t when t = typeof<DateTimeOffset option> -> tryP DateTimeOffset.TryParse (Some >> box)
+            | t when t = typeof<DateTime>              -> tryP parseDateTime box
+            | t when t = typeof<DateTime option>       -> tryP parseDateTime (Some >> box)
+            | t when t = typeof<DateTimeOffset>        -> tryP parseDateTimeOffset box
+            | t when t = typeof<DateTimeOffset option> -> tryP parseDateTimeOffset (Some >> box)
             | t when t = typeof<TimeSpan> ->
                 match tryParseIsoDuration value with
                 | Some v -> set (box v)
-                | None   -> tryP TimeSpan.TryParse box
+                | None   -> tryP parseTimeSpan box
             | t when t = typeof<TimeSpan option> ->
                 match tryParseIsoDuration value with
                 | Some v -> set (box (Some v))
-                | None   -> tryP TimeSpan.TryParse (Some >> box)
+                | None   -> tryP parseTimeSpan (Some >> box)
             | t when t.IsEnum ->
                 try set (Enum.Parse(t, value)) with _ -> None
             | _ -> None

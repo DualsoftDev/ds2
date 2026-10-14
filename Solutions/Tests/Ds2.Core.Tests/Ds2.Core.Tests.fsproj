@@ -26,6 +26,7 @@
     <Compile Include="CollectionPolicyTests.fs" />
     <Compile Include="ConceptDescriptionRegistryTests.fs" />
     <Compile Include="DsStoreFileTests.fs" />
+    <Compile Include="AtomicFileTests.fs" />
     <Compile Include="AssemblyBindingTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

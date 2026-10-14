@@ -30,7 +30,11 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let processGate = obj()
     let runtimeClock = EventDrivenEngineRuntime.RuntimeClock()
     let wakeSignal = new AutoResetEvent(false)
-    let signalWork () = wakeSignal.Set() |> ignore
+    /// 엔진 스레드를 깨운다. Dispose 뒤에는 깨울 스레드가 없으므로 아무 일도 하지 않는다 — 호출자가 해제된 엔진을
+    /// 쥔 채 이어서 부르는 경우(진행 중이던 STEP 의 EndStep 등)에 ObjectDisposedException 으로 앱이 죽던 경로를 막는다.
+    let signalWork () =
+        try wakeSignal.Set() |> ignore
+        with :? ObjectDisposedException -> ()
     /// Hub OnTagChanged 가 lock 없이 enqueue 하는 IO 신호 큐.
     /// simulationLoop 이 advance 안에서 매 iter 마다 한 항목씩 dequeue → SetIOValue + ConditionEval
     /// 페어 broadcast(IN=true → IN=false) 의 의미가 advance 도중 분리돼 처리되도록 함.

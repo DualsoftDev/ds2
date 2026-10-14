@@ -54,6 +54,7 @@
     <Compile Include="SmartConstructor.fs" />
     <Compile Include="V10Validation.fs" />
     <Compile Include="EntitiesExtension.fs" />
+    <Compile Include="AtomicFile.fs" />
     <Compile Include="JsonConverter.fs" />
     <Compile Include="Store\Types.fs" />
     <Compile Include="Store\DsStore.fs" />
