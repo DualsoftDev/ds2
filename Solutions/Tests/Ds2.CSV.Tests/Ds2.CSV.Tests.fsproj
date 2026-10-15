@@ -10,6 +10,7 @@
     <Compile Include="CsvFormatDetectorTests.fs" />
     <Compile Include="AiCsvTests.fs" />
     <Compile Include="StandardCsvTests.fs" />
+    <Compile Include="DeviceCsvTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
