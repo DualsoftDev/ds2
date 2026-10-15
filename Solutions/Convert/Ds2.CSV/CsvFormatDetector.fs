@@ -4,7 +4,7 @@ open System
 
 /// CSV 첫 줄(헤더)만으로 규격을 판별한다.
 ///
-/// 세 규격의 헤더 집합은 서로소이므로 판별은 결정적이다. 파일이 이미 자기 형식을 선언하고
+/// 헤더 열 목록이 정확히 같은 규격 하나만 고르므로 판별은 결정적이다. 파일이 이미 자기 형식을 선언하고
 /// 있으니 사용자에게 다시 물을 이유가 없다 — 불러오기 다이얼로그의 형식 선택 라디오를
 /// 없앤 근거가 이것이다. 틀린 선택이 "파일이 잘못됐다"는 오류로 되돌아오던 경로를 끊는다.
 ///
@@ -17,6 +17,7 @@ module CsvFormatDetector =
     let private candidates =
         [ CsvFormat.Basic3,    BasicCsvParser.expectedHeaderFields, "FLOW,WORK,CALL"
           CsvFormat.Standard9, CsvParser.expectedHeader9,           "Flow,Work,Device,System,Api,InName,InAddress,OutName,OutAddress"
+          CsvFormat.Standard11, CsvParser.expectedHeader11,         CsvParser.header11Text
           CsvFormat.Standard8, CsvParser.expectedHeader8,           "Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress"
           CsvFormat.AiModel,   AiCsvParser.expectedHeaderFields,    "Kind,Name,Type,Detail,Time,InTag,OutTag" ]
 
@@ -25,6 +26,7 @@ module CsvFormatDetector =
         match format with
         | CsvFormat.Basic3 -> "기본 3열"
         | CsvFormat.Standard9 -> "표준 9열"
+        | CsvFormat.Standard11 -> "표준 11열"
         | CsvFormat.Standard8 -> "표준 8열"
         | CsvFormat.AiModel -> "모델 7열"
         | _ -> "알 수 없는 형식"
@@ -33,6 +35,7 @@ module CsvFormatDetector =
     let formatNote (format: CsvFormat) =
         match format with
         | CsvFormat.Standard8 -> "System 열 없음 — Device 이름에서 유도"
+        | CsvFormat.Standard11 -> "ActiveSystem 이 빈 행만 입력한 System 으로"
         | CsvFormat.AiModel -> "행 순서 무의미 · Passive·TokenSpec 자동 생성"
         | _ -> ""
 

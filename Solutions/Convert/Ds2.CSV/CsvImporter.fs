@@ -42,6 +42,10 @@ module CsvImporter =
             SyntheticApiCount =
                 entries
                 |> List.sumBy (fun entry -> if entry.IsSyntheticApi then 1 else 0)
+            ActiveSystemNames =
+                entries |> List.choose (fun entry -> entry.ActiveSystemName) |> List.distinct
+            ReferenceCallCount =
+                entries |> List.sumBy (fun entry -> if entry.ReferenceOf.IsSome then 1 else 0)
         }
 
     let parseFile (filePath: string) : Result<CsvDocument, string list> =
@@ -61,22 +65,27 @@ module CsvImporter =
     let parseContent (content: string) : Result<CsvDocument, string list> =
         content |> CsvParser.parse |> parseResultToStrings
 
+    /// ActiveSystem 이 빈 행은 systemId 의 System 에, 이름이 적힌 행은 프로젝트의 같은 이름 Active System
+    /// (없으면 새로 만든다)에 넣는다.
     let buildSystemImportPlan (store: DsStore) (document: CsvDocument) (systemId: Guid) : Result<ImportPlan, string list> =
         match Queries.getSystem systemId store, CsvMapper.tryResolveProjectId store systemId with
         | None, _ ->
             Error [ $"System({systemId})을 찾을 수 없습니다." ]
         | Some _, None ->
             Error [ $"System({systemId})에 연결된 Project를 찾을 수 없습니다." ]
-        | Some _, Some projectId ->
-            Ok (CsvMapper.mapToSystemPlan store projectId systemId document)
+        | Some system, Some projectId ->
+            CsvMapper.mapToSystemPlan store projectId system document
 
+    /// systemName 의 System 은 ActiveSystem 이 빈 행이 있을 때만 생긴다.
     let loadProject (document: CsvDocument) (projectName: string) (systemName: string) : Result<DsStore, string list> =
         match validateName "Project" projectName, validateName "System" systemName with
         | Error errors, _
         | _, Error errors -> Error errors
         | Ok projectName, Ok systemName ->
-            let store, systemId = buildStore projectName systemName
-            buildSystemImportPlan store document systemId
+            let store = DsStore()
+            let project = Project(projectName)
+            store.DirectWrite(store.Projects, project)
+            CsvMapper.mapToSystemPlan store project.Id (DsSystem(systemName)) document
             |> Result.map (fun plan ->
                 ImportPlan.applyDirect store plan
                 store)
