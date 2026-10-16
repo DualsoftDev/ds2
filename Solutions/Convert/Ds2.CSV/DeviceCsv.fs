@@ -3,7 +3,9 @@ namespace Ds2.CSV
 open System
 open System.Collections.Generic
 open System.Globalization
+open System.Text
 open Ds2.Core
+open Ds2.Core.Store
 
 /// Device CSV 한 행 — Device System 과 그 Api(ApiDef) 선언(#253).
 type DeviceCsvRow = {
@@ -59,6 +61,42 @@ module DeviceCsv =
             | Some ("latch", Some ms) -> Some (SensingType.Latch ms)
             | Some ("virtual", Some ms) -> Some (SensingType.Virtual ms)
             | _ -> None
+
+    /// ActionType → 종류 글자 — tryParseActionType 의 역.
+    let formatActionType (action: ActionType) : string =
+        match action with
+        | ActionType.Normal None -> "Normal"
+        | ActionType.Normal (Some ms) -> $"Normal({ms})"
+        | ActionType.Pulse None -> "Pulse"
+        | ActionType.Pulse (Some ms) -> $"Pulse({ms})"
+        | ActionType.Latch -> "Latch"
+        | ActionType.Virtual -> "Virtual"
+
+    /// SensingType → 종류 글자 — tryParseSensingType 의 역.
+    let formatSensingType (sensing: SensingType) : string =
+        match sensing with
+        | SensingType.Normal None -> "Normal"
+        | SensingType.Normal (Some ms) -> $"Normal({ms})"
+        | SensingType.Latch ms -> $"Latch({ms})"
+        | SensingType.Virtual ms -> $"Virtual({ms})"
+
+    /// 프로젝트의 Device(Passive) System 과 Api 를 Device CSV 로 — 고쳐서 다른 프로젝트에 불러오거나 양식으로 쓴다(#253).
+    /// 예전엔 불러오기만 있어서 이 형식을 손으로 처음부터 적어야 했다. Api 가 없는 Device 는 행이 없으니 남지 않는다.
+    let projectToCsv (store: DsStore) (projectId: Guid) : string =
+        let builder = StringBuilder()
+        builder.AppendLine(headerText) |> ignore
+        for device in Queries.passiveSystemsOf projectId store do
+            for apiDef in Queries.apiDefsOf device.Id store do
+                [ device.Name
+                  apiDef.Name
+                  formatActionType apiDef.ActionType
+                  formatSensingType apiDef.SensingType
+                  apiDef.Description |> Option.defaultValue "" ]
+                |> List.map CsvExporter.escape
+                |> String.concat ","
+                |> builder.AppendLine
+                |> ignore
+        builder.ToString()
 
     /// 내용을 읽어 행 목록으로. 잘못된 행은 줄 번호와 함께 전부 모아 돌려준다(하나라도 있으면 Error).
     let parse (content: string) : Result<DeviceCsvRow list, ParseError list> =

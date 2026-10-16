@@ -8,7 +8,7 @@ open Ds2.Core.Store
 
 module CsvExporter =
 
-    let private escape (value: string) =
+    let internal escape (value: string) =
         if String.IsNullOrEmpty(value) then
             ""
         elif value.Contains(",") || value.Contains("\"") || value.Contains("\n") then
