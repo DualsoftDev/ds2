@@ -89,6 +89,13 @@ module DeepCopyHelper =
         let clone, bytes = cloneViaJsonSized entity (entity.GetType())
         (clone :?> 'T), bytes
 
+    /// Undo 백업용 — 복사본, 크기 근사치(바이트), 직렬화 문자열. 편집 전후 문자열이 같으면 실제로 바뀐 게 없다
+    /// (편집기가 아무것도 안 바꾼 편집을 Undo 이력에서 빼는 근거, #230).
+    let backupEntityWithJsonAs<'T when 'T :> DsEntity> (entity: 'T) : 'T * int * string =
+        let t = entity.GetType()
+        let json = JsonSerializer.Serialize(entity, t, jsonOptions)
+        (JsonSerializer.Deserialize(json, t, jsonOptions) :?> 'T), json.Length * 2, json
+
     /// 엔티티 복제용 DeepCopy — 새 GUID 할당
     let jsonCloneEntity<'T when 'T :> DsEntity> (entity: 'T) : 'T =
         let cloned = cloneViaJson entity (entity.GetType()) :?> 'T
