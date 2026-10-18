@@ -21,9 +21,12 @@ type Ds2TextOptions =
 /// native 어댑터가 정한 대응을 그대로 되짚는다 — 여기서 어긋나면 왕복이 깨진다.
 ///   · Text 의 call        ↔ `Call.Name` ("장비.기능" — 손잡이는 없다)
 ///   · Call 의 API 대상    ↔ `ApiCall.Name` ("System.Api" 문자열 그대로)
-///   · Work 의 initial     ↔ `SimulationWorkProperties.IsFinished`
+///   · Work 의 finished    ↔ `SimulationWorkProperties.IsFinished = true` (저장된 완료 비트)
 ///   · Call 의 completion  ↔ `SimulationCallProperties.CallType`
 ///   · Call 의 timeout     ↔ `SimulationCallProperties.Timeout`
+///   · 기존 Call.SequenceLabel 은 SDF/보존 번들에만 남는다. DS 인과 Text는 KPI 경계를 수동 선언하지 않는다.
+///     기본값이 아닌 과거 라벨에는 투영 진단 주석을 붙이며, Text 단독으로 원본 전체가 보존된다고 보장하지 않는다.
+///   · 기존 Call.Interlocked도 SDF/보존 번들에만 남는다. 실제 운전 사유별 감시 자격으로 이관하는 것은 별도다.
 ///
 /// 이 모듈은 그래프를 추론하지 않는다. 저장된 화살표·선언을 순서 그대로 적되, ds2 5 의 표기로 적는다:
 ///   · 같은 과녁으로 드는 Start 간선은 **한 문장**(괄호 공동 원인) — 내부 진입 Work(ReferenceOf·AutoEntry)의
@@ -160,7 +163,8 @@ module Ds2TextWriter =
         List.ofSeq out
 
     // ─────────────────────────────────────────────────────────── 조건식
-    //  Condition 트리 → `start when` / `permit when` / `skip when` 의 오른쪽.
+    //  Condition 트리 → `when` / `while` / `skip when` 의 오른쪽.
+    //  AutoAux/ComAux의 구별과 전체 Boolean 트리를 보존한다. leaf 접점으로 바꾸지 않는다.
 
     let private contactPrefix (kind: ContactKind) =
         match kind with
@@ -216,7 +220,7 @@ module Ds2TextWriter =
             | Some literal -> head + (if c.IsInverted then " != " else " == ") + literal
             | None -> (if c.IsInverted then "not " else "") + head + " as " + Ds2TextSpec.format "==" v.InputSpec
         elif c.ApiCalls.Count = 1 then
-            if tokenOnly then unsupported "ds2 5 의 skip 은 제품 사양(token)만 읽습니다 — 센서(api) 잎은 skip 에 올 수 없습니다. start when 으로 기다리거나 product 필드로 적으십시오."
+            if tokenOnly then unsupported "ds2 5 의 skip 은 제품 사양(token)만 읽습니다 — 센서(api) 잎은 skip 에 올 수 없습니다. when 으로 기다리거나 product 필드로 적으십시오."
             let a = c.ApiCalls.[0]
             let target, owner = leafReference a
             let source = owner |> Option.map (fun path -> " from " + path) |> Option.defaultValue ""
@@ -252,7 +256,7 @@ module Ds2TextWriter =
 
     // ─────────────────────────────────────────────────────────── 본문
 
-    /// `projectId` 프로젝트를 정규 DS2 Text v4 원문으로 적는다.
+    /// `projectId` 프로젝트를 정규 DS2 Text v5 원문으로 적는다.
     let writeWithOptions (store: DsStore) (projectId: Guid) (options: Ds2TextOptions) : string =
         let emittedIds = HashSet<Guid>()
         let identity (id: Guid) =
@@ -484,7 +488,7 @@ module Ds2TextWriter =
                         alias.Duration.IsSome || alias.MinDuration.IsSome || alias.MaxDuration.IsSome
                         || alias.Conditions.Count > 0 || alias.GetSimulationProperties().IsSome || alias.TokenRole <> TokenRole.None
                     if own then
-                        failwithf "DS2TEXT_REF: ds2 5 에는 `ref` 가 없습니다 — 참조 Work %s (%O) 가 제 속성(시간·조건·initial·역할)을 가져 독립 진입 문장으로 옮길 수 없습니다." alias.Name alias.Id
+                        failwithf "DS2TEXT_REF: ds2 5 에는 `ref` 가 없습니다 — 참조 Work %s (%O) 가 제 속성(시간·조건·finished·역할)을 가져 독립 진입 문장으로 옮길 수 없습니다." alias.Name alias.Id
                 let works = orderedWorks flow
 
                 // 제품 역할 — entry(Source) · token ignore(Ignore) · exit(Sink) 순서 고정.
@@ -517,7 +521,7 @@ module Ds2TextWriter =
                             let bound (v: TimeSpan option) = match v with Some t -> Ds2TextLexeme.ms t | None -> "none"
                             body.Add("limits " + bound w.MinDuration + ", " + bound w.MaxDuration + ";")
                         w.GetSimulationProperties()
-                        |> Option.iter (fun p -> body.Add(if p.IsFinished then "initial finish;" else "initial ready;"))
+                        |> Option.iter (fun p -> if p.IsFinished then body.Add("finished;"))
                         for c in conditionsOf w.Conditions ConditionType.SkipAction do
                             body.Add("skip when " + expressionText conditionReference true c + ";")
 
@@ -539,6 +543,12 @@ module Ds2TextWriter =
                         body.AddRange(relationLines callArrows callName id (fun c -> match callRank.TryGetValue c with | true, r -> r | _ -> Int32.MaxValue))
 
                         for c in calls do
+                            // 보존 번들도 이 작성기를 사용하므로 내보내기를 거절하지 않는다.
+                            // 원본 SDF의 경계는 그대로 두고, 순수 Text에 없는 정보임을 명시한다.
+                            if c.SequenceLabel <> SequenceLabel.Body then
+                                body.Add "// DS2TEXT_SEQUENCE_LABEL_PROJECTION: legacy KPI boundary is omitted; preserve the source SDF or its preservation bundle."
+                            if c.Interlocked then
+                                body.Add "// DS2TEXT_INTERLOCKED_PROJECTION: legacy abnormal-monitoring exclusion is omitted; preserve the source SDF or its preservation bundle."
                             // 선언문이 없다. 부르는 것을 **그대로 적는다**: `로봇.집기;`
                             let chead = callText c + identity c.Id
                             match c.ReferenceOf with
@@ -558,12 +568,6 @@ module Ds2TextWriter =
                                     if p.CallType = CallType.SkipIfCompleted then inner.Add "completion existing;"
                                     p.Timeout |> Option.iter (fun t -> inner.Add("timeout " + Ds2TextLexeme.ms t + ";"))
                                 | None -> ()
-                                match c.SequenceLabel with
-                                | SequenceLabel.Head -> inner.Add "label head;"
-                                | SequenceLabel.Tail -> inner.Add "label tail;"
-                                | _ -> ()
-                                if c.Interlocked then inner.Add "interlocked true;"
-
                                 let bindingLines (a: ApiCall) =
                                     let acc = ResizeArray<string>()
                                     let inAddr  = a.InTag  |> Option.map (fun t -> t.Address)
@@ -584,9 +588,9 @@ module Ds2TextWriter =
 
                                 if c.ApiCalls.Count = 1 then inner.AddRange(bindingLines c.ApiCalls.[0])
 
-                                for (kind, keyword) in [ ConditionType.AutoAux, "start"; ConditionType.ComAux, "permit"; ConditionType.SkipAction, "skip" ] do
+                                for (kind, keyword) in [ ConditionType.AutoAux, "when"; ConditionType.ComAux, "while"; ConditionType.SkipAction, "skip when" ] do
                                     for cond in conditionsOf c.Conditions kind do
-                                        inner.Add(keyword + " when " + expressionText conditionReference (kind = ConditionType.SkipAction) cond + ";")
+                                        inner.Add(keyword + " " + expressionText conditionReference (kind = ConditionType.SkipAction) cond + ";")
 
                                 // ── 왜 늘 블록으로 적는가 ────────────────────────
                                 // 관계문이 이름을 이미 적었으니 `로봇.집기;` 한 줄은 군더더기다.

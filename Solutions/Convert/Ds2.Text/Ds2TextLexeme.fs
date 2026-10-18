@@ -18,13 +18,13 @@ module Ds2TextLexeme =
     let keywords =
         HashSet<string>(
             [ "ds2"; "project"; "system"; "active"; "flow"; "entry"; "exit"; "token"; "ignore"; "work"
-              "duration"; "initial"; "ready"; "finish"; "start"; "when"; "permit"; "skip"
+              "duration"; "finished"; "when"; "while"; "skip"
               "api"; "sensor"; "variable"; "readable"; "writable"; "retain"; "min"; "max"
               "command"; "observe"; "none"; "action"; "sensing"; "normal"; "pulse"; "latch"; "virtual"
               "true"; "false"; "and"; "or"; "not"; "nc"; "rise"; "fall"
               "completion"; "fresh"; "existing"; "timeout"; "type"; "enabled"; "auto"; "limits"
-              "input"; "output"; "contact"; "no"; "label"; "body"; "head"; "tail"
-              "interlocked"; "at"; "in"; "any"; "undefined"; "from"; "as"; "product"
+              "input"; "output"; "contact"; "no"
+              "at"; "in"; "any"; "undefined"; "from"; "as"; "product"
               "bool"; "int8"; "int16"; "int32"; "int64"; "uint8"; "uint16"; "uint32"; "uint64"
               "float32"; "float64"; "string"; "author"; "version"; "iri"; "description"; "datetime" ],
             StringComparer.Ordinal)

@@ -133,7 +133,8 @@ public static partial class Interop
         Stores.Remove(handle);
     }
 
-    /// <summary>정규 DS2 Text v4 원문.</summary>
+    /// <summary>정규 DS2 Text v5 인과 투영. legacy SequenceLabel/Interlocked는 SDF/보존 번들에만 남으며,
+    /// 기본값이 아니면 투영 진단 주석을 붙인다. 실행 상태는 SimSnapshot과 별도다.</summary>
     [JSExport]
     internal static string BuildDs2Text(int handle)
     {

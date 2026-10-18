@@ -13,6 +13,10 @@
     <Compile Include="Tests.fs" />
     <Compile Include="UserTagStoreTests.fs" />
     <Compile Include="WorkDurationStoreTests.fs" />
+    <Compile Include="Ds2TextFinishedTests.fs" />
+    <Compile Include="Ds2TextConditionSyntaxTests.fs" />
+    <Compile Include="Ds2TextSequenceLabelTests.fs" />
+    <Compile Include="Ds2TextInterlockedTests.fs" />
     <Compile Include="PlcVendorTests.fs" />
     <Compile Include="PlcEndpointStoreTests.fs" />
     <Compile Include="AbnormalTests.fs" />
@@ -38,6 +42,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\Convert\Ds2.Text\Ds2.Text.fsproj" />
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
   </ItemGroup>
 

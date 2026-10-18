@@ -29,7 +29,7 @@ type TokenPredicate = {
     Values: JsonElement list
 }
 
-/// DS2 Text 5 — `start when variable.<Name> …` 의 잎. 같은 active System 의 변수(DsVariable)를 읽는다.
+/// DS2 Text 5 — `when variable.<Name> …` / `while variable.<Name> …` 의 잎. 같은 active System 의 변수(DsVariable)를 읽는다.
 /// 이 잎이 있는 조건에는 ApiCalls 가 없다. **런타임은 아직 이 잎을 평가하지 못한다.**
 type VariableRef = {
     VariableId: Guid

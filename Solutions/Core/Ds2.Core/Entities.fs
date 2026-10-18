@@ -216,7 +216,8 @@ type Call [<JsonConstructor>] internal (devicesAlias: string, apiName: string, p
     [<AasxField("Conditions")>]             member val Conditions = ResizeArray<Condition>()              with get, set
     [<AasxField("ReferenceOf")>]            member val ReferenceOf : Guid option         = None           with get, set
     [<AasxField("SequenceLabel")>]          member val SequenceLabel : SequenceLabel     = SequenceLabel.Body with get, set
-    /// v12 abnormal §2.3 GATING — true(인터락 중)면 이 Call 의 abnormal 평가 제외. 기본 false. spec `call.Interlocked`.
+    /// 기존 v12 abnormal 게이트. true면 현재 엔진은 이 Call의 abnormal 평가를 제외한다(기본 false).
+    /// SDF 호환 필드로 유지하되 DS Text는 작성하지 않는다. 실제 운전 사유·검사별 자격으로의 이관은 별도다.
     [<AasxField("Interlocked")>]            member val Interlocked : bool                = false          with get, set
 
     // ── Name 구성요소 (Name에서 파생 가능 → AASX 저장 불필요) ────────────────

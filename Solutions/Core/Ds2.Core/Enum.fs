@@ -45,9 +45,9 @@ type TokenRole =
     | Ignore = 2
     | Sink   = 4
 
-/// Call 이 Work 내 실행 시퀀스에서 차지하는 위치 라벨.
-/// DsPilot·모니터링은 Call 화살표 토폴로지 없이 이 라벨만으로 사이클 시작(Head)·종료(Tail)를 판정한다.
-/// Promaker 는 모델 로드 시 화살표 연결정보로부터 자동 지정한다 (UI 편집 없음).
+/// 기존 솔루션이 저장한 KPI 사이클 경계. SDF/AASX 읽기·쓰기 호환을 위해 유지한다.
+/// DS Text는 이 값을 수동 선언하지 않는다. Call DAG의 구조와 DSP 측 측정 경계 설정은 구분한다.
+/// 이 필드가 남아 있다는 사실만으로 DAG 자동 산출이나 DSP 마이그레이션 구현을 뜻하지 않는다.
 type SequenceLabel =
     | Body = 0   // 시퀀스 중간 (기본값)
     | Head = 1   // 진입점 — 사이클 시작
