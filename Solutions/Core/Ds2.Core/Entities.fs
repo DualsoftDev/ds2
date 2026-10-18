@@ -52,6 +52,8 @@ type Project [<JsonConstructor>] internal (name) =
     [<AasxField("Author")>]                             member val Author                : string         = ""                  with get, set
     [<AasxField("DateTime")>]                           member val DateTime              : DateTimeOffset = DateTimeOffset.Now  with get, set
     [<AasxField("Version")>]                            member val Version               : string         = "1.0.0"             with get, set
+    /// 이 모델을 만든 글의 언어 판 — DS2 Text 5 컴파일러가 `"ds2 5"` 을 적는다. 글이 아닌 출처면 None.
+    [<AasxField("SourceLanguage", Skip = true)>] member val SourceLanguage : string option = None with get, set
 
 
 
@@ -110,7 +112,30 @@ and ApiDef [<JsonConstructor>] internal (name, parentId) =
     [<AasxField("SensingType")>] member val SensingType : SensingType = SensingType.Normal None with get, set
     [<AasxField("TxGuid")>]      member val TxGuid : Guid option = None  with get, set
     [<AasxField("RxGuid")>]      member val RxGuid : Guid option = None  with get, set
+    /// DS2 Text 5 — `command variable.x;` / `observe variable.x;`. Work 대상(TxGuid/RxGuid)과 함께 쓰지 않는다.
+    /// **런타임은 아직 변수 대상을 실행하지 못한다** — SimIndex 가 거절한다.
+    [<AasxField("TxVariableId", Skip = true)>] member val TxVariableId : Guid option = None  with get, set
+    [<AasxField("RxVariableId", Skip = true)>] member val RxVariableId : Guid option = None  with get, set
     [<AasxField("Description")>] member val Description : string option = None  with get, set
+
+    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
+
+
+/// DS2 Text 5 — `variable <type> <name> = <initial> { readable; writable; retain; min; max }`.
+/// active System(ParentId)의 기억. 여기에는 **정의와 정책**만 있다 — 실제 값은 런타임 VariableStore 의 몫이고
+/// 그것은 아직 없다. 옵션을 생략한 변수는 내부 전용(Readable·Writable 모두 false)이다.
+/// InitialValue·Min·Max 는 글에 적힌 JSON 리터럴 그대로다(false · 25.0 · "B").
+type DsVariable [<JsonConstructor>] internal (name, parentId) =
+    inherit DsChild(name, parentId)
+
+    [<AasxField("ValueType",    Skip = true)>] member val ValueType    : string             = "bool"              with get, set
+    [<AasxField("DataType",     Skip = true)>] member val DataType     : IOTagDataType      = IOTagDataType.BOOL  with get, set
+    [<AasxField("InitialValue", Skip = true)>] member val InitialValue : System.Text.Json.JsonElement option = None with get, set
+    [<AasxField("Readable",     Skip = true)>] member val Readable     : bool               = false               with get, set
+    [<AasxField("Writable",     Skip = true)>] member val Writable     : bool               = false               with get, set
+    [<AasxField("Retain",       Skip = true)>] member val Retain       : bool               = false               with get, set
+    [<AasxField("Min",          Skip = true)>] member val Min          : System.Text.Json.JsonElement option = None with get, set
+    [<AasxField("Max",          Skip = true)>] member val Max          : System.Text.Json.JsonElement option = None with get, set
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
@@ -126,6 +151,10 @@ type Condition [<JsonConstructor>] internal () =
     member val Children   = ResizeArray<Condition>()               with get, set
     member val IsOR       = false                                  with get, set
     member val IsInverted = false                                  with get, set
+    /// DS2 Text 5 — 제품 사양 잎(`token.필드 …`). 있으면 ApiCalls 는 비어 있다.
+    member val Token      : TokenPredicate option = None           with get, set
+    /// DS2 Text 5 — 변수 잎(`variable.이름 …`). 있으면 ApiCalls 는 비어 있다.
+    member val Variable   : VariableRef option    = None           with get, set
 
     // DsEntity 비상속 → jsonClone (ID 보존)
     member this.DeepCopy() = DeepCopyHelper.jsonClone<Condition> this
@@ -148,6 +177,9 @@ type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, p
 
     // ── 작업 속성 ────────────────────────────────────────────────────────────
     [<AasxField("ReferenceOf")>] member val ReferenceOf : Guid option  = None         with get, set
+    /// DS2 Text 5 — 컴파일러가 만든 **내부 진입** Work(글에 없다). ReferenceOf 가 canonical 을 가리킨다.
+    /// 같은 Work 를 겨눈 별도 문장마다 하나씩 생기며, 화면·작성기는 이것을 Work 로 세지 않는다.
+    [<AasxField("AutoEntry", Skip = true)>] member val AutoEntry : bool = false with get, set
     [<AasxField("Status")>]      member val Status4     : Status4      = Status4.Ready with get, set
     [<AasxField("Position")>]    member val Position    : Xywh option  = None         with get, set
     [<AasxField("TokenRole")>]   member val TokenRole   : TokenRole    = TokenRole.None with get, set

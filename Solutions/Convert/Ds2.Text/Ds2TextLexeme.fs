@@ -5,7 +5,7 @@ open System.Collections.Generic
 open System.Globalization
 open System.Text
 
-/// DS2 Text v4 의 어휘 규칙 — 이름 인용, JSON 리터럴, 시간 표기.
+/// DS2 Text 5 의 어휘 규칙 — 이름 인용, JSON 리터럴, 시간 표기.
 ///
 /// 참조 구현: `ds2_text/ds2text/flow.py` 의 `KEYWORDS`·`_q`·`_path`,
 ///           `ds2_text/ds2text/language.py` 의 `_json_literal`.
@@ -18,11 +18,12 @@ module Ds2TextLexeme =
     let keywords =
         HashSet<string>(
             [ "ds2"; "project"; "system"; "active"; "flow"; "entry"; "exit"; "token"; "ignore"; "work"
-              "duration"; "initial"; "ready"; "finish"; "call"; "ref"; "start"; "when"; "permit"; "skip"
-              "api"; "command"; "observe"; "none"; "action"; "sensing"; "normal"; "pulse"; "latch"; "virtual"
-              "group"; "on"; "reset"; "mutual"; "true"; "false"; "and"; "or"; "not"; "nc"; "rise"; "fall"
+              "duration"; "initial"; "ready"; "finish"; "start"; "when"; "permit"; "skip"
+              "api"; "sensor"; "variable"; "readable"; "writable"; "retain"; "min"; "max"
+              "command"; "observe"; "none"; "action"; "sensing"; "normal"; "pulse"; "latch"; "virtual"
+              "true"; "false"; "and"; "or"; "not"; "nc"; "rise"; "fall"
               "completion"; "fresh"; "existing"; "timeout"; "type"; "enabled"; "auto"; "limits"
-              "input"; "output"; "contact"; "no"; "bind"; "label"; "body"; "head"; "tail"
+              "input"; "output"; "contact"; "no"; "label"; "body"; "head"; "tail"
               "interlocked"; "at"; "in"; "any"; "undefined"; "from"; "as"; "product"
               "bool"; "int8"; "int16"; "int32"; "int64"; "uint8"; "uint16"; "uint32"; "uint64"
               "float32"; "float64"; "string"; "author"; "version"; "iri"; "description"; "datetime" ],

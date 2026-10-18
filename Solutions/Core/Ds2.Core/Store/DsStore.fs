@@ -32,6 +32,8 @@ type DsStore() =
     member val Works      = Dictionary<Guid, Work>()               with get, set
     member val Calls      = Dictionary<Guid, Call>()               with get, set
     member val ApiDefs    = Dictionary<Guid, ApiDef>()             with get, set
+    /// DS2 Text 5 — active System 의 변수 정의(DsVariable). 변수가 없는 모델에는 이 사전이 JSON 에 비어 있다.
+    member val Variables  = Dictionary<Guid, DsVariable>()         with get, set
     [<JsonIgnore>]
     member val ApiCalls   = Dictionary<Guid, ApiCall>()            with get, set
     member val ArrowWorks = Dictionary<Guid, ArrowBetweenWorks>()  with get, set
@@ -58,6 +60,7 @@ type DsStore() =
     [<JsonIgnore>] member this.WorksReadOnly     : IReadOnlyDictionary<Guid, Work>              = ReadOnlyDictionary(this.Works)
     [<JsonIgnore>] member this.CallsReadOnly     : IReadOnlyDictionary<Guid, Call>              = ReadOnlyDictionary(this.Calls)
     [<JsonIgnore>] member this.ApiDefsReadOnly   : IReadOnlyDictionary<Guid, ApiDef>            = ReadOnlyDictionary(this.ApiDefs)
+    [<JsonIgnore>] member this.VariablesReadOnly : IReadOnlyDictionary<Guid, DsVariable>        = ReadOnlyDictionary(this.Variables)
     [<JsonIgnore>] member this.ApiCallsReadOnly  : IReadOnlyDictionary<Guid, ApiCall>           = ReadOnlyDictionary(this.ApiCalls)
     [<JsonIgnore>] member this.ArrowWorksReadOnly: IReadOnlyDictionary<Guid, ArrowBetweenWorks> = ReadOnlyDictionary(this.ArrowWorks)
     [<JsonIgnore>] member this.ArrowCallsReadOnly: IReadOnlyDictionary<Guid, ArrowBetweenCalls> = ReadOnlyDictionary(this.ArrowCalls)
@@ -140,6 +143,7 @@ type DsStore() =
         replace source.Works      this.Works
         replace source.Calls      this.Calls
         replace source.ApiDefs    this.ApiDefs
+        replace source.Variables  this.Variables
         replace source.ApiCalls   this.ApiCalls
         replace source.ArrowWorks this.ArrowWorks
         replace source.ArrowCalls this.ArrowCalls

@@ -1,5 +1,8 @@
 namespace Ds2.Core
 
+open System
+open System.Text.Json
+
 /// Token value carried by a Work slot during simulation.
 /// V1 uses IntToken only; extensible via new DU cases.
 type TokenValue =
@@ -13,4 +16,23 @@ type TokenSpec = {
     Fields: Map<string, string>
     /// 연결된 Source Work Guid (None이면 미연결)
     WorkId: System.Guid option
+}
+
+/// DS2 Text 5 — `skip when token.<Field> ==|!=|in …` 의 잎. 제품 사양(TokenSpec.Fields)만 읽는다.
+/// `Values` 는 글에 적힌 JSON 리터럴(true · 25 · "B") 그대로이고, `Kind` 는 "bool" | "number" | "string",
+/// `Op` 는 "eq" | "ne" | "in" 이다. TokenSpec.Fields 의 값도 같은 JSON 리터럴 글이다.
+/// 이 잎이 있는 조건에는 ApiCalls 가 없다. **런타임은 아직 이 잎을 평가하지 못한다** — SimIndex 가 거절한다.
+type TokenPredicate = {
+    Field: string
+    Op: string
+    Kind: string
+    Values: JsonElement list
+}
+
+/// DS2 Text 5 — `start when variable.<Name> …` 의 잎. 같은 active System 의 변수(DsVariable)를 읽는다.
+/// 이 잎이 있는 조건에는 ApiCalls 가 없다. **런타임은 아직 이 잎을 평가하지 못한다.**
+type VariableRef = {
+    VariableId: Guid
+    Name: string
+    InputSpec: ValueSpec
 }

@@ -511,3 +511,73 @@ module ProjectDateTimeDefaults =
     let ``explicit minimum timestamp is not treated as missing`` () =
         let project = JsonConverter.deserialize<Project> """{"name":"P","dateTime":"0001-01-01T00:00:00+00:00"}"""
         Assert.Equal(DateTimeOffset.MinValue, project.DateTime)
+
+// ── DS2 Text 5 — 새 저장 항목이 JSON 왕복에서 살아남는가 (token 잎·변수 잎·variables 사전·api 변수 대상·내부 진입)
+[<Fact>]
+let ``JsonConverter should roundtrip DS2 5 store fields`` () =
+    let store = DsStore()
+    let project = Project("P")
+    project.SourceLanguage <- Some "ds2 5"
+    store.Projects.[project.Id] <- project
+    let system = DsSystem("S")
+    store.Systems.[system.Id] <- system
+    let variable = DsVariable("autoMode", system.Id)
+    variable.ValueType <- "bool"
+    variable.DataType <- IOTagDataType.BOOL
+    variable.InitialValue <- Some (JsonDocument.Parse("false").RootElement)
+    variable.Readable <- true
+    variable.Writable <- true
+    store.Variables.[variable.Id] <- variable
+    let api = ApiDef("토크설정", system.Id)
+    api.TxVariableId <- Some variable.Id
+    api.RxVariableId <- Some variable.Id
+    store.ApiDefs.[api.Id] <- api
+    let flow = Flow("F", system.Id)
+    store.Flows.[flow.Id] <- flow
+    let work = Work("F", "체결", flow.Id)
+    let skip = Condition()
+    skip.Type <- Some ConditionType.SkipAction
+    skip.Token <- Some { Field = "boltRequired"; Op = "in"; Kind = "string"; Values = [ JsonDocument.Parse("\"B\"").RootElement; JsonDocument.Parse("\"C\"").RootElement ] }
+    work.Conditions.Add skip
+    store.Works.[work.Id] <- work
+    let alias = Work("F", "체결@2", flow.Id)
+    alias.ReferenceOf <- Some work.Id
+    alias.AutoEntry <- true
+    store.Works.[alias.Id] <- alias
+    let call = Call("체결기", "체결", work.Id)
+    let permit = Condition()
+    permit.Type <- Some ConditionType.ComAux
+    permit.IsInverted <- true
+    permit.Variable <- Some { VariableId = variable.Id; Name = "autoMode"; InputSpec = BoolValue (Single true) }
+    call.Conditions.Add permit
+    store.Calls.[call.Id] <- call
+
+    let json = JsonConverter.serialize store
+    Assert.Contains("\"variables\"", json)
+    Assert.Contains("\"autoEntry\": true", json)
+    let actual = JsonConverter.deserialize<DsStore> json
+
+    Assert.Equal(Some "ds2 5", actual.Projects.[project.Id].SourceLanguage)
+    let v = actual.Variables.[variable.Id]
+    Assert.Equal("autoMode", v.Name)
+    Assert.Equal(system.Id, v.ParentId)
+    Assert.True(v.Readable); Assert.True(v.Writable); Assert.False(v.Retain)
+    Assert.Equal("false", v.InitialValue.Value.GetRawText())
+    let a = actual.ApiDefs.[api.Id]
+    Assert.Equal(Some variable.Id, a.TxVariableId)
+    Assert.Equal(Some variable.Id, a.RxVariableId)
+    Assert.Equal(None, a.TxGuid)
+    let w = actual.Works.[work.Id]
+    let t = w.Conditions.[0].Token.Value
+    Assert.Equal("boltRequired", t.Field); Assert.Equal("in", t.Op); Assert.Equal("string", t.Kind)
+    Assert.Equal<string list>([ "\"B\""; "\"C\"" ], t.Values |> List.map (fun e -> e.GetRawText()))
+    Assert.Empty(w.Conditions.[0].ApiCalls)
+    let al = actual.Works.[alias.Id]
+    Assert.True(al.AutoEntry); Assert.Equal(Some work.Id, al.ReferenceOf)
+    let c = actual.Calls.[call.Id]
+    let vr = c.Conditions.[0].Variable.Value
+    Assert.Equal(variable.Id, vr.VariableId); Assert.Equal("autoMode", vr.Name)
+    Assert.True(c.Conditions.[0].IsInverted)
+    match vr.InputSpec with
+    | BoolValue (Single true) -> ()
+    | other -> Assert.True(false, sprintf "variable InputSpec mismatch: %A" other)

@@ -3,6 +3,7 @@ namespace Ds2.Text
 open System
 open System.Collections.Generic
 open System.Text
+open System.Text.Json
 open Ds2.Core
 open Ds2.Core.Store
 
@@ -11,7 +12,7 @@ type Ds2TextOptions =
     { WriteIdentity: bool }
     static member Default = { WriteIdentity = false }
 
-/// `DsStore` → 정규 DS2 Text v4 원문.
+/// `DsStore` → 정규 DS2 Text 5 원문.
 ///
 /// 참조 구현은 두 곳이며, 이 모듈은 그 둘의 **역방향**이다.
 ///   · 배치·생략 규칙 : `ds2_text/ds2text/text.py` 의 `format_text`
@@ -24,12 +25,13 @@ type Ds2TextOptions =
 ///   · Call 의 completion  ↔ `SimulationCallProperties.CallType`
 ///   · Call 의 timeout     ↔ `SimulationCallProperties.Timeout`
 ///
-/// 이 모듈은 그래프를 추론하지 않는다. 저장된 화살표·선언을 순서 그대로 적고,
-/// **인접한** 같은 종류의 화살표만 연쇄(`A > B > C`)로 압축한다.
+/// 이 모듈은 그래프를 추론하지 않는다. 저장된 화살표·선언을 순서 그대로 적되, ds2 5 의 표기로 적는다:
+///   · 같은 과녁으로 드는 Start 간선은 **한 문장**(괄호 공동 원인) — 내부 진입 Work(ReferenceOf·AutoEntry)의
+///     간선은 canonical 이름으로 적어 **별도 문장 = 독립 진입**을 되살린다
+///   · Reset 은 source 별 `S |> (A, B);`, `<|>` 는 쌍마다, 1:1 Start 사슬은 `A > B > C;`
+///   · `ref`·`group`·좌표(`at`)·`bind`·`command none`·`action virtual` 은 적지 않는다 — Group 간선·action Virtual 은 거절한다
 [<RequireQualifiedAccess>]
 module Ds2TextWriter =
-
-    let private positionText (p: Xywh) = sprintf "at %d, %d, %d, %d;" p.X p.Y p.W p.H
 
     let private q  = Ds2TextLexeme.quote
     let private jl = Ds2TextLexeme.jsonString
@@ -84,14 +86,11 @@ module Ds2TextWriter =
         | Some f when f = flowName -> q localName
         | _ -> q flowName + "." + q localName
 
-    // ─────────────────────────────────────────────────────────── 관계 압축
-    //  text.py `_relation_lines` 의 이식.
-    //  · Group은 저장된 edge마다 이름 있는 두 멤버 묶음으로 적는다.
-    //    Studio의 named group A,B,C는 chain A–B,B–C로 낮춰지므로 star A–B,A–C를
-    //    하나의 목록으로 압축하면 edge가 바뀐다. 원래 묶음 이름은 store에 없다.
-    //  · 그 외 연산자는 **source 가 직전 target 과 같은 동안만** 이어 붙인다.
-    //  · `<|>` 는 이름 하나씩만 받으므로 연쇄하지 않는다.
-    //  어느 쪽도 저장 순서를 바꾸지 않는다 — 압축은 표기일 뿐 의미를 만들지 않는다.
+    // ─────────────────────────────────────────────────────────── 관계 (ds2 5)
+    //  · Start/StartReset: **과녁(host)별 한 문장** `(A, B) op T;` — host 가 내부 진입 Work 면 canonical 이름으로
+    //    적어 별도 문장(독립 진입)이 된다. 1:1 사슬은 `A > B > C;` 로 이어 붙인다(컴파일러가 다시 쌍으로 가른다).
+    //  · Reset: source 별 `S |> (A, B);`   · ResetReset: 쌍마다 `A <|> B;`
+    //  · Group 간선(type 5)은 ds2 5 에 없다 — 거절한다. 어느 쪽도 뜻을 만들지 않는다.
 
     let private operatorOf (t: ArrowType) =
         match t with
@@ -99,103 +98,66 @@ module Ds2TextWriter =
         | ArrowType.Reset      -> "|>"
         | ArrowType.StartReset -> "=>"
         | ArrowType.ResetReset -> "<|>"
+        | ArrowType.Group      ->
+            failwith "DS2TEXT_GROUP: ds2 5 에는 group 이 없습니다 — Group 간선(type 5)은 적을 수 없습니다. 공동 원인은 같은 과녁의 Start 간선(괄호)으로, 독립 진입은 별도 문장으로 적습니다."
         | other -> failwithf "DS2 Text 로 적을 수 없는 화살표입니다: %A" other
 
-    /// 묶음 이름은 **저장소에 없다** — 글로 적을 때 지어낸다.
-    ///
-    /// 이름을 저장하려고 `DsGroup` 엔티티를 두었었는데, 재 보니 얻는 것이 이름뿐이었다:
-    /// 런타임은 `buildGroupSets` 가 **Union-Find** 로 묶으므로 사슬(A–B, B–C)과
-    /// 별(A–B, A–C)이 같은 집합 `{A,B,C}` 이다 — 모양 차이가 뜻을 바꾸지 않는다.
-    /// 이름 하나를 위해 엔티티·사전·이행 경로·검증 60줄을 지고 갈 이유가 없어 들어냈다.
-    let private groupNameGenerator (reserved: string seq) =
-        let taken = HashSet<string>(reserved, StringComparer.Ordinal)
-        let mutable serial = 0
-        fun () ->
-            let mutable candidate = ""
-            let mutable available = false
-            while not available do
-                serial <- serial + 1
-                candidate <- "group" + string serial
-                available <- taken.Add candidate
-            candidate
+    let private joinNames (names: string list) =
+        match names with
+        | [ one ] -> one
+        | many -> "(" + String.concat ", " many + ")"
 
-    /// 묶음 간선 표시. 이름은 아직 안 붙인 채로 멤버만 실어 둔다.
-    let private GROUP_MARK = "\u0000group\u0000"
-
-    /// 흩어진 묶음 간선을 **연결 성분**으로 합쳐 한 줄씩 만든다.
-    ///
-    /// 저장소에는 `A–B`, `B–C` 처럼 쌍으로만 남는다. 그대로 적으면
-    /// `group group1 = A, B;` `group group2 = B, C;` 두 줄이 되어 **셋이 한 묶음**이라는
-    /// 사실이 글에서 사라진다. 런타임이 Union-Find 로 보는 것과 같게 합친다 —
-    /// 즉 **인과를 해석해 묶음을 되살린다.** 이름은 그때 `group1`·`group2` 로 짓는다.
-    let private mergeGroupRuns (lines: string list) (newGroupName: unit -> string) : string list =
-        if lines |> List.forall (fun l -> not (l.StartsWith GROUP_MARK)) then lines
-        else
-            let parent = Dictionary<string, string>()
-            let rec find x = match parent.TryGetValue x with
-                             | true, p when p <> x -> let r = find p in parent.[x] <- r; r
-                             | _ -> x
-            let add x = if not (parent.ContainsKey x) then parent.[x] <- x
-            let order = ResizeArray<string>()                 // 처음 나온 차례를 지킨다
-            let groupLineIndexes = ResizeArray<int>()
-            lines |> List.iteri (fun i l ->
-                if l.StartsWith GROUP_MARK then
-                    groupLineIndexes.Add i
-                    let members = l.Substring(GROUP_MARK.Length).Split('\u0001')
-                    for m in members do
-                        add m
-                        if not (order.Contains m) then order.Add m
-                    for k in 1 .. members.Length - 1 do
-                        parent.[find members.[0]] <- find members.[k])
-            // 성분별 멤버를 **처음 나온 차례**로 모은다
-            let byRoot = Dictionary<string, ResizeArray<string>>()
-            for m in order do
-                let r = find m
-                match byRoot.TryGetValue r with
-                | true, xs -> xs.Add m
-                | _ -> byRoot.[r] <- ResizeArray([m])
-            let nameOfRoot = Dictionary<string, string>()
-            let emitted = HashSet<string>()
-            let first = groupLineIndexes.[0]
-            let rendered =
-                order
-                |> Seq.map find
-                |> Seq.distinct
-                |> Seq.filter (fun r -> byRoot.[r].Count >= 2)
-                |> Seq.map (fun r ->
-                    let name = newGroupName()
-                    nameOfRoot.[r] <- name
-                    emitted.Add r |> ignore
-                    "group " + q name + " = " + String.concat ", " (byRoot.[r]) + ";")
-                |> List.ofSeq
-            // 묶음 줄은 **첫 묶음 간선이 있던 자리**에 한꺼번에 놓는다. 나머지는 지운다.
-            lines
-            |> List.mapi (fun i l -> i, l)
-            |> List.collect (fun (i, l) ->
-                if i = first then rendered
-                elif l.StartsWith GROUP_MARK then []
-                else [ l ])
-
-    let private relationLines (arrows: DsArrow list) (nameOf: Guid -> string) (newGroupName: unit -> string) : string list =
-        let items = List.toArray arrows
-        let result = ResizeArray<string>()
+    /// `rankOf` 는 canonical Work 의 위상 차례(선언 차례)다 — 문장을 입력 순서가 아니라 이 차례로 적어야 같은 모델이 늘 같은 글이 된다(고정점).
+    let private relationLines (arrows: DsArrow list) (nameOf: Guid -> string) (canonicalOf: Guid -> Guid) (rankOf: Guid -> int) : string list =
+        let starts = Dictionary<struct (ArrowType * Guid), ResizeArray<string>>()
+        let startOrder = ResizeArray<struct (ArrowType * Guid)>()
+        let resets = Dictionary<Guid, ResizeArray<string>>()
+        let resetOrder = ResizeArray<Guid>()
+        let mutuals = ResizeArray<string>()
+        for a in arrows do
+            match a.ArrowType with
+            | ArrowType.Start | ArrowType.StartReset ->
+                let key = struct (a.ArrowType, a.TargetId)
+                if not (starts.ContainsKey key) then
+                    starts.[key] <- ResizeArray<string>()
+                    startOrder.Add key
+                let source = nameOf (canonicalOf a.SourceId)
+                if not (starts.[key].Contains source) then starts.[key].Add source
+            | ArrowType.Reset ->
+                if not (resets.ContainsKey a.SourceId) then
+                    resets.[a.SourceId] <- ResizeArray<string>()
+                    resetOrder.Add a.SourceId
+                let target = nameOf (canonicalOf a.TargetId)
+                if not (resets.[a.SourceId].Contains target) then resets.[a.SourceId].Add target
+            | ArrowType.ResetReset ->
+                mutuals.Add(nameOf (canonicalOf a.SourceId) + " <|> " + nameOf (canonicalOf a.TargetId) + ";")
+            | other -> operatorOf other |> ignore
+        let statements =
+            [| for key in startOrder do
+                 let struct (kind, host) = key
+                 let sources = starts.[key] |> Seq.sortBy (fun n -> n) |> List.ofSeq
+                 yield kind, sources, nameOf (canonicalOf host), rankOf (canonicalOf host) |]
+            |> Array.sortBy (fun (kind, _, target, rank) -> rank, (if kind = ArrowType.Start then 0 else 1), target)
+            |> Array.map (fun (kind, sources, target, _) -> kind, sources, target)
+        let out = ResizeArray<string>()
         let mutable i = 0
-        while i < items.Length do
-            let head = items.[i]
-            let kind = head.ArrowType
-            let names = ResizeArray<Guid>([ head.SourceId; head.TargetId ])
+        while i < statements.Length do
+            let (kind, sources, target) = statements.[i]
+            let names = ResizeArray<string>([ joinNames sources; target ])
             i <- i + 1
-            if kind = ArrowType.Group then
-                // 여기서는 **한 간선만** 적는다. 같은 묶음의 나머지 간선은 아래
-                // `mergeGroupRuns` 가 연결 성분으로 합쳐 한 줄로 만든다.
-                result.Add(GROUP_MARK + (names |> Seq.map nameOf |> String.concat "\u0001"))
-            else
-                if kind <> ArrowType.ResetReset then
-                    while i < items.Length && items.[i].ArrowType = kind && items.[i].SourceId = names.[names.Count - 1] do
-                        names.Add items.[i].TargetId
+            if sources.Length = 1 then
+                let mutable chaining = true
+                while chaining && i < statements.Length do
+                    let (k2, s2, t2) = statements.[i]
+                    if k2 = kind && s2 = [ names.[names.Count - 1] ] then
+                        names.Add t2
                         i <- i + 1
-                result.Add((names |> Seq.map nameOf |> String.concat (" " + operatorOf kind + " ")) + ";")
-        mergeGroupRuns (List.ofSeq result) newGroupName
+                    else chaining <- false
+            out.Add((names |> String.concat (" " + operatorOf kind + " ")) + ";")
+        for source in resetOrder |> Seq.sortBy (fun s -> rankOf (canonicalOf s), nameOf (canonicalOf s)) do
+            out.Add(nameOf (canonicalOf source) + " |> " + joinNames (resets.[source] |> Seq.sortBy id |> List.ofSeq) + ";")
+        out.AddRange(mutuals |> Seq.sortBy id)
+        List.ofSeq out
 
     // ─────────────────────────────────────────────────────────── 조건식
     //  Condition 트리 → `start when` / `permit when` / `skip when` 의 오른쪽.
@@ -208,44 +170,85 @@ module Ds2TextWriter =
         | ContactKind.FallingPulse -> "fall "
         | other -> raise (NotSupportedException(sprintf "DS2TEXT_CONDITION_CONTACT: DS2 Text로 보존할 수 없는 조건 접점입니다: %A" other))
 
+    /// JSON 리터럴 글 그대로 — 제품 사양·변수 값은 글에 적힌 모양(true · 25 · "B")으로 저장된다.
+    let private rawLiteral (e: JsonElement) = e.GetRawText()
+
     /// leafReference는 실제 ApiDef 대상과 공유 입력(from)의 일치를 검증한다.
-    let rec private expressionText (leafReference: ApiCall -> string * string option) (c: Condition) : string =
+    /// `tokenOnly` 는 `skip when` 자리다 — ds2 5 의 skip 은 제품 사양만 읽으므로 api 잎을 거절한다.
+    let rec private expressionText (leafReference: ApiCall -> string * string option) (tokenOnly: bool) (c: Condition) : string =
         // 런타임은 직접 ApiCall과 자식을 함께 평가하지만 native Text의 정규 트리는
         // 단일 leaf 또는 자식 그룹이다. 누락하거나 상수로 바꾸지 않고 지원 경계를 알린다.
         let unsupported reason =
             raise (NotSupportedException(sprintf "DS2TEXT_CONDITION_SHAPE: 조건 %O을 DS2 Text로 보존할 수 없습니다: %s" c.Id reason))
-        if c.ApiCalls.Count > 0 && c.Children.Count > 0 then
-            unsupported "직접 ApiCall과 자식 조건이 혼합되어 있습니다."
-        if c.ApiCalls.Count > 1 then
-            unsupported "하나의 조건 노드에 여러 직접 ApiCall이 있습니다."
-        if c.ApiCalls.Count = 0 && c.Children.Count = 0 then
+        let leafCount = c.ApiCalls.Count + (if c.Token.IsSome then 1 else 0) + (if c.Variable.IsSome then 1 else 0)
+        if leafCount > 0 && c.Children.Count > 0 then
+            unsupported "직접 잎(ApiCall·token·variable)과 자식 조건이 혼합되어 있습니다."
+        if leafCount > 1 then
+            unsupported "하나의 조건 노드에 여러 직접 잎이 있습니다."
+        if leafCount = 0 && c.Children.Count = 0 then
             unsupported "빈 조건은 표현 가능한 비교식이 없으며 true로 대체할 수 없습니다."
-        if c.Children.Count > 0 && c.IsInverted && c.ApiCalls.Count = 0 && c.Children.Count = 1 then
-            "not " + expressionText leafReference c.Children.[0]
+        if c.Children.Count > 0 && c.IsInverted && leafCount = 0 && c.Children.Count = 1 then
+            "not " + expressionText leafReference tokenOnly c.Children.[0]
         elif c.Children.Count > 0 then
             let joiner = if c.IsOR then " or " else " and "
             let body =
                 c.Children
-                |> Seq.map (expressionText leafReference)
+                |> Seq.map (expressionText leafReference tokenOnly)
                 |> String.concat joiner
             let wrapped = "(" + body + ")"
             if c.IsInverted then "not " + wrapped else wrapped
+        elif c.Token.IsSome then
+            // 제품 사양 잎 — `token.필드 == 값` · `!=` · `in {…}`
+            let t = c.Token.Value
+            let head = "token." + q t.Field
+            let body =
+                match t.Op, t.Values with
+                | "in", values -> head + " in {" + (values |> List.map rawLiteral |> String.concat ", ") + "}"
+                | "ne", value :: _ -> head + " != " + rawLiteral value
+                | _, value :: _ -> head + " == " + rawLiteral value
+                | _ -> unsupported "token 조건에 비교값이 없습니다."
+            if c.IsInverted then "not " + body else body
+        elif c.Variable.IsSome then
+            if tokenOnly then unsupported "ds2 5 의 skip 은 제품 사양(token)만 읽습니다 — 변수 잎은 skip 에 올 수 없습니다."
+            let v = c.Variable.Value
+            let head = "variable." + q v.Name
+            match Ds2TextSpec.tryMatchLiteral v.InputSpec with
+            | Some literal -> head + (if c.IsInverted then " != " else " == ") + literal
+            | None -> (if c.IsInverted then "not " else "") + head + " as " + Ds2TextSpec.format "==" v.InputSpec
         elif c.ApiCalls.Count = 1 then
+            if tokenOnly then unsupported "ds2 5 의 skip 은 제품 사양(token)만 읽습니다 — 센서(api) 잎은 skip 에 올 수 없습니다. start when 으로 기다리거나 product 필드로 적으십시오."
             let a = c.ApiCalls.[0]
             let target, owner = leafReference a
             let source = owner |> Option.map (fun path -> " from " + path) |> Option.defaultValue ""
+            // 뒤집힌 단일값 잎은 `!=` 로 적는다 — `not X == v` 와 같은 저장 결과이고, 접점(nc)과 겹치는 `not` 경고를 피한다.
+            let op = if c.IsInverted then "!=" else "=="
             let leaf =
                 match source, Ds2TextSpec.tryMatchLiteral a.InputSpec with
                 // 기존 match 조건은 타입 없이 `Api == 값` 으로 남는다. from 이 붙으면 typed 조건이다.
-                | "", Some literal -> target + " == " + literal
-                | _ -> target + source + " as " + Ds2TextSpec.format "==" a.InputSpec
-            let text = contactPrefix a.ContactKind + leaf
-            if c.IsInverted then "not " + text else text
+                | "", Some literal -> target + " " + op + " " + literal
+                | _ ->
+                    match a.InputSpec with
+                    | BoolValue (Single _) | Int8Value (Single _) | Int16Value (Single _) | Int32Value (Single _) | Int64Value (Single _)
+                    | UInt8Value (Single _) | UInt16Value (Single _) | UInt32Value (Single _) | UInt64Value (Single _)
+                    | Float32Value (Single _) | Float64Value (Single _) | StringValue (Single _) ->
+                        target + source + " as " + Ds2TextSpec.format op a.InputSpec
+                    | _ ->
+                        (if c.IsInverted then "not " else "") + target + source + " as " + Ds2TextSpec.format "==" a.InputSpec
+            contactPrefix a.ContactKind + leaf
         else
             unsupported "지원하지 않는 조건 구조입니다."
 
     let private conditionsOf (conditions: ResizeArray<Condition>) (kind: ConditionType) =
         conditions |> Seq.filter (fun c -> c.Type = Some kind) |> List.ofSeq
+
+    /// product 필드 값 — ds2 5 컴파일러는 JSON 리터럴 글(`true`·`25`·`"B"`)로 저장한다. 그 꼴이면 그대로 적고,
+    /// 리터럴이 아닌 옛 문자열은 문자열 리터럴로 감싼다(그러면 종류가 string 이 된다 — 그것이 그 값의 사실이다).
+    let private fieldLiteral (value: string) =
+        let v = if isNull value then "" else value.Trim()
+        if v = "true" || v = "false" then v
+        elif v.Length >= 2 && v.StartsWith "\"" && v.EndsWith "\"" then v
+        elif Text.RegularExpressions.Regex.IsMatch(v, @"^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$") then v
+        else jl value
 
     // ─────────────────────────────────────────────────────────── 본문
 
@@ -271,6 +274,17 @@ module Ds2TextWriter =
         for w in store.Works.Values do workOfId.[w.Id] <- w
         let callOfId = Dictionary<Guid, Call>()
         for c in store.Calls.Values do callOfId.[c.Id] <- c
+
+        /// 내부 진입 Work(ReferenceOf) → 원본. 사슬은 끝까지 따라간다 — 글에는 원본 이름만 적는다.
+        let canonicalOf (id: Guid) =
+            let seen = HashSet<Guid>()
+            let mutable current = id
+            let mutable go = true
+            while go do
+                match workOfId.TryGetValue current with
+                | true, w when w.ReferenceOf.IsSome && seen.Add current -> current <- w.ReferenceOf.Value
+                | _ -> go <- false
+            current
 
         let flowOfWork (w: Work) =
             match flowOfId.TryGetValue w.ParentId with
@@ -362,7 +376,7 @@ module Ds2TextWriter =
         let emit (indent: int) (text: string) = lines.Add(String.replicate indent " " + text)
         let emitAll (indent: int) (texts: string seq) = for t in texts do emit indent t
 
-        lines.Add "ds2 4;"
+        lines.Add "ds2 5;"
         lines.Add ("project " + q project.Name + identity project.Id + " {")
         if project.Author <> "" then emit 2 ("author " + jl project.Author + ";")
         if project.Version <> "1.0.0" then emit 2 ("version " + jl project.Version + ";")
@@ -385,7 +399,7 @@ module Ds2TextWriter =
             else
                 emit 2 (sprintf "product %d %s%s {" spec.Id (jl spec.Label) source)
                 for KeyValue (name, value) in spec.Fields do
-                    emit 4 (q name + " = " + jl value + ";")
+                    emit 4 (q name + " = " + fieldLiteral value + ";")
                 emit 2 "}"
 
         // ── system (active 먼저, 그다음 passive) ──
@@ -404,6 +418,26 @@ module Ds2TextWriter =
             sys.IRI |> Option.iter (fun value -> emit 4 ("iri " + jl value + ";"))
             sys.SystemType |> Option.iter (fun t -> emit 4 ("type " + jl t + ";"))
 
+            // ── variable — active System 의 기억 (ds2 5). 옵션은 기본값(false·없음)이 아닌 것만 적는다.
+            let rawOpt (e: JsonElement option) = e |> Option.map rawLiteral
+            for v in store.Variables.Values |> Seq.filter (fun v -> v.ParentId = sys.Id) |> declarationOrder do
+                let initial =
+                    match rawOpt v.InitialValue with
+                    | Some text -> text
+                    | None -> failwithf "DS2TEXT_VARIABLE: 변수 %s (%O) 에 초기값이 없습니다 — ds2 5 의 variable 은 초기값이 필수입니다." v.Name v.Id
+                let options = ResizeArray<string>()
+                if v.Readable then options.Add "readable true;"
+                if v.Writable then options.Add "writable true;"
+                if v.Retain then options.Add "retain true;"
+                rawOpt v.Min |> Option.iter (fun m -> options.Add("min " + m + ";"))
+                rawOpt v.Max |> Option.iter (fun m -> options.Add("max " + m + ";"))
+                let head = "variable " + v.ValueType + " " + q v.Name + identity v.Id + " = " + initial
+                if options.Count = 0 then emit 4 (head + ";")
+                else
+                    emit 4 (head + " {")
+                    for o in options do emit 6 o
+                    emit 4 "}"
+
             let flows = store.Flows.Values |> Seq.filter (fun f -> f.ParentId = sys.Id) |> declarationOrder
 
             // Work 화살표: 같은 Flow 안이면 그 Flow 에, 다르면 System 레벨에 적는다.
@@ -412,15 +446,30 @@ module Ds2TextWriter =
                 |> Seq.filter (fun a -> a.ParentId = sys.Id)
                 |> Seq.filter (fun a -> workOfId.ContainsKey a.SourceId && workOfId.ContainsKey a.TargetId)
                 |> List.ofSeq
-            let flowIdOf (id: Guid) = workOfId.[id].ParentId
+            let flowIdOf (id: Guid) = workOfId.[canonicalOf id].ParentId
             let crossFlow = sysArrows |> List.filter (fun a -> flowIdOf a.SourceId <> flowIdOf a.TargetId)
             let workNameAbs (id: Guid) =
                 let w = workOfId.[id]
                 match flowOfWork w with
                 | Some f -> workPath None f.Name w.LocalName
                 | None -> q w.LocalName
-            let systemGroupName = groupNameGenerator (flows |> Seq.map (fun f -> f.Name))
-            emitAll 4 (relationLines (crossFlow |> List.map (fun a -> a :> DsArrow)) workNameAbs systemGroupName)
+            // Work 차례는 **인과가 정한다**(flow 안 Start 계열 선행의 위상 차례). 관계문도 이 차례로 적는다.
+            let flowWorkPreds (flow: Flow) (id: Guid) =
+                sysArrows
+                |> Seq.filter (fun a ->
+                    canonicalOf a.TargetId = id
+                    && (a.ArrowType = ArrowType.Start || a.ArrowType = ArrowType.StartReset)
+                    && flowIdOf a.SourceId = flow.Id)
+                |> Seq.map (fun a -> canonicalOf a.SourceId)
+            let orderedWorks (flow: Flow) =
+                store.Works.Values
+                |> Seq.filter (fun w -> w.ParentId = flow.Id && w.ReferenceOf.IsNone)
+                |> topoOrder (flowWorkPreds flow)
+            let rank = Dictionary<Guid, int>()
+            for flow in flows do
+                for w in orderedWorks flow do rank.[w.Id] <- rank.Count
+            let rankOf (id: Guid) = match rank.TryGetValue id with | true, r -> r | _ -> Int32.MaxValue
+            emitAll 4 (relationLines (crossFlow |> List.map (fun a -> a :> DsArrow)) workNameAbs canonicalOf rankOf)
 
             let writeFlow (flow: Flow) =
                 emit 4 ("flow " + q flow.Name + identity flow.Id + " {")
@@ -428,14 +477,15 @@ module Ds2TextWriter =
                 if not flow.IsAuto then emit 6 "auto false;"
 
                 // Work 차례는 **인과가 정한다**. 같은 Flow 안의 Start 계열 간선이 선행이다.
-                let workPreds (id: Guid) =
-                    sysArrows
-                    |> Seq.filter (fun a ->
-                        a.TargetId = id
-                        && (a.ArrowType = ArrowType.Start || a.ArrowType = ArrowType.StartReset)
-                        && flowIdOf a.SourceId = flow.Id)
-                    |> Seq.map (fun a -> a.SourceId)
-                let works = store.Works.Values |> Seq.filter (fun w -> w.ParentId = flow.Id) |> topoOrder workPreds
+                // 내부 진입 Work(ReferenceOf)는 글에 없다 — 그 간선은 canonical 의 별도 문장(독립 진입)으로 적힌다.
+                // 제 속성을 가진 참조 Work(옛 `work X = ref Y { … }`)는 그렇게 옮길 수 없으므로 거절한다.
+                for alias in store.Works.Values |> Seq.filter (fun w -> w.ParentId = flow.Id && w.ReferenceOf.IsSome) do
+                    let own =
+                        alias.Duration.IsSome || alias.MinDuration.IsSome || alias.MaxDuration.IsSome
+                        || alias.Conditions.Count > 0 || alias.GetSimulationProperties().IsSome || alias.TokenRole <> TokenRole.None
+                    if own then
+                        failwithf "DS2TEXT_REF: ds2 5 에는 `ref` 가 없습니다 — 참조 Work %s (%O) 가 제 속성(시간·조건·initial·역할)을 가져 독립 진입 문장으로 옮길 수 없습니다." alias.Name alias.Id
+                let works = orderedWorks flow
 
                 // 제품 역할 — entry(Source) · token ignore(Ignore) · exit(Sink) 순서 고정.
                 for (role, keyword) in [ TokenRole.Source, "entry"; TokenRole.Ignore, "token ignore"; TokenRole.Sink, "exit" ] do
@@ -448,8 +498,7 @@ module Ds2TextWriter =
                     match flowOfWork w with
                     | Some f -> workPath (Some flow.Name) f.Name w.LocalName
                     | None -> q w.LocalName
-                let flowGroupName = groupNameGenerator (works |> Seq.map (fun w -> w.LocalName))
-                emitAll 6 (relationLines (inFlow |> List.map (fun a -> a :> DsArrow)) workNameRel flowGroupName)
+                emitAll 6 (relationLines (inFlow |> List.map (fun a -> a :> DsArrow)) workNameRel canonicalOf rankOf)
 
                 // ── Work 선언 ──
                 let pendingEmpty = ResizeArray<string>()
@@ -460,27 +509,9 @@ module Ds2TextWriter =
 
                 for w in works do
                     let head = "work " + q w.LocalName + identity w.Id
-                    match w.ReferenceOf with
-                    | Some originalId when workOfId.ContainsKey originalId ->
-                        flushEmpty ()
-                        let ow = workOfId.[originalId]
-                        let target =
-                            match flowOfWork ow with
-                            | Some f -> workPath (Some flow.Name) f.Name ow.LocalName
-                            | None -> q ow.LocalName
-                        let initial = w.GetSimulationProperties() |> Option.map (fun p -> if p.IsFinished then "initial finish;" else "initial ready;")
-                        let ownProperties = ResizeArray<string>()
-                        initial |> Option.iter ownProperties.Add
-                        w.Position |> Option.iter (positionText >> ownProperties.Add)
-                        if ownProperties.Count > 0 then
-                            emit 6 (head + " = ref " + target + " {")
-                            for p in ownProperties do emit 8 p
-                            emit 6 "}"
-                        else
-                            emit 6 (head + " = ref " + target + ";")
-                    | _ ->
+                    begin
+                        // 좌표(Position)는 ds2 5 의 글에 없다 — 편집기 배치는 글 밖의 일이다(Q18).
                         let body = ResizeArray<string>()
-                        w.Position |> Option.iter (positionText >> body.Add)
                         w.Duration |> Option.iter (fun d -> body.Add("duration " + Ds2TextLexeme.ms d + ";"))
                         if w.MinDuration.IsSome || w.MaxDuration.IsSome then
                             let bound (v: TimeSpan option) = match v with Some t -> Ds2TextLexeme.ms t | None -> "none"
@@ -488,7 +519,7 @@ module Ds2TextWriter =
                         w.GetSimulationProperties()
                         |> Option.iter (fun p -> body.Add(if p.IsFinished then "initial finish;" else "initial ready;"))
                         for c in conditionsOf w.Conditions ConditionType.SkipAction do
-                            body.Add("skip when " + expressionText conditionReference c + ";")
+                            body.Add("skip when " + expressionText conditionReference true c + ";")
 
                         let callPreds (id: Guid) =
                             store.ArrowCalls.Values
@@ -503,8 +534,9 @@ module Ds2TextWriter =
                             |> Seq.map (fun a -> a :> DsArrow)
                             |> List.ofSeq
                         let callName (id: Guid) = callText callOfId.[id]
-                        let callGroupName = groupNameGenerator (calls |> Seq.map textNameOf)
-                        body.AddRange(relationLines callArrows callName callGroupName)
+                        let callRank = Dictionary<Guid, int>()
+                        for c in calls do callRank.[c.Id] <- callRank.Count
+                        body.AddRange(relationLines callArrows callName id (fun c -> match callRank.TryGetValue c with | true, r -> r | _ -> Int32.MaxValue))
 
                         for c in calls do
                             // 선언문이 없다. 부르는 것을 **그대로 적는다**: `로봇.집기;`
@@ -520,7 +552,6 @@ module Ds2TextWriter =
                                     failwithf "DS2 Text 로 적을 수 없습니다: 대상이 %d 개인 Call %s (%O). 함께 부르는 것은 묶음으로 적습니다."
                                         c.ApiCalls.Count c.Name c.Id
                                 let inner = ResizeArray<string>()
-                                c.Position |> Option.iter (positionText >> inner.Add)
                                 let simProps = c.GetSimulationProperties()
                                 match simProps with
                                 | Some p ->
@@ -555,7 +586,7 @@ module Ds2TextWriter =
 
                                 for (kind, keyword) in [ ConditionType.AutoAux, "start"; ConditionType.ComAux, "permit"; ConditionType.SkipAction, "skip" ] do
                                     for cond in conditionsOf c.Conditions kind do
-                                        inner.Add(keyword + " when " + expressionText conditionReference cond + ";")
+                                        inner.Add(keyword + " when " + expressionText conditionReference (kind = ConditionType.SkipAction) cond + ";")
 
                                 // ── 왜 늘 블록으로 적는가 ────────────────────────
                                 // 관계문이 이름을 이미 적었으니 `로봇.집기;` 한 줄은 군더더기다.
@@ -579,37 +610,58 @@ module Ds2TextWriter =
                             emit 6 (head + " {")
                             emitAll 8 body
                             emit 6 "}"
+                    end
 
                 flushEmpty ()
                 emit 4 "}"
 
-            // ── api ──
+            // ── api / sensor (ds2 5) ──
+            //  · 명령(command)이 없는 ApiDef 는 `sensor` 다 — `command none` 은 없다.
+            //  · api 는 command·observe·action·sensing 넷을 **모두** 적는다 — 숨은 기본값이 없다.
+            //  · 변수를 가리키는 api/sensor 에는 action·sensing 을 적지 않는다(물리 정책이 없다).
+            //  · `action virtual` 은 ds2 5 에 없다 — 명령이 있는데 Virtual 이면 거절한다.
             let writeApi (api: ApiDef) =
-                emit 4 ("api " + q api.Name + identity api.Id + " {")
-                api.Description |> Option.iter (fun value -> emit 6 ("description " + jl value + ";"))
-                let target (id: Guid option) =
-                    match id |> Option.bind (fun g -> match workOfId.TryGetValue g with | true, w -> Some w | _ -> None) with
-                    | Some w ->
-                        match flowOfWork w with
-                        | Some f -> workPath None f.Name w.LocalName
-                        | None -> q w.LocalName
-                    | None -> "none"
-                emit 6 ("command " + target api.TxGuid + ";")
-                emit 6 ("observe " + target api.RxGuid + ";")
-                // Text 기본값은 action=virtual, sensing=normal(시간 없음) — 그 값이면 생략한다.
-                match api.ActionType with
-                | ActionType.Virtual -> ()
-                | ActionType.Normal None   -> emit 6 "action normal;"
-                | ActionType.Normal (Some t) -> emit 6 ("action normal " + Ds2TextLexeme.msInt t + ";")
-                | ActionType.Pulse None    -> emit 6 "action pulse;"
-                | ActionType.Pulse (Some t)  -> emit 6 ("action pulse " + Ds2TextLexeme.msInt t + ";")
-                | ActionType.Latch         -> emit 6 "action latch;"
-                match api.SensingType with
-                | SensingType.Normal None -> ()
-                | SensingType.Normal (Some t) -> emit 6 ("sensing normal " + Ds2TextLexeme.msInt t + ";")
-                | SensingType.Latch t   -> emit 6 ("sensing latch " + Ds2TextLexeme.msInt t + ";")
-                | SensingType.Virtual t -> emit 6 ("sensing virtual " + Ds2TextLexeme.msInt t + ";")
-                emit 4 "}"
+                let workTarget (id: Guid option) =
+                    id |> Option.bind (fun g -> match workOfId.TryGetValue g with | true, w -> Some w | _ -> None)
+                       |> Option.map (fun w -> match flowOfWork w with | Some f -> workPath None f.Name w.LocalName | None -> q w.LocalName)
+                let varTarget (id: Guid option) =
+                    id |> Option.bind (fun g -> match store.Variables.TryGetValue g with | true, v -> Some ("variable." + q v.Name) | _ -> None)
+                let tx = match workTarget api.TxGuid with | Some w -> Some w | None -> varTarget api.TxVariableId
+                let rx = match workTarget api.RxGuid with | Some w -> Some w | None -> varTarget api.RxVariableId
+                let valueAccess = api.TxVariableId.IsSome || api.RxVariableId.IsSome
+                let actionLine () =
+                    match api.ActionType with
+                    | ActionType.Normal None     -> "action normal;"
+                    | ActionType.Normal (Some t) -> "action normal " + Ds2TextLexeme.msInt t + ";"
+                    | ActionType.Pulse None      -> "action pulse;"
+                    | ActionType.Pulse (Some t)  -> "action pulse " + Ds2TextLexeme.msInt t + ";"
+                    | ActionType.Latch           -> "action latch;"
+                    | ActionType.Virtual         ->
+                        failwithf "DS2TEXT_ACTION_VIRTUAL: ds2 5 에는 `action virtual` 이 없습니다 — api %s (%O). 출력이 없는 장치는 sensor 로 적습니다." api.Name api.Id
+                let sensingLine () =
+                    match api.SensingType with
+                    | SensingType.Normal None     -> "sensing normal;"
+                    | SensingType.Normal (Some t) -> "sensing normal " + Ds2TextLexeme.msInt t + ";"
+                    | SensingType.Latch t         -> "sensing latch " + Ds2TextLexeme.msInt t + ";"
+                    | SensingType.Virtual t       -> "sensing virtual " + Ds2TextLexeme.msInt t + ";"
+                match tx with
+                | None ->
+                    emit 4 ("sensor " + q api.Name + identity api.Id + " {")
+                    api.Description |> Option.iter (fun value -> emit 6 ("description " + jl value + ";"))
+                    match rx with
+                    | Some target -> emit 6 ("observe " + target + ";")
+                    | None -> failwithf "DS2TEXT_SENSOR: ApiDef %s (%O) 에 command 도 observe 도 없습니다 — ds2 5 로 적을 수 없습니다." api.Name api.Id
+                    if not valueAccess then emit 6 (sensingLine ())
+                    emit 4 "}"
+                | Some command ->
+                    emit 4 ("api " + q api.Name + identity api.Id + " {")
+                    api.Description |> Option.iter (fun value -> emit 6 ("description " + jl value + ";"))
+                    emit 6 ("command " + command + ";")
+                    emit 6 ("observe " + (rx |> Option.defaultValue "none") + ";")
+                    if not valueAccess then
+                        emit 6 (actionLine ())
+                        emit 6 (sensingLine ())
+                    emit 4 "}"
 
             let children : DsChild list =
                 [ yield! flows |> Seq.map (fun f -> f :> DsChild)

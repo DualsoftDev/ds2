@@ -22,13 +22,21 @@ module internal SimIndexBuild =
     /// 빈 And 만 잡으므로 여기 걸리지 않는다. 게다가 그룹 부정 토글이 생기면서 이 상태는
     /// «빈 그룹 추가 → 부정 클릭» 두 번으로 닿을 수 있게 되었다 — 트리에 넣기 전에 걸러 낸다.
     let rec private isEmptyCondition (cc: Condition) =
-        cc.ApiCalls.Count = 0 && (cc.Children |> Seq.forall isEmptyCondition)
+        cc.ApiCalls.Count = 0 && cc.Token.IsNone && cc.Variable.IsNone && (cc.Children |> Seq.forall isEmptyCondition)
 
     /// Condition 트리를 ConditionExpression 으로 변환. cc.IsOR / cc.IsInverted 보존.
     /// 여러 condition (top-level) 끼리는 AND (모두 충족 필요).
     /// Call/Work 공용 — `conditions` 컬렉션만 받음.
     let private buildConditionExpression store (conditionType: ConditionType) (conditions: ResizeArray<Condition>) : ConditionExpression =
         let rec convertOne (cc: Condition) : ConditionExpression =
+            // DS2 Text 5 의 token/variable 잎은 아직 실행 의미가 없다. 비어 있는 잎으로 흘리면 **skip 이 없는 모델**이
+            // 조용히 돌아간다 — 그보다 거절이 낫다. 지원이 생기면 이 자리에서 평가식으로 바꾼다.
+            match cc.Token with
+            | Some t -> invalidOp $"DS2_V5_UNSUPPORTED: token 조건(token.{t.Field})은 아직 실행할 수 없습니다 — 엔진이 제품 사양 Skip 을 지원하기 전까지 시뮬레이션에 올릴 수 없습니다."
+            | None -> ()
+            match cc.Variable with
+            | Some v -> invalidOp $"DS2_V5_UNSUPPORTED: 변수 조건(variable.{v.Name})은 아직 실행할 수 없습니다 — 엔진에 VariableStore 가 없습니다."
+            | None -> ()
             let leafExprs =
                 SimIndexAlgorithms.convertApiCallsToExpressions store conditionType cc.ApiCalls
             let childExprs =
@@ -52,6 +60,10 @@ module internal SimIndexBuild =
     /// None 이면 프로젝트 전체 (기존 동작).
     let buildScoped (store: DsStore) (tickMs: int) (targetSystemIds: Set<Guid> option) : SimIndex =
         let project = Queries.allProjects store |> List.tryHead
+        // DS2 Text 5 — 변수를 가리키는 api/sensor 는 Tx/Rx Work 가 없어 「대상 없는 Call」로 오해된다. 거절한다.
+        for a in store.ApiDefs.Values do
+            if a.TxVariableId.IsSome || a.RxVariableId.IsSome then
+                invalidOp $"DS2_V5_UNSUPPORTED: 변수를 가리키는 api/sensor '{a.Name}' 은 아직 실행할 수 없습니다 — 엔진에 VariableStore 가 없습니다."
 
         let originalWork id =
             Queries.getWork (Queries.resolveOriginalWorkId id store) store
