@@ -42,9 +42,62 @@ module WorkConditionChecker =
         if preds.IsEmpty then isSource
         else checkPredecessorCondition index state preds Status4.Finish List.forall
 
-    /// Work 시작 가능 여부: predecessor + 토큰 조건 (AND)
+    /// FS1 CAT-03-R04 — 자동 진입은 그 진입에 **현재 Run 의 실제 완료 근거**가 하나 이상 있어야 한다.
+    /// 모든 선행이 Finish 여도, 그 Finish 가 전부 `finished` 적재(LoadedFinishWorks)면 서지 않는다.
+    /// (A,B)>X 에서 A 가 적재 완료이고 B 가 실제로 끝나면 B 가 근거다.
+    let private hasLiveCompletion (index: SimIndex) (state: SimState) (preds: Guid list) : bool =
+        preds
+        |> List.distinct
+        |> List.exists (fun predGuid ->
+            orGroupGuidsOf index predGuid
+            |> List.exists (fun wg ->
+                Map.tryFind wg state.WorkStates = Some Status4.Finish
+                && not (state.LoadedFinishWorks.Contains wg)))
+
+    /// 자동 진입 조건 — predecessorSatisfied 에 실제 완료 근거(CAT-03-R04)를 더한다.
+    /// 수동 강제 시작·토큰 소스 준비는 predecessorSatisfied 그대로다(사용자 요청은 사건이다).
+    let autoEntrySatisfied (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
+        predecessorSatisfied index state workGuid
+        && (state.LoadedFinishWorks.IsEmpty
+            || (let preds = SimIndex.findOrEmpty workGuid index.WorkStartPreds
+                preds.IsEmpty || hasLiveCompletion index state preds))
+
+    /// FS1 CAT-05-R07 — 토큰/결과는 **선택 진입**의 근거를 쓴다. 여러 진입(원본·자동 Ref)을 가진 Work 가 토큰을
+    /// 넘겨받았으면, 그 토큰을 넘긴 Work 가 원인인 진입으로만 시작한다. 전에는 선언 순서상 앞선 진입이 남의 토큰으로
+    /// 시작해, 제 원인이 아닌 선행을 되돌리고 그 선행이 토큰을 쥔 채 homing 에 갇혔다(#8936 재현).
+    /// 넘긴 Work 가 어느 진입의 원인도 아니면(출처 모름·진입 밖에서 옴) 가리지 않는다.
+    let tokenEntryEligible (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
+        match SimIndex.referenceGroupOf index workGuid with
+        | [] | [ _ ] -> true
+        | group ->
+            match SimState.getWorkTokenFrom (SimIndex.canonicalWorkGuid index workGuid) state with
+            | None -> true
+            | Some fromWork ->
+                let origin = SimIndex.canonicalWorkGuid index fromWork
+                let fedBy entry =
+                    SimIndex.findOrEmpty entry index.WorkStartPreds
+                    |> List.exists (fun p -> SimIndex.canonicalWorkGuid index p = origin)
+                fedBy workGuid || not (group |> List.exists fedBy)
+
+    /// Work 시작 가능 여부: 자동 진입 + 토큰 조건 (AND)
     let canStartWork (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
-        predecessorSatisfied index state workGuid && tokenReady index state workGuid
+        autoEntrySatisfied index state workGuid && tokenReady index state workGuid
+        && tokenEntryEligible index state workGuid
+
+    /// FS1-Q25 — 배타 점유. Going Call 은 이번 회차에 Tx 를 이미 명령했거나(실행 중·완료 대기),
+    /// 지금 Tx 가 설 수 있으면(곧 명령) 그 배타 상대를 막는다. **다시 준비를 기다리는** Call
+    /// (Tx 가 Finish 이고 아직 명령 전)은 막지 않는다 — 그 다시 준비를 해 줄 요청까지 막으면 서로 기다린다.
+    let callOccupies (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
+        match Map.tryFind callGuid state.CallStates with
+        | Some Status4.Going ->
+            let txGuids = SimIndex.txWorkGuids index callGuid
+            let commanded =
+                match state.CallTxEpochSnapshot |> Map.tryFind callGuid with
+                | Some snap -> snap |> Map.exists (fun tx saved -> SimState.getWorkEpoch (SimIndex.canonicalWorkGuid index tx) state > saved)
+                | None -> true
+            commanded || txGuids.IsEmpty
+            || txGuids |> List.exists (fun tx -> Map.tryFind tx state.WorkStates <> Some Status4.Finish)
+        | _ -> false
 
     /// Predecessor 조건만 체크 (토큰 무시) — 수동 강제 시작 시 사용
     let canStartWorkPredOnly (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
@@ -172,19 +225,27 @@ module WorkConditionChecker =
         if workGuids.IsEmpty then true
         else
             let allFinish = workGuids |> List.forall (fun workGuid -> Map.tryFind workGuid state.WorkStates = Some Status4.Finish)
-            if not allFinish then false
+            let callType = index.CallTypeMap |> Map.tryFind callGuid |> Option.defaultValue CallType.WaitForCompletion
+            if callType = CallType.SkipIfCompleted then allFinish
             else
-                let callType = index.CallTypeMap |> Map.tryFind callGuid |> Option.defaultValue CallType.WaitForCompletion
-                if callType = CallType.SkipIfCompleted then true
-                else
-                    match state.CallRxEpochSnapshot |> Map.tryFind callGuid with
-                    | None -> true
-                    | Some epochMap ->
-                        workGuids |> List.forall (fun workGuid ->
-                            let canonical = SimIndex.canonicalWorkGuid index workGuid
-                            let savedEpoch = epochMap |> Map.tryFind workGuid |> Option.defaultValue 0
-                            let currentEpoch = SimState.getWorkEpoch canonical state
-                            currentEpoch > savedEpoch)
+                // FS1-Q25 / CAT-10 — WaitForCompletion 은 **이 Call 회차에 대상이 끝난 사건**으로 완료한다.
+                // 대상이 같은 걸음에 다시 준비(Reset)돼 지금 Finish 가 아니어도 사건은 관측됐다.
+                // 진행 중이던 대상에 합류한 경우도 그 실행의 완료를 본다(과거 완료는 Finish 횟수가 늘지 않아 불인정).
+                match state.CallRxFinishSnapshot |> Map.tryFind callGuid with
+                | Some finishMap ->
+                    workGuids |> List.forall (fun workGuid ->
+                        let canonical = SimIndex.canonicalWorkGuid index workGuid
+                        let saved = finishMap |> Map.tryFind workGuid |> Option.defaultValue 0
+                        SimState.getWorkFinishEpoch canonical state > saved)
+                | None ->
+                    allFinish
+                    && (match state.CallRxEpochSnapshot |> Map.tryFind callGuid with
+                        | None -> true
+                        | Some epochMap ->
+                            workGuids |> List.forall (fun workGuid ->
+                                let canonical = SimIndex.canonicalWorkGuid index workGuid
+                                let savedEpoch = epochMap |> Map.tryFind workGuid |> Option.defaultValue 0
+                                SimState.getWorkEpoch canonical state > savedEpoch))
 
     let private legacyRxCompletion (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
         workCompletion index state callGuid (SimIndex.rxWorkGuids index callGuid)

@@ -19,6 +19,9 @@
     <Compile Include="BodyLineTests.fs" />
     <Compile Include="DurE2E.fs" />
     <Compile Include="AbnormalPolicyTests.fs" />
+    <Compile Include="LoadedFinishEntryTests.fs" />
+    <Compile Include="TokenForkJoinTests.fs" />
+    <Compile Include="OrEntryResetTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

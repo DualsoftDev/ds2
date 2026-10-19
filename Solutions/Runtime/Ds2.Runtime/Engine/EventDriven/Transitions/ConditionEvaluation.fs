@@ -112,9 +112,11 @@ module internal ConditionEvaluation =
         // 2. Race Condition 탈락 — 이미 Going/Pending인 exclusion 상대 + 이번 사이클 먼저 온 놈 우선
         let accepted = System.Collections.Generic.HashSet<Guid>()
         let rejected = System.Collections.Generic.HashSet<Guid>()
-        // 이미 Going이거나 Pending인 Call의 exclusion 상대를 미리 rejected에 등록
+        // 이미 점유 중이거나 Pending인 Call의 exclusion 상대를 미리 rejected에 등록.
+        // 다시 준비를 기다리는 Going Call 은 점유하지 않는다(FS1-Q25, WorkConditionChecker.callOccupies).
+        let occupancyState = ctx.StateManager.GetState()
         for callGuid in ctx.Index.AllCallGuids do
-            if ctx.StateManager.GetCallState(callGuid) = Status4.Going
+            if WorkConditionChecker.callOccupies ctx.Index occupancyState callGuid
                || ctx.StateManager.IsCallPending(callGuid) then
                 match ctx.Index.CallRaceExclusions |> Map.tryFind callGuid with
                 | Some excludedSet ->
@@ -168,7 +170,10 @@ module internal ConditionEvaluation =
         let canRetryBlockedToken workGuid =
             let isSink = ctx.Index.TokenSinkGuids.Contains(workGuid)
             let successors = ctx.Index.WorkTokenSuccessors |> Map.tryFind workGuid |> Option.defaultValue []
-            let hasEmptySuccessor = successors |> List.exists ctx.CanReceiveToken
+            // 뒤가 같은 토큰을 이미 받았으면 합칠 수 있다(FS1 CAT-11-R06, TokenFlow.shiftToken) — 다시 시도한다.
+            let ownToken = SimState.getWorkToken workGuid (ctx.StateManager.GetState())
+            let holdsSameToken g = ownToken.IsSome && SimState.getWorkToken g (ctx.StateManager.GetState()) = ownToken
+            let hasEmptySuccessor = successors |> List.exists (fun g -> ctx.CanReceiveToken g || holdsSameToken g)
             // Group sync: workGuid (또는 reference group 멤버) 가 Group arrow 그룹에 속하면
             // 그룹 모든 멤버 Finish 까지 retry skip — Blocked event 무한 loop 방지.
             let groupSet =
@@ -210,15 +215,31 @@ module internal ConditionEvaluation =
     /// Going 상태 Call의 TxWork가 Ready인데 스케줄되지 않은 경우 재트리거.
     /// IsFinished=true인 Device Work가 리셋 후 Ready로 돌아왔을 때,
     /// 이미 Going 상태인 Call이 TxWork 스케줄링을 재시도할 수 있게 한다.
+    /// FS1-Q25 — 재트리거는 **이 Call 회차에 아직 서지 못한** Tx 에만 한다. 이미 한 번 선 Tx 가
+    /// 장치의 다시 준비로 Ready 가 되었다고 같은 요청으로 또 명령하면, 요청 하나에 실행이 여럿이 된다.
     let retriggerGoingCallTxWorks (ctx: Context) () =
+        let state = ctx.StateManager.GetState()
         for callGuid in ctx.Index.AllCallGuids do
             match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
             | Some workGuid ->
                 if ctx.StateManager.GetCallState(callGuid) = Status4.Going
                    && not (ctx.IsWorkFrozen workGuid) then
                     let txGuids = SimIndex.txWorkGuids ctx.Index callGuid
-                    for txGuid in txGuids do
-                        if ctx.StateManager.GetWorkState(txGuid) = Status4.Ready
+                    let txSnapshot = state.CallTxEpochSnapshot |> Map.tryFind callGuid
+                    // 배타 상대가 지금 실행 중이면(점유) 기다린다 — 다시 준비해 준 취출이 끝나기 전에 투입하지 않는다.
+                    let blockedByPeer =
+                        match ctx.Index.CallRaceExclusions |> Map.tryFind callGuid with
+                        | Some excludedSet ->
+                            excludedSet |> Set.exists (fun ex ->
+                                WorkConditionChecker.callOccupies ctx.Index state ex || ctx.StateManager.IsCallPending(ex))
+                        | None -> false
+                    for txGuid in (if blockedByPeer then [] else txGuids) do
+                        let alreadyCommanded =
+                            match txSnapshot |> Option.bind (Map.tryFind txGuid) with
+                            | Some saved -> SimState.getWorkEpoch (SimIndex.canonicalWorkGuid ctx.Index txGuid) state > saved
+                            | None -> false
+                        if not alreadyCommanded
+                           && ctx.StateManager.GetWorkState(txGuid) = Status4.Ready
                            && not (ctx.StateManager.IsWorkPending(txGuid)) then
                             scheduleWorkTransition ctx txGuid Status4.Going
             | None -> ()

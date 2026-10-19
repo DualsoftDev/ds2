@@ -75,6 +75,7 @@ module internal TokenFlow =
         let shiftTokenToTargets targetGuids =
             for targetGuid in targetGuids do
                 ctx.StateManager.SetWorkToken(targetGuid, Some token)
+                ctx.StateManager.SetWorkTokenFrom(targetGuid, workGuid)
                 emitTokenEvent ctx Shift token workGuid (Some targetGuid)
             ctx.StateManager.SetWorkToken(workGuid, None)
             // 그룹 멤버 token 도 clear — 다음 사이클에서 멤버들이 다시 token 받을 수 있게.
@@ -87,6 +88,15 @@ module internal TokenFlow =
                             emitTokenEvent ctx Complete peerToken peer None
                         | None -> ()
 
+        // FS1 CAT-11-R06 — 같은 제품이 갈라졌다 다시 합치면 동기화이지 두 제품이 아니다. 뒤 Work 가 이미
+        // **같은 토큰**을 받았으면 이 가지의 사본은 그쪽으로 합친다. 막으면 이 Work 는 토큰을 쥔 채 다시 준비(homing)를
+        // 끝내지 못해 영구히 선다 — 늦게 끝난 가지마다 하나씩(V&V 20·23, #8934: n 갈래 중 n-1 정지).
+        let mergeTarget () =
+            SimIndex.referenceGroupOf ctx.Index workGuid
+            |> List.collect (fun g -> ctx.Index.WorkTokenSuccessors |> Map.tryFind g |> Option.defaultValue [])
+            |> List.distinct
+            |> List.tryFind (fun g -> SimState.getWorkToken g (ctx.StateManager.GetState()) = Some token)
+
         if waitingForGroup then
             // 그룹 미완료 — token holding. 다른 멤버 Finish 시 다시 shiftToken 호출됨.
             emitTokenEvent ctx Blocked token workGuid None
@@ -94,7 +104,12 @@ module internal TokenFlow =
             completeTokenAtWork ()
         else
             match receivableSuccessors () with
-            | [] -> emitTokenEvent ctx Blocked token workGuid None
+            | [] ->
+                match mergeTarget () with
+                | Some target ->
+                    ctx.StateManager.SetWorkToken(workGuid, None)
+                    emitTokenEvent ctx Shift token workGuid (Some target)
+                | None -> emitTokenEvent ctx Blocked token workGuid None
             | targetGuids -> shiftTokenToTargets targetGuids
 
     /// Seed 대상 Work에 대응하는 origin label 결정.

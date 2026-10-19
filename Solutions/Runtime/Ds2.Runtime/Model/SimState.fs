@@ -98,11 +98,25 @@ type SimState = {
     TokenOrigins: Map<int, string * int>
     /// 이름별 발행 카운터
     TokenOriginCounters: Map<string, int>
+    /// FS1 CAT-05-R07 — 지금 쥔 토큰을 **넘겨준 Work**(canonical 대상 → 넘긴 Work). 여러 진입을 가진 Work 는
+    /// 이 Work 가 원인인 진입으로 시작한다(토큰과 선택 진입이 같은 근거). 토큰을 새로 놓거나 비우면 지운다.
+    WorkTokenFrom: Map<Guid, Guid>
     // ── Epoch (WaitForCompletion 지원) ──
     /// Work의 Going 진입 횟수 (canonical 기준)
     WorkCycleEpoch: Map<Guid, int>
     /// Call Going 시점의 RxWork epoch 스냅샷
     CallRxEpochSnapshot: Map<Guid, Map<Guid, int>>
+    /// FS1-Q25 — Work 가 Finish 로 **전이한** 횟수(canonical). 적재된 `finished` 는 전이가 아니라 세지 않는다.
+    /// WaitForCompletion 의 「이번 Call 회차에 대상이 끝났다」 근거다 — 장치가 곧바로 다시 준비돼도 사건은 남는다.
+    WorkFinishEpoch: Map<Guid, int>
+    /// Call Going 시점의 RxWork Finish epoch 스냅샷(FS1-Q25)
+    CallRxFinishSnapshot: Map<Guid, Map<Guid, int>>
+    /// Call Going 시점의 TxWork Going epoch 스냅샷 — 같은 Call 회차에 Tx 를 두 번 명령하지 않는다(FS1-Q25).
+    CallTxEpochSnapshot: Map<Guid, Map<Guid, int>>
+    /// FS1 CAT-03-R04 — 모델에서 `finished` 로 **적재된** 완료(현재 Run 의 실제 완료가 아님).
+    /// 적재 때만 채우고, 그 Work 의 다음 상태 전이(Reset·시작·재완료)에서 지운다.
+    /// 자동 진입은 이 집합에만 기대는 선행으로는 서지 않는다.
+    LoadedFinishWorks: Set<Guid>
 }
 
 module SimState =
@@ -127,8 +141,13 @@ module SimState =
         WorkMinDurationMet = Set.empty
         TokenOrigins = Map.empty
         TokenOriginCounters = Map.empty
+        WorkTokenFrom = Map.empty
         WorkCycleEpoch = Map.empty
         CallRxEpochSnapshot = Map.empty
+        WorkFinishEpoch = Map.empty
+        CallRxFinishSnapshot = Map.empty
+        CallTxEpochSnapshot = Map.empty
+        LoadedFinishWorks = Set.empty
     }
 
     let setWorkState (guid: Guid) state simState =
@@ -139,7 +158,13 @@ module SimState =
             | _ -> simState.WorkProgress |> Map.tryFind guid |> Option.defaultValue 0.0
         { simState with
             WorkStates = simState.WorkStates.Add(guid, state)
-            WorkProgress = simState.WorkProgress.Add(guid, progress) }
+            WorkProgress = simState.WorkProgress.Add(guid, progress)
+            // 적재 완료 표시는 그 Work 의 첫 전이에서 사라진다 — 이후 완료는 이번 Run 의 실제 완료다.
+            LoadedFinishWorks = simState.LoadedFinishWorks.Remove(guid) }
+
+    /// 적재된 finished 를 표시한다(setWorkState 로 Finish 를 놓은 **뒤**에 부른다).
+    let markLoadedFinish (guids: Guid seq) simState =
+        { simState with LoadedFinishWorks = Set.union simState.LoadedFinishWorks (Set.ofSeq guids) }
 
     let setCallState (guid: Guid) state simState =
         // Going 진입 시각 기록 — SensingType.Virtual(T) "출력 발생 + T" 완료 기준.
@@ -231,6 +256,14 @@ module SimState =
     let setWorkToken (guid: Guid) (token: TokenValue option) simState =
         { simState with WorkTokens = simState.WorkTokens.Add(guid, token) }
 
+    let setWorkTokenFrom (guid: Guid) (fromWork: Guid option) simState =
+        match fromWork with
+        | Some f -> { simState with WorkTokenFrom = simState.WorkTokenFrom.Add(guid, f) }
+        | None -> { simState with WorkTokenFrom = simState.WorkTokenFrom.Remove(guid) }
+
+    let getWorkTokenFrom (guid: Guid) simState =
+        simState.WorkTokenFrom |> Map.tryFind guid
+
     let addCompletedToken (token: TokenValue) simState =
         { simState with CompletedTokens = token :: simState.CompletedTokens }
 
@@ -270,7 +303,27 @@ module SimState =
         simState.CallRxEpochSnapshot |> Map.tryFind callGuid
 
     let clearCallRxEpochSnapshot (callGuid: Guid) simState =
-        { simState with CallRxEpochSnapshot = simState.CallRxEpochSnapshot.Remove(callGuid) }
+        { simState with
+            CallRxEpochSnapshot = simState.CallRxEpochSnapshot.Remove(callGuid)
+            CallRxFinishSnapshot = simState.CallRxFinishSnapshot.Remove(callGuid) }
+
+    // ── FS1-Q25: Finish 사건 수와 Call 회차별 Tx 명령 ──
+
+    let incrementWorkFinishEpoch (guid: Guid) simState =
+        let current = simState.WorkFinishEpoch |> Map.tryFind guid |> Option.defaultValue 0
+        { simState with WorkFinishEpoch = simState.WorkFinishEpoch.Add(guid, current + 1) }
+
+    let getWorkFinishEpoch (guid: Guid) simState =
+        simState.WorkFinishEpoch |> Map.tryFind guid |> Option.defaultValue 0
+
+    let snapshotCallRxFinishEpochs (callGuid: Guid) (rxEpochs: Map<Guid, int>) simState =
+        { simState with CallRxFinishSnapshot = simState.CallRxFinishSnapshot.Add(callGuid, rxEpochs) }
+
+    let snapshotCallTxEpochs (callGuid: Guid) (txEpochs: Map<Guid, int>) simState =
+        { simState with CallTxEpochSnapshot = simState.CallTxEpochSnapshot.Add(callGuid, txEpochs) }
+
+    let clearCallTxEpochSnapshot (callGuid: Guid) simState =
+        { simState with CallTxEpochSnapshot = simState.CallTxEpochSnapshot.Remove(callGuid) }
 
     let reset simState = {
         simState with
@@ -293,6 +346,11 @@ module SimState =
             WorkMinDurationMet = Set.empty
             TokenOrigins = Map.empty
             TokenOriginCounters = Map.empty
+            WorkTokenFrom = Map.empty
             WorkCycleEpoch = Map.empty
             CallRxEpochSnapshot = Map.empty
+            WorkFinishEpoch = Map.empty
+            CallRxFinishSnapshot = Map.empty
+            CallTxEpochSnapshot = Map.empty
+            LoadedFinishWorks = Set.empty
     }

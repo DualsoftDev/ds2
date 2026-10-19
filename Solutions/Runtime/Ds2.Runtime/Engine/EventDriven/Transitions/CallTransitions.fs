@@ -101,6 +101,8 @@ module internal CallTransitions =
             let completionWorkGuids = SimIndex.completionWorkGuids ctx.Index callGuid
             if not completionWorkGuids.IsEmpty then
                 ctx.StateManager.SnapshotCallRxEpochs(callGuid, completionWorkGuids)
+            // FS1-Q25 — 이 회차의 Tx 명령은 한 번이다. 재트리거는 아직 서지 못한 Tx 에만 한다.
+            ctx.StateManager.SnapshotCallTxEpochs(callGuid, SimIndex.txWorkGuids ctx.Index callGuid)
             ctx.ExecuteCallGoing callGuid
             // v16 SensingType.Virtual(T): 출력 발생(Going 진입) + T 후 완료 — T 시점 ConditionEval 재평가 예약.
             if not (ctx.TimeIgnore()) then
@@ -139,6 +141,7 @@ module internal CallTransitions =
             ctx.ClearCallSensingAppendDelay callGuid
             ctx.StateManager.ClearCallInputEpochSnapshot(callGuid)
             ctx.StateManager.ClearCallRxEpochSnapshot(callGuid)
+            ctx.StateManager.ClearCallTxEpochSnapshot(callGuid)
             // 시뮬 엔진이 reset 주체인 모드에서만 IO 값 비움 — 외부 PLC 가 진실원인 모드는 유지.
             match ctx.RuntimeMode with
             | RuntimeMode.Simulation

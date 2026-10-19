@@ -37,6 +37,12 @@ let addWork (store: DsStore) (localName: string) (flowId: Guid) : Work =
     store.DirectWrite(store.Works, work)
     work
 
+/// System 안의 Work 화살표 하나(source → target)를 추가한다.
+let addWorkArrow (store: DsStore) (systemId: Guid) (sourceId: Guid) (targetId: Guid) (arrowType: ArrowType) : ArrowBetweenWorks =
+    let arrow = ArrowBetweenWorks(systemId, sourceId, targetId, arrowType)
+    store.DirectWrite(store.ArrowWorks, arrow)
+    arrow
+
 let addApiDef (store: DsStore) (name: string) (systemId: Guid) : ApiDef =
     let apiDef = ApiDef(name, systemId)
     store.DirectWrite(store.ApiDefs, apiDef)

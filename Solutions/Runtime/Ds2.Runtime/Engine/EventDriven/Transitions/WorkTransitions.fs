@@ -195,6 +195,8 @@ module internal WorkTransitions =
                         ScheduledEvent.PriorityStateChange) |> ignore
 
     let handleWorkFinishTransition (ctx: Context) workGuid =
+        // FS1-Q25 — 완료 **사건**을 센다. 장치가 같은 걸음에 다시 준비돼도 Call 회차는 이 사건으로 끝난다.
+        ctx.StateManager.IncrementWorkFinishEpoch(workGuid)
         ctx.OnWorkFinish workGuid
         // device 한정: ADV/RET 동시-Finish 교착이면 한쪽을 Homing 으로 깨워 cycle 재기동.
         if ctx.RearmingPolicy = SimulationRearmingPolicy.LegacyDeviceRecovery && isDeviceWork ctx workGuid then

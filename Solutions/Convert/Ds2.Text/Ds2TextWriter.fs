@@ -451,7 +451,20 @@ module Ds2TextWriter =
                 |> Seq.filter (fun a -> workOfId.ContainsKey a.SourceId && workOfId.ContainsKey a.TargetId)
                 |> List.ofSeq
             let flowIdOf (id: Guid) = workOfId.[canonicalOf id].ParentId
-            let crossFlow = sysArrows |> List.filter (fun a -> flowIdOf a.SourceId <> flowIdOf a.TargetId)
+            // FS1 S-17 — 한 진입(같은 과녁·같은 Start 계열 = relationLines 의 한 문장)은 한 자리에 적는다.
+            // 원인 하나라도 다른 Flow 면 그 진입 **전체**를 System 레벨에 적는다. 화살표마다 나누면
+            // `(F.A, H.C) > H.X;` 가 System 의 `F.A > H.X;` 와 Flow 안 `C > X;` 로 갈라지고,
+            // 다시 읽으면 독립 진입 둘(OR)이 되어 AND 가 바뀐다. Reset·ResetReset 은 과녁별로 독립이라 그대로 둔다.
+            let isStartLike (a: ArrowBetweenWorks) = a.ArrowType = ArrowType.Start || a.ArrowType = ArrowType.StartReset
+            let mixedEntries =
+                sysArrows
+                |> List.filter (fun a -> isStartLike a && flowIdOf a.SourceId <> flowIdOf a.TargetId)
+                |> List.map (fun a -> a.ArrowType, a.TargetId)
+                |> Set.ofList
+            let atSystem (a: ArrowBetweenWorks) =
+                flowIdOf a.SourceId <> flowIdOf a.TargetId
+                || (isStartLike a && mixedEntries.Contains((a.ArrowType, a.TargetId)))
+            let crossFlow = sysArrows |> List.filter atSystem
             let workNameAbs (id: Guid) =
                 let w = workOfId.[id]
                 match flowOfWork w with
@@ -496,7 +509,7 @@ module Ds2TextWriter =
                     let named = works |> List.filter (fun w -> w.TokenRole.HasFlag role) |> List.map (fun w -> q w.LocalName)
                     if not named.IsEmpty then emit 6 (keyword + " " + String.concat ", " named + ";")
 
-                let inFlow = sysArrows |> List.filter (fun a -> flowIdOf a.SourceId = flow.Id && flowIdOf a.TargetId = flow.Id)
+                let inFlow = sysArrows |> List.filter (fun a -> not (atSystem a) && flowIdOf a.SourceId = flow.Id && flowIdOf a.TargetId = flow.Id)
                 let workNameRel (id: Guid) =
                     let w = workOfId.[id]
                     match flowOfWork w with

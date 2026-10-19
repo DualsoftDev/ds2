@@ -89,13 +89,17 @@ module internal EngineLifecycle =
 
     /// InitialFlag가 붙은 RxWork들을 즉시 Finish 상태로 고정하고 Ready→Finish 전이 이벤트 발행.
     /// Engine.ApplyInitialStates의 외부화 버전.
+    /// loadedWorkGuids(명시 `finished`) — 적재 완료로 표시해 자동 진입의 실제 완료 근거에서 뺀다(FS1 CAT-03-R04).
+    /// 표시는 전이 이벤트보다 **먼저** 둔다. 이벤트가 조건 평가를 부를 때 이미 적재 완료여야 한다.
     let applyInitialFinishStates
         (initialFinishWorkGuids: Set<Guid>)
+        (loadedWorkGuids: Set<Guid>)
         (stateManager: StateManager)
         (resolveWorkName: Guid -> string)
         (triggerWorkStateChanged: WorkStateChangedArgs -> unit) =
         for workGuid in initialFinishWorkGuids do
             stateManager.ForceWorkState(workGuid, Status4.Finish)
+            if loadedWorkGuids.Contains workGuid then stateManager.MarkLoadedFinish(workGuid)
             triggerWorkStateChanged {
                 WorkGuid = workGuid
                 WorkName = resolveWorkName workGuid

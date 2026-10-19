@@ -57,8 +57,9 @@ module internal TransitionGuards =
                     && not (
                         match ctx.Index.CallRaceExclusions |> Map.tryFind callGuid with
                         | Some excludedSet ->
+                            let state = ctx.StateManager.GetState()
                             excludedSet |> Set.exists (fun ex ->
-                                ctx.StateManager.GetCallState(ex) = Status4.Going
+                                WorkConditionChecker.callOccupies ctx.Index state ex
                                 || ctx.StateManager.IsCallPending(ex))
                         | None -> false)
                 | None -> false

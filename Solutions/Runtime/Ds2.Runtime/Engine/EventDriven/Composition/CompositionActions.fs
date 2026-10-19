@@ -14,7 +14,10 @@ module internal EventDrivenCompositionActions =
                 SimIndex.findExplicitInitialFinishWorkGuids index
             else
                 SimIndex.findInitialFlagRxWorkGuids index
-        EngineLifecycle.applyInitialFinishStates targets stateManager resolveWorkName triggerWorkStateChanged
+        // 명시 `finished`(IsFinished) 만 적재 완료로 표시한다 — 두 정책 모두(FS1 CAT-03-R04, 결정 Q16).
+        // Legacy 의 자동 원점 추론 대상(명시 플래그 없음)은 표시하지 않아 종전 동작을 유지한다.
+        let loaded = SimIndex.findExplicitInitialFinishWorkGuids index
+        EngineLifecycle.applyInitialFinishStates targets loaded stateManager resolveWorkName triggerWorkStateChanged
 
     let applyToken (stateManager: StateManager) emitTokenEvent scheduleConditionEvaluation (workGuid, newValue, kind, token) =
         stateManager.SetWorkToken(workGuid, newValue)

@@ -184,7 +184,13 @@ type StateManager(index: SimIndex, initialTickMs: int) =
 
     // ── Token ──
     member _.SetWorkToken(workGuid: Guid, token: TokenValue option) =
-        lock syncRoot (fun () -> setWorkTokenForGroup workGuid token)
+        lock syncRoot (fun () ->
+            setWorkTokenForGroup workGuid token
+            // 새로 놓거나 비운 토큰의 출처는 모른다 — 넘겨받은 경우만 SetWorkTokenFrom 이 다시 적는다.
+            state <- SimState.setWorkTokenFrom (canonicalWorkGuid workGuid) None state)
+    /// FS1 CAT-05-R07 — 토큰을 넘겨준 Work 를 적는다(SetWorkToken 바로 뒤에 부른다).
+    member _.SetWorkTokenFrom(workGuid: Guid, fromWork: Guid) =
+        lock syncRoot (fun () -> state <- SimState.setWorkTokenFrom (canonicalWorkGuid workGuid) (Some fromWork) state)
     member _.GetWorkToken(workGuid: Guid) =
         lock syncRoot (fun () -> SimState.getWorkToken (canonicalWorkGuid workGuid) state)
     member _.AddCompletedToken(token: TokenValue) =
@@ -206,9 +212,20 @@ type StateManager(index: SimIndex, initialTickMs: int) =
     member _.SnapshotCallRxEpochs(callGuid: Guid, rxGuids: Guid list) =
         lock syncRoot (fun () ->
             let epochMap = rxGuids |> List.map (fun rx -> rx, SimState.getWorkEpoch (canonicalWorkGuid rx) state) |> Map.ofList
-            state <- SimState.snapshotCallRxEpochs callGuid epochMap state)
+            let finishMap = rxGuids |> List.map (fun rx -> rx, SimState.getWorkFinishEpoch (canonicalWorkGuid rx) state) |> Map.ofList
+            state <- state |> SimState.snapshotCallRxEpochs callGuid epochMap |> SimState.snapshotCallRxFinishEpochs callGuid finishMap)
     member _.ClearCallRxEpochSnapshot(callGuid: Guid) =
         lock syncRoot (fun () -> state <- SimState.clearCallRxEpochSnapshot callGuid state)
+    /// FS1-Q25 — Finish 전이 사건을 센다(canonical).
+    member _.IncrementWorkFinishEpoch(workGuid: Guid) =
+        lock syncRoot (fun () -> state <- SimState.incrementWorkFinishEpoch (canonicalWorkGuid workGuid) state)
+    /// FS1-Q25 — Call Going 때 Tx 의 Going 횟수를 적어 둔다. 늘었으면 그 회차의 명령은 이미 나갔다.
+    member _.SnapshotCallTxEpochs(callGuid: Guid, txGuids: Guid list) =
+        lock syncRoot (fun () ->
+            let epochMap = txGuids |> List.map (fun tx -> tx, SimState.getWorkEpoch (canonicalWorkGuid tx) state) |> Map.ofList
+            state <- SimState.snapshotCallTxEpochs callGuid epochMap state)
+    member _.ClearCallTxEpochSnapshot(callGuid: Guid) =
+        lock syncRoot (fun () -> state <- SimState.clearCallTxEpochSnapshot callGuid state)
 
     member _.UpdateClock(newClock: TimeSpan) = lock syncRoot (fun () -> state <- { state with Clock = newClock })
     member _.GetState() = lock syncRoot (fun () -> state)
@@ -222,5 +239,8 @@ type StateManager(index: SimIndex, initialTickMs: int) =
         lock syncRoot (fun () -> state <- { state with FlowStates = state.FlowStates |> Map.map (fun _ _ -> tag) })
     member _.ForceWorkState(workGuid: Guid, newState: Status4) =
         lock syncRoot (fun () -> setWorkStateForGroup workGuid newState)
+    /// FS1 CAT-03-R04 — `finished` 로 적재한 완료를 표시한다(같은 참조 묶음 전체).
+    member _.MarkLoadedFinish(workGuid: Guid) =
+        lock syncRoot (fun () -> state <- SimState.markLoadedFinish (referenceGroupOf workGuid) state)
     member _.ForceCallState(callGuid: Guid, newState: Status4) =
         lock syncRoot (fun () -> state <- SimState.setCallState callGuid newState state)

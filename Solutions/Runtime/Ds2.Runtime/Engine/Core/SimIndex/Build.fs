@@ -94,6 +94,8 @@ module internal SimIndexBuild =
         let mutable tokenRoleMap = Map.empty<Guid, TokenRole>
         let mutable tokenSuccMap = Map.empty<Guid, Guid list>
         let mutable workGroupSets = Map.empty<Guid, Set<Guid>>
+        // (대상, 원인) — Work 이름으로 쓴 Reset(`|>`·`<|>`). 아래에서 원인 Work 의 모든 진입 주소로 넓힌다.
+        let mutable workNameResetPairs : (Guid * Guid) list = []
 
         let state : SimIndexBuildState = {
             AllWorkGuids = []
@@ -198,6 +200,14 @@ module internal SimIndexBuild =
                     SimIndexAlgorithms.groupArrows [ ArrowType.Reset; ArrowType.ResetReset ] wType wTgt wSrc workArrows
                     SimIndexAlgorithms.groupArrows [ ArrowType.StartReset; ArrowType.ResetReset ] wType wSrc wTgt workArrows
                 ]
+            workNameResetPairs <-
+                workNameResetPairs
+                @ (workArrows
+                   |> List.collect (fun a ->
+                       match a.ArrowType with
+                       | ArrowType.Reset -> [ a.TargetId, a.SourceId ]
+                       | ArrowType.ResetReset -> [ a.TargetId, a.SourceId; a.SourceId, a.TargetId ]
+                       | _ -> []))
             let workGroupArrows = workArrows |> List.filter (fun a -> a.ArrowType = ArrowType.Group)
             let wStartPreds, wResetPreds = SimIndexGroupExpansion.expandWorkGroupArrows workGroupArrows wStartPreds wResetPreds
             let wPureStartPreds, _ = SimIndexGroupExpansion.expandWorkGroupArrows workGroupArrows wPureStartPreds Map.empty
@@ -250,6 +260,20 @@ module internal SimIndexBuild =
                 |> Option.map (fun _ -> workGuid, (originalWork workGuid).Id))
             |> Map.ofList
         let workReferenceGroups = SimIndexAlgorithms.buildReferenceGroups workCanonicalGuids
+
+        // FS1 CAT-05-R04 — 자동 Ref 는 진입 주소일 뿐 따로 시작하지 않는다. Work 이름으로 쓴 Reset(`C |> P`)의
+        // 원인은 C 의 시작이므로, C 가 어느 진입(원본·`C@2`…)으로 시작해도 걸어야 한다. 전에는 원본 주소로
+        // 시작할 때만 걸려 `C@2` 로 시작하면 조용히 빠졌다(#8936 재현 중 발견 — `=|>` 의 `|>` 몫도 같다).
+        // `=>` 의 되돌림(StartReset)은 그 진입 주소에 붙어 **그 진입이 선택될 때만** 건다 — 넓히지 않는다
+        // (선택 진입의 started 에 따른 Reset, CAT-05-R07).
+        for (target, source) in workNameResetPairs do
+            let canonical = workCanonicalGuids |> Map.tryFind source |> Option.defaultValue source
+            match workReferenceGroups |> Map.tryFind canonical, state.WorkResetPreds |> Map.tryFind target with
+            | Some members, Some existing ->
+                let added = members |> List.filter (fun m -> not (List.contains m existing))
+                if not added.IsEmpty then
+                    state.WorkResetPreds <- state.WorkResetPreds.Add(target, existing @ added)
+            | _ -> ()
 
         let callCanonicalGuids =
             state.AllCallGuids
