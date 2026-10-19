@@ -4,9 +4,9 @@
 // 실행:
 //   dotnet fsi scripts/convert-aasx-to-current.fsx "<입력.aasx>" "<출력.aasx>"
 
-#r "../Apps/Tutorial/bin/Debug/net9.0/Ds2.Aasx.dll"
-#r "../Apps/Tutorial/bin/Debug/net9.0/Ds2.Core.dll"
-#r "../Apps/Tutorial/bin/Debug/net9.0/AasCore.Aas3_1.dll"
+#r "../Tutorial/bin/Debug/net9.0/Ds2.Aasx.dll"
+#r "../Tutorial/bin/Debug/net9.0/Ds2.Core.dll"
+#r "../Tutorial/bin/Debug/net9.0/AasCore.Aas3_1.dll"
 
 open System
 open System.IO

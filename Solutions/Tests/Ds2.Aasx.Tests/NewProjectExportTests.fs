@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Collections.Generic
 open Xunit
+open Ds2.Core
 open AasCore.Aas3_1
 open Ds2.Aasx
 open Ds2.Aasx.AasxSemantics
@@ -231,3 +232,55 @@ let ``AID XGT endpoint accepts only LS vendors`` () =
     Assert.NotNull connection
     Assert.Equal("LsXgb", connection.Vendor)
     Assert.Equal("192.168.9.103", connection.IpAddress)
+
+/// 내보내기는 실수·날짜를 InvariantCulture 로 쓰는데, 가져오기는 PC 문화권으로 읽었다. 소수점 쉼표 문화권(de-DE)에서는
+/// "0.95" 의 "." 이 천 단위 구분자로 읽혀 95 가 됐다 — 예외 없이 값이 바뀌고 다음 저장에 그대로 기록된다.
+[<Fact>]
+let ``numeric properties roundtrip unchanged on a comma-decimal culture`` () =
+    let store = newPromakerProject ()
+    let system = store.Systems.Values |> Seq.head
+    let props = SimulationSystemProperties()
+    props.ConfidenceLevel <- 0.95
+    props.TaktTime <- 72.5
+    system.SetSimulationProperties props
+
+    let path = Path.Combine(Path.GetTempPath(), $"culture-{Guid.NewGuid():N}.aasx")
+    let previous = System.Globalization.CultureInfo.CurrentCulture
+    try
+        System.Globalization.CultureInfo.CurrentCulture <- System.Globalization.CultureInfo.GetCultureInfo "de-DE"
+        Assert.True(AasxExporter.exportFromStore store path "" false false)
+
+        let restored = DsStore.empty()
+        match AasxImporter.importIntoStoreWithError restored path with
+        | Ok () -> ()
+        | Error error -> Assert.Fail error
+        let restoredProps = (restored.Systems.Values |> Seq.head).GetSimulationProperties()
+        Assert.True(restoredProps.IsSome, "시뮬레이션 시스템 속성이 왕복되지 않았다")
+        Assert.Equal(0.95, restoredProps.Value.ConfidenceLevel)
+        Assert.Equal(72.5, restoredProps.Value.TaktTime)
+    finally
+        System.Globalization.CultureInfo.CurrentCulture <- previous
+        if File.Exists path then File.Delete path
+
+/// 읽기 전용 AASX 위에 저장하면 바로 실패하고 원본은 그대로여야 한다. 예전엔 UI 스레드에서 22.5초를 재시도해
+/// 앱이 "응답 없음" 이 됐고, 그사이 사용자가 강제 종료하면 저장 안 한 편집을 잃었다.
+[<Fact>]
+let ``saving over a read-only AASX fails fast and keeps the original`` () =
+    let store = newPromakerProject ()
+    let path = Path.Combine(Path.GetTempPath(), $"readonly-{Guid.NewGuid():N}.aasx")
+    try
+        Assert.True(AasxExporter.exportFromStore store path "" false false)
+        let original = File.ReadAllBytes path
+        File.SetAttributes(path, FileAttributes.ReadOnly)
+
+        let sw = System.Diagnostics.Stopwatch.StartNew()
+        Assert.Throws<UnauthorizedAccessException>(fun () ->
+            AasxExporter.exportFromStore store path "" false false |> ignore) |> ignore
+        sw.Stop()
+
+        Assert.True(sw.ElapsedMilliseconds < 3000L, $"{sw.ElapsedMilliseconds}ms 걸렸다")
+        Assert.Equal<byte[]>(original, File.ReadAllBytes path)
+    finally
+        if File.Exists path then
+            File.SetAttributes(path, FileAttributes.Normal)
+            File.Delete path

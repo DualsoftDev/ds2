@@ -44,7 +44,7 @@ Solutions/
   Wasm/Ds2.Wasm             브라우저용 WebAssembly 빌드(Core + Text + Runtime)
   Tests/                    Core · Aasx · CSV · Mermaid · Runtime 테스트 + Ds2.TestKit(모델 빌더)
   Ds2.sln                   전체 솔루션
-Apps/Tutorial/              C# 소스 레벨 튜토리얼(Ds2.Tutorial)
+Tutorial/                   C# 소스 레벨 튜토리얼(Ds2.Tutorial)
 scripts/                    AASX 변환·검증 F# 스크립트
 ```
 
@@ -155,10 +155,10 @@ dotnet test  Solutions/Ds2.sln -nologo
 ### 튜토리얼
 
 ```bash
-dotnet run --project Apps/Tutorial/Ds2.Tutorial.csproj
+dotnet run --project Tutorial/Ds2.Tutorial.csproj
 ```
 
-모델 생성 → 변환 → 시뮬레이션 → 리포트까지 8단계. 자세한 내용은 [`Apps/Tutorial/README.md`](Apps/Tutorial/README.md).
+모델 생성 → 변환 → 시뮬레이션 → 리포트까지 8단계. 자세한 내용은 [`Tutorial/README.md`](Tutorial/README.md).
 
 ---
 
@@ -195,7 +195,7 @@ git clone --recurse-submodules https://github.com/DualsoftDev/ds2-Promaker.git
 
 | 문서 | 내용 |
 |:-----|:-----|
-| [`Apps/Tutorial/README.md`](Apps/Tutorial/README.md) | C# 튜토리얼 단계 설명 |
+| [`Tutorial/README.md`](Tutorial/README.md) | C# 튜토리얼 단계 설명 |
 | [`Solutions/Pack/Readme.md`](Solutions/Pack/Readme.md) | NuGet 패키지 구성·배포 |
 
 ---

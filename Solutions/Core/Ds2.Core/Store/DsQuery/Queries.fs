@@ -642,10 +642,14 @@ module Queries =
             let predsMap = predecessorsMap callIds arrows
 
             // Critical path: longestPath(c) = duration(c) + max(longestPath(pred))
+            // 순환(편집 중 방향 전환·재연결, 또는 외부 생성 파일)이 있으면 계산 중인 Call 로 되돌아오는 간선은 끊는다 —
+            // 끊지 않으면 무한 재귀로 프로세스가 흔적 없이 죽는다(StackOverflowException 은 잡을 수 없다).
             let mutable memo = Map.empty<Guid, int>
+            let inProgress = System.Collections.Generic.HashSet<Guid>()
             let rec longestPathTo (callId: Guid) =
                 match Map.tryFind callId memo with
                 | Some v -> v
+                | None when not (inProgress.Add callId) -> 0
                 | None ->
                     let myDuration = Map.tryFind callId durationMap |> Option.defaultValue 0
                     let preds = Map.tryFind callId predsMap |> Option.defaultValue []
@@ -654,6 +658,7 @@ module Queries =
                         | [] -> 0
                         | xs -> List.max xs
                     let result = myDuration + maxPredPath
+                    inProgress.Remove callId |> ignore
                     memo <- memo.Add(callId, result)
                     result
 
@@ -688,9 +693,11 @@ module Queries =
                 let predsMap = predecessorsMap callIds arrows
 
                 let mutable memo = Map.empty<Guid, RxTimingRange>
+                let inProgress = System.Collections.Generic.HashSet<Guid>()
                 let rec longestRangeTo (callId: Guid) =
                     match Map.tryFind callId memo with
                     | Some v -> v
+                    | None when not (inProgress.Add callId) -> { MinMs = 0; MaxMs = 0 }
                     | None ->
                         let myRange =
                             Map.tryFind callId rangeMap
@@ -706,6 +713,7 @@ module Queries =
                         let result =
                             { MinMs = myRange.MinMs + predRange.MinMs
                               MaxMs = myRange.MaxMs + predRange.MaxMs }
+                        inProgress.Remove callId |> ignore
                         memo <- memo.Add(callId, result)
                         result
 

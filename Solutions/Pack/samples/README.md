@@ -23,4 +23,4 @@ dotnet run --project Solutions/Pack/samples/CSharp -p:UseLocalDs2Projects=true
 
 실행 결과 파일은 샘플 앱 출력 폴더의 `out` 디렉터리에 생성됩니다.
 
-DS2 소스 레벨 튜토리얼은 `ds2/Apps/Tutorial`에 있습니다. 그 프로젝트는 friend assembly라 internal 생성자를 직접 다루는 Step도 포함합니다.
+DS2 소스 레벨 튜토리얼은 `ds2/Tutorial`에 있습니다. 그 프로젝트는 friend assembly라 internal 생성자를 직접 다루는 Step도 포함합니다.

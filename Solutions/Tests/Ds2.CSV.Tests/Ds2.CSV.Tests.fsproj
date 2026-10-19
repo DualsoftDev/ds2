@@ -9,6 +9,8 @@
   <ItemGroup>
     <Compile Include="CsvFormatDetectorTests.fs" />
     <Compile Include="AiCsvTests.fs" />
+    <Compile Include="StandardCsvTests.fs" />
+    <Compile Include="DeviceCsvTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -25,6 +27,7 @@
     <ProjectReference Include="..\..\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
     <ProjectReference Include="..\..\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
+    <ProjectReference Include="..\Ds2.TestKit\Ds2.TestKit.fsproj" />
   </ItemGroup>
 
 </Project>

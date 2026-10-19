@@ -41,8 +41,18 @@ type RuntimeHubSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtime
         |> Option.map resetInValueFor
         |> Option.defaultValue "false"
 
-    member _.HandleHubTag(address: string, value: string, source: string) =
+    /// <param name="systemId">신호를 보유한 PLC 의 소유 System(Guid 문자열). "" / null = 미제공(구버전 송신자) →
+    /// 종전대로 주소 단독 매칭. 제공되면 Monitoring 의 device Going 진입을 그 System 매핑으로 한정한다
+    /// (<see cref="SignalSystemScope"/>). InjectIoByAddress 효과는 주소 단위라 System 을 담지 못하므로
+    /// 소비자가 관측 System 으로 걸러 Call 단위 주입해야 한다.</param>
+    member _.HandleHubTag(
+        address: string,
+        value: string,
+        source: string,
+        [<System.Runtime.InteropServices.Optional; System.Runtime.InteropServices.DefaultParameterValue(null: string)>] systemId: string
+    ) =
         let effects = ResizeArray<RuntimeHubEffect>()
+        let observedSystem = SignalSystemScope.parse systemId
 
         match runtimeMode with
         | RuntimeMode.Control ->
@@ -117,14 +127,16 @@ type RuntimeHubSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtime
             //   Out On → device Work Going (plan 시작; 상호리셋은 engine triggerImmediateResets 가 담당, isPassive device 해제)
             //   In active → device Work Finish (실제 actual 도달; Going 일 때만 atomic Force)
             // passive inference(addPassiveObserve)는 active Work/Call 추론을 계속 담당.
+            //   남의 System 매핑은 제외 — 같은 주소를 쓰는 다른 PLC 의 OUT 이 이 System device 를 Going 시키면 안 된다.
             ioMap.GetByOutAddress(address)
+            |> SignalSystemScope.filter observedSystem
             |> List.filter (fun mapping -> isOutputActive mapping value)
             |> List.choose (fun mapping -> mapping.TxWorkGuid)
             |> List.distinct
             |> List.iter (fun txWorkGuid ->
                 RuntimeSessionEffects.addForceWorkStateIfReady effects 0 txWorkGuid Status4.Going)
 
-            let inMappings = ioMap.GetByInAddress(address)
+            let inMappings = ioMap.GetByInAddress(address) |> SignalSystemScope.filter observedSystem
             if not (List.isEmpty inMappings) then
                 // engine IOValues 갱신(abnormal actual 대조의 진실원). device Finish 는 engine plan-duration owner — In 으로 force 안 함.
                 RuntimeSessionEffects.addInjectIo effects address value

@@ -15,11 +15,14 @@
   </PropertyGroup>
 
   <!-- ds2 라이브러리(모든 Ds2.* 어셈블리와 NuGet 패키지 DualSoft-DS2) 버전의 SSOT = Solutions/BuildVersion.txt. csproj 에 <Version> 을 두지 않는다 —
-       매 빌드 시 이 props 가 값을 읽어 Version / AssemblyVersion / FileVersion 에 주입한다. -->
+       매 빌드 시 이 props 가 값을 읽어 Version / FileVersion 에 주입한다(AssemblyVersion 은 아래 고정값). -->
   <PropertyGroup>
     <Ds2Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)BuildVersion.txt').Trim())</Ds2Version>
     <Version>$(Ds2Version)</Version>
-    <AssemblyVersion>$(Ds2Version)</AssemblyVersion>
+    <!-- AssemblyVersion 은 바인딩 식별자라 고정한다. 미리 빌드된 외부 DLL(ExternalDlls/AAStoPLC.dll)이
+         Ds2.Core 1.0.0.0 을 참조하므로 이보다 낮아지면 .NET 로더가 어셈블리를 못 찾아 앱이 시작 즉시 죽는다
+         (0.1.24.0 으로 내렸다가 Promaker 가 FileNotFoundException 으로 죽은 사고). 제품 버전은 Version/FileVersion 이 든다. -->
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
     <FileVersion>$(Ds2Version)</FileVersion>
   </PropertyGroup>
 

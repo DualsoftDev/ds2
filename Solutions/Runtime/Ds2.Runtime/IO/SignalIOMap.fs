@@ -60,6 +60,43 @@ type SignalIOMap with
         |> Option.defaultValue []
         |> List.choose (fun m -> if System.String.IsNullOrEmpty m.OutAddress then None else Some m.OutAddress)
 
+/// 관측값의 소유 System 으로 주소 매핑을 좁히는 규칙 — 서로 다른 PLC 가 같은 주소를 쓸 때
+/// 한 PLC 신호가 다른 System 의 Call 까지 전이·추론·이상판정시키는 것(유령 발화)을 막는다.
+/// 관측 System 이 미상("" / null — 구버전 송신자)이면 필터도 키 분리도 하지 않는다(종전 동작).
+module SignalSystemScope =
+
+    /// 송신 규약의 systemId 문자열("" = 미제공) → Guid option.
+    let parse (systemId: string) : Guid option =
+        match Guid.TryParse(systemId) with
+        | true, g when g <> Guid.Empty -> Some g
+        | _ -> None
+
+    /// 관측 System 과 매핑 소유 System 대조. 어느 한쪽이라도 미상이면 통과(하위호환).
+    let matches (observed: Guid option) (mapping: SignalMapping) =
+        match observed, mapping.SystemId with
+        | Some o, Some owner -> o = owner
+        | _ -> true
+
+    let filter (observed: Guid option) (mappings: SignalMapping list) =
+        match observed with
+        | None -> mappings
+        | Some _ -> mappings |> List.filter (matches observed)
+
+    /// 이 주소를 Out/In 으로 쓰는 System 이 둘 이상인가.
+    let isShared (ioMap: SignalIOMap) (address: string) =
+        Seq.append (ioMap.GetByOutAddress address) (ioMap.GetByInAddress address)
+        |> Seq.choose (fun m -> m.SystemId)
+        |> Seq.distinct
+        |> Seq.truncate 2
+        |> Seq.length > 1
+
+    /// 주소 단위 관측 상태(직전값·edge 판정)의 키. System 간 공유 주소이고 System 을 알 때만
+    /// "{system}|{address}" 로 분리 — 그 외(독점 주소·System 미상)는 종전과 같은 주소 키.
+    let stateKey (ioMap: SignalIOMap) (systemId: Guid option) (address: string) =
+        match systemId with
+        | Some sys when isShared ioMap address -> sys.ToString("N") + "|" + address
+        | _ -> address
+
 module SignalIOMap =
 
     /// DsStore에서 IO 매핑 빌드. callFilter 가 Some 이면 그 Call 집합만 —

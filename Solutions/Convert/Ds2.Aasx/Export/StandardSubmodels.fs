@@ -454,9 +454,11 @@ module AasxExportStandardSubmodels =
         (dataApiEndpoint: string) : Submodel =
         if String.IsNullOrWhiteSpace dataApiEndpoint then
             invalidArg "dataApiEndpoint" "Data API endpoint must not be empty"
+        // Auto(KpiWalker 산출값 미러) 는 외부 수집 이력이 아니므로 세그먼트를 만들지 않는다.
         let signals =
             aidTimeSeriesSignals aid
             |> List.filter (fun signal -> not (String.IsNullOrWhiteSpace signal.SignalId.Value))
+            |> List.filter (fun signal -> not (aid.AutoOriginIdShorts.Contains signal.IdShort))
             |> List.distinctBy (fun signal -> signal.SignalId.Value)
             |> List.sortBy (fun signal -> signal.SignalId.Value)
         let metadata =

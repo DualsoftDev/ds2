@@ -105,3 +105,20 @@ let ``판별된 규격은 실제 파서가 받아들인다`` () =
     let standard = header9 + "\n이송,공급라인,컨베이어,이송_컨베이어,구동,,M00130,,P00080"
     Assert.Equal(CsvFormat.Standard9, (detect standard).Format)
     Assert.True((CsvParser.parse standard) |> Result.isOk)
+
+    // 11열은 맨 뒤 두 열(ActiveSystem, ReferenceOf)을 읽고, 뒤쪽 빈칸을 빼먹은 9칸 행은 두 값을 빈칸으로 읽는다.
+    let standard11 =
+        String.concat "\n" [
+            header9 + ",ActiveSystem,ReferenceOf"
+            "이송,공급라인,컨베이어,이송_컨베이어,구동,,M00130,,P00080,라인A,"
+            "이송,배출라인,컨베이어,이송_컨베이어,구동,,,,,라인A,이송.공급라인"
+            "이송,공급라인,리프트,이송_리프트,상승,,M00131,,P00081" ]
+    Assert.Equal(CsvFormat.Standard11, (detect standard11).Format)
+    match CsvParser.parse standard11 with
+    | Error errors -> failwith (errors |> List.map ParseError.toString |> String.concat "\n")
+    | Ok doc ->
+        Assert.Equal<(string option * string option) list>(
+            [ Some "라인A", None
+              Some "라인A", Some "이송.공급라인"
+              None, None ],
+            doc.Entries |> List.map (fun entry -> entry.ActiveSystemName, entry.ReferenceOf))

@@ -25,7 +25,6 @@ bld/
 *.fsproj.user
 *.userprefs
 
-
 **/*.*.sln
 
 # NuGet
@@ -59,7 +58,6 @@ Desktop.ini
 
 # AI / Claude Code
 .claude/
-!Apps/Promaker/.claude/
 .pat
 *.pat
 CHANGED.md
@@ -102,43 +100,9 @@ scripts/scratch/
 Solutions/Pack/samples/**/bin/
 Solutions/Pack/samples/**/obj/
 
-# Installer build artifacts
-Apps/Promaker/Installer/Output/
-Apps/Promaker/Installer/TestInstall/
-Apps/Promaker/Installer/IconCheck/
-Apps/DSPilot/DSPilot/sample/db/DsDB.sqlite3-shm
-Apps/DSPilot/DSPilot/sample/db/DsDB.sqlite3
-/Apps/DSPilot/DSPilot/sample/db/DsDB.sqlite3
-/Apps/DSPilot/DSPilot/sample/db/DsDB.sqlite3-wal
-Apps/DSPilot/example.html
-/Apps/DSPilot/DSPilot/sample/db
-# DSPilot 관리자 계정(아이디/비밀번호 해시)·데모 전환 — 사이트별 런타임 파일. 저장소/설치본에 실리면 현장 계정을 덮어쓴다.
-Apps/DSPilot/DSPilot/demo-admin.json
-Apps/DSPilot/DSPilot/demo-admin.enabled
-Apps/DSPilot/publish/
-Apps/DSPilot/publish-agent/
-Apps/DSPilot/publish-collector/
-Apps/DSPilot/Output/
-# DSPilot Lite(저용량) 빌드 산출물 — build-installer-lite.bat (표준 빌드와 별개 폴더)
-Apps/DSPilot/publish-lite/
-Apps/DSPilot/publish-agent-lite/
-Apps/DSPilot/publish-collector-lite/
-Apps/DSPilot/Output-lite/
-Apps/DSPilot/Installer/linux/.stage/
-
-
-/Apps/CostSim/Installer/Output
-/Apps/AasxEditor/**/aas_metadata.db
-/Apps/AasxEditor/**/aas_metadata.db-journal
-/Apps/AasxEditor/**/aas_metadata.db-wal
-/Apps/AasxEditor/**/aas_metadata.db-shm
-
 # Monaco Editor vendor bundle (fetched by scripts/fetch-monaco.ps1, not committed)
-/Apps/AasxEditor/AasxEditor.Core/wwwroot/lib/monaco-editor/
 
 # Installer outputs and bundled redistributables
-/Apps/AasxEditor/Installer/Output/
-/Apps/AasxEditor/Installer/Redist/MicrosoftEdgeWebView2RuntimeInstaller*.exe
 # PV 서버 통신 네이티브 DLL + 로컬 설정 — 서버 정보 보호 위해 git 제외 (사내에서만 배포)
 /ExternalDlls/PvClient.dll
 /ExternalDlls/pv.conf
@@ -146,18 +110,7 @@ Apps/DSPilot/Installer/linux/.stage/
 /ExternalDlls/AAStoPLC.xml
 /ExternalDlls/AAStoPLC.LadderViewer.pdb
 /ExternalDlls/AAStoPLC.LadderEditor.pdb
-Apps/DSPilot/plc.db
-Apps/DSPilot/plc.db.bak_20260527_095035
-Apps/DSPilot/tools/backfill_demo_data.py
-Apps/DSPilot/DSPilot/wwwroot/uploads/layout-data.json
-# layout-data 자동 백업(재init resync 시 타임스탬프 파일 생성) — 런타임 산출물, 소스 아님
-Apps/DSPilot/DSPilot/wwwroot/uploads/layout-data_*.json
 *.pdb
-Apps/DSPilot/DSPilot/wwwroot/uploads/cctv-overlays.json
-# DSPilot 런타임 AASX 역기록/추출 산출물 — dev 실행 시 CWD(Apps/DSPilot)에 생성되는 OPC 패키지 조각.
-#   project.aasx 는 ProgramData\Dualsoft\Shared\project.aasx 의 복사본이고 소스가 아니다.
-Apps/DSPilot/aasx/
-
 
 # 내부 작업 문서 — public 저장소에 싣지 않는다 (추적 해제: git rm --cached)
 /RUNTIME.md

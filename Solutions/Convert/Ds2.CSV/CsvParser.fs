@@ -7,6 +7,12 @@ module CsvParser =
 
     let internal expectedHeader9 = [ "flow"; "work"; "device"; "system"; "api"; "inname"; "inaddress"; "outname"; "outaddress" ]
     let internal expectedHeader8 = [ "flow"; "work"; "device"; "api"; "inname"; "inaddress"; "outname"; "outaddress" ]
+    /// 9열 뒤에 Active System 소속과 Reference 원본 Work 를 붙인 11열.
+    /// 9열만으로는 여러 Active System 이 하나로 합쳐지고 Reference Call 이 일반 Call 로 되돌아왔다.
+    /// 맨 뒤에 붙였으므로 9열 파일은 같은 파서에서 두 값이 빈칸인 채 읽힌다.
+    let internal expectedHeader11 = expectedHeader9 @ [ "activesystem"; "referenceof" ]
+    /// 11열 헤더 표기 — 내보내기 헤더와 형식 안내문이 같은 문자열을 쓴다.
+    let internal header11Text = "Flow,Work,Device,System,Api,InName,InAddress,OutName,OutAddress,ActiveSystem,ReferenceOf"
 
     /// BOM 제거 + NFC 정규화 + 전각->반각 폴딩(U+FF01..U+FF5E, U+3000).
     /// 한국어 LLM 출력의 전각 구분자(> ; , =)를 흡수한다.
@@ -137,20 +143,25 @@ module CsvParser =
             | Ok headerFields ->
                 let normalizedHeader = headerFields |> List.map normalizeHeaderField
 
-                let hasSystem =
-                    if normalizedHeader = expectedHeader9 then Some true
-                    elif normalizedHeader = expectedHeader8 then Some false
+                // (System 열 유무, 헤더 열 수)
+                let layout =
+                    if normalizedHeader = expectedHeader11 then Some (true, 11)
+                    elif normalizedHeader = expectedHeader9 then Some (true, 9)
+                    elif normalizedHeader = expectedHeader8 then Some (false, 8)
                     else None
 
-                match hasSystem with
+                match layout with
                 | None ->
-                    let expectedText = String.concat "," expectedHeader9
+                    let expectedText = String.concat "," expectedHeader11
                     Error [ {
                         LineNumber = headerLineNumber
                         Message = $"invalid header. expected: {expectedText} (쉼표 또는 탭 구분)"
                     } ]
-                | Some hasSystemCol ->
-                    let expectedCols = if hasSystemCol then 9 else 8
+                | Some (hasSystemCol, headerCols) ->
+                    // 맨 뒤 두 열(ActiveSystem, ReferenceOf)은 손으로 쓴 행이 뒤쪽 빈칸을 빼먹어도 빈 값으로 읽는다.
+                    let requiredCols = if hasSystemCol then 9 else 8
+                    let expectedColsText =
+                        if requiredCols = headerCols then $"{headerCols}" else $"{requiredCols}~{headerCols}"
                     let parseErrors = ResizeArray<ParseError>()
                     let rows = ResizeArray<CsvRow>()
 
@@ -158,12 +169,13 @@ module CsvParser =
                         match splitLine separator lineNumber line with
                         | Error error ->
                             parseErrors.Add(error)
-                        | Ok values when values.Length <> expectedCols ->
+                        | Ok values when values.Length < requiredCols || values.Length > headerCols ->
                             parseErrors.Add({
                                 LineNumber = lineNumber
-                                Message = $"expected {expectedCols} columns but found {values.Length}"
+                                Message = $"expected {expectedColsText} columns but found {values.Length}"
                             })
                         | Ok values ->
+                            let cell index = if index < values.Length then trim values.[index] else ""
                             let flowName = trim values.[0]
                             let workName = trim values.[1]
                             let deviceName = trim values.[2]
@@ -199,6 +211,9 @@ module CsvParser =
                                     InAddress = inAddress
                                     OutName = outName
                                     OutAddress = outAddress
+                                    // 8열·9열 헤더는 여기까지 열이 없어 빈칸이 된다.
+                                    ActiveSystemName = cell 9
+                                    ReferenceOf = cell 10
                                     LineNumber = lineNumber
                                 })
 
@@ -228,6 +243,8 @@ module CsvParser =
                                     InAddress = inAddress
                                     OutName = outName
                                     OutAddress = outAddress
+                                    ActiveSystemName = toOption row.ActiveSystemName
+                                    ReferenceOf = toOption row.ReferenceOf
                                     SourceLines = [ row.LineNumber ]
                                 })
                             |> Seq.toList

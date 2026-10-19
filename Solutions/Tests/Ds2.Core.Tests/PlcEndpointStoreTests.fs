@@ -4,6 +4,7 @@ open System
 open Ds2.Core
 open Ds2.Core.Store
 open Ds2.Core.StandardSubmodels
+open Ds2.Core.StandardSubmodels.AssetInterfacesDescriptionTypes
 open Xunit
 
 /// Project 1 + active System 1 인 store. Core 테스트라 편집기 없이 엔티티를 직접 넣는다.
@@ -67,3 +68,54 @@ let ``unsupported vendor and unknown system are refused without touching the mod
     Assert.False(store.EnsureXgtEndpoint(system.Id, PlcVendorChoice.Mitsubishi, lsProfile "10.0.0.5" 5007, [ "%IX0.0" ]))
     Assert.False(store.EnsureXgtEndpoint(Guid.NewGuid(), PlcVendorChoice.LsXgi, lsProfile "10.0.0.5" 2004, [ "%IX0.0" ]))
     Assert.Null(store.TryReadXgtEndpoint(Guid.NewGuid()))
+
+/// 접속 정보는 주소(ApiDef I/O)와 무관하게 저장된다 — 새 프로젝트에서 I/O 를 붙이기 전에 PLC IP 부터 넣는 순서가
+/// 자연스럽다. 종전엔 주소 0개를 "쓸 게 없다" 로 보고 저장 실패를 돌려줘 "PLC 접속이 저장되지 않는다" 로 보고됐다.
+[<Fact>]
+let ``EnsureXgtEndpoint stores the connection even when the system has no addresses yet`` () =
+    let store, _, system = storeWithSystem "Fresh"
+
+    Assert.True(store.EnsureXgtEndpoint(system.Id, PlcVendorChoice.LsXgb, lsProfile "10.0.0.11" 2004, []))
+
+    let conn = store.TryReadXgtEndpoint system.Id
+    Assert.NotNull conn
+    Assert.Equal("10.0.0.11", conn.IpAddress)
+    Assert.Equal("LsXgb", conn.Vendor)
+
+/// 요청이 성립하지 않아(빈 IP) 기록이 안 됐으면 모델도 그대로다 — 실패한 저장이 빈 AID 를 남기면 그 다음 AASX
+/// 저장에 "Interfaces 0개" 인 AID 서브모델이 실리고, 되읽기는 무주인 endpoint 탐색까지 꼬인다.
+[<Fact>]
+let ``a refused write leaves no empty AID behind`` () =
+    let store, _, system = storeWithSystem "NoIp"
+
+    Assert.False(store.EnsureXgtEndpoint(system.Id, PlcVendorChoice.LsXgi, lsProfile "" 2004, [ "%IX0.0" ]))
+
+    Assert.Empty store.AssetInterfaces
+    Assert.Null(store.TryReadXgtEndpoint system.Id)
+
+/// 구버전 파일의 endpoint 는 소유 System 이 없다. 단일 System 프로젝트에선 그 하나를 표시 폴백으로 보여 주고,
+/// 저장하면 새 endpoint 를 만들지 않고 그것을 귀속(claim)시킨다. 둘 이상이면 어느 것도 "구버전" 으로 고르지 않는다.
+[<Fact>]
+let ``a single unowned endpoint is shown as legacy and claimed on save, two are never guessed`` () =
+    let store, project, system = storeWithSystem "Line"
+    Assert.True(store.EnsureXgtEndpoint(system.Id, PlcVendorChoice.LsXgi, lsProfile "10.0.0.5" 2004, [ "%IX0.0" ]))
+    let aid = (store.TryGetAssetInterfaces project.Id).Value
+    let unown binding =
+        match binding with
+        | Xgt (endpoint, interactions) -> Xgt ({ endpoint with SystemId = None }, interactions)
+        | other -> other
+    aid.Interfaces.[0] <- unown aid.Interfaces.[0]
+
+    Assert.Null(store.TryReadXgtEndpoint system.Id)
+    let legacy = store.TryReadLegacyUnassignedXgtEndpoint()
+    Assert.NotNull legacy
+    Assert.Equal("10.0.0.5", legacy.IpAddress)
+
+    Assert.True(store.EnsureXgtEndpoint(system.Id, PlcVendorChoice.LsXgi, lsProfile "10.0.0.7" 2004, []))
+    Assert.Single aid.Interfaces |> ignore
+    Assert.Null(store.TryReadLegacyUnassignedXgtEndpoint())
+    Assert.Equal("10.0.0.7", (store.TryReadXgtEndpoint system.Id).IpAddress)
+
+    aid.Interfaces.[0] <- unown aid.Interfaces.[0]
+    aid.Interfaces.Add(unown aid.Interfaces.[0])
+    Assert.Null(store.TryReadLegacyUnassignedXgtEndpoint())

@@ -401,3 +401,36 @@ module AutoGroupTests =
         let rep = store.Calls.Values |> Seq.find (fun c -> c.Name = "클램프1.전진")
         Assert.Equal(rep.Id, (List.head starts).TargetId)
         Assert.Equal(3, List.length (groupArrows store))            // 4개를 잇는 인접쌍 3개
+
+// ── Call 순환 ────────────────────────────────────────────────────────────────
+// 편집기의 방향 전환·재연결이나 외부에서 만든 파일로 Call 간 Start 화살표에 순환이 생길 수 있다.
+// critical path 계산이 순환에서 끝나지 않으면 Work 클릭(속성 패널)이나 시뮬 시작(SimIndex.build)에서
+// StackOverflow 로 프로세스가 흔적 없이 죽는다 — 잡을 수 없는 예외라 계산 자체가 끝나야 한다.
+[<Fact>]
+let ``Call 화살표 순환이 있어도 critical path 계산과 SimIndex 빌드가 끝난다`` () =
+    let _, store = load (csvOf [ "F,W,실린더.전진=100MS>실린더.후진=100MS>클램프.닫힘=100MS>클램프.열림=100MS" ])
+    let work = store.Works.Values |> Seq.find (fun w -> w.Name = "F.W")
+    let calls = Queries.callsOf work.Id store
+    let byName name = calls |> List.find (fun c -> c.Name = name)
+    let advance, retract = byName "실린더.전진", byName "실린더.후진"
+    // 후진→닫힘 화살표를 후진→전진으로 바꿔 전진⇄후진 순환을 만든다.
+    let arrow =
+        Queries.arrowCallsOf work.Id store
+        |> List.find (fun a -> a.SourceId = retract.Id)
+    arrow.TargetId <- advance.Id
+    // 범위 계산은 장치 Work 에 Max 가 있어야 재귀까지 들어간다 — 시간이 있는 장치 Work 에 Min/Max 를 채운다.
+    for w in store.Works.Values do
+        match w.Duration with
+        | Some d ->
+            w.MinDuration <- Some d
+            w.MaxDuration <- Some (d + System.TimeSpan.FromMilliseconds 50.0)
+        | None -> ()
+
+    match Queries.tryGetDeviceDurationMs work.Id store with
+    | Some ms -> Assert.InRange(ms, 200, 300)
+    | None -> Assert.Fail "critical path 가 계산되지 않았다"
+    match Queries.tryGetDeviceDurationRangeMs work.Id store with
+    | Some range -> Assert.InRange(range.MaxMs, 200, 400)
+    | None -> Assert.Fail "critical range 가 계산되지 않았다"
+    let index = Ds2.Runtime.Engine.Core.SimIndex.build store 10
+    Assert.Contains(work.Id, index.AllWorkGuids)

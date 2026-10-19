@@ -1,9 +1,9 @@
 // 변환된 AASX 가 현재 Promaker 로 정상 import 되는지 검증.
 //   dotnet fsi scripts/verify-aasx-import.fsx <AASX 경로>
 
-#r "../Apps/Tutorial/bin/Debug/net9.0/Ds2.Aasx.dll"
-#r "../Apps/Tutorial/bin/Debug/net9.0/Ds2.Core.dll"
-#r "../Apps/Tutorial/bin/Debug/net9.0/AasCore.Aas3_1.dll"
+#r "../Tutorial/bin/Debug/net9.0/Ds2.Aasx.dll"
+#r "../Tutorial/bin/Debug/net9.0/Ds2.Core.dll"
+#r "../Tutorial/bin/Debug/net9.0/AasCore.Aas3_1.dll"
 
 open System
 open System.IO

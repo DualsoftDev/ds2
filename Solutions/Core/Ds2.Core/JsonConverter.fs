@@ -39,11 +39,15 @@ module JsonConverter =
         else
             stream.ReadByte() = 0x1f && stream.ReadByte() = 0x8b
 
-    let private writeCompressedUtf8 (filePath: string) (text: string) =
+    let private writeCompressedUtf8 (stream: Stream) (text: string) =
         let bytes = Encoding.UTF8.GetBytes(text)
-        use file = File.Create(filePath)
-        use gzip = new GZipStream(file, CompressionLevel.SmallestSize)
+        use gzip = new GZipStream(stream, CompressionLevel.SmallestSize, true)
         gzip.Write(bytes, 0, bytes.Length)
+
+    /// File.WriteAllText(path, text, Encoding.UTF8) 과 같은 바이트(UTF-8 BOM 포함)를 스트림에 쓴다.
+    let private writeUtf8 (stream: Stream) (text: string) =
+        use writer = new StreamWriter(stream, Encoding.UTF8, 4096, true)
+        writer.Write(text)
 
     let private readCompressedUtf8 (filePath: string) =
         use file = File.OpenRead(filePath)
@@ -59,13 +63,12 @@ module JsonConverter =
     let deserialize<'T> (json: string) : 'T =
         JsonSerializer.Deserialize<'T>(json, defaultOptions)
 
-    /// 파일에 JSON 저장
+    /// 파일에 JSON 저장 — 원자적 교체(AtomicFile). 쓰는 도중 실패해도 기존 파일이 깨지지 않는다.
     let saveToFile<'T> (filePath: string) (value: 'T) : unit =
         let json = serialize value
-        if isSdfFile filePath then
-            writeCompressedUtf8 filePath json
-        else
-            File.WriteAllText(filePath, json, Encoding.UTF8)
+        AtomicFile.write filePath (fun stream ->
+            if isSdfFile filePath then writeCompressedUtf8 stream json
+            else writeUtf8 stream json)
 
     /// 파일에서 JSON 로드
     let loadFromFile<'T> (filePath: string) : 'T =

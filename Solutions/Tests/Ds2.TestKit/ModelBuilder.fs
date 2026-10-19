@@ -71,6 +71,15 @@ let addCallWithLinkedApiDefs
         apiCall |> Option.iter call.ApiCalls.Add
     call.Id
 
+/// originalCallId 를 가리키는 Reference Call 을 workId 에 만든다 — 편집기 AddReferenceCallToWork 와 같은 모양.
+/// Reference 는 ApiCall 을 갖지 않고 디바이스 연결은 원본 것을 쓴다.
+let addReferenceCall (store: DsStore) (originalCallId: Guid) (workId: Guid) : Guid =
+    let original = store.Calls.[originalCallId]
+    let reference = Call(original.DevicesAlias, original.ApiName, workId)
+    reference.ReferenceOf <- Some originalCallId
+    store.DirectWrite(store.Calls, reference)
+    reference.Id
+
 /// 기본 프로젝트 + active 시스템 + 플로우 + 워크 구성.
 let setupBasicHierarchy (store: DsStore) =
     let project = addProject store "TestProject"
