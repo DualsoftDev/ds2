@@ -124,6 +124,37 @@ module internal TokenFlow =
         |> Option.map (fun spec -> spec.Label)
         |> Option.defaultWith (fun () -> workNameOf ctx canonicalSourceWorkGuid)
 
+    /// #8938 — 새 토큰의 제품 사양. 차례대로:
+    ///  1. 그 소스를 지령하는 api 의 제품(2026-10-20 Q43 `api X { …; product N; }` → ApiDef.TokenSpecId). 그런 api 가 여럿이고
+    ///     제품이 서로 다르면 F5 는 어느 지령인지 모르므로 미정이다.
+    ///  2. 출처 Work 가 맞는 사양(`product N "…" from …`).
+    ///  3. 사양이 하나뿐이면 그것.
+    /// 미정이면 None — 그 토큰의 `token.필드` 조건은 거짓이다(건너뛰지 않는다).
+    let resolveSeedSpecId (ctx: Context) (sourceWorkGuid: Guid) : int option =
+        let canonicalSourceWorkGuid = SimIndex.canonicalWorkGuid ctx.Index sourceWorkGuid
+        let specs = Queries.getTokenSpecs ctx.Index.Store
+        let known id = specs |> List.exists (fun spec -> spec.Id = id)
+        let fromApi =
+            ctx.Index.Store.ApiDefs.Values
+            |> Seq.filter (fun api ->
+                api.TxGuid
+                |> Option.map (fun workGuid -> SimIndex.canonicalWorkGuid ctx.Index workGuid = canonicalSourceWorkGuid)
+                |> Option.defaultValue false)
+            |> Seq.choose (fun api -> api.TokenSpecId)
+            |> Seq.distinct
+            |> Seq.toList
+        let fromSource =
+            specs |> List.tryFind (fun spec ->
+                spec.WorkId
+                |> Option.map (fun workGuid -> SimIndex.canonicalWorkGuid ctx.Index workGuid = canonicalSourceWorkGuid)
+                |> Option.defaultValue false)
+        match fromApi, fromSource, specs with
+        | [ id ], _, _ when known id -> Some id
+        | _ :: _ :: _, _, _ -> None
+        | _, Some spec, _ -> Some spec.Id
+        | _, None, [ only ] -> Some only.Id
+        | _ -> None
+
     let onWorkFinish (ctx: Context) (workGuid: Guid) =
         let tryGetActiveToken () =
             SimState.getWorkToken workGuid (ctx.StateManager.GetState())

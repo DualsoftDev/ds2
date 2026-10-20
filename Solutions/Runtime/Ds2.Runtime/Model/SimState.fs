@@ -101,6 +101,8 @@ type SimState = {
     /// FS1 CAT-05-R07 — 지금 쥔 토큰을 **넘겨준 Work**(canonical 대상 → 넘긴 Work). 여러 진입을 가진 Work 는
     /// 이 Work 가 원인인 진입으로 시작한다(토큰과 선택 진입이 같은 근거). 토큰을 새로 놓거나 비우면 지운다.
     WorkTokenFrom: Map<Guid, Guid>
+    /// DS2 Text 5 (#8938) — 토큰 번호 → 제품 사양(TokenSpec.Id). 토큰이 생길 때 정한다. `skip when token.…` 이 이 사양의 필드를 읽는다.
+    TokenSpecIds: Map<int, int>
     // ── Epoch (WaitForCompletion 지원) ──
     /// Work의 Going 진입 횟수 (canonical 기준)
     WorkCycleEpoch: Map<Guid, int>
@@ -142,6 +144,7 @@ module SimState =
         TokenOrigins = Map.empty
         TokenOriginCounters = Map.empty
         WorkTokenFrom = Map.empty
+        TokenSpecIds = Map.empty
         WorkCycleEpoch = Map.empty
         CallRxEpochSnapshot = Map.empty
         WorkFinishEpoch = Map.empty
@@ -264,6 +267,13 @@ module SimState =
     let getWorkTokenFrom (guid: Guid) simState =
         simState.WorkTokenFrom |> Map.tryFind guid
 
+    /// #8938 — 토큰이 실은 제품 사양 번호.
+    let setTokenSpecId (tokenId: int) (specId: int) simState =
+        { simState with TokenSpecIds = simState.TokenSpecIds.Add(tokenId, specId) }
+
+    let getTokenSpecId (token: TokenValue) simState =
+        match token with IntToken id -> simState.TokenSpecIds |> Map.tryFind id
+
     let addCompletedToken (token: TokenValue) simState =
         { simState with CompletedTokens = token :: simState.CompletedTokens }
 
@@ -347,6 +357,7 @@ module SimState =
             TokenOrigins = Map.empty
             TokenOriginCounters = Map.empty
             WorkTokenFrom = Map.empty
+            TokenSpecIds = Map.empty
             WorkCycleEpoch = Map.empty
             CallRxEpochSnapshot = Map.empty
             WorkFinishEpoch = Map.empty

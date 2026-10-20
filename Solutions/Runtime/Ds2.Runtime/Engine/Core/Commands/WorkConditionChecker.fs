@@ -173,6 +173,8 @@ module WorkConditionChecker =
         match expr with
         | Const value -> value
         | Leaf entry -> checkConditionSpec state entry
+        // 토큰 문맥이 없는 자리(when/while 등)에는 오지 않는다(Build 가 Skip 밖의 token 잎을 거절한다). 와도 거짓이다.
+        | TokenTest _ -> false
         | And exprs -> exprs |> List.forall (evaluateConditionExpression state)
         | Or exprs ->
             if exprs.IsEmpty then false
@@ -188,18 +190,67 @@ module WorkConditionChecker =
     ///
     /// 예전에는 `not (evaluate ...)` 였다 — 만족하면 실행하고 어긋나면 건너뛰었다.
     /// 그래서 화면의 기대값과 실제 거동이 반대로 읽혔다. 조건이 없으면 건너뛰지 않는다.
-    let private shouldSkipByExpr (state: SimState) (exprOpt: ConditionExpression option) : bool =
+    /// #8938 — 제품 사양 필드 비교(`token.필드 ==|!=|in …`). 사양 필드값과 조건의 값은 둘 다 JSON 리터럴이다(true · 25 · "B").
+    /// 필드가 없거나 읽을 수 없으면 거짓이다 — 건너뛰지 않는다(컴파일러가 모든 사양에 필드가 있는지 이미 본다).
+    let private tokenFieldMatches (spec: TokenSpec) (t: TokenPredicate) : bool =
+        match spec.Fields |> Map.tryFind t.Field with
+        | None -> false
+        | Some raw ->
+            let parsed =
+                try Some (System.Text.Json.JsonDocument.Parse(raw).RootElement.Clone()) with _ -> None
+            match parsed with
+            | None -> false
+            | Some actual ->
+                let same (expected: System.Text.Json.JsonElement) =
+                    match t.Kind with
+                    | "bool" ->
+                        (actual.ValueKind = System.Text.Json.JsonValueKind.True || actual.ValueKind = System.Text.Json.JsonValueKind.False)
+                        && actual.ValueKind = expected.ValueKind
+                    | "number" ->
+                        actual.ValueKind = System.Text.Json.JsonValueKind.Number && expected.ValueKind = System.Text.Json.JsonValueKind.Number
+                        && (let okA, a = actual.TryGetDecimal()
+                            let okE, e = expected.TryGetDecimal()
+                            if okA && okE then a = e else actual.GetDouble() = expected.GetDouble())
+                    | _ ->
+                        actual.ValueKind = System.Text.Json.JsonValueKind.String && expected.ValueKind = System.Text.Json.JsonValueKind.String
+                        && actual.GetString() = expected.GetString()
+                match t.Op, t.Values with
+                | "in", values -> values |> List.exists same
+                | "ne", v :: _ -> not (same v)
+                | _, v :: _ -> same v
+                | _ -> false
+
+    /// 그 Work 가 지금 쥔 토큰의 제품 사양.
+    let private tokenSpecAt (index: SimIndex) (state: SimState) (workGuid: Guid) : TokenSpec option =
+        let canonical = SimIndex.canonicalWorkGuid index workGuid
+        match SimState.getWorkToken canonical state |> Option.orElse (SimState.getWorkToken workGuid state) with
+        | None -> None
+        | Some token ->
+            SimState.getTokenSpecId token state
+            |> Option.bind (fun id -> Queries.getTokenSpecs index.Store |> List.tryFind (fun s -> s.Id = id))
+
+    /// Skip 식 평가 — 제품 사양 잎(`TokenTest`)은 주어진 사양으로, 나머지는 `evaluateConditionExpression` 그대로.
+    let rec private evaluateWithSpec (spec: TokenSpec option) (state: SimState) (expr: ConditionExpression) : bool =
+        match expr with
+        | TokenTest t -> spec |> Option.map (fun s -> tokenFieldMatches s t) |> Option.defaultValue false
+        | And exprs -> exprs |> List.forall (evaluateWithSpec spec state)
+        | Or exprs -> if exprs.IsEmpty then false else exprs |> List.exists (evaluateWithSpec spec state)
+        | Not inner -> not (evaluateWithSpec spec state inner)
+        | other -> evaluateConditionExpression state other
+
+    let private shouldSkipByExpr (spec: TokenSpec option) (state: SimState) (exprOpt: ConditionExpression option) : bool =
         match exprOpt with
         | Some (And []) | None -> false
-        | Some expr -> evaluateConditionExpression state expr
+        | Some expr -> evaluateWithSpec spec state expr
 
-    /// SkipAction (Call): 조건 성립 시 Going 없이 Finish 로 skip
+    /// SkipAction (Call): 조건 성립 시 Going 없이 Finish 로 skip — 제품 사양은 부모 Work 가 쥔 토큰의 것(#8938).
     let shouldSkipCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
-        shouldSkipByExpr state (Map.tryFind callGuid index.CallSkipActionConditions)
+        let spec = Map.tryFind callGuid index.CallWorkGuid |> Option.bind (tokenSpecAt index state)
+        shouldSkipByExpr spec state (Map.tryFind callGuid index.CallSkipActionConditions)
 
-    /// SkipAction (Work): 조건 성립 시 Work 가 Going 없이 Finish 로 skip
+    /// SkipAction (Work): 조건 성립 시 Work 가 Going 없이 Finish 로 skip — 제품 사양은 그 Work 가 쥔 토큰의 것(#8938).
     let shouldSkipWork (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
-        shouldSkipByExpr state (Map.tryFind workGuid index.WorkSkipActionConditions)
+        shouldSkipByExpr (tokenSpecAt index state workGuid) state (Map.tryFind workGuid index.WorkSkipActionConditions)
 
     /// Call 시작 가능 여부 (Work G + 선행 Call F + AutoAux/ComAux 조건)
     let canStartCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =

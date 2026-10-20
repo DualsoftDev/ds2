@@ -80,6 +80,13 @@ let addReferenceCall (store: DsStore) (originalCallId: Guid) (workId: Guid) : Gu
     store.DirectWrite(store.Calls, reference)
     reference.Id
 
+/// 빈 조건 하나 — Condition 생성자는 internal 이라 이 어셈블리 밖(런타임 시험 등)은 이것으로 만든다.
+/// 붙이기는 호출자가 한다(`work.Conditions.Add` / `call.Conditions.Add`).
+let newCondition (conditionType: ConditionType) : Condition =
+    let condition = Condition()
+    condition.Type <- Some conditionType
+    condition
+
 /// 기본 프로젝트 + active 시스템 + 플로우 + 워크 구성.
 let setupBasicHierarchy (store: DsStore) =
     let project = addProject store "TestProject"

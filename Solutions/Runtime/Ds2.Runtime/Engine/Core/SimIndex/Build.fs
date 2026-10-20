@@ -31,9 +31,12 @@ module internal SimIndexBuild =
         let rec convertOne (cc: Condition) : ConditionExpression =
             // DS2 Text 5 의 token/variable 잎은 아직 실행 의미가 없다. 비어 있는 잎으로 흘리면 **skip 이 없는 모델**이
             // 조용히 돌아간다 — 그보다 거절이 낫다. 지원이 생기면 이 자리에서 평가식으로 바꾼다.
-            match cc.Token with
-            | Some t -> invalidOp $"DS2_V5_UNSUPPORTED: token 조건(token.{t.Field})은 아직 실행할 수 없습니다 — 엔진이 제품 사양 Skip 을 지원하기 전까지 시뮬레이션에 올릴 수 없습니다."
-            | None -> ()
+            // #8938 — 제품 사양 잎은 Skip 자리에서만 뜻이 있다(ds2 5 문법이 그렇게만 적게 한다). 그 밖의 자리면 거절한다.
+            let tokenLeaf =
+                match cc.Token with
+                | Some t when conditionType = ConditionType.SkipAction -> [ TokenTest t ]
+                | Some t -> invalidOp $"DS2_V5_UNSUPPORTED: token 조건(token.{t.Field})은 Skip 에서만 쓸 수 있습니다."
+                | None -> []
             match cc.Variable with
             | Some v -> invalidOp $"DS2_V5_UNSUPPORTED: 변수 조건(variable.{v.Name})은 아직 실행할 수 없습니다 — 엔진에 VariableStore 가 없습니다."
             | None -> ()
@@ -44,7 +47,7 @@ module internal SimIndexBuild =
                 |> Seq.filter (isEmptyCondition >> not)
                 |> Seq.map convertOne
                 |> Seq.toList
-            let all = leafExprs @ childExprs
+            let all = tokenLeaf @ leafExprs @ childExprs
             let grouped = if cc.IsOR then Or all else And all
             if cc.IsInverted then Not grouped else grouped
 

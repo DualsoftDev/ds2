@@ -198,6 +198,10 @@ type StateManager(index: SimIndex, initialTickMs: int) =
     member _.SetTokenOrigin(token: TokenValue, workName: string) =
         lock syncRoot (fun () ->
             match token with IntToken id -> state <- SimState.setTokenOrigin id workName state)
+    /// #8938 — 토큰이 실은 제품 사양(TokenSpec.Id).
+    member _.SetTokenSpec(token: TokenValue, specId: int) =
+        lock syncRoot (fun () ->
+            match token with IntToken id -> state <- SimState.setTokenSpecId id specId state)
     member _.NextToken() =
         lock syncRoot (fun () ->
             let token, newState = SimState.nextToken state

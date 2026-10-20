@@ -17,6 +17,8 @@ type ConditionEntry = {
 type ConditionExpression =
     | Const of bool
     | Leaf of ConditionEntry
+    /// DS2 Text 5 (#8938) — `skip when token.필드 ==|!=|in …`. 시작하는 Work(또는 Call 의 부모 Work)가 쥔 토큰의 제품 사양으로 판정한다.
+    | TokenTest of TokenPredicate
     | And of ConditionExpression list
     | Or of ConditionExpression list
     | Not of ConditionExpression

@@ -29,6 +29,7 @@ module internal EventDrivenCompositionActions =
         | Some _ -> ()
         | None ->
             stateManager.SetTokenOrigin(value, TokenFlow.resolveSeedOriginLabel tokenFlowContext sourceWorkGuid)
+            TokenFlow.resolveSeedSpecId tokenFlowContext sourceWorkGuid |> Option.iter (fun specId -> stateManager.SetTokenSpec(value, specId))
             applyToken (sourceWorkGuid, Some value, Seed, value)
 
     let startSourceWork (index: SimIndex) (stateManager: StateManager) seedToken forceWorkState sourceWorkGuid =
