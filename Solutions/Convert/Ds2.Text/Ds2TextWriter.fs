@@ -179,11 +179,12 @@ module Ds2TextWriter =
 
     /// leafReference는 실제 ApiDef 대상과 공유 입력(from)의 일치를 검증한다.
     /// `tokenOnly` 는 `skip when` 자리다 — ds2 5 의 skip 은 제품 사양만 읽으므로 api 잎을 거절한다.
-    let rec private expressionText (leafReference: ApiCall -> string * string option) (tokenOnly: bool) (c: Condition) : string =
+    /// `where` 는 사람이 고칠 자리다(`work F.검사 · skip when`) — 거절 메시지가 GUID 만 적으면 어느 줄인지 알 수 없다(#8938).
+    let rec private expressionText (where: string) (leafReference: ApiCall -> string * string option) (tokenOnly: bool) (c: Condition) : string =
         // 런타임은 직접 ApiCall과 자식을 함께 평가하지만 native Text의 정규 트리는
         // 단일 leaf 또는 자식 그룹이다. 누락하거나 상수로 바꾸지 않고 지원 경계를 알린다.
         let unsupported reason =
-            raise (NotSupportedException(sprintf "DS2TEXT_CONDITION_SHAPE: 조건 %O을 DS2 Text로 보존할 수 없습니다: %s" c.Id reason))
+            raise (NotSupportedException(sprintf "DS2TEXT_CONDITION_SHAPE: %s 의 조건(%O)을 DS2 Text로 보존할 수 없습니다: %s" where c.Id reason))
         let leafCount = c.ApiCalls.Count + (if c.Token.IsSome then 1 else 0) + (if c.Variable.IsSome then 1 else 0)
         if leafCount > 0 && c.Children.Count > 0 then
             unsupported "직접 잎(ApiCall·token·variable)과 자식 조건이 혼합되어 있습니다."
@@ -192,12 +193,12 @@ module Ds2TextWriter =
         if leafCount = 0 && c.Children.Count = 0 then
             unsupported "빈 조건은 표현 가능한 비교식이 없으며 true로 대체할 수 없습니다."
         if c.Children.Count > 0 && c.IsInverted && leafCount = 0 && c.Children.Count = 1 then
-            "not " + expressionText leafReference tokenOnly c.Children.[0]
+            "not " + expressionText where leafReference tokenOnly c.Children.[0]
         elif c.Children.Count > 0 then
             let joiner = if c.IsOR then " or " else " and "
             let body =
                 c.Children
-                |> Seq.map (expressionText leafReference tokenOnly)
+                |> Seq.map (expressionText where leafReference tokenOnly)
                 |> String.concat joiner
             let wrapped = "(" + body + ")"
             if c.IsInverted then "not " + wrapped else wrapped
@@ -536,7 +537,7 @@ module Ds2TextWriter =
                         w.GetSimulationProperties()
                         |> Option.iter (fun p -> if p.IsFinished then body.Add("finished;"))
                         for c in conditionsOf w.Conditions ConditionType.SkipAction do
-                            body.Add("skip when " + expressionText conditionReference true c + ";")
+                            body.Add("skip when " + expressionText ("work " + w.Name + " · skip when") conditionReference true c + ";")
 
                         let callPreds (id: Guid) =
                             store.ArrowCalls.Values
@@ -603,7 +604,7 @@ module Ds2TextWriter =
 
                                 for (kind, keyword) in [ ConditionType.AutoAux, "when"; ConditionType.ComAux, "while"; ConditionType.SkipAction, "skip when" ] do
                                     for cond in conditionsOf c.Conditions kind do
-                                        inner.Add(keyword + " " + expressionText conditionReference (kind = ConditionType.SkipAction) cond + ";")
+                                        inner.Add(keyword + " " + expressionText ("call " + c.Name + " · " + keyword) conditionReference (kind = ConditionType.SkipAction) cond + ";")
 
                                 // ── 왜 늘 블록으로 적는가 ────────────────────────
                                 // 관계문이 이름을 이미 적었으니 `로봇.집기;` 한 줄은 군더더기다.
@@ -661,6 +662,9 @@ module Ds2TextWriter =
                     | SensingType.Normal (Some t) -> "sensing normal " + Ds2TextLexeme.msInt t + ";"
                     | SensingType.Latch t         -> "sensing latch " + Ds2TextLexeme.msInt t + ";"
                     | SensingType.Virtual t       -> "sensing virtual " + Ds2TextLexeme.msInt t + ";"
+                // Q43 — 제품은 Work 를 지령하는 api 에만 있다. 다른 자리의 번호를 말없이 버리지 않는다.
+                if api.TokenSpecId.IsSome && (tx.IsNone || valueAccess) then
+                    failwithf "DS2TEXT_API_PRODUCT: api %s (%O) 는 Work 를 지령하지 않아 `product %d;` 를 적을 수 없습니다(2026-10-20 Q43)." api.Name api.Id api.TokenSpecId.Value
                 match tx with
                 | None ->
                     emit 4 ("sensor " + q api.Name + identity api.Id + " {")
@@ -678,6 +682,7 @@ module Ds2TextWriter =
                     if not valueAccess then
                         emit 6 (actionLine ())
                         emit 6 (sensingLine ())
+                    api.TokenSpecId |> Option.iter (fun id -> emit 6 ("product " + string id + ";"))
                     emit 4 "}"
 
             let children : DsChild list =

@@ -18,6 +18,7 @@
     <Compile Include="Ds2TextSequenceLabelTests.fs" />
     <Compile Include="Ds2TextInterlockedTests.fs" />
     <Compile Include="Ds2TextMixedFlowAndTests.fs" />
+    <Compile Include="Ds2TextApiProductTests.fs" />
     <Compile Include="PlcVendorTests.fs" />
     <Compile Include="PlcEndpointStoreTests.fs" />
     <Compile Include="AbnormalTests.fs" />

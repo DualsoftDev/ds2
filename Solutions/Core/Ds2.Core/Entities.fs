@@ -116,6 +116,9 @@ and ApiDef [<JsonConstructor>] internal (name, parentId) =
     /// **런타임은 아직 변수 대상을 실행하지 못한다** — SimIndex 가 거절한다.
     [<AasxField("TxVariableId", Skip = true)>] member val TxVariableId : Guid option = None  with get, set
     [<AasxField("RxVariableId", Skip = true)>] member val RxVariableId : Guid option = None  with get, set
+    /// DS2 Text 5 (2026-10-20 Q43) — `api X { …; product N; }`: 이 api 의 지령이 만드는 제품(TokenSpec.Id). api 하나 = 제품 하나이고
+    /// 지령은 제품을 싣지 않는다. active System 의 Work 를 지령하는 api 에만 있다. 런타임은 소스에서 토큰이 생길 때 이 값을 먼저 쓴다.
+    [<AasxField("TokenSpecId", Skip = true)>] member val TokenSpecId : int option = None with get, set
     [<AasxField("Description")>] member val Description : string option = None  with get, set
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
