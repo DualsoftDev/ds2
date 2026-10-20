@@ -22,7 +22,7 @@ type Ds2TextOptions =
 ///   · Text 의 call        ↔ `Call.Name` ("장비.기능" — 손잡이는 없다)
 ///   · Call 의 API 대상    ↔ `ApiCall.Name` ("System.Api" 문자열 그대로)
 ///   · Work 의 finished    ↔ `SimulationWorkProperties.IsFinished = true` (저장된 완료 비트)
-///   · Call 의 completion  ↔ `SimulationCallProperties.CallType`
+///   · Call 의 `skip when completed;` ↔ `SimulationCallProperties.CallType = SkipIfCompleted`(#8963 — 옛 `completion existing`)
 ///   · Call 의 timeout·Work 의 limits·저장 Source/Sink 역할은 ds2 5 Text 에 **없다**(2026-10-20 #8962 — 문법에서 뺐다).
 ///     SDF 에만 남고 Text 투영에서는 빠진다 — 빠진 값은 Studio 의 투영 감사(auditTextExport)가 손실로 알린다.
 ///   · 기존 Call.SequenceLabel 은 SDF/보존 번들에만 남는다. DS 인과 Text는 KPI 경계를 수동 선언하지 않는다.
@@ -246,6 +246,19 @@ module Ds2TextWriter =
 
     let private conditionsOf (conditions: ResizeArray<Condition>) (kind: ConditionType) =
         conditions |> Seq.filter (fun c -> c.Type = Some kind) |> List.ofSeq
+
+    /// 2026-10-20 Q47(#8963) — `skip when` 절들. 글의 여러 절은 **생략 사유의 OR** 이고 컴파일러는 OR 노드 하나로
+    /// 저장한다 → 그 노드는 자식마다 한 절로 되쓴다. 저장 목록의 여러 SkipAction 은 옛 SDF 의 **AND** 다 →
+    /// 조용히 OR 로 읽히지 않게 `and` 로 이은 **한 절**로 명시 이관한다.
+    let private skipClauses (render: Condition -> string) (conditions: Condition list) : string list =
+        let isOrGroup (c: Condition) =
+            c.IsOR && not c.IsInverted && c.Children.Count >= 2
+            && c.ApiCalls.Count = 0 && c.Token.IsNone && c.Variable.IsNone
+        match conditions with
+        | [] -> []
+        | [ single ] when isOrGroup single -> single.Children |> Seq.map render |> List.ofSeq
+        | [ single ] -> [ render single ]
+        | many -> [ many |> List.map render |> String.concat " and " ]
 
     /// product 필드 값 — ds2 5 컴파일러는 JSON 리터럴 글(`true`·`25`·`"B"`)로 저장한다. 그 꼴이면 그대로 적고,
     /// 리터럴이 아닌 옛 문자열은 문자열 리터럴로 감싼다(그러면 종류가 string 이 된다 — 그것이 그 값의 사실이다).
@@ -530,8 +543,8 @@ module Ds2TextWriter =
                         // `limits` 는 #8962 로 문법에서 빠졌다 — Work 시간 감시는 SDF 실행 구성 몫(Q37), Text 에 적지 않는다.
                         w.GetSimulationProperties()
                         |> Option.iter (fun p -> if p.IsFinished then body.Add("finished;"))
-                        for c in conditionsOf w.Conditions ConditionType.SkipAction do
-                            body.Add("skip when " + expressionText ("work " + w.Name + " · skip when") conditionReference true c + ";")
+                        for clause in skipClauses (expressionText ("work " + w.Name + " · skip when") conditionReference true) (conditionsOf w.Conditions ConditionType.SkipAction) do
+                            body.Add("skip when " + clause + ";")
 
                         let callPreds (id: Guid) =
                             store.ArrowCalls.Values
@@ -570,12 +583,12 @@ module Ds2TextWriter =
                                     failwithf "DS2 Text 로 적을 수 없습니다: 대상이 %d 개인 Call %s (%O). 함께 부르는 것은 묶음으로 적습니다."
                                         c.ApiCalls.Count c.Name c.Id
                                 let inner = ResizeArray<string>()
-                                let simProps = c.GetSimulationProperties()
-                                match simProps with
-                                | Some p ->
-                                    if p.CallType = CallType.SkipIfCompleted then inner.Add "completion existing;"
-                                    // `timeout` 은 #8962 로 문법에서 빠졌다 — 관측 기한은 SDF 실행 구성 몫(Q37).
-                                | None -> ()
+                                // 2026-10-20 Q47(#8963) — `completion existing` 은 없다. CallType SkipIfCompleted 는
+                                // `skip when completed;`(제품 Skip 절 뒤)로 적는다. `timeout` 은 #8962 로 빠졌다(Q37).
+                                let skipIfCompleted =
+                                    match c.GetSimulationProperties() with
+                                    | Some p -> p.CallType = CallType.SkipIfCompleted
+                                    | None -> false
                                 let bindingLines (a: ApiCall) =
                                     let acc = ResizeArray<string>()
                                     let inAddr  = a.InTag  |> Option.map (fun t -> t.Address)
@@ -596,9 +609,12 @@ module Ds2TextWriter =
 
                                 if c.ApiCalls.Count = 1 then inner.AddRange(bindingLines c.ApiCalls.[0])
 
-                                for (kind, keyword) in [ ConditionType.AutoAux, "when"; ConditionType.ComAux, "while"; ConditionType.SkipAction, "skip when" ] do
+                                for (kind, keyword) in [ ConditionType.AutoAux, "when"; ConditionType.ComAux, "while" ] do
                                     for cond in conditionsOf c.Conditions kind do
-                                        inner.Add(keyword + " " + expressionText ("call " + c.Name + " · " + keyword) conditionReference (kind = ConditionType.SkipAction) cond + ";")
+                                        inner.Add(keyword + " " + expressionText ("call " + c.Name + " · " + keyword) conditionReference false cond + ";")
+                                for clause in skipClauses (expressionText ("call " + c.Name + " · skip when") conditionReference true) (conditionsOf c.Conditions ConditionType.SkipAction) do
+                                    inner.Add("skip when " + clause + ";")
+                                if skipIfCompleted then inner.Add "skip when completed;"
 
                                 // ── 왜 늘 블록으로 적는가 ────────────────────────
                                 // 관계문이 이름을 이미 적었으니 `로봇.집기;` 한 줄은 군더더기다.
