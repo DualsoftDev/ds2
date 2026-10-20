@@ -63,3 +63,15 @@ let ``product on a sensor is refused, not dropped`` () =
     api.TxGuid <- None
     let ex = Assert.ThrowsAny<exn>(fun () -> Ds2TextWriter.write store project.Id |> ignore)
     Assert.Contains("DS2TEXT_API_PRODUCT", ex.Message)
+
+// 2026-10-20 Q46(#8958) — `product … from 시스템.흐름.일` 은 ds2 5 에서 거절된다. 옛 SDF 의 TokenSpec.WorkId 가
+// 있어도 작성기는 `from` 을 내지 않는다(제품 선택은 api 의 `product N;` 한 곳 — 값은 SDF 에만 남는다).
+[<Fact>]
+let ``legacy product source is not written as from`` () =
+    let store, project, _, _ = model (Some 2)
+    let input = store.Works.Values |> Seq.head
+    project.TokenSpecs.[1] <- { project.TokenSpecs.[1] with WorkId = Some input.Id }
+    let text = Ds2TextWriter.write store project.Id
+    Assert.DoesNotContain(" from ", text)
+    Assert.Contains("product 2 \"옵션\" {", text)
+    Assert.Contains("product 2;", apiBlock text)

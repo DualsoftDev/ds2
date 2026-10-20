@@ -23,7 +23,8 @@ type Ds2TextOptions =
 ///   · Call 의 API 대상    ↔ `ApiCall.Name` ("System.Api" 문자열 그대로)
 ///   · Work 의 finished    ↔ `SimulationWorkProperties.IsFinished = true` (저장된 완료 비트)
 ///   · Call 의 completion  ↔ `SimulationCallProperties.CallType`
-///   · Call 의 timeout     ↔ `SimulationCallProperties.Timeout`
+///   · Call 의 timeout·Work 의 limits·저장 Source/Sink 역할은 ds2 5 Text 에 **없다**(2026-10-20 #8962 — 문법에서 뺐다).
+///     SDF 에만 남고 Text 투영에서는 빠진다 — 빠진 값은 Studio 의 투영 감사(auditTextExport)가 손실로 알린다.
 ///   · 기존 Call.SequenceLabel 은 SDF/보존 번들에만 남는다. DS 인과 Text는 KPI 경계를 수동 선언하지 않는다.
 ///     기본값이 아닌 과거 라벨에는 투영 진단 주석을 붙이며, Text 단독으로 원본 전체가 보존된다고 보장하지 않는다.
 ///   · 기존 Call.Interlocked도 SDF/보존 번들에만 남는다. 실제 운전 사유별 감시 자격으로 이관하는 것은 별도다.
@@ -389,20 +390,15 @@ module Ds2TextWriter =
             emit 2 ("datetime " + jl (project.DateTime.ToString("O", Globalization.CultureInfo.InvariantCulture)) + ";")
 
         // ── product (TokenSpec) ──
+        // 2026-10-20 Q46(#8958): `product … from 시스템.흐름.일` 은 ds2 5 에서 거절된다 — 제품 선택은 지령 api 의
+        //   `product N;` 한 곳이다. 그래서 옛 SDF 의 TokenSpec.WorkId 는 Text 로 내지 않는다(SDF 에만 남고,
+        //   Studio 의 투영 감사가 그 경로를 손실로 알린다).
         for spec in project.TokenSpecs do
-            let source =
-                spec.WorkId
-                |> Option.bind (fun id ->
-                    match workOfId.TryGetValue id with
-                    | true, w -> workParts w |> Option.map (fun (s, f, n) -> Ds2TextLexeme.path [ s; f; n ])
-                    | _ -> None)
-                |> Option.map (fun p -> " from " + p)
-                |> Option.defaultValue ""
             if spec.Fields.IsEmpty then
-                emit 2 (sprintf "product %d %s%s {" spec.Id (jl spec.Label) source)
+                emit 2 (sprintf "product %d %s {" spec.Id (jl spec.Label))
                 emit 2 "}"
             else
-                emit 2 (sprintf "product %d %s%s {" spec.Id (jl spec.Label) source)
+                emit 2 (sprintf "product %d %s {" spec.Id (jl spec.Label))
                 for KeyValue (name, value) in spec.Fields do
                     emit 4 (q name + " = " + fieldLiteral value + ";")
                 emit 2 "}"
@@ -505,10 +501,10 @@ module Ds2TextWriter =
                         failwithf "DS2TEXT_REF: ds2 5 에는 `ref` 가 없습니다 — 참조 Work %s (%O) 가 제 속성(시간·조건·finished·역할)을 가져 독립 진입 문장으로 옮길 수 없습니다." alias.Name alias.Id
                 let works = orderedWorks flow
 
-                // 제품 역할 — entry(Source) · token ignore(Ignore) · exit(Sink) 순서 고정.
-                for (role, keyword) in [ TokenRole.Source, "entry"; TokenRole.Ignore, "token ignore"; TokenRole.Sink, "exit" ] do
-                    let named = works |> List.filter (fun w -> w.TokenRole.HasFlag role) |> List.map (fun w -> q w.LocalName)
-                    if not named.IsEmpty then emit 6 (keyword + " " + String.concat ", " named + ";")
+                // 제품 역할 — Text 에 적는 것은 `token ignore` 하나다. Source·Sink 는 유도한다(소스 = active api 의 command 대상,
+                // 끝 = 경로 끝, Q35·Q39). `entry`/`exit` 는 2026-10-20 #8962 로 문법에서 빠졌다 — 저장 비트는 SDF 에만 남는다.
+                let ignored = works |> List.filter (fun w -> w.TokenRole.HasFlag TokenRole.Ignore) |> List.map (fun w -> q w.LocalName)
+                if not ignored.IsEmpty then emit 6 ("token ignore " + String.concat ", " ignored + ";")
 
                 let inFlow = sysArrows |> List.filter (fun a -> not (atSystem a) && flowIdOf a.SourceId = flow.Id && flowIdOf a.TargetId = flow.Id)
                 let workNameRel (id: Guid) =
@@ -531,9 +527,7 @@ module Ds2TextWriter =
                         // 좌표(Position)는 ds2 5 의 글에 없다 — 편집기 배치는 글 밖의 일이다(Q18).
                         let body = ResizeArray<string>()
                         w.Duration |> Option.iter (fun d -> body.Add("duration " + Ds2TextLexeme.ms d + ";"))
-                        if w.MinDuration.IsSome || w.MaxDuration.IsSome then
-                            let bound (v: TimeSpan option) = match v with Some t -> Ds2TextLexeme.ms t | None -> "none"
-                            body.Add("limits " + bound w.MinDuration + ", " + bound w.MaxDuration + ";")
+                        // `limits` 는 #8962 로 문법에서 빠졌다 — Work 시간 감시는 SDF 실행 구성 몫(Q37), Text 에 적지 않는다.
                         w.GetSimulationProperties()
                         |> Option.iter (fun p -> if p.IsFinished then body.Add("finished;"))
                         for c in conditionsOf w.Conditions ConditionType.SkipAction do
@@ -580,7 +574,7 @@ module Ds2TextWriter =
                                 match simProps with
                                 | Some p ->
                                     if p.CallType = CallType.SkipIfCompleted then inner.Add "completion existing;"
-                                    p.Timeout |> Option.iter (fun t -> inner.Add("timeout " + Ds2TextLexeme.ms t + ";"))
+                                    // `timeout` 은 #8962 로 문법에서 빠졌다 — 관측 기한은 SDF 실행 구성 몫(Q37).
                                 | None -> ()
                                 let bindingLines (a: ApiCall) =
                                     let acc = ResizeArray<string>()
