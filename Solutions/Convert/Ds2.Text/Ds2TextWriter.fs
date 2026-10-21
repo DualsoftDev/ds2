@@ -247,18 +247,18 @@ module Ds2TextWriter =
     let private conditionsOf (conditions: ResizeArray<Condition>) (kind: ConditionType) =
         conditions |> Seq.filter (fun c -> c.Type = Some kind) |> List.ofSeq
 
-    /// 2026-10-20 Q47(#8963) — `skip when` 절들. 글의 여러 절은 **생략 사유의 OR** 이고 컴파일러는 OR 노드 하나로
-    /// 저장한다 → 그 노드는 자식마다 한 절로 되쓴다. 저장 목록의 여러 SkipAction 은 옛 SDF 의 **AND** 다 →
-    /// 조용히 OR 로 읽히지 않게 `and` 로 이은 **한 절**로 명시 이관한다.
+    /// 2026-10-20 Q47(#8963) → 2026-10-21 FS1 70 — `skip when` 은 **한 절**이다. OR 노드(글의 `or`)는 `or` 한 절로 되쓰고,
+    /// 저장 목록의 여러 SkipAction(옛 SDF 의 **AND**)은 조용히 OR 로 읽히지 않게 `and` 로 이은 **한 절**로 명시 이관한다.
     let private skipClauses (render: Condition -> string) (conditions: Condition list) : string list =
         let isOrGroup (c: Condition) =
             c.IsOR && not c.IsInverted && c.Children.Count >= 2
             && c.ApiCalls.Count = 0 && c.Token.IsNone && c.Variable.IsNone
+        // 2026-10-21 FS1 70(CAT-70-R07·R08) — 같은 종류의 조건은 **한 절**로만 적는다: OR 루트는 `or` 한 절(절로 펼치지 않는다),
+        //   저장 목록(옛 AND)은 괄호로 감싼 `and` 한 절. isOrGroup 은 판별 기록용으로 남긴다.
         match conditions with
         | [] -> []
-        | [ single ] when isOrGroup single -> single.Children |> Seq.map render |> List.ofSeq
         | [ single ] -> [ render single ]
-        | many -> [ many |> List.map render |> String.concat " and " ]
+        | many -> [ many |> List.map (fun c -> "(" + render c + ")") |> String.concat " and " ]
 
     /// product 필드 값 — ds2 5 컴파일러는 JSON 리터럴 글(`true`·`25`·`"B"`)로 저장한다. 그 꼴이면 그대로 적고,
     /// 리터럴이 아닌 옛 문자열은 문자열 리터럴로 감싼다(그러면 종류가 string 이 된다 — 그것이 그 값의 사실이다).
@@ -610,8 +610,12 @@ module Ds2TextWriter =
                                 if c.ApiCalls.Count = 1 then inner.AddRange(bindingLines c.ApiCalls.[0])
 
                                 for (kind, keyword) in [ ConditionType.AutoAux, "when"; ConditionType.ComAux, "while" ] do
-                                    for cond in conditionsOf c.Conditions kind do
-                                        inner.Add(keyword + " " + expressionText ("call " + c.Name + " · " + keyword) conditionReference false cond + ";")
+                                    // 2026-10-21 FS1 70(CAT-70-R07): 저장 목록의 여러 루트(AND)는 괄호로 감싼 `and` **한 절**로 — 두 절로 재출력하지 않는다.
+                                    let render = expressionText ("call " + c.Name + " · " + keyword) conditionReference false
+                                    match conditionsOf c.Conditions kind with
+                                    | [] -> ()
+                                    | [ single ] -> inner.Add(keyword + " " + render single + ";")
+                                    | many -> inner.Add(keyword + " " + (many |> List.map (fun cond -> "(" + render cond + ")") |> String.concat " and ") + ";")
                                 for clause in skipClauses (expressionText ("call " + c.Name + " · skip when") conditionReference true) (conditionsOf c.Conditions ConditionType.SkipAction) do
                                     inner.Add("skip when " + clause + ";")
                                 if skipIfCompleted then inner.Add "skip when completed;"
